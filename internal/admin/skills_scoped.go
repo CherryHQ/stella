@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"net/http"
+	"path"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginhost"
+	builtinres "github.com/vaayne/anna/internal/resources"
 	"github.com/vaayne/anna/internal/skills"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
@@ -71,6 +74,54 @@ func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID
 		}
 	}
 	return sk, 0, ""
+}
+
+func builtinSkillFiles(id string) (map[string]string, error) {
+	sub, ok := builtinres.SubFS(builtinres.KindSkill)
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	var root string
+	err := fs.WalkDir(sub, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || p == "." {
+			return nil
+		}
+		if path.Base(p) != id {
+			return nil
+		}
+		if _, err := fs.Stat(sub, path.Join(p, skills.MainFile)); err == nil {
+			root = p
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, fs.SkipAll) {
+		return nil, err
+	}
+	if root == "" {
+		return nil, fs.ErrNotExist
+	}
+	files := map[string]string{}
+	if err := fs.WalkDir(sub, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, err := fs.ReadFile(sub, p)
+		if err != nil {
+			return err
+		}
+		files[path.Clean(p[len(root)+1:])] = string(data)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 // ---- Agent-scoped skills: /api/agents/{id}/skills* ----
@@ -173,8 +224,21 @@ func (s *Server) deleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) installAgentSkill(w http.ResponseWriter, r *http.Request) {
 	agentID := r.PathValue("id")
-	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var req installSkillRequest
@@ -192,6 +256,60 @@ func (s *Server) installAgentSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusCreated, map[string]string{"name": name})
+}
+
+func (s *Server) duplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	skillID := r.PathValue("skillId")
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	reg, err := builtinres.Default()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, ok := reg.Get(builtinres.KindSkill, skillID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "builtin skill not found")
+		return
+	}
+	files, err := builtinSkillFiles(skillID)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "builtin skill not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	createdID, err := s.skillStore().Create(r.Context(), skills.Skill{
+		Scope:       "agent",
+		AgentID:     agentID,
+		Name:        res.Name,
+		Description: res.Description,
+		Status:      "active",
+		Metadata:    []byte(`{"source":"builtin"}`),
+	}, files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]string{"id": createdID, "name": res.Name})
 }
 
 // ---- Profile (self-user) skills: /api/auth/profile/skills* ----

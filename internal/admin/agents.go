@@ -36,11 +36,6 @@ func applyTemplate(a *config.Agent, templateID string) error {
 			a.Model = model
 		}
 	}
-	if len(a.EnabledBuiltinSkills) == 0 {
-		if skills := stringsFromMetadata(tmpl.Metadata, "skills"); len(skills) > 0 {
-			a.EnabledBuiltinSkills = skills
-		}
-	}
 	if a.SystemPrompt == "" {
 		a.SystemPrompt = tmpl.Content
 	}
@@ -51,28 +46,6 @@ func applyTemplate(a *config.Agent, templateID string) error {
 				a.Soul = soul.Content
 			}
 		}
-	}
-	return nil
-}
-
-// stringsFromMetadata returns a []string for a metadata key that may arrive
-// as []any (YAML default) or []string.
-func stringsFromMetadata(meta map[string]any, key string) []string {
-	raw, ok := meta[key]
-	if !ok {
-		return nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		return append([]string(nil), v...)
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok && s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
 	}
 	return nil
 }

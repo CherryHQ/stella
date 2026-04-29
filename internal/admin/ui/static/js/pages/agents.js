@@ -1,5 +1,4 @@
 import { api } from '/static/js/api.js'
-import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 function parseChannelConfig(raw) {
   try { return JSON.parse(raw || '{}') } catch { return {} }
@@ -17,7 +16,6 @@ function normalizeChannel(ch) {
 
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
-    ...skillsDrawerMixin(),
     agents: [],
     channels: [],
     cachedModels: [],
@@ -33,7 +31,7 @@ export function register(Alpine) {
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
       system_prompt: '', soul: '', scope: 'system', enabled: true,
-      enabled_builtin_skills: [], template_id: '',
+      template_id: '',
       sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
 
@@ -52,16 +50,35 @@ export function register(Alpine) {
     confirmMsg: '',
     confirmAction: () => {},
 
-    // Inline agent skills
+    // Skills tab
     agentSkills: [],
     agentSkillsLoading: false,
+    userSkills: [],
+    skillViewFilter: 'enabled',
+    skillScopeFilter: 'all',
+    skillListQuery: '',
+    selectedSkillKey: '',
+    selectedSkill: null,
+    selectedSkillLoading: false,
+    selectedSkillSaving: false,
+    selectedSkillDirty: false,
+    selectedSkillEditMode: false,
+    selectedSkillShowAdvanced: false,
+    selectedSkillActiveFile: 'SKILL.md',
+    selectedSkillFileContent: '',
+    selectedSkillFileLoading: false,
+    selectedSkillFileCache: {},
+    selectedSkillAddingFile: false,
+    selectedSkillNewFileName: '',
     skillInstallModalOpen: false,
-    skillInstallStage: 'search',
+    skillInstallScope: 'user',
     skillSearchQuery: '',
     skillSearchResults: [],
     skillSearching: false,
     skillInstallSource: '',
     skillInstalling: false,
+    skillUploadFile: null,
+    skillUploading: false,
 
     // Personalisation panel (per currently-edited agent, per current user)
     personalisation: { soul: '', soulDraft: '', profile: '', profileDraft: '', loaded: false },
@@ -72,6 +89,7 @@ export function register(Alpine) {
         this.loadCachedModels(),
         this.loadCurrentUser(),
         this.loadBuiltinCatalog(),
+        this.loadUserSkills(),
       ])
       if (this.isAdmin) await this.loadChannels()
       this.focusAgentFromURL()
@@ -87,6 +105,7 @@ export function register(Alpine) {
       this.builtinTemplates = templates
       this.builtinSouls = souls
       this.builtinSkills = skills
+      this.syncSkillSelection()
     },
 
     // --- Create / template flow ---
@@ -125,7 +144,6 @@ export function register(Alpine) {
           model: meta.model || this.form.model || '',
           system_prompt: full.content || '',
           soul: soulContent,
-          enabled_builtin_skills: Array.isArray(meta.skills) ? meta.skills : [],
           template_id: tmpl.id,
         }
         this.showTemplateModal = false
@@ -143,20 +161,6 @@ export function register(Alpine) {
       api('GET', '/api/builtin/soul/' + soulID)
         .then(full => { this.form.soul = full.content || '' })
         .catch(e => { this.selectedSoulID = ''; this.$store.toast.show(e.message, 'error') })
-    },
-
-    // --- Builtin skill details ---
-
-    async openSystemSkill(name) {
-      await this.openSkillsDrawer({
-        title: 'System skills',
-        subtitle: 'Read only · available to every agent',
-        scope: 'system',
-        useAdminAPI: true,
-        canEdit: false,
-      })
-      const skill = this.skillsDrawer.skills.find(sk => sk.name === name)
-      if (skill) await this.selectDrawerSkill(skill)
     },
 
     // --- Auth / users ---
@@ -237,7 +241,7 @@ export function register(Alpine) {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
         system_prompt: '', soul: '', scope: 'system', enabled: true,
-        enabled_builtin_skills: [], template_id: '',
+        template_id: '',
         sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
       this.selectedSoulID = ''
@@ -245,12 +249,24 @@ export function register(Alpine) {
       this.showForm = false
       this.activeTab = 'config'
       this.agentSkills = []
+      this.skillViewFilter = 'enabled'
+      this.skillScopeFilter = 'all'
+      this.skillListQuery = ''
+      this.selectedSkillKey = ''
+      this.selectedSkill = null
+      this.selectedSkillDirty = false
+      this.selectedSkillEditMode = false
+      this.selectedSkillShowAdvanced = false
+      this.selectedSkillActiveFile = 'SKILL.md'
+      this.selectedSkillFileContent = ''
+      this.selectedSkillFileCache = {}
+      this.selectedSkillAddingFile = false
+      this.selectedSkillNewFileName = ''
       this.assignedUsers = []
       this.addUserId = ''
       this.selectedChannelIDs = []
       this.personalisation = { soul: '', soulDraft: '', profile: '', profileDraft: '', loaded: false }
       this.skillInstallModalOpen = false
-      this.skillInstallStage = 'search'
       this.skillSearchQuery = ''
       this.skillSearchResults = []
       this.skillInstallSource = ''
@@ -262,7 +278,6 @@ export function register(Alpine) {
       this.form = {
         ...a,
         scope: a.scope || 'system',
-        enabled_builtin_skills: Array.isArray(a.enabled_builtin_skills) ? a.enabled_builtin_skills : [],
         template_id: '',
         sandbox: this.normalizeSandbox(a.sandbox),
       }
@@ -271,6 +286,12 @@ export function register(Alpine) {
       this.activeTab = 'config'
       this.personalisation = { soul: '', soulDraft: '', profile: '', profileDraft: '', loaded: false }
       this.agentSkills = []
+      this.selectedSkillKey = ''
+      this.selectedSkill = null
+      this.selectedSkillDirty = false
+      this.selectedSkillEditMode = false
+      this.selectedSkillShowAdvanced = false
+      this.selectedSkillFileCache = {}
       this.assignedUsers = []
       await Promise.all([
         this.loadChannels(),
@@ -394,46 +415,339 @@ export function register(Alpine) {
       } catch (e) { this.$store.toast.show(e.message, 'error') }
     },
 
-    // --- Custom skills ---
+    // --- Skills ---
 
-    async openAgentSkill(sk) {
-      await this.openSkillsDrawer({
-        title: 'Agent skills',
-        subtitle: 'Skills installed for this agent',
-        scope: 'agent',
-        agentID: this.editingId,
-        canEdit: this.canEditAgent(this.agents.find(a => a.id === this.editingId)),
+    skillKey(sk) {
+      return sk ? sk.scope + ':' + sk.id : ''
+    },
+
+    skillScopeLabel(scope) {
+      return {
+        system: 'Built-in',
+        user: 'User',
+        agent: 'This agent',
+      }[scope] || scope
+    },
+
+    skillScopeClass(scope) {
+      return {
+        system: 'badge-ghost',
+        user: 'badge-success badge-soft',
+        agent: 'badge-primary badge-soft',
+      }[scope] || 'badge-ghost'
+    },
+
+    skillStatusClass(status) {
+      return {
+        active: 'badge-success badge-soft',
+        draft: 'badge-warning badge-soft',
+        deprecated: 'badge-error badge-soft',
+      }[status] || 'badge-ghost'
+    },
+
+    skillCanEdit(sk = this.selectedSkill) {
+      return !!sk && sk.scope !== 'system'
+    },
+
+    skillCanDelete(sk = this.selectedSkill) {
+      return !!sk && sk.scope !== 'system'
+    },
+
+    skillCanToggle(sk) {
+      return !!sk && sk.scope !== 'system'
+    },
+
+    canInstallAgentSkills() {
+      return this.isAdmin && !!this.editingId
+    },
+
+    startEditingSelectedSkill() {
+      if (!this.skillCanEdit()) return
+      this.selectedSkillEditMode = true
+    },
+
+    stopEditingSelectedSkill() {
+      if (this.selectedSkillDirty && !confirm('Discard unsaved changes?')) return
+      this.selectedSkillEditMode = false
+      this.selectedSkillDirty = false
+      if (this.selectedSkill) this.selectSkill(this.selectedSkill)
+    },
+
+    allSkills() {
+      const system = this.builtinSkills.map(sk => ({
+        id: sk.id,
+        scope: 'system',
+        name: sk.name,
+        description: sk.description || '',
+        status: 'active',
+        disable_model_invocation: false,
+      }))
+      const user = this.userSkills.map(sk => ({ ...sk, scope: 'user' }))
+      const agent = this.agentSkills.map(sk => ({ ...sk, scope: 'agent' }))
+      const ordered = { system: 0, user: 1, agent: 2 }
+      return [...system, ...user, ...agent].sort((a, b) => {
+        const scopeDiff = (ordered[a.scope] ?? 99) - (ordered[b.scope] ?? 99)
+        if (scopeDiff !== 0) return scopeDiff
+        return (a.name || '').localeCompare(b.name || '')
       })
-      const skill = this.skillsDrawer.skills.find(s => s.id === sk.id)
-      if (skill) await this.selectDrawerSkill(skill)
+    },
+
+    filteredSkills() {
+      const q = this.skillListQuery.trim().toLowerCase()
+      return this.allSkills().filter(sk => {
+        if (this.skillViewFilter === 'enabled' && sk.status !== 'active') return false
+        if (this.skillViewFilter === 'modified' && sk.scope === 'system') return false
+        if (this.skillScopeFilter !== 'all' && sk.scope !== this.skillScopeFilter) return false
+        if (!q) return true
+        return [sk.name, sk.description, sk.scope, sk.status].some(v => (v || '').toLowerCase().includes(q))
+      })
+    },
+
+    syncSkillSelection() {
+      const rows = this.allSkills()
+      if (rows.length === 0) {
+        this.selectedSkillKey = ''
+        this.selectedSkill = null
+        return
+      }
+      if (!this.selectedSkillKey) return
+      const exists = rows.some(sk => this.skillKey(sk) === this.selectedSkillKey)
+      if (!exists) {
+        this.selectedSkillKey = ''
+        this.selectedSkill = null
+      }
+    },
+
+    async ensureSelectedSkill() {
+      this.syncSkillSelection()
+      if (this.selectedSkillKey || this.allSkills().length === 0) return
+      await this.selectSkill(this.allSkills()[0])
+    },
+
+    skillItemURL(scope, id) {
+      if (scope === 'user') return '/api/auth/profile/skills/' + id
+      if (scope === 'agent') return '/api/agents/' + encodeURIComponent(this.editingId) + '/skills/' + id
+      return '/api/builtin/skill/' + id
+    },
+
+    skillFileURL(scope, id, path) {
+      if (scope === 'user') return '/api/auth/profile/skills/' + id + '/file?path=' + encodeURIComponent(path)
+      if (scope === 'agent') return '/api/agents/' + encodeURIComponent(this.editingId) + '/skills/' + id + '/file?path=' + encodeURIComponent(path)
+      return ''
+    },
+
+    async selectSkill(sk) {
+      if (!sk) return
+      if (this.selectedSkillDirty && !confirm('Discard unsaved changes?')) return
+      this.selectedSkillKey = this.skillKey(sk)
+      this.selectedSkillLoading = true
+      this.selectedSkill = null
+      this.selectedSkillDirty = false
+      this.selectedSkillEditMode = false
+      this.selectedSkillShowAdvanced = false
+      this.selectedSkillFileCache = {}
+      this.selectedSkillAddingFile = false
+      this.selectedSkillNewFileName = ''
+      try {
+        if (sk.scope === 'system') {
+          const full = await api('GET', this.skillItemURL(sk.scope, sk.id))
+          this.selectedSkill = {
+            ...sk,
+            name: full.name || sk.name,
+            description: full.description || sk.description || '',
+            files: ['SKILL.md'],
+            disable_model_invocation: false,
+          }
+          this.selectedSkillActiveFile = 'SKILL.md'
+          this.selectedSkillFileContent = full.content || ''
+          this.selectedSkillFileCache = { 'SKILL.md': full.content || '' }
+        } else {
+          const full = await api('GET', this.skillItemURL(sk.scope, sk.id))
+          this.selectedSkill = { ...full, scope: sk.scope }
+          const files = full.files || ['SKILL.md']
+          const initialFile = files.includes('SKILL.md') ? 'SKILL.md' : files[0]
+          await this.selectSkillFile(initialFile, true)
+        }
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.selectedSkillLoading = false
+      }
+    },
+
+    async selectSkillFile(path, skipDirtyCheck = false) {
+      if (!this.selectedSkill || !path) return
+      if (!skipDirtyCheck && this.selectedSkillDirty && !confirm('Discard unsaved changes?')) return
+      this.selectedSkillActiveFile = path
+      if (this.selectedSkill.scope === 'system') {
+        this.selectedSkillFileContent = this.selectedSkillFileCache[path] || ''
+        this.selectedSkillDirty = false
+        return
+      }
+      if (Object.hasOwn(this.selectedSkillFileCache, path)) {
+        this.selectedSkillFileContent = this.selectedSkillFileCache[path]
+        this.selectedSkillDirty = false
+        return
+      }
+      this.selectedSkillFileLoading = true
+      try {
+        const res = await api('GET', this.skillFileURL(this.selectedSkill.scope, this.selectedSkill.id, path))
+        this.selectedSkillFileContent = res?.content || ''
+        this.selectedSkillFileCache[path] = this.selectedSkillFileContent
+        this.selectedSkillDirty = false
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.selectedSkillFileLoading = false
+      }
+    },
+
+    markSelectedSkillDirty() {
+      this.selectedSkillDirty = true
+    },
+
+    selectedSkillFiles() {
+      return this.selectedSkill?.files || ['SKILL.md']
+    },
+
+    confirmAddSkillFile() {
+      this.selectedSkillAddingFile = true
+      this.selectedSkillNewFileName = ''
+    },
+
+    commitAddSkillFile() {
+      const skill = this.selectedSkill
+      const name = (this.selectedSkillNewFileName || '').trim()
+      if (!skill || !name) return
+      if (name === 'SKILL.md' || this.selectedSkillFiles().includes(name)) {
+        this.$store.toast.show('File already exists', 'error')
+        return
+      }
+      skill.files = [...this.selectedSkillFiles(), name]
+      this.selectedSkillFileCache[name] = ''
+      this.selectedSkillAddingFile = false
+      this.selectedSkillNewFileName = ''
+      this.selectedSkillActiveFile = name
+      this.selectedSkillFileContent = ''
+      this.selectedSkillDirty = true
+    },
+
+    async deleteSelectedSkillFile(path) {
+      if (!this.selectedSkill || this.selectedSkill.scope === 'system' || path === 'SKILL.md') return
+      if (!confirm('Delete file "' + path + '"?')) return
+      try {
+        await api('DELETE', this.skillFileURL(this.selectedSkill.scope, this.selectedSkill.id, path))
+        this.selectedSkill.files = this.selectedSkillFiles().filter(f => f !== path)
+        delete this.selectedSkillFileCache[path]
+        if (this.selectedSkillActiveFile === path) {
+          await this.selectSkillFile('SKILL.md', true)
+        }
+        this.$store.toast.show('File removed')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async loadUserSkills() {
+      try {
+        this.userSkills = (await api('GET', '/api/auth/profile/skills')) || []
+      } catch { this.userSkills = [] }
+      this.syncSkillSelection()
     },
 
     async loadAgentSkills(agentId) {
-      if (!agentId) return
+      if (!agentId) {
+        this.agentSkills = []
+        this.syncSkillSelection()
+        return
+      }
       this.agentSkillsLoading = true
       try {
         this.agentSkills = (await api('GET', '/api/agents/' + agentId + '/skills')) || []
       } catch { this.agentSkills = [] }
-      finally { this.agentSkillsLoading = false }
+      finally {
+        this.agentSkillsLoading = false
+        this.syncSkillSelection()
+      }
     },
 
-    async deleteAgentSkill(skillId) {
-      if (!this.editingId) return
+    async toggleSkillStatus(sk) {
+      if (!this.skillCanToggle(sk)) return
+      const next = sk.status === 'active' ? 'draft' : 'active'
       try {
-        await api('DELETE', '/api/agents/' + this.editingId + '/skills/' + skillId)
-        await this.loadAgentSkills(this.editingId)
+        await api('PUT', this.skillItemURL(sk.scope, sk.id), { status: next })
+        sk.status = next
+        if (this.selectedSkillKey === this.skillKey(sk) && this.selectedSkill) this.selectedSkill.status = next
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+    },
+
+    async saveSelectedSkill() {
+      if (!this.selectedSkill || !this.skillCanEdit()) return
+      this.selectedSkillSaving = true
+      try {
+        this.selectedSkillFileCache[this.selectedSkillActiveFile] = this.selectedSkillFileContent
+        await api('PUT', this.skillItemURL(this.selectedSkill.scope, this.selectedSkill.id), {
+          description: this.selectedSkill.description,
+          status: this.selectedSkill.status,
+          disable_model_invocation: !!this.selectedSkill.disable_model_invocation,
+          files: { [this.selectedSkillActiveFile]: this.selectedSkillFileContent },
+        })
+        this.selectedSkillDirty = false
+        const full = await api('GET', this.skillItemURL(this.selectedSkill.scope, this.selectedSkill.id))
+        this.selectedSkill = { ...full, scope: this.selectedSkill.scope }
+        if (this.selectedSkill.scope === 'user') await this.loadUserSkills()
+        if (this.selectedSkill.scope === 'agent') await this.loadAgentSkills(this.editingId)
+        this.$store.toast.show('Saved')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.selectedSkillSaving = false
+      }
+    },
+
+    async deleteSkill(sk = this.selectedSkill) {
+      if (!this.skillCanDelete(sk)) return
+      if (!confirm('Delete skill "' + sk.name + '"? This cannot be undone.')) return
+      try {
+        await api('DELETE', this.skillItemURL(sk.scope, sk.id))
+        if (this.selectedSkillKey === this.skillKey(sk)) {
+          this.selectedSkillKey = ''
+          this.selectedSkill = null
+          this.selectedSkillDirty = false
+        }
+        if (sk.scope === 'user') await this.loadUserSkills()
+        if (sk.scope === 'agent') await this.loadAgentSkills(this.editingId)
+        await this.ensureSelectedSkill()
         this.$store.toast.show('Skill removed')
       } catch (e) { this.$store.toast.show(e.message, 'error') }
     },
 
-    openSkillInstallModal() {
+    async duplicateSelectedBuiltinSkillToAgent() {
+      if (!this.selectedSkill || this.selectedSkill.scope !== 'system' || !this.canInstallAgentSkills()) return
+      try {
+        const res = await api('POST', '/api/agents/' + this.editingId + '/skills/from-builtin/' + this.selectedSkill.id)
+        this.$store.toast.show('Installed: ' + (res?.name || this.selectedSkill.name))
+        await this.loadAgentSkills(this.editingId)
+        const created = this.agentSkills.find(sk => sk.name === (res?.name || this.selectedSkill.name))
+        if (created) await this.selectSkill({ ...created, scope: 'agent' })
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+    },
+
+    openSkillInstallModal(scope = null) {
       this.skillInstallModalOpen = true
-      this.skillInstallStage = 'search'
+      this.skillInstallScope = scope || (this.canInstallAgentSkills() ? 'agent' : 'user')
       this.skillSearchQuery = ''
       this.skillSearchResults = []
       this.skillSearching = false
       this.skillInstallSource = ''
       this.skillInstalling = false
+      this.skillUploadFile = null
+      this.skillUploading = false
+    },
+
+    setSkillInstallScope(scope) {
+      if (scope === 'agent' && !this.canInstallAgentSkills()) return
+      this.skillInstallScope = scope
     },
 
     async doSkillSearch() {
@@ -448,21 +762,78 @@ export function register(Alpine) {
       } finally { this.skillSearching = false }
     },
 
-    pickSkillResult(s) {
+    async installSkillResult(s) {
+      if (!s) return
       this.skillInstallSource = s.source + '@' + s.skillId
-      this.skillInstallStage = 'config'
+      await this.doSkillInstall(this.skillInstallSource)
     },
 
-    async doSkillInstall() {
-      if (this.skillInstalling || !this.editingId) return
+    async doSkillInstall(source = null) {
+      if (this.skillInstalling) return
+      const scope = this.skillInstallScope || 'user'
+      if (scope === 'agent' && !this.canInstallAgentSkills()) return
+      const installSource = source || this.skillInstallSource
+      if (!installSource) {
+        this.$store.toast.show('Choose a skill first', 'error')
+        return
+      }
       this.skillInstalling = true
       try {
-        const res = await api('POST', '/api/agents/' + this.editingId + '/skills/install', { source: this.skillInstallSource })
+        const url = scope === 'agent'
+          ? '/api/agents/' + this.editingId + '/skills/install'
+          : '/api/auth/profile/skills/install'
+        const res = await api('POST', url, { source: installSource })
         this.$store.toast.show('Installed: ' + (res?.name || 'skill'))
         this.skillInstallModalOpen = false
-        await this.loadAgentSkills(this.editingId)
+        if (scope === 'agent') {
+          await this.loadAgentSkills(this.editingId)
+          const created = this.agentSkills.find(sk => sk.name === (res?.name || ''))
+          if (created) await this.selectSkill({ ...created, scope: 'agent' })
+        } else {
+          await this.loadUserSkills()
+          const created = this.userSkills.find(sk => sk.name === (res?.name || ''))
+          if (created) await this.selectSkill({ ...created, scope: 'user' })
+        }
+        await this.ensureSelectedSkill()
       } catch (e) { this.$store.toast.show(e.message, 'error') }
       finally { this.skillInstalling = false }
+    },
+
+    setSkillUploadFile(event) {
+      this.skillUploadFile = event?.target?.files?.[0] || null
+    },
+
+    async doSkillUpload() {
+      if (this.skillUploading) return
+      const scope = this.skillInstallScope || 'user'
+      if (scope === 'agent' && !this.canInstallAgentSkills()) return
+      if (!this.skillUploadFile) {
+        this.$store.toast.show('Choose a .zip file first', 'error')
+        return
+      }
+      this.skillUploading = true
+      try {
+        const url = scope === 'agent'
+          ? '/api/agents/' + this.editingId + '/skills/upload'
+          : '/api/auth/profile/skills/upload'
+        const form = new FormData()
+        form.append('file', this.skillUploadFile)
+        const res = await api('POST', url, form)
+        this.$store.toast.show('Uploaded: ' + (res?.name || 'skill'))
+        this.skillInstallModalOpen = false
+        this.skillUploadFile = null
+        if (scope === 'agent') {
+          await this.loadAgentSkills(this.editingId)
+          const created = this.agentSkills.find(sk => sk.id === res?.id)
+          if (created) await this.selectSkill({ ...created, scope: 'agent' })
+        } else {
+          await this.loadUserSkills()
+          const created = this.userSkills.find(sk => sk.id === res?.id)
+          if (created) await this.selectSkill({ ...created, scope: 'user' })
+        }
+        await this.ensureSelectedSkill()
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+      finally { this.skillUploading = false }
     },
 
     // --- Personalisation ---

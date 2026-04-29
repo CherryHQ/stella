@@ -61,6 +61,7 @@ func (s *Server) registerProfileRoutes() {
 	// Self-service user skills.
 	s.mux.HandleFunc("GET /api/auth/profile/skills", s.listProfileSkills)
 	s.mux.HandleFunc("POST /api/auth/profile/skills/install", s.installProfileSkill)
+	s.mux.HandleFunc("POST /api/auth/profile/skills/upload", s.uploadProfileSkill)
 	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}", s.getProfileSkill)
 	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}/file", s.getProfileSkillFile)
 	s.mux.HandleFunc("PUT /api/auth/profile/skills/{skillId}", s.updateProfileSkill)
@@ -113,6 +114,8 @@ func (s *Server) registerAgentRoutes() {
 	// Agent-scoped skills (creator or admin).
 	s.mux.HandleFunc("GET /api/agents/{id}/skills", s.listAgentSkills)
 	s.mux.HandleFunc("POST /api/agents/{id}/skills/install", s.installAgentSkill)
+	s.mux.HandleFunc("POST /api/agents/{id}/skills/upload", s.uploadAgentSkill)
+	s.mux.HandleFunc("POST /api/agents/{id}/skills/from-builtin/{skillId}", s.duplicateBuiltinSkillToAgent)
 	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}", s.getAgentSkill)
 	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}/file", s.getAgentSkillFile)
 	s.mux.HandleFunc("PUT /api/agents/{id}/skills/{skillId}", s.updateAgentSkill)
@@ -199,7 +202,7 @@ func (s *Server) registerSkillRoutes() {
 		return s.adminOnlyMiddleware(handler)
 	}
 	s.mux.Handle("GET /api/skills", adminAPI(s.listSkills))
-	s.mux.Handle("GET /api/skills/search", adminAPI(s.searchSkills))
+	s.mux.HandleFunc("GET /api/skills/search", s.searchSkills)
 	s.mux.Handle("GET /api/skills/{id}", adminAPI(s.getSkill))
 	s.mux.Handle("GET /api/skills/{id}/file", adminAPI(s.getSkillFile))
 	s.mux.Handle("POST /api/skills", adminAPI(s.createSkill))

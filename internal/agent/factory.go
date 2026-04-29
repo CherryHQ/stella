@@ -70,16 +70,15 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				pluginView, _ = sessionPluginViewFn(ctx)
 			}
 			promptBuild := pkgplugins.SystemPromptContext{
-				AnnaHome:             config.AnnaHome(),
-				HomeDir:              homeDir,
-				AgentRoot:            snap.Workspace,
-				ProjectRoot:          "",
-				UserID:               params.UserID,
-				AgentID:              params.AgentID,
-				UserRoot:             userRoot,
-				RegisteredPluginIDs:  append([]string(nil), pluginView.RegisteredPluginIDs...),
-				EnabledPluginIDs:     append([]string(nil), pluginView.EnabledPluginIDs...),
-				EnabledBuiltinSkills: snap.EnabledBuiltinSkills,
+				AnnaHome:            config.AnnaHome(),
+				HomeDir:             homeDir,
+				AgentRoot:           snap.Workspace,
+				ProjectRoot:         "",
+				UserID:              params.UserID,
+				AgentID:             params.AgentID,
+				UserRoot:            userRoot,
+				RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+				EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			}
 			var promptSections []pkgplugins.SystemPromptSection
 			if promptSectionsFn != nil {

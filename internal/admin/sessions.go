@@ -376,16 +376,15 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
-		AnnaHome:             config.AnnaHome(),
-		HomeDir:              homeDir,
-		AgentRoot:            agentCfg.Workspace,
-		ProjectRoot:          "",
-		UserID:               info.UserID,
-		AgentID:              info.AgentID,
-		UserRoot:             userRoot,
-		RegisteredPluginIDs:  pluginView.RegisteredPluginIDs,
-		EnabledPluginIDs:     pluginView.EnabledPluginIDs,
-		EnabledBuiltinSkills: agentCfg.EnabledBuiltinSkills,
+		AnnaHome:            config.AnnaHome(),
+		HomeDir:             homeDir,
+		AgentRoot:           agentCfg.Workspace,
+		ProjectRoot:         "",
+		UserID:              info.UserID,
+		AgentID:             info.AgentID,
+		UserRoot:            userRoot,
+		RegisteredPluginIDs: pluginView.RegisteredPluginIDs,
+		EnabledPluginIDs:    pluginView.EnabledPluginIDs,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

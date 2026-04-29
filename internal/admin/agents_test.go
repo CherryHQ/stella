@@ -46,19 +46,15 @@ func TestCreateAgentFromTemplate(t *testing.T) {
 	if a.SystemPrompt == "" {
 		t.Errorf("expected SystemPrompt populated from template body, got empty")
 	}
-	if len(a.EnabledBuiltinSkills) == 0 {
-		t.Errorf("expected EnabledBuiltinSkills populated from template, got empty")
-	}
 }
 
 func TestCreateAgentUserOverridesTemplate(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]any{
-		"name":                   "Override-me",
-		"template_id":            "anna",
-		"system_prompt":          "CUSTOM PROMPT",
-		"enabled_builtin_skills": []string{"research"},
+		"name":          "Override-me",
+		"template_id":   "anna",
+		"system_prompt": "CUSTOM PROMPT",
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
 	if rr.Code != http.StatusCreated {
@@ -71,9 +67,6 @@ func TestCreateAgentUserOverridesTemplate(t *testing.T) {
 	}
 	if a.SystemPrompt != "CUSTOM PROMPT" {
 		t.Errorf("SystemPrompt overridden = %q, want CUSTOM PROMPT", a.SystemPrompt)
-	}
-	if len(a.EnabledBuiltinSkills) != 1 || a.EnabledBuiltinSkills[0] != "research" {
-		t.Errorf("EnabledBuiltinSkills = %v, want [research]", a.EnabledBuiltinSkills)
 	}
 }
 

@@ -149,9 +149,8 @@ func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 
 	platform := &skillStorePlatform{store: store}
 	section, err := BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
-		Platform:             platform,
-		UserID:               userID,
-		EnabledBuiltinSkills: []string{"code-review"},
+		Platform: platform,
+		UserID:   userID,
 	})
 	if err != nil {
 		t.Fatal(err)
