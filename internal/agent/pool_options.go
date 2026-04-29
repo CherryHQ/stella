@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"time"
+
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // PoolOption configures a Pool.
@@ -68,7 +70,7 @@ func WithBeforeRunBuilder(b BeforeRunBuilder) PoolOption {
 // WithSnapshotPromptBuilder sets the function used to build per-turn system prompts
 // from a frozen snapshot version. When set, the pool calls this on every Chat
 // to produce a stable system prompt for the session's snapshot version.
-func WithSnapshotPromptBuilder(fn func(ctx context.Context, userID int64, agentID string, version int64) string) PoolOption {
+func WithSnapshotPromptBuilder(fn func(ctx context.Context, userID int64, agentID string, snap memory.SessionSnapshot) string) PoolOption {
 	return func(p *Pool) {
 		p.snapshotPromptFn = fn
 	}

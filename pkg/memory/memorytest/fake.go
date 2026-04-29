@@ -567,6 +567,7 @@ func (f *Fake) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, u
 		UserID:    userID,
 		AgentID:   agentID,
 		Version:   0,
+		UpdatedAt: time.Now(),
 	}
 	f.snapshots[key] = snap
 	return snap, nil
@@ -590,6 +591,7 @@ func (f *Fake) AdvanceSessionSnapshot(_ context.Context, sessionID string, userI
 		}
 	}
 	snap.Version = count
+	snap.UpdatedAt = time.Now()
 	f.snapshots[key] = snap
 	return nil
 }

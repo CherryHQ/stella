@@ -461,7 +461,7 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 // The closure captures snap at startAgent time. On rebuildPoolFactory the option is not
 // updated (acceptable for Phase 3 — a future pass can extend rebuildPoolFactory).
 func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOption {
-	return WithSnapshotPromptBuilder(func(ctx context.Context, userID int64, agentID string, version int64) string {
+	return WithSnapshotPromptBuilder(func(ctx context.Context, userID int64, agentID string, memSnap memory.SessionSnapshot) string {
 		var promptTools []pkgplugins.PromptToolInfo
 		if pm.promptToolsBuilder != nil {
 			promptTools, _ = pm.promptToolsBuilder(ctx)
@@ -488,17 +488,18 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			pluginPrompts = pm.pluginPromptsBuilder()
 		}
 		params := DBPromptParams{
-			SystemPrompt:    snap.SystemPrompt,
-			AgentSoul:       snap.Soul,
-			Memory:          pm.mem,
-			UserID:          userID,
-			AgentID:         agentID,
-			AnnaHome:        config.AnnaHome(),
-			AgentRoot:       snap.Workspace,
-			SnapshotVersion: version,
-			PromptTools:     promptTools,
-			PluginPrompts:   pluginPrompts,
-			PromptSections:  promptSections,
+			SystemPrompt:      snap.SystemPrompt,
+			AgentSoul:         snap.Soul,
+			Memory:            pm.mem,
+			UserID:            userID,
+			AgentID:           agentID,
+			AnnaHome:          config.AnnaHome(),
+			AgentRoot:         snap.Workspace,
+			SnapshotVersion:   memSnap.Version,
+			SnapshotUpdatedAt: memSnap.UpdatedAt,
+			PromptTools:       promptTools,
+			PluginPrompts:     pluginPrompts,
+			PromptSections:    promptSections,
 		}
 		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
 			params.KnowledgeStore = ks

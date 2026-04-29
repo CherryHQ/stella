@@ -146,7 +146,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 			if snapErr != nil {
 				p.log.Warn("session snapshot failed", "session_id", sessionID, "error", snapErr)
 			} else {
-				snapshotPrompt = p.snapshotPromptFn(ctx, sess.Info.UserID, agentID, snapshot.Version)
+				snapshotPrompt = p.snapshotPromptFn(ctx, sess.Info.UserID, agentID, snapshot)
 			}
 		}
 	}

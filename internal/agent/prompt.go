@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"text/template"
+	"time"
 
 	builtinres "github.com/vaayne/anna/internal/resources"
 	"github.com/vaayne/anna/internal/sandbox"
@@ -70,21 +71,22 @@ type promptToolEntry struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt    string                    // agent's base system prompt from DB
-	AgentSoul       string                    // agent's default soul from DB (fallback for all users)
-	Memory          memory.Provider           // active provider for profile loading (may be nil)
-	KnowledgeStore  pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
-	UserID          int64                     // auth user ID for profile lookup
-	AgentID         string                    // agent ID for profile lookup
-	AnnaHome        string
-	AgentRoot       string
-	ProjectRoot     string // optional project root for local/project-attached runs
-	UserRoot        string // per-user writable root
-	PromptTools     []pkgplugins.PromptToolInfo
-	PluginPrompts   []pkgplugins.SystemPromptSection
-	PromptSections  []pkgplugins.SystemPromptSection
-	Host            sandbox.Host
-	SnapshotVersion int64 // frozen memory version for this session; 0 means current
+	SystemPrompt      string                    // agent's base system prompt from DB
+	AgentSoul         string                    // agent's default soul from DB (fallback for all users)
+	Memory            memory.Provider           // active provider for profile loading (may be nil)
+	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
+	UserID            int64                     // auth user ID for profile lookup
+	AgentID           string                    // agent ID for profile lookup
+	AnnaHome          string
+	AgentRoot         string
+	ProjectRoot       string // optional project root for local/project-attached runs
+	UserRoot          string // per-user writable root
+	PromptTools       []pkgplugins.PromptToolInfo
+	PluginPrompts     []pkgplugins.SystemPromptSection
+	PromptSections    []pkgplugins.SystemPromptSection
+	Host              sandbox.Host
+	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
+	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -153,9 +155,18 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Knowledge: active fact/context entries injected as ## Knowledge section.
+	// When a session snapshot is active, filter out entries that became active
+	// after the snapshot was last advanced so that background knowledge changes
+	// do not affect frozen sessions.
 	if p.KnowledgeStore != nil && p.UserID > 0 && p.AgentID != "" {
 		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
 		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
+			if p.SnapshotVersion > 0 && !p.SnapshotUpdatedAt.IsZero() {
+				cutoff := p.SnapshotUpdatedAt
+				entries = slices.DeleteFunc(entries, func(e pkgplugins.KnowledgeEntry) bool {
+					return e.UpdatedAt.After(cutoff)
+				})
+			}
 			data.Knowledge = entries
 		}
 	}

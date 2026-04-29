@@ -266,7 +266,7 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID int64, agentID strin
 		return "", nil
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return p.GetProfile(ctx, userID, agentID)
+		return "", nil
 	}
 	return "", fmt.Errorf("get profile at version %d: %w", version, err)
 }
@@ -289,7 +289,7 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID int64, agentID str
 		return "", nil
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return p.GetAgentSoul(ctx, userID, agentID)
+		return "", nil
 	}
 	return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
 }
@@ -312,7 +312,7 @@ func (p *Provider) GetConstraintsAt(ctx context.Context, userID int64, agentID s
 		return []memory.ConstraintEntry{}, nil
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return p.GetConstraints(ctx, userID, agentID)
+		return []memory.ConstraintEntry{}, nil
 	}
 	return nil, fmt.Errorf("get constraints at version %d: %w", version, err)
 }
@@ -330,6 +330,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 			UserID:    snap.UserID,
 			AgentID:   snap.AgentID,
 			Version:   snap.Version,
+			UpdatedAt: parseSnapshotTime(snap.UpdatedAt),
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -357,7 +358,13 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 		UserID:    created.UserID,
 		AgentID:   created.AgentID,
 		Version:   created.Version,
+		UpdatedAt: parseSnapshotTime(created.UpdatedAt),
 	}, nil
+}
+
+func parseSnapshotTime(s string) time.Time {
+	t, _ := time.Parse("2006-01-02 15:04:05", s)
+	return t
 }
 
 // AdvanceSessionSnapshot implements memory.SessionSnapshotStore.

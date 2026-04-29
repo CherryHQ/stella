@@ -1,6 +1,9 @@
 package memory
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // VersionedProfileStore is implemented by providers that can read profile/soul
 // at a specific memory version (from the changelog).
@@ -22,6 +25,10 @@ type SessionSnapshot struct {
 	UserID    int64
 	AgentID   string
 	Version   int64
+	// UpdatedAt is the wall-clock time when this snapshot was last advanced.
+	// Used to filter knowledge entries so that knowledge activated after the
+	// snapshot was taken does not appear in the frozen session.
+	UpdatedAt time.Time
 }
 
 // SessionSnapshotStore is implemented by providers that support session snapshots.

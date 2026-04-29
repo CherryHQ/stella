@@ -18,7 +18,7 @@ type Pool struct {
 	factory          NewRunnerFunc
 	hooksFn          func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	beforeRunFn      BeforeRunBuilder
-	snapshotPromptFn func(ctx context.Context, userID int64, agentID string, version int64) string
+	snapshotPromptFn func(ctx context.Context, userID int64, agentID string, snap memory.SessionSnapshot) string
 	sessions         map[string]*Session
 	mem              memory.Provider // memory provider — sole persistence layer
 	mu               sync.Mutex

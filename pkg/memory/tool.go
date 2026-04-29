@@ -575,6 +575,7 @@ func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]an
 			return "", fmt.Errorf("memory profile_rollback: %w", err)
 		}
 	}
+	t.advanceSnapshot(ctx)
 
 	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
 }
