@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -160,6 +161,12 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
+
+	// Inject ANNA_USER_ID for sandbox CLI context (e.g., recally commands)
+	if cfg.UserID > 0 {
+		env["ANNA_USER_ID"] = strconv.FormatInt(cfg.UserID, 10)
+	}
+
 	return env, nil
 }
 
