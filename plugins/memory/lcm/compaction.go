@@ -150,17 +150,13 @@ func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 	return runs
 }
 
-// compactMessageRun creates a leaf summary from a message run within a transaction.
+// compactMessageRun creates a leaf summary from a message run.
 func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, run messageRun, result *memory.CompactionResult) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	qtx := c.q.WithTx(tx)
-
-	// Load messages for this run.
+	// Load source messages before opening a transaction. The summarizer may call
+	// back into the database to resolve model/provider settings, and Anna's SQLite
+	// handle intentionally uses a single connection. Holding a transaction while
+	// waiting for the LLM would self-deadlock the summarizer until the context
+	// deadline expires.
 	var messages []sqlc.CtxMessage
 	var textParts []string
 	var totalTokens int64
@@ -170,7 +166,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 		if !item.MessageID.Valid {
 			continue
 		}
-		msg, err := qtx.GetMessage(ctx, item.MessageID.Int64)
+		msg, err := c.q.GetMessage(ctx, item.MessageID.Int64)
 		if err != nil {
 			return fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
 		}
@@ -190,7 +186,8 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 		return nil
 	}
 
-	// Generate summary.
+	// Generate summary outside the write transaction. The provider-level
+	// per-session lock still prevents same-session Append/Compact races.
 	text := strings.Join(textParts, "\n")
 	targetTokens := max(int(totalTokens)/3, 10)
 
@@ -200,6 +197,13 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 	if err != nil {
 		return fmt.Errorf("summarize: %w", err)
 	}
+
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := c.q.WithTx(tx)
 
 	// Create summary record.
 	sumID := generateSummaryID()
@@ -342,15 +346,9 @@ func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64
 
 // condenseSummaryRun creates a condensed summary from a run of summary context items.
 func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *memory.CompactionResult) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	qtx := c.q.WithTx(tx)
-
-	// Load summaries from cache.
+	// Load summaries from cache before opening a transaction; see
+	// compactMessageRun for why LLM work must not happen while holding Anna's
+	// single SQLite connection in a transaction.
 	var summaries []sqlc.CtxSummary
 	var textParts []string
 	var totalTokens int64
@@ -402,6 +400,13 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	if err != nil {
 		return fmt.Errorf("summarize condensed: %w", err)
 	}
+
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := c.q.WithTx(tx)
 
 	// Create condensed summary.
 	sumID := generateSummaryID()

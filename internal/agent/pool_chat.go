@@ -12,6 +12,8 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
+const autoCompactionTimeout = 2 * time.Minute
+
 // Chat sends a message in a session and streams back events.
 // Internally: gets/creates runner, passes history, collects events,
 // appends to session log, streams to caller.
@@ -70,13 +72,18 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 		Channel:    sess.Info.Channel,
 	})
 
-	// Auto-compact if the session has grown too large.
+	// Auto-compact if the session has grown too large. Use a short detached
+	// context so a slow summarizer cannot consume the channel request deadline
+	// and poison the rest of this chat turn with context.Canceled/DeadlineExceeded.
 	if p.NeedsCompaction(sessionID) {
 		p.log.Info("auto-compaction triggered", "session_id", sessionID)
-		if summary, err := p.CompactSession(ctx, sessionID); err != nil {
+		compactCtx, cancelCompact := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
+		if summary, err := p.CompactSession(compactCtx, sessionID); err != nil {
+			cancelCompact()
 			p.log.Warn("auto-compaction failed, continuing with full history",
 				"session_id", sessionID, "error", err)
 		} else {
+			cancelCompact()
 			p.log.Info("auto-compaction succeeded", "session_id", sessionID,
 				"summary_len", len(summary))
 			// Re-acquire session and runner after compaction (runner was restarted).
