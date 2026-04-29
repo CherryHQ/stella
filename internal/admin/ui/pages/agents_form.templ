@@ -145,85 +145,168 @@ templ agentPromptTab() {
 }
 
 templ agentSkillsTab() {
-	<div class="space-y-6 w-full min-w-0">
-		<div x-show="builtinSkills.length > 0">
-			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Builtin skills</p>
-			<div class="space-y-1">
-				<template x-for="sk in builtinSkills" :key="sk.id">
-					<div
-						@click="openSystemSkill(sk.name)"
-						class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors cursor-pointer overflow-hidden"
-					>
-						<div class="min-w-0 flex-1 overflow-hidden">
-							<p class="text-sm font-mono truncate" x-text="sk.name"></p>
-							<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
-						</div>
-						<span class="badge badge-ghost badge-xs shrink-0">system</span>
+	<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 min-w-0">
+		<div class="border border-base-300 rounded-box bg-base-100/70 min-w-0 overflow-hidden">
+			<div class="p-4 border-b border-base-300 space-y-3">
+				<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+					<input
+						x-model="skillListQuery"
+						type="text"
+						placeholder="Search skills..."
+						class="input input-bordered input-sm w-full lg:max-w-sm"
+					/>
+					<div class="flex items-center gap-2 flex-wrap">
+						<button @click="openSkillInstallModal()" type="button" class="btn btn-primary btn-sm">+ Install skill</button>
 					</div>
-				</template>
+				</div>
+				<div class="flex items-center gap-2 flex-wrap">
+					<button @click="skillViewFilter = 'all'" type="button" class="badge badge-sm cursor-pointer" :class="skillViewFilter === 'all' ? 'badge-primary' : 'badge-ghost'">All</button>
+					<button @click="skillViewFilter = 'enabled'" type="button" class="badge badge-sm cursor-pointer" :class="skillViewFilter === 'enabled' ? 'badge-primary' : 'badge-ghost'">Enabled</button>
+					<button @click="skillViewFilter = 'modified'" type="button" class="badge badge-sm cursor-pointer" :class="skillViewFilter === 'modified' ? 'badge-primary' : 'badge-ghost'">Modified</button>
+				</div>
+				<div class="flex items-center gap-2 flex-wrap">
+					<button @click="skillScopeFilter = 'all'" type="button" class="badge badge-sm cursor-pointer" :class="skillScopeFilter === 'all' ? 'badge-accent' : 'badge-ghost'">Any scope</button>
+					<button @click="skillScopeFilter = 'system'" type="button" class="badge badge-sm cursor-pointer" :class="skillScopeFilter === 'system' ? 'badge-accent' : 'badge-ghost'">Built-in</button>
+					<button @click="skillScopeFilter = 'user'" type="button" class="badge badge-sm cursor-pointer" :class="skillScopeFilter === 'user' ? 'badge-accent' : 'badge-ghost'">User</button>
+					<button @click="skillScopeFilter = 'agent'" type="button" class="badge badge-sm cursor-pointer" :class="skillScopeFilter === 'agent' ? 'badge-accent' : 'badge-ghost'">This agent</button>
+				</div>
+				<div x-show="!editingId" class="text-xs text-base-content/50">Save the agent first if you want to add or customize agent-specific skills.</div>
 			</div>
-		</div>
-		<div>
-			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">User skills</p>
-			<div class="space-y-1 mb-3">
-				<template x-for="sk in userSkills" :key="sk.id">
-					<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors overflow-hidden">
-						<input
-							type="checkbox"
-							class="toggle toggle-primary toggle-xs shrink-0"
-							:checked="sk.status === 'active'"
-							@change="toggleUserSkillStatus(sk)"
-							:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
-						/>
-						<div class="min-w-0 flex-1 overflow-hidden">
-							<p class="text-sm font-mono truncate" x-text="sk.name"></p>
-							<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
-						</div>
-						<button @click="openUserSkill(sk)" type="button" class="btn btn-ghost btn-xs shrink-0">edit</button>
-						<button @click="deleteUserSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
-					</div>
-				</template>
-				<div x-show="userSkills.length === 0" class="text-xs text-base-content/50 px-1">No user skills installed.</div>
-			</div>
-			<button @click="openSkillInstallModal('user')" type="button" class="btn btn-ghost btn-sm text-primary">+ Install skill</button>
-		</div>
-		<div>
-			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Agent skills</p>
-			<div x-show="!editingId" class="text-xs text-base-content/50 italic py-1 flex items-center gap-2">
-				<span>Save the agent first to manage agent skills.</span>
-				<button @click="saveAgent()" type="button" class="btn btn-primary btn-xs">Save now</button>
-			</div>
-			<div x-show="editingId">
-				<div x-show="!isAdmin" class="text-xs text-base-content/50 px-1 mb-3">Only admins can install agent-level skills.</div>
+			<div class="p-3 space-y-2 max-h-[70vh] overflow-y-auto min-w-0">
 				<template x-if="agentSkillsLoading">
 					<div class="py-4 flex justify-center"><span class="loading loading-spinner loading-sm"></span></div>
 				</template>
-				<template x-if="!agentSkillsLoading">
-					<div>
-						<div class="space-y-1 mb-3">
-							<template x-for="sk in agentSkills" :key="sk.id">
-								<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors overflow-hidden">
-									<input
-										type="checkbox"
-										class="toggle toggle-primary toggle-xs shrink-0"
-										:checked="sk.status === 'active'"
-										@change="toggleAgentSkillStatus(sk)"
-										:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
-									/>
-									<div class="min-w-0 flex-1 overflow-hidden">
-										<p class="text-sm font-mono truncate" x-text="sk.name"></p>
-										<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
-									</div>
-									<button @click="openAgentSkill(sk)" type="button" class="btn btn-ghost btn-xs shrink-0">edit</button>
-									<button @click="deleteAgentSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
+				<template x-for="sk in filteredSkills()" :key="skillKey(sk)">
+					<button
+						@click="selectSkill(sk)"
+						type="button"
+						class="w-full text-left rounded-box border border-base-300 px-3 py-3 transition-colors hover:bg-base-200/50 overflow-hidden"
+						:class="selectedSkillKey === skillKey(sk) ? 'border-primary bg-primary/5' : ''"
+					>
+						<div class="flex items-center gap-3 min-w-0">
+							<input
+								x-show="skillCanToggle(sk)"
+								type="checkbox"
+								class="toggle toggle-primary toggle-xs shrink-0"
+								:checked="sk.status === 'active'"
+								@click.stop="toggleSkillStatus(sk)"
+								:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
+							/>
+							<span x-show="!skillCanToggle(sk)" class="badge badge-ghost badge-xs shrink-0">read only</span>
+							<div class="min-w-0 flex-1 overflow-hidden">
+								<div class="flex items-center gap-2 flex-wrap min-w-0">
+									<p class="text-sm font-mono truncate min-w-0" x-text="sk.name"></p>
+									<span class="badge badge-xs shrink-0" :class="skillScopeClass(sk.scope)" x-text="skillScopeLabel(sk.scope)"></span>
+									<span class="badge badge-xs shrink-0" :class="skillStatusClass(sk.status)" x-text="sk.status === 'active' ? 'Enabled' : sk.status"></span>
 								</div>
-							</template>
-							<div x-show="agentSkills.length === 0" class="text-xs text-base-content/50 px-1">No agent skills installed.</div>
+								<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-1" x-text="sk.description"></p>
+							</div>
 						</div>
-						<button x-show="isAdmin" @click="openSkillInstallModal('agent')" type="button" class="btn btn-ghost btn-sm text-primary">+ Install agent skill</button>
-					</div>
+					</button>
 				</template>
+				<div x-show="!agentSkillsLoading && filteredSkills().length === 0" class="text-xs text-base-content/50 p-2">No skills match this filter.</div>
 			</div>
+		</div>
+
+		<div class="border border-base-300 rounded-box bg-base-100/70 min-w-0 overflow-hidden">
+			<template x-if="!selectedSkill && !selectedSkillLoading">
+				<div class="p-8 text-center text-sm text-base-content/50">Select a skill to inspect or edit.</div>
+			</template>
+			<template x-if="selectedSkillLoading">
+				<div class="p-8 flex justify-center"><span class="loading loading-spinner loading-md"></span></div>
+			</template>
+			<template x-if="selectedSkill && !selectedSkillLoading">
+				<div class="min-w-0">
+					<div class="p-4 border-b border-base-300 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+						<div class="min-w-0">
+							<div class="flex items-center gap-2 flex-wrap">
+								<h3 class="font-medium text-base min-w-0 truncate" x-text="selectedSkill.name"></h3>
+								<span class="badge badge-xs" :class="skillScopeClass(selectedSkill.scope)" x-text="skillScopeLabel(selectedSkill.scope)"></span>
+								<span class="badge badge-xs" :class="skillStatusClass(selectedSkill.status)" x-text="selectedSkill.status === 'active' ? 'Enabled' : selectedSkill.status"></span>
+							</div>
+							<p class="text-sm text-base-content/70 mt-2 break-words" x-text="selectedSkill.description || 'No description yet.'"></p>
+							<p class="text-xs text-base-content/60 mt-2" x-text="selectedSkill.scope === 'system' ? 'Built-in skill. Read-only here; duplicate it to this agent if you want to customize behavior.' : (selectedSkill.scope === 'user' ? 'Installed on your profile and available across agents.' : 'Installed only on this agent.')"></p>
+						</div>
+						<div class="flex items-center gap-2 flex-wrap">
+							<button x-show="selectedSkill.scope === 'system' && canInstallAgentSkills()" @click="duplicateSelectedBuiltinSkillToAgent()" type="button" class="btn btn-primary btn-xs">Duplicate to agent</button>
+							<button x-show="skillCanEdit() && !selectedSkillEditMode" @click="startEditingSelectedSkill()" type="button" class="btn btn-ghost btn-xs">Edit</button>
+							<button x-show="skillCanDelete()" @click="deleteSkill()" type="button" class="btn btn-ghost btn-xs text-error">Delete</button>
+							<button x-show="skillCanEdit() && selectedSkillEditMode" @click="saveSelectedSkill()" type="button" class="btn btn-primary btn-xs" :disabled="selectedSkillSaving || !selectedSkillDirty">
+								<span x-show="selectedSkillSaving" class="loading loading-spinner loading-xs"></span>
+								Save
+							</button>
+							<button x-show="skillCanEdit() && selectedSkillEditMode" @click="stopEditingSelectedSkill()" type="button" class="btn btn-ghost btn-xs">Cancel</button>
+						</div>
+					</div>
+
+					<div class="p-4 border-b border-base-300 grid grid-cols-1 md:grid-cols-2 gap-4">
+						<div class="space-y-2">
+							<p class="text-xs font-mono text-secondary uppercase tracking-wider">Status</p>
+							<div x-show="!selectedSkillEditMode" class="text-sm" x-text="selectedSkill.status === 'active' ? 'Enabled' : selectedSkill.status"></div>
+							<select x-show="selectedSkillEditMode" x-model="selectedSkill.status" @change="markSelectedSkillDirty()" class="select select-bordered select-sm w-full" :disabled="!skillCanEdit()">
+								<option value="active">active</option>
+								<option value="draft">draft</option>
+								<option value="deprecated">deprecated</option>
+							</select>
+						</div>
+						<div class="space-y-2">
+							<p class="text-xs font-mono text-secondary uppercase tracking-wider">Scope</p>
+							<div class="text-sm" x-text="skillScopeLabel(selectedSkill.scope)"></div>
+							<label x-show="selectedSkillEditMode" class="flex items-center gap-2 cursor-pointer pt-1">
+								<input x-model="selectedSkill.disable_model_invocation" @change="markSelectedSkillDirty()" :disabled="!skillCanEdit()" type="checkbox" class="toggle toggle-primary toggle-sm"/>
+								<span class="text-xs">Disable model invocation</span>
+							</label>
+						</div>
+					</div>
+
+					<div x-show="selectedSkillEditMode" class="p-4 border-b border-base-300 space-y-3">
+						<div>
+							<label class="label"><span class="label-text text-xs font-medium">Description</span></label>
+							<input x-model="selectedSkill.description" @input="markSelectedSkillDirty()" :disabled="!skillCanEdit()" type="text" class="input input-bordered input-sm w-full"/>
+						</div>
+					</div>
+
+					<div class="p-4 border-b border-base-300">
+						<button @click="selectedSkillShowAdvanced = !selectedSkillShowAdvanced" type="button" class="btn btn-ghost btn-sm px-0" x-text="selectedSkillShowAdvanced ? 'Hide advanced' : 'Show advanced'"></button>
+						<p class="text-xs text-base-content/50 mt-2">Files and source editing live here so the main view stays focused on behavior.</p>
+					</div>
+
+					<div x-show="selectedSkillShowAdvanced" class="min-w-0">
+						<div class="p-4 border-b border-base-300 space-y-2">
+							<div class="flex items-center gap-2 flex-wrap">
+								<select x-model="selectedSkillActiveFile" @change="selectSkillFile(selectedSkillActiveFile)" class="select select-bordered select-sm w-auto max-w-sm font-mono text-xs">
+									<template x-for="file in selectedSkillFiles()" :key="file">
+										<option :value="file" x-text="file"></option>
+									</template>
+								</select>
+								<button x-show="skillCanEdit() && selectedSkillEditMode && selectedSkillActiveFile !== 'SKILL.md'" @click="deleteSelectedSkillFile(selectedSkillActiveFile)" type="button" class="btn btn-ghost btn-xs text-error">Delete file</button>
+								<button x-show="skillCanEdit() && selectedSkillEditMode && !selectedSkillAddingFile" @click="confirmAddSkillFile()" type="button" class="btn btn-ghost btn-xs">+ Add file</button>
+							</div>
+							<div x-show="selectedSkillAddingFile" class="flex items-center gap-2">
+								<input x-model="selectedSkillNewFileName" @keydown.enter.prevent="commitAddSkillFile()" @keydown.escape="selectedSkillAddingFile = false" type="text" placeholder="reference.md" class="input input-bordered input-xs flex-1 font-mono"/>
+								<button @click="commitAddSkillFile()" type="button" class="btn btn-primary btn-xs">Add</button>
+								<button @click="selectedSkillAddingFile = false" type="button" class="btn btn-ghost btn-xs">Cancel</button>
+							</div>
+						</div>
+
+						<div class="p-4 min-w-0">
+							<template x-if="selectedSkillFileLoading">
+								<div class="py-8 flex justify-center"><span class="loading loading-spinner loading-sm"></span></div>
+							</template>
+							<template x-if="!selectedSkillFileLoading">
+								<textarea
+									x-model="selectedSkillFileContent"
+									@input="markSelectedSkillDirty()"
+									:disabled="!skillCanEdit() || !selectedSkillEditMode"
+									rows="18"
+									class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+									spellcheck="false"
+								></textarea>
+							</template>
+						</div>
+					</div>
+				</div>
+			</template>
 		</div>
 	</div>
 }

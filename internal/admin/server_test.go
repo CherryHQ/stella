@@ -1343,13 +1343,32 @@ func TestSkillsGetFile(t *testing.T) {
 // the q parameter. A real search against skills.sh is NOT tested here — that
 // would require network access and is too fragile for unit tests. Integration /
 // manual QA should cover the happy path.
-func TestSkillsSearch_Admin(t *testing.T) {
+func TestSkillsSearch_Authenticated(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Missing q → 400.
+	// Admin with missing q → 400.
 	rr := doRequest(t, env, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+		t.Fatalf("admin missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+
+	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser-search", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	if _, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills/search", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
 	// Unauthenticated → 401.

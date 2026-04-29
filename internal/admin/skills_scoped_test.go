@@ -187,6 +187,23 @@ func TestAgentSkills_InstallAdminOnly(t *testing.T) {
 	}
 }
 
+func TestAgentSkills_DuplicateBuiltinAdminOnly(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, creatorSID := newNonAdmin(t, env, "creator-duplicate")
+	agentID := createAgentAsUser(t, env, creatorSID, "duplicate-agent")
+
+	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/from-builtin/anna", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator duplicate status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/from-builtin/anna", nil)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin duplicate status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 // --- Profile (self-user) endpoints ---
 
 func TestProfileSkills_SelfOnly(t *testing.T) {

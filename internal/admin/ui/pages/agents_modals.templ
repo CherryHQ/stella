@@ -43,8 +43,16 @@ templ agentSkillInstallModal() {
 				<template x-if="skillInstallStage === 'search'">
 					<div class="space-y-4">
 						<div class="flex items-center justify-between">
-							<h3 class="font-bold text-lg" x-text="skillInstallScope === 'agent' ? 'Install agent skill' : 'Install user skill'"></h3>
+							<h3 class="font-bold text-lg">Add skill</h3>
 							<button @click="skillInstallModalOpen = false" class="btn btn-ghost btn-sm btn-circle">✕</button>
+						</div>
+						<div class="space-y-2">
+							<label class="text-xs font-medium text-secondary block">Install target</label>
+							<div class="flex items-center gap-2 flex-wrap">
+								<button @click="setSkillInstallScope('agent')" x-show="canInstallAgentSkills()" type="button" class="badge badge-sm cursor-pointer" :class="skillInstallScope === 'agent' ? 'badge-primary' : 'badge-ghost'">Only this agent</button>
+								<button @click="setSkillInstallScope('user')" type="button" class="badge badge-sm cursor-pointer" :class="skillInstallScope === 'user' ? 'badge-primary' : 'badge-ghost'">My profile</button>
+							</div>
+							<p x-show="!canInstallAgentSkills()" class="text-xs text-base-content/50">Agent-only install is available after the agent is saved, and only for admins.</p>
 						</div>
 						<input
 							x-model="skillSearchQuery"
@@ -86,7 +94,7 @@ templ agentSkillInstallModal() {
 							<label class="text-xs font-medium text-secondary block mb-1">Source</label>
 							<div class="bg-base-200/50 border border-base-300 rounded-lg px-3 py-2 font-mono text-sm text-base-content/70" x-text="skillInstallSource"></div>
 						</div>
-						<p class="text-xs text-base-content/60" x-text="skillInstallScope === 'agent' ? 'Install into this agent only.' : 'Install into your user profile.'"></p>
+						<p class="text-xs text-base-content/60" x-text="skillInstallScope === 'agent' ? 'Add only to this agent.' : 'Add to your profile so it is available across agents.'"></p>
 						<div class="flex gap-2 justify-end">
 							<button @click="skillInstallStage = 'search'" class="btn btn-ghost btn-sm">Back</button>
 							<button @click="doSkillInstall()" :disabled="skillInstalling" class="btn btn-primary btn-sm">
