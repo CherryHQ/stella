@@ -12,7 +12,7 @@ func TestExtractTools(t *testing.T) {
 	names := ToolNames()
 	t.Logf("embedded tools: %v", names)
 	if len(names) == 0 {
-		t.Skip("no embedded tools (run go run ./cmd/builddeps sync --tools first)")
+		t.Skip("no embedded tools (run mise run deps:sync first)")
 	}
 
 	if err := extractTools(dest); err != nil {

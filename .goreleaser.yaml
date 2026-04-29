@@ -3,7 +3,6 @@ version: 2
 before:
   hooks:
     - go mod download
-    - go run ./cmd/builddeps sync --skills --goos linux --goarch amd64
 
 builds:
   - id: anna
@@ -22,7 +21,10 @@ builds:
       - arm64
     hooks:
       pre:
-        - go run ./cmd/builddeps sync --tools --goos {{ .Os }} --goarch {{ .Arch }}
+        - cmd: go generate ./internal/resources/binaries/
+          env:
+            - GOOS={{ .Os }}
+            - GOARCH={{ .Arch }}
 archives:
   - id: anna
     ids:
