@@ -109,7 +109,7 @@ func dumpMessages(messages []ai.Message) []dumpedMessage {
 	for _, msg := range messages {
 		switch m := msg.(type) {
 		case ai.UserMessage:
-			out = append(out, dumpedMessage{Role: "user", Content: dumpUserContent(m.Content)})
+			out = append(out, dumpedMessage{Role: "user", Content: dumpUserContent(m.TimestampedContent())})
 		case ai.AssistantMessage:
 			dm := dumpedMessage{Role: "assistant", Blocks: dumpBlocks(m.Content), StopReason: m.StopReason}
 			if m.Usage != (ai.Usage{}) {
