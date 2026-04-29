@@ -2,8 +2,6 @@
 
 ## Tools
 
-### Always available
-
 - `read`: Read file contents (never use cat/head/tail via bash)
 - `write`: Create a new file or fully overwrite an existing one
 - `edit`: Surgical string replacement in a file (old text must match exactly)
@@ -17,6 +15,20 @@
 {{ if .MCPTools }}- `mcp`: Proxy configured MCP tools. Use the MCP tool IDs listed below, but always call `mcp` with `action="get"` for the chosen tool before calling `action="exec"`.
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
+
+## Memories
+
+Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
+
+### When to recall
+- User references past conversations or asks "do you remember…": use search, then describe/expand to retrieve details.
+- Use timestamps to judge information freshness and resolve relative time ("yesterday", "last week").
+
+### When to write
+- Profile: user reveals a new fact about themselves (role, preference, context). Read current profile first, merge — don't overwrite unrelated notes.
+- Soul: user explicitly asks you to change your behavior or personality.
+- Constraints: user sets a hard rule ("always…", "never…"). Confirm before adding.
+
 
 {{ if .Constraints }}## Constraints
 
