@@ -13,7 +13,7 @@ Four resource kinds are shipped:
 | **Skill**     | Reusable knowledge/playbook the agent can load on demand             | DB-synced into `skills(scope='system')` on startup |
 | **Soul**      | Persona/tone fragment layered into the agent's system prompt         | Copied into an agent at creation time              |
 | **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool    | Extracted to `$ANNA_HOME/agents/` on startup       |
-| **Template**  | Full agent bootstrap (model + system prompt + soul + enabled skills) | Read once at agent creation; no persistent link    |
+| **Template**  | Full agent bootstrap (model + system prompt + soul) | Read once at agent creation; no persistent link    |
 
 ## Templates
 
@@ -21,7 +21,6 @@ A template is a complete starting point for a new agent. When you click **Add ag
 
 - **Model** — provider/model pair the template recommends
 - **System prompt** — copied from the template's referenced soul
-- **Builtin skill metadata** — retained for compatibility with older templates, but system-scope builtin skills are now always available to every agent
 
 User-supplied fields always win. You can edit every field on the form before saving, and after save the agent has no persistent link back to the template — upgrading a template does not touch existing agents.
 
@@ -59,7 +58,6 @@ An agent's skill catalog in the prompt is:
  ∪ {project skills from .agents/skills}
 ```
 
-The legacy `settings_agents.enabled_builtin_skills` field is still stored for backward compatibility with older templates and agent rows, but it no longer filters prompt visibility.
 
 Shipped system skills live under `internal/resources/skills/system/` and are synced into `skills(scope='system')` on startup. Startup sync is authoritative: skills removed from the embedded system catalog are deleted from the database on the next sync.
 

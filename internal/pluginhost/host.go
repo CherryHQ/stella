@@ -503,18 +503,17 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			}
 		}
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
-			Platform:             h.platform(reg.PluginID),
-			State:                state,
-			AnnaHome:             build.AnnaHome,
-			HomeDir:              build.HomeDir,
-			AgentRoot:            build.AgentRoot,
-			ProjectRoot:          build.ProjectRoot,
-			UserID:               build.UserID,
-			AgentID:              build.AgentID,
-			UserRoot:             build.UserRoot,
-			RegisteredPluginIDs:  append([]string(nil), build.RegisteredPluginIDs...),
-			EnabledPluginIDs:     append([]string(nil), build.EnabledPluginIDs...),
-			EnabledBuiltinSkills: append([]string(nil), build.EnabledBuiltinSkills...),
+			Platform:            h.platform(reg.PluginID),
+			State:               state,
+			AnnaHome:            build.AnnaHome,
+			HomeDir:             build.HomeDir,
+			AgentRoot:           build.AgentRoot,
+			ProjectRoot:         build.ProjectRoot,
+			UserID:              build.UserID,
+			AgentID:             build.AgentID,
+			UserRoot:            build.UserRoot,
+			RegisteredPluginIDs: append([]string(nil), build.RegisteredPluginIDs...),
+			EnabledPluginIDs:    append([]string(nil), build.EnabledPluginIDs...),
 		})
 		if err != nil {
 			return nil, err

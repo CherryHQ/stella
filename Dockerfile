@@ -27,15 +27,12 @@ RUN go mod download
 RUN GOBIN=/usr/local/bin go install github.com/a-h/templ/cmd/templ@v0.3.1001
 RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 
-# Copy source code before syncing build dependencies. The builddeps tool now
-# depends on plugin host and plugin packages outside cmd/builddeps/internal/builddeps,
-# so partial copies here are brittle and break Docker builds when that graph grows.
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 COPY . .
-RUN --mount=type=secret,id=github_token,required=false \
-    export GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" \
-    && go run ./cmd/builddeps sync --skills --tools --goos ${TARGETOS} --goarch ${TARGETARCH}
+
+# Download embedded mise binary for the target platform.
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go generate ./internal/resources/binaries/
 
 # Generate code, fetch embedded runtime tools for the target platform, then cross-compile.
 RUN templ generate

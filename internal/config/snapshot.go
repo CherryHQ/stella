@@ -33,12 +33,6 @@ type Snapshot struct {
 	SystemPrompt string // agent's base system prompt from DB
 	Soul         string // agent's default soul from DB (fallback for all users)
 
-	// EnabledBuiltinSkills is retained for backward compatibility with older
-	// templates and agent rows. System-scope builtin skills are now always
-	// visible to every agent, so this list no longer affects prompt catalog
-	// visibility.
-	EnabledBuiltinSkills []string
-
 	Runner     RunnerConfig
 	Compaction CompactionConfig
 	Heartbeat  HeartbeatConfig

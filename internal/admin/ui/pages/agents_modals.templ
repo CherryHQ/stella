@@ -39,12 +39,27 @@ templ agentTemplateModal() {
 templ agentSkillInstallModal() {
 	<template x-if="skillInstallModalOpen">
 		<div class="modal modal-open">
-			<div class="modal-box w-11/12 max-w-2xl">
-				<template x-if="skillInstallStage === 'search'">
-					<div class="space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="font-bold text-lg">Install skill</h3>
-							<button @click="skillInstallModalOpen = false" class="btn btn-ghost btn-sm btn-circle">✕</button>
+			<div class="modal-box w-11/12 max-w-5xl p-0 overflow-hidden">
+				<div class="border-b border-base-300 px-6 py-5 flex items-start justify-between gap-4">
+					<div class="space-y-1">
+						<h3 class="font-bold text-xl">Add a skill</h3>
+						<p class="text-sm text-base-content/60">Install from the catalog or upload your own skill bundle.</p>
+					</div>
+					<button @click="skillInstallModalOpen = false" class="btn btn-ghost btn-sm btn-circle shrink-0">✕</button>
+				</div>
+				<div class="px-6 py-4 border-b border-base-300 space-y-2 bg-base-200/30">
+					<label class="text-xs font-medium text-secondary block uppercase tracking-wide">Install target</label>
+					<div class="flex items-center gap-2 flex-wrap">
+						<button @click="setSkillInstallScope('agent')" x-show="canInstallAgentSkills()" type="button" class="btn btn-sm" :class="skillInstallScope === 'agent' ? 'btn-primary' : 'btn-ghost'">Only this agent</button>
+						<button @click="setSkillInstallScope('user')" type="button" class="btn btn-sm" :class="skillInstallScope === 'user' ? 'btn-primary' : 'btn-ghost'">My profile</button>
+					</div>
+					<p x-show="!canInstallAgentSkills()" class="text-xs text-base-content/50">Agent-only install is available after the agent is saved, and only for admins.</p>
+				</div>
+				<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-0">
+					<section class="p-6 min-w-0 xl:border-r border-base-300 space-y-4">
+						<div class="space-y-1">
+							<h4 class="font-medium text-base">Browse catalog</h4>
+							<p class="text-sm text-base-content/60">Search public skills and install in one click.</p>
 						</div>
 						<input
 							x-model="skillSearchQuery"
@@ -55,45 +70,61 @@ templ agentSkillInstallModal() {
 							autofocus
 						/>
 						<template x-if="skillSearching">
-							<div class="py-6 text-center"><span class="loading loading-spinner loading-md"></span></div>
+							<div class="py-10 text-center"><span class="loading loading-spinner loading-md"></span></div>
 						</template>
 						<template x-if="!skillSearching && skillSearchResults.length > 0">
-							<div class="border border-base-300 rounded-lg overflow-y-auto max-h-72 divide-y divide-base-200">
+							<div class="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
 								<template x-for="s in skillSearchResults" :key="s.id">
-									<div class="px-4 py-3 cursor-pointer hover:bg-base-200/50 transition-colors" @click="pickSkillResult(s)">
-										<div class="flex items-center justify-between gap-2">
-											<span class="font-mono text-sm font-medium" x-text="s.source + '@' + s.skillId"></span>
-											<span class="text-xs text-secondary shrink-0" x-text="s.installs + ' installs'"></span>
+									<div class="rounded-box border border-base-300 bg-base-100 px-4 py-4 space-y-3">
+										<div class="flex items-start justify-between gap-3">
+											<div class="min-w-0">
+												<div class="flex items-center gap-2 flex-wrap">
+													<p class="font-mono text-sm font-medium truncate" x-text="s.name || s.skillId"></p>
+													<span class="badge badge-ghost badge-xs" x-text="s.installs + ' installs'"></span>
+												</div>
+												<p class="text-xs text-base-content/50 font-mono truncate mt-1" x-text="s.source + '@' + s.skillId"></p>
+											</div>
+											<button @click="installSkillResult(s)" :disabled="skillInstalling" type="button" class="btn btn-primary btn-sm shrink-0">
+												<span x-show="skillInstalling && skillInstallSource === (s.source + '@' + s.skillId)" class="loading loading-spinner loading-xs"></span>
+												Install
+											</button>
 										</div>
-										<p class="text-sm text-base-content/70 truncate mt-0.5" x-text="s.name"></p>
+										<p x-show="s.description" class="text-sm text-base-content/70" x-text="s.description"></p>
 									</div>
 								</template>
 							</div>
 						</template>
 						<template x-if="!skillSearching && skillSearchResults.length === 0 && skillSearchQuery">
-							<p class="text-sm text-secondary text-center py-4">No skills found.</p>
+							<div class="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">No skills found for that search.</div>
 						</template>
-					</div>
-				</template>
-				<template x-if="skillInstallStage === 'config'">
-					<div class="space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="font-bold text-lg">Confirm install</h3>
-							<button @click="skillInstallModalOpen = false" class="btn btn-ghost btn-sm btn-circle">✕</button>
+						<template x-if="!skillSearching && !skillSearchQuery">
+							<div class="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">Start typing to search the catalog.</div>
+						</template>
+					</section>
+					<section class="p-6 space-y-4 bg-base-200/20">
+						<div class="space-y-1">
+							<h4 class="font-medium text-base">Upload zip</h4>
+							<p class="text-sm text-base-content/60">Import a skill you already have on disk.</p>
 						</div>
-						<div>
-							<label class="text-xs font-medium text-secondary block mb-1">Source</label>
-							<div class="bg-base-200/50 border border-base-300 rounded-lg px-3 py-2 font-mono text-sm text-base-content/70" x-text="skillInstallSource"></div>
-						</div>
-						<div class="flex gap-2 justify-end">
-							<button @click="skillInstallStage = 'search'" class="btn btn-ghost btn-sm">Back</button>
-							<button @click="doSkillInstall()" :disabled="skillInstalling" class="btn btn-primary btn-sm">
-								<span x-show="skillInstalling" class="loading loading-spinner loading-xs"></span>
-								Install
-							</button>
-						</div>
-					</div>
-				</template>
+						<label class="block rounded-box border-2 border-dashed border-base-300 bg-base-100 px-5 py-8 text-center cursor-pointer hover:border-primary transition-colors">
+							<input @change="setSkillUploadFile($event)" type="file" accept=".zip,application/zip" class="hidden"/>
+							<div class="space-y-2">
+								<div class="text-sm font-medium" x-text="skillUploadFile ? skillUploadFile.name : 'Choose a .zip file'"></div>
+								<p class="text-xs text-base-content/60">Must contain exactly one skill folder with <span class="font-mono">SKILL.md</span>.</p>
+								<span class="btn btn-ghost btn-sm">Browse files</span>
+							</div>
+						</label>
+						<ul class="text-xs text-base-content/60 space-y-1 list-disc pl-4">
+							<li><span class="font-mono">.zip</span> only</li>
+							<li>Single skill folder</li>
+							<li><span class="font-mono">SKILL.md</span> required</li>
+						</ul>
+						<button @click="doSkillUpload()" :disabled="skillUploading || !skillUploadFile" type="button" class="btn btn-primary w-full">
+							<span x-show="skillUploading" class="loading loading-spinner loading-xs"></span>
+							Upload skill
+						</button>
+					</section>
+				</div>
 			</div>
 			<div class="modal-backdrop" @click="skillInstallModalOpen = false"></div>
 		</div>

@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-const miseVersion = "2025.10.16"
+const miseVersion = "2026.4.25"
 
 type miseAsset struct {
 	file   string // filename template with {ver} placeholder

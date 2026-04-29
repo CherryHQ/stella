@@ -9,7 +9,7 @@
 
 FROM debian:13-slim
 
-COPY --from=jdxcode/mise:2026.4.17 /usr/local/bin/mise /usr/local/bin/mise
+COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /usr/local/bin/mise
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
 COPY --from=oven/bun:1.3.12 /usr/local/bin/bunx /usr/local/bin/bun /usr/local/bin/
 COPY --from=lightpanda/browser:nightly /bin/lightpanda /usr/local/bin/lightpanda

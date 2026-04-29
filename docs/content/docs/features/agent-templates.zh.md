@@ -13,7 +13,7 @@ Anna 自带一套**内置资源目录**，让全新安装即开即用，无需�
 | **Skill（技能）**       | 可按需加载的知识或操作手册                                 | 启动时同步进 `skills(scope='system')` |
 | **Soul（灵魂）**        | 融入系统提示的个性/语气片段                                | 在创建 agent 时被复制进去             |
 | **Sub-agent（子代理）** | 受限工具集的任务工作者，供 `agent` 工具委派                | 启动时释放到 `$ANNA_HOME/agents/`     |
-| **Template（模板）**    | 完整的 agent 初始化方案（模型 + 提示 + soul + 启用的技能） | 创建时读取一次，之后不再保留关联      |
+| **Template（模板）**    | 完整的 agent 初始化方案（模型 + 提示 + soul） | 创建时读取一次，之后不再保留关联      |
 
 ## 模板（Templates）
 
@@ -21,7 +21,6 @@ Anna 自带一套**内置资源目录**，让全新安装即开即用，无需�
 
 - **模型** — 模板推荐的 provider/model 组合
 - **系统提示** — 复制自模板引用的 soul
-- **内置技能元数据** — 为兼容旧模板而保留，但 `scope='system'` 的内置技能现已自动对所有 agent 可用
 
 用户手动输入始终优先。所有字段在保存前都可以编辑；保存之后 agent 与模板没有任何持久关联 — 更新模板不会影响已有 agent。
 
@@ -58,8 +57,6 @@ agent 在提示里看到的技能目录为：
  ∪ {user 范围的数据库技能}
  ∪ {来自 .agents/skills 的 project 技能}
 ```
-
-历史遗留的 `settings_agents.enabled_builtin_skills` 字段仍会保留，以兼容旧模板和旧 agent 行，但它已不再参与提示可见性的过滤。
 
 附带的 system skill 位于 `internal/resources/skills/system/`，启动时会同步到 `skills(scope='system')`。启动同步是权威来源：如果某个嵌入式 system skill 已从目录中移除，那么下一次同步时也会从数据库中删除。
 
