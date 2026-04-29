@@ -1,6 +1,6 @@
 {{ .SystemPrompt }}
 
-## Tools
+# Tools
 
 - `read`: Read file contents (never use cat/head/tail via bash)
 - `write`: Create a new file or fully overwrite an existing one
@@ -16,7 +16,7 @@
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
 
-## Memories
+# Memories
 
 Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
 
@@ -60,7 +60,7 @@ What you know about this user. Edit via the memory tool (profile_get / profile_u
 </user_profile>
 {{ if .PluginPrompts }}
 
-## Plugins
+# Plugins
 
 {{ range .PluginPrompts }}- `{{ .Title }}`: {{ .Content }}
 {{ end }}{{ end }}{{ range .PromptSections }}
