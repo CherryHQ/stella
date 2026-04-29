@@ -71,7 +71,6 @@ export function register(Alpine) {
     selectedSkillAddingFile: false,
     selectedSkillNewFileName: '',
     skillInstallModalOpen: false,
-    skillInstallStage: 'search',
     skillInstallScope: 'user',
     skillSearchQuery: '',
     skillSearchResults: [],
@@ -268,7 +267,6 @@ export function register(Alpine) {
       this.selectedChannelIDs = []
       this.personalisation = { soul: '', soulDraft: '', profile: '', profileDraft: '', loaded: false }
       this.skillInstallModalOpen = false
-      this.skillInstallStage = 'search'
       this.skillSearchQuery = ''
       this.skillSearchResults = []
       this.skillInstallSource = ''
@@ -737,7 +735,6 @@ export function register(Alpine) {
 
     openSkillInstallModal(scope = null) {
       this.skillInstallModalOpen = true
-      this.skillInstallStage = 'search'
       this.skillInstallScope = scope || (this.canInstallAgentSkills() ? 'agent' : 'user')
       this.skillSearchQuery = ''
       this.skillSearchResults = []
@@ -765,21 +762,27 @@ export function register(Alpine) {
       } finally { this.skillSearching = false }
     },
 
-    pickSkillResult(s) {
+    async installSkillResult(s) {
+      if (!s) return
       this.skillInstallSource = s.source + '@' + s.skillId
-      this.skillInstallStage = 'config'
+      await this.doSkillInstall(this.skillInstallSource)
     },
 
-    async doSkillInstall() {
+    async doSkillInstall(source = null) {
       if (this.skillInstalling) return
       const scope = this.skillInstallScope || 'user'
       if (scope === 'agent' && !this.canInstallAgentSkills()) return
+      const installSource = source || this.skillInstallSource
+      if (!installSource) {
+        this.$store.toast.show('Choose a skill first', 'error')
+        return
+      }
       this.skillInstalling = true
       try {
         const url = scope === 'agent'
           ? '/api/agents/' + this.editingId + '/skills/install'
           : '/api/auth/profile/skills/install'
-        const res = await api('POST', url, { source: this.skillInstallSource })
+        const res = await api('POST', url, { source: installSource })
         this.$store.toast.show('Installed: ' + (res?.name || 'skill'))
         this.skillInstallModalOpen = false
         if (scope === 'agent') {
