@@ -444,6 +444,119 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, articleID, filePath s
 	return nil
 }
 
+// GetDigest generates a daily reading digest for a user.
+func (s *Store) GetDigest(ctx context.Context, userID int64) (*Digest, error) {
+	digest := &Digest{
+		UserID: userID,
+		Date:   time.Now().UTC(),
+	}
+
+	// Count by status
+	unreadCount, err := s.q.CountArticlesByStatus(ctx, sqlc.CountArticlesByStatusParams{
+		UserID: userID,
+		Status: string(StatusUnread),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count unread articles: %w", err)
+	}
+	digest.UnreadCount = unreadCount
+
+	readCount, err := s.q.CountArticlesByStatus(ctx, sqlc.CountArticlesByStatusParams{
+		UserID: userID,
+		Status: string(StatusRead),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count read articles: %w", err)
+	}
+	digest.ReadCount = readCount
+
+	archivedCount, err := s.q.CountArticlesByStatus(ctx, sqlc.CountArticlesByStatusParams{
+		UserID: userID,
+		Status: string(StatusArchived),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count archived articles: %w", err)
+	}
+	digest.ArchivedCount = archivedCount
+
+	digest.TotalArticles = unreadCount + readCount + archivedCount
+
+	// Count starred
+	starredCount, err := s.q.CountStarredArticles(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("count starred articles: %w", err)
+	}
+	digest.StarredCount = starredCount
+
+	// Articles saved yesterday
+	yesterdayRows, err := s.q.ListArticlesSavedYesterday(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list yesterday's articles: %w", err)
+	}
+	digest.SavedYesterday = make([]Article, 0, len(yesterdayRows))
+	for _, row := range yesterdayRows {
+		var article Article
+		article.FromSQLCArticle(row)
+		digest.SavedYesterday = append(digest.SavedYesterday, article)
+	}
+	digest.SavedYesterdayCount = len(digest.SavedYesterday)
+
+	// Articles worth revisiting (unread and older than 3 days)
+	revisitRows, err := s.q.ListUnreadArticlesOlderThan(ctx, sqlc.ListUnreadArticlesOlderThanParams{
+		UserID:   userID,
+		Datetime: "-3 days",
+		Limit:    10,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list revisiting articles: %w", err)
+	}
+	digest.WorthRevisiting = make([]Article, 0, len(revisitRows))
+	for _, row := range revisitRows {
+		var article Article
+		article.FromSQLCArticle(row)
+		digest.WorthRevisiting = append(digest.WorthRevisiting, article)
+	}
+	digest.WorthRevisitingCount = len(digest.WorthRevisiting)
+
+	// Top tags this week - count from articles saved this week
+	weekRows, err := s.q.GetArticlesSavedThisWeek(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get articles this week: %w", err)
+	}
+
+	// Count tag frequencies
+	tagFreq := make(map[string]int64)
+	for _, row := range weekRows {
+		tags := decodeTags(row.Tags)
+		for _, tag := range tags {
+			tagFreq[tag]++
+		}
+	}
+
+	// Convert to sorted slice
+	digest.TopTags = make([]TagCount, 0, len(tagFreq))
+	for tag, count := range tagFreq {
+		digest.TopTags = append(digest.TopTags, TagCount{
+			Tag:   tag,
+			Count: count,
+		})
+	}
+	// Sort by count descending (simple bubble sort for small lists)
+	for i := 0; i < len(digest.TopTags); i++ {
+		for j := i + 1; j < len(digest.TopTags); j++ {
+			if digest.TopTags[j].Count > digest.TopTags[i].Count {
+				digest.TopTags[i], digest.TopTags[j] = digest.TopTags[j], digest.TopTags[i]
+			}
+		}
+	}
+	// Limit to top 10
+	if len(digest.TopTags) > 10 {
+		digest.TopTags = digest.TopTags[:10]
+	}
+
+	return digest, nil
+}
+
 func emptyOrString(value string) any {
 	if value == "" {
 		return ""

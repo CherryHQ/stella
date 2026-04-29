@@ -72,3 +72,29 @@ ON CONFLICT(user_id, canonical_url) DO UPDATE SET
     published_at  = excluded.published_at,
     updated_at    = datetime('now')
 RETURNING *, (CASE WHEN created_at = updated_at THEN 1 ELSE 0 END) AS is_new;
+
+-- name: CountArticlesByStatus :one
+SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND status = ?;
+
+-- name: CountStarredArticles :one
+SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND starred = 1;
+
+-- name: ListArticlesSavedYesterday :many
+SELECT * FROM articles
+WHERE user_id = ?
+  AND date(saved_at) = date('now', '-1 day')
+ORDER BY saved_at DESC;
+
+-- name: ListUnreadArticlesOlderThan :many
+SELECT * FROM articles
+WHERE user_id = ?
+  AND status = 'unread'
+  AND saved_at < datetime('now', ?)
+ORDER BY saved_at ASC
+LIMIT ?;
+
+-- name: GetArticlesSavedThisWeek :many
+SELECT * FROM articles
+WHERE user_id = ?
+  AND saved_at >= datetime('now', '-7 days')
+ORDER BY saved_at DESC;

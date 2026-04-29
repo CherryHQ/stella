@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	ucli "github.com/urfave/cli/v2"
 	"github.com/mmcdole/gofeed"
+	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/recally"
@@ -38,6 +38,7 @@ func recallyCommand() *ucli.Command {
 			recallyUpdateCommand(),
 			recallyDeleteCommand(),
 			recallyFeedCommand(),
+			recallyDigestCommand(),
 		},
 	}
 }
@@ -858,10 +859,10 @@ func recallyFeedPollCommand() *ucli.Command {
 				pending, _ := store.ListPendingFeedEntries(c.Context, feed.ID, c.Int("limit"))
 
 				results = append(results, map[string]any{
-					"feed_id":      feed.ID,
-					"feed_title":   feed.Title,
-					"new_entries":  len(newEntries),
-					"pending":      pending,
+					"feed_id":     feed.ID,
+					"feed_title":  feed.Title,
+					"new_entries": len(newEntries),
+					"pending":     pending,
 				})
 			}
 
@@ -882,6 +883,47 @@ func recallyFeedPollCommand() *ucli.Command {
 					r["new_entries"].(int),
 					len(r["pending"].([]recally.FeedEntry)))
 			}
+			return nil
+		},
+	}
+}
+
+// recallyDigestCommand handles `anna recally digest`.
+func recallyDigestCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "digest",
+		Usage: "Generate a daily reading digest",
+		Description: `Outputs a structured JSON summary of reading activity:
+- Articles saved yesterday
+- Unread/read/archived/starred counts
+- Articles worth revisiting (unread > 3 days old)
+- Top tags from this week`,
+		Flags: []ucli.Flag{
+			&ucli.BoolFlag{
+				Name:  "json",
+				Usage: "Output as JSON (default)",
+				Value: true,
+			},
+		},
+		Action: func(c *ucli.Context) error {
+			userID, err := resolveUserID(c)
+			if err != nil {
+				return err
+			}
+
+			store, dbConn, err := openRecallyStore()
+			if err != nil {
+				return err
+			}
+			defer dbConn.Close()
+
+			digest, err := store.GetDigest(c.Context, userID)
+			if err != nil {
+				return fmt.Errorf("generate digest: %w", err)
+			}
+
+			out, _ := json.MarshalIndent(digest, "", "  ")
+			fmt.Println(string(out))
 			return nil
 		},
 	}

@@ -10,6 +10,33 @@ import (
 	"database/sql"
 )
 
+const countArticlesByStatus = `-- name: CountArticlesByStatus :one
+SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND status = ?
+`
+
+type CountArticlesByStatusParams struct {
+	UserID int64  `json:"user_id"`
+	Status string `json:"status"`
+}
+
+func (q *Queries) CountArticlesByStatus(ctx context.Context, arg CountArticlesByStatusParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countArticlesByStatus, arg.UserID, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countStarredArticles = `-- name: CountStarredArticles :one
+SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND starred = 1
+`
+
+func (q *Queries) CountStarredArticles(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countStarredArticles, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createArticle = `-- name: CreateArticle :one
 INSERT INTO articles (
     id, user_id, agent_id, url, canonical_url, source_type,
@@ -161,6 +188,56 @@ func (q *Queries) GetArticleByCanonicalURL(ctx context.Context, arg GetArticleBy
 	return i, err
 }
 
+const getArticlesSavedThisWeek = `-- name: GetArticlesSavedThisWeek :many
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
+WHERE user_id = ?
+  AND saved_at >= datetime('now', '-7 days')
+ORDER BY saved_at DESC
+`
+
+func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID int64) ([]Article, error) {
+	rows, err := q.db.QueryContext(ctx, getArticlesSavedThisWeek, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Article{}
+	for rows.Next() {
+		var i Article
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Url,
+			&i.CanonicalUrl,
+			&i.SourceType,
+			&i.Title,
+			&i.Author,
+			&i.Summary,
+			&i.Tags,
+			&i.Status,
+			&i.Starred,
+			&i.FilePath,
+			&i.Metadata,
+			&i.PublishedAt,
+			&i.SavedAt,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArticles = `-- name: ListArticles :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
 WHERE user_id = ?
@@ -187,6 +264,114 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]A
 		arg.Starred,
 		arg.Limit,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Article{}
+	for rows.Next() {
+		var i Article
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Url,
+			&i.CanonicalUrl,
+			&i.SourceType,
+			&i.Title,
+			&i.Author,
+			&i.Summary,
+			&i.Tags,
+			&i.Status,
+			&i.Starred,
+			&i.FilePath,
+			&i.Metadata,
+			&i.PublishedAt,
+			&i.SavedAt,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listArticlesSavedYesterday = `-- name: ListArticlesSavedYesterday :many
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
+WHERE user_id = ?
+  AND date(saved_at) = date('now', '-1 day')
+ORDER BY saved_at DESC
+`
+
+func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID int64) ([]Article, error) {
+	rows, err := q.db.QueryContext(ctx, listArticlesSavedYesterday, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Article{}
+	for rows.Next() {
+		var i Article
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Url,
+			&i.CanonicalUrl,
+			&i.SourceType,
+			&i.Title,
+			&i.Author,
+			&i.Summary,
+			&i.Tags,
+			&i.Status,
+			&i.Starred,
+			&i.FilePath,
+			&i.Metadata,
+			&i.PublishedAt,
+			&i.SavedAt,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnreadArticlesOlderThan = `-- name: ListUnreadArticlesOlderThan :many
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
+WHERE user_id = ?
+  AND status = 'unread'
+  AND saved_at < datetime('now', ?)
+ORDER BY saved_at ASC
+LIMIT ?
+`
+
+type ListUnreadArticlesOlderThanParams struct {
+	UserID   int64       `json:"user_id"`
+	Datetime interface{} `json:"datetime"`
+	Limit    int64       `json:"limit"`
+}
+
+func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnreadArticlesOlderThanParams) ([]Article, error) {
+	rows, err := q.db.QueryContext(ctx, listUnreadArticlesOlderThan, arg.UserID, arg.Datetime, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

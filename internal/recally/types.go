@@ -145,6 +145,28 @@ type FeedPollResult struct {
 	Errors     []string    `json:"errors,omitempty"`
 }
 
+// TagCount represents a tag with its frequency.
+type TagCount struct {
+	Tag   string `json:"tag"`
+	Count int64  `json:"count"`
+}
+
+// Digest contains daily reading statistics and summaries.
+type Digest struct {
+	UserID               int64      `json:"user_id"`
+	Date                 time.Time  `json:"date"`
+	SavedYesterday       []Article  `json:"saved_yesterday"`
+	SavedYesterdayCount  int        `json:"saved_yesterday_count"`
+	UnreadCount          int64      `json:"unread_count"`
+	ReadCount            int64      `json:"read_count"`
+	ArchivedCount        int64      `json:"archived_count"`
+	StarredCount         int64      `json:"starred_count"`
+	WorthRevisiting      []Article  `json:"worth_revisiting"`
+	WorthRevisitingCount int        `json:"worth_revisiting_count"`
+	TopTags              []TagCount `json:"top_tags"`
+	TotalArticles        int64      `json:"total_articles"`
+}
+
 // FromSQLCArticle populates an Article from a sqlc Article.
 func (a *Article) FromSQLCArticle(sa sqlc.Article) {
 	a.ID = sa.ID

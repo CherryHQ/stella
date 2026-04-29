@@ -178,6 +178,47 @@ When processing multiple RSS entries, use the fast model for summaries to contro
 
 Process entries sequentially. If one fails, mark it as error and continue to the next. Do not stop the batch for a single failure.
 
+## Daily Digest
+
+Generate a personalized reading summary for the user:
+
+```bash
+anna recally digest
+```
+
+**Output**: JSON with these fields:
+- `saved_yesterday`: Array of articles saved in the last 24 hours
+- `saved_yesterday_count`: Number of articles saved yesterday
+- `unread_count`: Total unread articles
+- `read_count`: Total read articles
+- `archived_count`: Total archived articles
+- `starred_count`: Total starred articles
+- `worth_revisiting`: Array of unread articles older than 3 days (up to 10)
+- `worth_revisiting_count`: Number of revisiting candidates
+- `top_tags`: Array of most frequent tags from this week (up to 10)
+- `total_articles`: Total articles in library
+
+### Digest Format for Users
+
+When presenting the digest, structure it like this:
+
+**Reading Digest for [Date]**
+
+📚 **Yesterday's saves** ([count] articles):
+- [Title 1] - brief summary
+- [Title 2] - brief summary
+...
+
+📖 **Your library**: [total] articles ([unread] unread, [read] read, [starred] ⭐)
+
+🔔 **Worth revisiting**: [count] articles you saved but haven't read yet (3+ days old)
+- [Title 1]
+- [Title 2]
+
+🏷️ **Trending tags this week**: tag1 (count), tag2 (count), tag3 (count)
+
+Keep it friendly and conversational. Don't list every single tag if there are many.
+
 ## Scheduler Integration
 
 Automate RSS polling and daily digests using the `scheduler` tool.
@@ -252,6 +293,9 @@ anna recally update <id> [--status <status>] [--starred] [--summary <text>] [--t
 
 # Delete article
 anna recally delete <id>
+
+# Daily digest (JSON output)
+anna recally digest
 
 # RSS feeds
 anna recally feed add <url>
