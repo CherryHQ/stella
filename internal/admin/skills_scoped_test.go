@@ -1,9 +1,13 @@
 package admin_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -72,6 +76,49 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID int64, age
 		t.Fatalf("Create skill: %v", err)
 	}
 	return id
+}
+
+func createSkillZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip create %q: %v", name, err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("zip write %q: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func doMultipartRequestWithSession(t *testing.T, srv http.Handler, sessionID, method, path, fieldName, fileName string, fileData []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	req := httptest.NewRequest(method, path, &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if sessionID != "" {
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	}
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	return rr
 }
 
 // --- Agent-scoped endpoints ---
@@ -187,6 +234,49 @@ func TestAgentSkills_InstallAdminOnly(t *testing.T) {
 	}
 }
 
+func TestAgentSkills_UploadZipAdminOnly(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, creatorSID := newNonAdmin(t, env, "creator-upload-agent")
+	agentID := createAgentAsUser(t, env, creatorSID, "upload-agent")
+	archive := createSkillZip(t, map[string]string{
+		"bundle/uploaded-skill/SKILL.md":     "---\nname: uploaded-skill\ndescription: Uploaded agent skill\nstatus: draft\n---\n# Uploaded\n",
+		"bundle/uploaded-skill/reference.md": "notes",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator upload status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doMultipartRequestWithSession(t, env.srv.Handler(), env.sessionID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var created map[string]any
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if created["name"] != "uploaded-skill" {
+		t.Fatalf("uploaded name = %v, want uploaded-skill", created["name"])
+	}
+
+	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list uploaded agent skills status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if len(list) != 1 || list[0]["name"] != "uploaded-skill" {
+		t.Fatalf("uploaded list = %#v, want uploaded-skill", list)
+	}
+}
+
 func TestAgentSkills_DuplicateBuiltinAdminOnly(t *testing.T) {
 	env := setupAdmin(t)
 
@@ -273,6 +363,99 @@ func TestProfileSkills_InstallSelf(t *testing.T) {
 	}
 	if got, ok := list[0]["user_id"].(float64); !ok || int64(got) != u.ID {
 		t.Fatalf("installed skill user_id = %v, want %d", list[0]["user_id"], u.ID)
+	}
+}
+
+func TestProfileSkills_UploadZip(t *testing.T) {
+	env := setupAdmin(t)
+
+	u, sid := newNonAdmin(t, env, "user-upload")
+	archive := createSkillZip(t, map[string]string{
+		"wrapper/uploaded-skill/SKILL.md":     "---\nname: uploaded-skill\ndescription: Uploaded profile skill\nstatus: deprecated\ndisable-model-invocation: true\n---\n# Uploaded\n",
+		"wrapper/uploaded-skill/reference.md": "reference",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/auth/profile/skills/upload", "file", "uploaded-skill.zip", archive)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequestWithSession(t, env.srv, sid, "GET", "/api/auth/profile/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("got %d skills, want 1", len(list))
+	}
+	if list[0]["name"] != "uploaded-skill" {
+		t.Fatalf("uploaded skill name = %v, want uploaded-skill", list[0]["name"])
+	}
+	if list[0]["status"] != "deprecated" {
+		t.Fatalf("uploaded skill status = %v, want deprecated", list[0]["status"])
+	}
+	if list[0]["disable_model_invocation"] != true {
+		t.Fatalf("uploaded skill disable_model_invocation = %v, want true", list[0]["disable_model_invocation"])
+	}
+	if got, ok := list[0]["user_id"].(float64); !ok || int64(got) != u.ID {
+		t.Fatalf("uploaded skill user_id = %v, want %d", list[0]["user_id"], u.ID)
+	}
+}
+
+func TestProfileSkills_UploadZipRejectsInvalidExtension(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "user-upload-ext")
+	archive := createSkillZip(t, map[string]string{
+		"wrapper/uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/auth/profile/skills/upload", "file", "uploaded-skill.tar", archive)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProfileSkills_UploadZipRejectsMissingSkillMD(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "user-upload-missing")
+	archive := createSkillZip(t, map[string]string{
+		"wrapper/uploaded-skill/reference.md": "reference",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/auth/profile/skills/upload", "file", "uploaded-skill.zip", archive)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProfileSkills_UploadZipRejectsMultipleSkillRoots(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "user-upload-layout")
+	archive := createSkillZip(t, map[string]string{
+		"wrapper/skill-one/SKILL.md": "---\nname: skill-one\ndescription: one\n---\n# One\n",
+		"wrapper/skill-two/SKILL.md": "---\nname: skill-two\ndescription: two\n---\n# Two\n",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/auth/profile/skills/upload", "file", "multi.zip", archive)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProfileSkills_UploadZipRejectsPathTraversal(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "user-upload-traversal")
+	archive := createSkillZip(t, map[string]string{
+		"../uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
+	})
+
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/auth/profile/skills/upload", "file", "uploaded-skill.zip", archive)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

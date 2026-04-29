@@ -78,6 +78,8 @@ export function register(Alpine) {
     skillSearching: false,
     skillInstallSource: '',
     skillInstalling: false,
+    skillUploadFile: null,
+    skillUploading: false,
 
     // Personalisation panel (per currently-edited agent, per current user)
     personalisation: { soul: '', soulDraft: '', profile: '', profileDraft: '', loaded: false },
@@ -742,6 +744,8 @@ export function register(Alpine) {
       this.skillSearching = false
       this.skillInstallSource = ''
       this.skillInstalling = false
+      this.skillUploadFile = null
+      this.skillUploading = false
     },
 
     setSkillInstallScope(scope) {
@@ -780,12 +784,53 @@ export function register(Alpine) {
         this.skillInstallModalOpen = false
         if (scope === 'agent') {
           await this.loadAgentSkills(this.editingId)
+          const created = this.agentSkills.find(sk => sk.name === (res?.name || ''))
+          if (created) await this.selectSkill({ ...created, scope: 'agent' })
         } else {
           await this.loadUserSkills()
+          const created = this.userSkills.find(sk => sk.name === (res?.name || ''))
+          if (created) await this.selectSkill({ ...created, scope: 'user' })
         }
         await this.ensureSelectedSkill()
       } catch (e) { this.$store.toast.show(e.message, 'error') }
       finally { this.skillInstalling = false }
+    },
+
+    setSkillUploadFile(event) {
+      this.skillUploadFile = event?.target?.files?.[0] || null
+    },
+
+    async doSkillUpload() {
+      if (this.skillUploading) return
+      const scope = this.skillInstallScope || 'user'
+      if (scope === 'agent' && !this.canInstallAgentSkills()) return
+      if (!this.skillUploadFile) {
+        this.$store.toast.show('Choose a .zip file first', 'error')
+        return
+      }
+      this.skillUploading = true
+      try {
+        const url = scope === 'agent'
+          ? '/api/agents/' + this.editingId + '/skills/upload'
+          : '/api/auth/profile/skills/upload'
+        const form = new FormData()
+        form.append('file', this.skillUploadFile)
+        const res = await api('POST', url, form)
+        this.$store.toast.show('Uploaded: ' + (res?.name || 'skill'))
+        this.skillInstallModalOpen = false
+        this.skillUploadFile = null
+        if (scope === 'agent') {
+          await this.loadAgentSkills(this.editingId)
+          const created = this.agentSkills.find(sk => sk.id === res?.id)
+          if (created) await this.selectSkill({ ...created, scope: 'agent' })
+        } else {
+          await this.loadUserSkills()
+          const created = this.userSkills.find(sk => sk.id === res?.id)
+          if (created) await this.selectSkill({ ...created, scope: 'user' })
+        }
+        await this.ensureSelectedSkill()
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+      finally { this.skillUploading = false }
     },
 
     // --- Personalisation ---

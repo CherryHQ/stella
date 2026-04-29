@@ -8,12 +8,12 @@
  * @throws {Error} If the response contains an `error` field.
  */
 export async function api(method, path, body = null) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-  }
-  if (body) {
-    opts.body = JSON.stringify(body)
+  const opts = { method }
+  if (body instanceof FormData) {
+    opts.body = body
+  } else {
+    opts.headers = { 'Content-Type': 'application/json' }
+    if (body) opts.body = JSON.stringify(body)
   }
   const res = await fetch(path, opts)
   if (res.status === 204 || res.headers.get('content-length') === '0') {
