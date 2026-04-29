@@ -180,7 +180,11 @@ func recallySaveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			req := recally.SaveRequest{
 				URL:          c.String("url"),
@@ -271,7 +275,11 @@ func recallyListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			starred := c.Bool("starred")
 			filter := recally.ArticleFilter{
@@ -354,7 +362,11 @@ func recallySearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Phase 1: LIKE-based search. Future phases will use FTS5.
 			articles, err := store.SearchArticles(c.Context, userID, query, c.Int("limit"))
@@ -417,7 +429,11 @@ func recallyReadCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			article, err := store.GetArticle(c.Context, articleID)
 			if err != nil {
@@ -489,7 +505,11 @@ func recallyUpdateCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Verify ownership
 			article, err := store.GetArticle(c.Context, articleID)
@@ -566,7 +586,11 @@ func recallyDeleteCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Verify ownership and get file path
 			article, err := store.GetArticle(c.Context, articleID)
@@ -645,7 +669,11 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Check for duplicate
 			if existing, _ := store.GetFeedByURL(c.Context, userID, feedURL); existing != nil {
@@ -687,7 +715,11 @@ func recallyFeedListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			feeds, err := store.ListFeeds(c.Context, userID)
 			if err != nil {
@@ -745,7 +777,11 @@ func recallyFeedRemoveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			if err := store.DeleteFeed(c.Context, feedID); err != nil {
 				return fmt.Errorf("remove feed: %w", err)
@@ -784,7 +820,11 @@ func recallyFeedPollCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			feedID := c.Args().First()
 			var feeds []recally.Feed
@@ -915,7 +955,11 @@ func recallyDigestCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			digest, err := store.GetDigest(c.Context, userID)
 			if err != nil {
@@ -978,7 +1022,11 @@ func recallyFeedMarkCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer dbConn.Close()
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			var articleID *string
 			if aid := c.String("article-id"); aid != "" {
