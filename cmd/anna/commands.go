@@ -52,6 +52,7 @@ func newApp() *ucli.App {
 			pluginCommand(),
 			versionCommand(),
 			upgradeCommand(),
+			recallyCommand(),
 		},
 	}
 }
