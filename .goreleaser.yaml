@@ -21,10 +21,10 @@ builds:
       - arm64
     hooks:
       pre:
-        - cmd: go generate ./internal/resources/binaries/
+        - cmd: env -u GOOS -u GOARCH go run ./internal/resources/binaries/gen.go
           env:
-            - GOOS={{ .Os }}
-            - GOARCH={{ .Arch }}
+            - TARGET_GOOS={{ .Os }}
+            - TARGET_GOARCH={{ .Arch }}
 archives:
   - id: anna
     ids:

@@ -40,8 +40,14 @@ var miseAssets = map[string]miseAsset{
 }
 
 func main() {
-	goos := os.Getenv("GOOS")
-	goarch := os.Getenv("GOARCH")
+	goos := os.Getenv("TARGET_GOOS")
+	goarch := os.Getenv("TARGET_GOARCH")
+	if goos == "" {
+		goos = os.Getenv("GOOS")
+	}
+	if goarch == "" {
+		goarch = os.Getenv("GOARCH")
+	}
 	if goos == "" {
 		goos = runtime.GOOS
 	}
