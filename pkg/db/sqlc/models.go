@@ -8,6 +8,28 @@ import (
 	"database/sql"
 )
 
+type Article struct {
+	ID           string         `json:"id"`
+	UserID       int64          `json:"user_id"`
+	AgentID      sql.NullString `json:"agent_id"`
+	Url          string         `json:"url"`
+	CanonicalUrl string         `json:"canonical_url"`
+	SourceType   string         `json:"source_type"`
+	Title        string         `json:"title"`
+	Author       string         `json:"author"`
+	Summary      string         `json:"summary"`
+	Tags         string         `json:"tags"`
+	Status       string         `json:"status"`
+	Starred      int64          `json:"starred"`
+	FilePath     string         `json:"file_path"`
+	Metadata     string         `json:"metadata"`
+	PublishedAt  sql.NullString `json:"published_at"`
+	SavedAt      string         `json:"saved_at"`
+	ReadAt       sql.NullString `json:"read_at"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+}
+
 type AuthIdentity struct {
 	ID         int64  `json:"id"`
 	UserID     int64  `json:"user_id"`
@@ -175,6 +197,36 @@ type PluginStateEntry struct {
 	Value     string `json:"value"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type RssFeed struct {
+	ID            string         `json:"id"`
+	UserID        int64          `json:"user_id"`
+	AgentID       sql.NullString `json:"agent_id"`
+	Url           string         `json:"url"`
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	CheckInterval string         `json:"check_interval"`
+	LastCheckedAt sql.NullString `json:"last_checked_at"`
+	LastEtag      string         `json:"last_etag"`
+	LastModified  string         `json:"last_modified"`
+	Enabled       int64          `json:"enabled"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+}
+
+type RssFeedEntry struct {
+	ID           string         `json:"id"`
+	FeedID       string         `json:"feed_id"`
+	Guid         string         `json:"guid"`
+	Url          string         `json:"url"`
+	Title        string         `json:"title"`
+	Status       string         `json:"status"`
+	ArticleID    sql.NullString `json:"article_id"`
+	Attempts     int64          `json:"attempts"`
+	ErrorMsg     string         `json:"error_msg"`
+	DiscoveredAt string         `json:"discovered_at"`
+	ProcessedAt  sql.NullString `json:"processed_at"`
 }
 
 type SchedJob struct {
