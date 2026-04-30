@@ -135,6 +135,16 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths) (map[string]string, error) {
 	env := make(map[string]string)
 
+	if cfg.TokenService != nil {
+		if err := cfg.TokenService.EnsureAutoToken(ctx, cfg.UserID); err != nil {
+			slog.Warn("auto token ensure skipped",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"error", err,
+			)
+		}
+	}
+
 	if cfg.VaultEnvLoader != nil {
 		vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
 		if err != nil {
