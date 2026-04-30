@@ -465,6 +465,7 @@ func createHostSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession,
 	if err != nil {
 		return nil, err
 	}
+	env["PATH"] = localSandboxPath(paths.AnnaHome)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
