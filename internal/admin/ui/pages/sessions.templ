@@ -112,7 +112,7 @@ templ sessionSidebar() {
 			</div>
 		</div>
 		<!-- Session list -->
-		<div class="flex-1 overflow-y-auto divide-y divide-base-300">
+		<div class="flex-1 overflow-y-auto divide-y divide-base-300" x-ref="sessionsList" @scroll.passive="handleSessionsScroll($el)">
 			<template x-for="s in filteredSessions" :key="s.id">
 				<div
 					@click="openSession(s.id)"
@@ -141,11 +141,16 @@ templ sessionSidebar() {
 					</div>
 				</div>
 			</template>
-			<template x-if="filteredSessions.length === 0">
+			<template x-if="filteredSessions.length === 0 && !sessionsLoading">
 				<div class="px-4 py-10 text-center">
 					<p class="text-xs text-secondary font-mono">No sessions found.</p>
 				</div>
 			</template>
+			<!-- Sessions loading indicator -->
+			<div x-show="sessionsLoading" class="px-4 py-3 flex items-center justify-center gap-2">
+				<span class="loading loading-spinner loading-xs text-secondary"></span>
+				<span class="text-[10px] font-mono text-secondary">Loading…</span>
+			</div>
 		</div>
 	</aside>
 }
@@ -241,8 +246,13 @@ templ sessionDetailPanel() {
 				</div>
 			</div>
 			<!-- Transcript -->
-			<div class="flex-1 overflow-y-auto px-6 py-6">
-				<div x-show="sessionMessages.length === 0" x-cloak class="text-center py-16">
+			<div x-ref="transcript" class="flex-1 overflow-y-auto px-6 py-6" @scroll.passive="handleTranscriptScroll($el)">
+				<!-- Older-messages loading indicator (top of transcript) -->
+				<div x-show="sessionMessagesLoading && sessionMessages.length > 0" class="flex items-center justify-center gap-2 mb-4">
+					<span class="loading loading-spinner loading-xs text-secondary"></span>
+					<span class="text-[10px] font-mono text-secondary">Loading earlier messages…</span>
+				</div>
+				<div x-show="sessionMessages.length === 0 && !sessionMessagesLoading" x-cloak class="text-center py-16">
 					<p class="text-xs text-secondary font-mono">Empty session.</p>
 				</div>
 				<div class="space-y-4">
@@ -304,7 +314,7 @@ templ sessionDetailPanel() {
 															</template>
 														</button>
 														<div x-show="expanded" x-transition class="mt-1 space-y-1">
-															<pre class="text-[10px] font-mono text-base-content/60 bg-base-200 px-3 py-2 rounded overflow-x-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
+															<pre class="text-[10px] font-mono text-base-content/60 bg-base-200 px-3 py-2 rounded overflow-x-auto max-h-64 overflow-y-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
 															<template x-if="block.result">
 																<div class="pl-3" :class="block.result.is_error ? 'border-l border-error/40' : 'border-l border-success/40'">
 																	<div class="text-[10px] font-mono mb-1" :class="block.result.is_error ? 'text-error' : 'text-success'" x-text="block.result.is_error ? 'error' : 'result'"></div>

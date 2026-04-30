@@ -94,6 +94,10 @@ ORDER BY created_at DESC, id DESC
 LIMIT 1
 `
 
+// expires_at is intentionally not filtered here: TokenService rotates at
+// autoTokenRotateAfter (60 days), which is always before autoTokenTTL (90 days),
+// so an auto token is replaced before it can expire. The Go layer handles
+// time-based rotation rather than relying on the DB expiry column.
 func (q *Queries) GetActiveAutoAuthUserTokenByUser(ctx context.Context, userID int64) (AuthUserToken, error) {
 	row := q.db.QueryRowContext(ctx, getActiveAutoAuthUserTokenByUser, userID)
 	var i AuthUserToken

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/vaayne/anna/internal/agent"
@@ -222,7 +223,26 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := UserFromContext(r.Context())
-	sessions, err := sm.ListInfo(r.Context(), memory.ListOptions{IncludeArchived: true})
+
+	limit := 10
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l >= 0 {
+			limit = l
+		}
+	}
+	offset := 0
+	if oStr := r.URL.Query().Get("offset"); oStr != "" {
+		if o, err := strconv.Atoi(oStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
+	// Push user-scoped filtering into the provider for correct limit application.
+	if info != nil && !info.IsAdmin {
+		opts.UserID = info.UserID
+	}
+	sessions, err := sm.ListInfo(r.Context(), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -230,10 +250,6 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]sessionResponse, 0, len(sessions))
 	for _, si := range sessions {
-		// Non-admin users only see their own sessions.
-		if info != nil && !info.IsAdmin && si.UserID != info.UserID {
-			continue
-		}
 		resp = append(resp, toSessionResponse(si))
 	}
 	writeData(w, http.StatusOK, resp)
@@ -300,6 +316,21 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit := 20
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l >= 0 {
+			limit = l
+		}
+	}
+	// skip counts rows from the end, enabling backwards pagination.
+	// skip=0 → last 20 rows; skip=20 → rows 20–40 from the end, etc.
+	skip := 0
+	if sStr := r.URL.Query().Get("skip"); sStr != "" {
+		if s, err := strconv.Atoi(sStr); err == nil && s >= 0 {
+			skip = s
+		}
+	}
+
 	// Load raw DB rows to preserve created_at timestamps.
 	conv, err := s.q.GetConversationBySessionID(r.Context(), sessionID)
 	if err != nil {
@@ -310,6 +341,17 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	total := len(rows)
+	if limit > 0 {
+		end := total - skip
+		if end <= 0 {
+			rows = nil
+		} else {
+			start := max(end-limit, 0)
+			rows = rows[start:end]
+		}
 	}
 
 	writeData(w, http.StatusOK, serializeDBMessages(rows))
@@ -503,13 +545,17 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 		Error  string          `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
+		// Malformed envelope: best-effort — show raw content, no ID to match.
 		m["content"] = row.Content
 		m["tool_name"] = ""
 		m["is_error"] = false
 		return m
 	}
+	// Try to decode result as a plain string first; fall back to raw JSON bytes.
 	var text string
-	_ = json.Unmarshal(env.Result, &text)
+	if err := json.Unmarshal(env.Result, &text); err != nil {
+		text = string(env.Result)
+	}
 	m["tool_call_id"] = env.ID
 	m["tool_name"] = env.Tool
 	m["content"] = text

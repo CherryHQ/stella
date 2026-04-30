@@ -11,11 +11,20 @@ marked.setOptions({ breaks: true, gfm: true })
  */
 export function register(Alpine) {
   Alpine.data('sessionsPage', () => ({
+    // Session list state
     sessions: [],
+    sessionsOffset: 0,
+    sessionsHasMore: false,
+    sessionsLoading: false,
+
+    // Session detail state
     sessionDetail: null,
     sessionMessages: [],
+    sessionMessagesSkip: 0,
+    sessionMessagesHasMore: false,
     sessionMessagesLoading: false,
     sessionSystemPrompt: '',
+
     tools: [],
     toolsLoading: false,
     activePanel: null,
@@ -30,11 +39,12 @@ export function register(Alpine) {
     newSessionAgentID: '',
     currentUserID: 0,
     agents: [],
+    _mdCache: {},
 
     async init() {
       const agentsPromise = api('GET', '/api/agents').then(r => { this.agents = r || [] }).catch(() => {})
       const mePromise = api('GET', '/api/auth/me').then(r => { if (r && r.id) this.currentUserID = r.id }).catch(() => {})
-      await Promise.all([this.loadSessions(), this.loadTools(), agentsPromise, mePromise])
+      await Promise.all([this.loadSessions(), agentsPromise, mePromise])
       const sessionID = this._sessionIDFromURL()
       if (sessionID) {
         await this.openSession(sessionID, false)
@@ -137,7 +147,11 @@ export function register(Alpine) {
     },
 
     renderMd(text) {
-      return marked.parse(text || '')
+      if (!text) return ''
+      if (!this._mdCache[text]) {
+        this._mdCache[text] = marked.parse(text)
+      }
+      return this._mdCache[text]
     },
 
     formatTime(ts) {
@@ -149,33 +163,95 @@ export function register(Alpine) {
       return parts.length >= 3 && parts[1] === 'sessions' ? decodeURIComponent(parts[2]) : ''
     },
 
+    // --- Session list loading ---
+
     async loadSessions() {
+      if (this.sessionsLoading) return
+      this.sessionsLoading = true
       try {
-        this.sessions = await api('GET', '/api/sessions') || []
+        const batch = await api('GET', `/api/sessions?limit=10&offset=${this.sessionsOffset}`) || []
+        this.sessions = this.sessionsOffset === 0 ? batch : [...this.sessions, ...batch]
+        this.sessionsOffset += batch.length
+        this.sessionsHasMore = batch.length === 10
       } catch (e) {
         console.error(e)
+      } finally {
+        this.sessionsLoading = false
+      }
+      // If the list container isn't scrollable yet (content doesn't overflow),
+      // the scroll event can never fire — keep loading until it can scroll.
+      if (this.sessionsHasMore) {
+        this.$nextTick(() => {
+          const el = this.$refs.sessionsList
+          if (el && el.scrollHeight <= el.clientHeight + 20) {
+            this.loadSessions()
+          }
+        })
       }
     },
+
+    handleSessionsScroll(el) {
+      if (this.sessionsHasMore && !this.sessionsLoading &&
+          el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+        this.loadSessions()
+      }
+    },
+
+    // --- Session message loading ---
 
     async openSession(sessionID, pushState = true) {
       this.sessionMessagesLoading = true
       this.sessionMessages = []
+      this.sessionMessagesSkip = 0
+      this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
       this.activePanel = null
       try {
         const enc = encodeURIComponent(sessionID)
         this.sessionDetail = await api('GET', '/api/sessions/' + enc)
         const [msgs, pr] = await Promise.all([
-          api('GET', '/api/sessions/' + enc + '/messages'),
+          api('GET', '/api/sessions/' + enc + '/messages?limit=20'),
           api('GET', '/api/sessions/' + enc + '/system-prompt').catch(() => null),
         ])
         this.sessionMessages = msgs || []
+        this.sessionMessagesSkip = this.sessionMessages.length
+        this.sessionMessagesHasMore = this.sessionMessages.length === 20
         if (pr && pr.system_prompt) this.sessionSystemPrompt = pr.system_prompt
         if (pushState) {
           history.pushState({ sessionID }, '', '/sessions/' + enc)
         }
+        // Scroll transcript to bottom after render.
+        this.$nextTick(() => {
+          const el = this.$refs.transcript
+          if (el) el.scrollTop = el.scrollHeight
+        })
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.sessionMessagesLoading = false
+      }
+    },
+
+    async handleTranscriptScroll(el) {
+      if (el.scrollTop > 60 || !this.sessionMessagesHasMore || this.sessionMessagesLoading) return
+      const enc = encodeURIComponent(this.sessionDetail.id)
+      const prevHeight = el.scrollHeight
+      this.sessionMessagesLoading = true
+      try {
+        const older = await api('GET', `/api/sessions/${enc}/messages?limit=20&skip=${this.sessionMessagesSkip}`)
+        if (!older || older.length === 0) {
+          this.sessionMessagesHasMore = false
+          return
+        }
+        this.sessionMessages = [...older, ...this.sessionMessages]
+        this.sessionMessagesSkip += older.length
+        this.sessionMessagesHasMore = older.length === 20
+        // Restore scroll position so the view doesn't jump.
+        this.$nextTick(() => {
+          el.scrollTop = el.scrollHeight - prevHeight
+        })
+      } catch (e) {
+        console.error(e)
       } finally {
         this.sessionMessagesLoading = false
       }
@@ -194,11 +270,16 @@ export function register(Alpine) {
 
     togglePanel(name) {
       this.activePanel = this.activePanel === name ? null : name
+      if (name === 'tools' && this.activePanel === 'tools' && this.tools.length === 0) {
+        this.loadTools()
+      }
     },
 
     backToList() {
       this.sessionDetail = null
       this.sessionMessages = []
+      this.sessionMessagesSkip = 0
+      this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
       this.activePanel = null
       history.pushState(null, '', '/sessions')
@@ -218,6 +299,7 @@ export function register(Alpine) {
       try {
         const sess = await api('POST', '/api/sessions', { agent_id: this.newSessionAgentID })
         this.sessions.unshift(sess)
+        this.sessionsOffset++
         await this.openSession(sess.id)
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
@@ -231,6 +313,11 @@ export function register(Alpine) {
       this.sessionMessages.push({ role: 'user', content, timestamp: new Date().toISOString() })
       this.isStreaming = true
       this.abortController = new AbortController()
+      // Scroll to bottom when user sends.
+      this.$nextTick(() => {
+        const el = this.$refs.transcript
+        if (el) el.scrollTop = el.scrollHeight
+      })
       try {
         const response = await fetch(
           '/api/sessions/' + encodeURIComponent(this.sessionDetail.id) + '/messages',
@@ -278,6 +365,13 @@ export function register(Alpine) {
           return this.sessionMessages[this.sessionMessages.length - 1]
         }
 
+        const scrollToBottom = () => {
+          const el = this.$refs.transcript
+          if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+            el.scrollTop = el.scrollHeight
+          }
+        }
+
         const dispatchEvent = (event, dataStr) => {
           if (!dataStr) return
           let data
@@ -298,6 +392,7 @@ export function register(Alpine) {
             streamingBlock.text += (data.text || '')
             // Reassign to trigger Alpine reactivity on the array reference
             msg.blocks = [...msg.blocks.slice(0, -1), streamingBlock]
+            scrollToBottom()
           } else if (event === 'tool_use') {
             if (data.type === 'tool_call') {
               const msg = ensureStreamingMessage()
@@ -309,6 +404,7 @@ export function register(Alpine) {
                 arguments: data.arguments,
                 status: 'running',
               })
+              scrollToBottom()
             } else if (data.type === 'tool_result') {
               // Find the assistant message with the matching tool_call block and set result
               for (let i = this.sessionMessages.length - 1; i >= 0; i--) {
