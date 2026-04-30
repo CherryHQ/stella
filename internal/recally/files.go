@@ -93,6 +93,14 @@ func (fm *FileManager) DeleteArticle(path string) error {
 	return nil
 }
 
+// reservedFrontmatterKeys are canonical keys set by buildFrontmatter.
+// User-supplied metadata must not overwrite them.
+var reservedFrontmatterKeys = map[string]bool{
+	"id": true, "url": true, "canonical_url": true, "title": true,
+	"source_type": true, "status": true, "starred": true, "author": true,
+	"tags": true, "saved_at": true, "published_at": true, "read_at": true,
+}
+
 func (fm *FileManager) buildFrontmatter(article *Article) (string, error) {
 	frontmatter := map[string]any{
 		"id":            article.ID,
@@ -125,7 +133,7 @@ func (fm *FileManager) buildFrontmatter(article *Article) (string, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if key != "" {
+		if key != "" && !reservedFrontmatterKeys[key] {
 			frontmatter[key] = article.Metadata[key]
 		}
 	}

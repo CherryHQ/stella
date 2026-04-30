@@ -52,27 +52,6 @@ WHERE user_id = ?
 ORDER BY saved_at DESC
 LIMIT ?;
 
--- name: UpsertArticle :one
-INSERT INTO articles (
-    id, user_id, agent_id, url, canonical_url, source_type,
-    title, author, summary, tags, status, starred, file_path, metadata,
-    published_at, saved_at, read_at
-)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(user_id, canonical_url) DO UPDATE SET
-    url           = excluded.url,
-    agent_id      = excluded.agent_id,
-    source_type   = excluded.source_type,
-    title         = excluded.title,
-    author        = excluded.author,
-    summary       = excluded.summary,
-    tags          = excluded.tags,
-    file_path     = excluded.file_path,
-    metadata      = excluded.metadata,
-    published_at  = excluded.published_at,
-    updated_at    = datetime('now')
-RETURNING *, (CASE WHEN created_at = updated_at THEN 1 ELSE 0 END) AS is_new;
-
 -- name: CountArticlesByStatus :one
 SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND status = ?;
 

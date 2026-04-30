@@ -380,7 +380,8 @@ func (s *Store) DeleteFeed(ctx context.Context, feedID string) error {
 	return nil
 }
 
-// CreateFeedEntry creates a new feed entry.
+// CreateFeedEntry creates a new feed entry. Returns nil, nil when the entry
+// already exists (ON CONFLICT DO NOTHING).
 func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, error) {
 	row, err := s.q.CreateRSSFeedEntry(ctx, sqlc.CreateRSSFeedEntryParams{
 		ID:           generateID(),
@@ -396,6 +397,9 @@ func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, tit
 		ProcessedAt:  sql.NullString{},
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("create feed entry: %w", err)
 	}
 	var entry FeedEntry

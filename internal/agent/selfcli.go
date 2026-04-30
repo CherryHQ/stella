@@ -33,10 +33,26 @@ func EnsureAnnaCLIInPath(annaHome string) error {
 	}
 
 	dest := filepath.Join(binDir, "anna")
+	if upToDate, _ := sameSize(source, dest); upToDate {
+		return nil
+	}
 	if err := copyExecutable(source, dest); err != nil {
 		return fmt.Errorf("copy anna cli into sandbox path: %w", err)
 	}
 	return nil
+}
+
+// sameSize reports whether src and dst exist and have identical sizes.
+func sameSize(src, dst string) (bool, error) {
+	si, err := os.Stat(src)
+	if err != nil {
+		return false, err
+	}
+	di, err := os.Stat(dst)
+	if err != nil {
+		return false, err
+	}
+	return si.Size() == di.Size(), nil
 }
 
 func copyExecutable(source, dest string) error {

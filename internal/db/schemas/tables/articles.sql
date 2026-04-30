@@ -1,5 +1,5 @@
 CREATE TABLE articles (
-    id            TEXT PRIMARY KEY,
+    id            TEXT NOT NULL PRIMARY KEY,
     user_id       INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
     agent_id      TEXT REFERENCES settings_agents(id) ON DELETE SET NULL,
     url           TEXT NOT NULL,
