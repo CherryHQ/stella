@@ -17,6 +17,7 @@ func TestValidateName(t *testing.T) {
 		"API_KEY_2",
 		"Z9",
 		"MY_VAR_123",
+		vault.AnnaTokenName,
 	}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
