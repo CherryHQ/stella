@@ -8,12 +8,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mmcdole/gofeed"
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/recally"
@@ -24,12 +24,6 @@ func recallyCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "recally",
 		Usage: "Reading assistant - save, organize, and recall web content",
-		Flags: []ucli.Flag{
-			&ucli.Int64Flag{
-				Name:  "user-id",
-				Usage: "User ID (only used when ANNA_USER_ID env var is not set)",
-			},
-		},
 		Subcommands: []*ucli.Command{
 			recallySaveCommand(),
 			recallyListCommand(),
@@ -43,39 +37,34 @@ func recallyCommand() *ucli.Command {
 	}
 }
 
-// resolveUserID returns the user ID from env var (authoritative) or flag.
-// When ANNA_USER_ID is set, it takes precedence and --user-id is ignored.
-// Returns error if neither is available.
-func resolveUserID(c *ucli.Context) (int64, error) {
-	envUserID := os.Getenv("ANNA_USER_ID")
-	if envUserID != "" {
-		userID, err := strconv.ParseInt(envUserID, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid ANNA_USER_ID env var: %w", err)
-		}
-		flagUserID := c.Int64("user-id")
-		if flagUserID != 0 && flagUserID != userID {
-			fmt.Fprintf(os.Stderr, "Warning: ANNA_USER_ID (%d) overrides --user-id flag (%d)\n", userID, flagUserID)
-		}
-		return userID, nil
+// resolveUserID authenticates the caller via ANNA_TOKEN and returns their user ID.
+func resolveUserID(ctx context.Context, svc *auth.TokenService) (int64, error) {
+	token := os.Getenv("ANNA_TOKEN")
+	if token == "" {
+		return 0, fmt.Errorf("ANNA_TOKEN env var is required")
 	}
-
-	// No env var - use flag
-	userID := c.Int64("user-id")
-	if userID == 0 {
-		return 0, fmt.Errorf("ANNA_USER_ID env var or --user-id flag required")
+	user, err := svc.Authenticate(ctx, token)
+	if err != nil {
+		return 0, fmt.Errorf("ANNA_TOKEN authentication failed: %w", err)
 	}
-	return userID, nil
+	return user.ID, nil
 }
 
-// openRecallyStore opens the DB and returns a recally Store.
-func openRecallyStore() (*recally.Store, *sql.DB, error) {
+// openRecally opens the DB, authenticates via ANNA_TOKEN, and returns a ready Store.
+func openRecally(ctx context.Context) (*recally.Store, int64, *sql.DB, error) {
 	dbPath := config.DBPath()
-	db, err := db.OpenDB(dbPath)
+	rawDB, err := db.OpenDB(dbPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open database: %w", err)
+		return nil, 0, nil, fmt.Errorf("open database: %w", err)
 	}
-	return recally.NewStore(db), db, nil
+	authStore := db.NewAuthStore(rawDB)
+	tokenSvc := auth.NewTokenService(authStore, nil)
+	userID, err := resolveUserID(ctx, tokenSvc)
+	if err != nil {
+		_ = rawDB.Close()
+		return nil, 0, nil, err
+	}
+	return recally.NewStore(rawDB), userID, rawDB, nil
 }
 
 // recallySaveCommand handles `anna recally save`.
@@ -132,10 +121,15 @@ func recallySaveCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			userID, err := resolveUserID(c)
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Read content from file or stdin
 			var content string
@@ -175,16 +169,6 @@ func recallySaveCommand() *ucli.Command {
 				}
 				publishedAt = &t
 			}
-
-			store, dbConn, err := openRecallyStore()
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
 
 			req := recally.SaveRequest{
 				URL:          c.String("url"),
@@ -266,12 +250,7 @@ func recallyListCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -353,12 +332,7 @@ func recallySearchCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally search <query>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -420,12 +394,7 @@ func recallyReadCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally read <article-id>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -496,12 +465,7 @@ func recallyUpdateCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally update <article-id>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -577,12 +541,7 @@ func recallyDeleteCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally delete <article-id>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -650,10 +609,15 @@ func recallyFeedAddCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally feed add <feed-url>")
 			}
 
-			userID, err := resolveUserID(c)
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if cerr := dbConn.Close(); cerr != nil && err == nil {
+					err = cerr
+				}
+			}()
 
 			// Fetch feed metadata
 			fp := gofeed.NewParser()
@@ -664,16 +628,6 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("fetch feed: %w", err)
 			}
-
-			store, dbConn, err := openRecallyStore()
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
 
 			// Check for duplicate
 			if existing, _ := store.GetFeedByURL(c.Context, userID, feedURL); existing != nil {
@@ -706,12 +660,7 @@ func recallyFeedListCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -768,12 +717,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally feed remove <feed-id>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -819,12 +763,7 @@ func recallyFeedPollCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -954,12 +893,7 @@ func recallyDigestCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
@@ -1008,11 +942,6 @@ func recallyFeedMarkCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally feed mark <entry-id> --status <status>")
 			}
 
-			userID, err := resolveUserID(c)
-			if err != nil {
-				return err
-			}
-
 			status := recally.RSSEntryStatus(c.String("status"))
 			switch status {
 			case recally.EntryStatusSaved, recally.EntryStatusSkipped, recally.EntryStatusError:
@@ -1026,7 +955,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 				return fmt.Errorf("--article-id required when marking as saved")
 			}
 
-			store, dbConn, err := openRecallyStore()
+			store, userID, dbConn, err := openRecally(c.Context)
 			if err != nil {
 				return err
 			}
