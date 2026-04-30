@@ -318,6 +318,34 @@ func (s provisionStubStore) UpdateSessionExpiry(context.Context, string, time.Ti
 	panic("unused")
 }
 
+func (s provisionStubStore) CreateUserToken(context.Context, auth.UserToken) (auth.UserToken, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) GetUserTokenByHash(context.Context, string) (auth.UserToken, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) GetActiveUserTokenByHash(context.Context, string) (auth.UserToken, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) GetActiveAutoUserToken(context.Context, int64) (auth.UserToken, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) RotateUserToken(context.Context, int64) (int64, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) RevokeUserToken(context.Context, int64) (int64, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) UpdateUserTokenLastUsed(context.Context, int64) (int64, error) {
+	panic("unused")
+}
+
 func TestProvisionIdentityUserPropagatesIdentityLookupError(t *testing.T) {
 	store := provisionStubStore{
 		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
