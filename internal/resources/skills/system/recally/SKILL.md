@@ -25,11 +25,18 @@ Recally is Anna's built-in reading assistant. Save articles, tweets, videos, and
 
 ### 1. Classify the URL
 
+**First, check for a site script** — structured scripts beat raw fetch for quality and reliability:
+
+```bash
+tap site search twitter   # check if a script exists for the domain
+tap site <site/action> [key=value]   # run it if found
+```
+
 | Pattern | Source Type | Fetch Strategy |
 |---------|-------------|----------------|
-| `twitter.com`, `x.com` | twitter | `tap fetch <url>` |
-| `youtube.com`, `youtu.be` | youtube | `tap fetch <url>` |
-| `github.com` | github | `gh repo view <owner/repo>` or `tap fetch` |
+| `twitter.com`, `x.com` | twitter | `tap site twitter/thread tweet_id=<id>` (thread) or `tap site twitter/user screen_name=<name>`, else `tap fetch --lp <url>` |
+| `youtube.com`, `youtu.be` | youtube | `tap site youtube/video id=<video_id>` if script exists, else `tap fetch --lp <url>` |
+| `github.com` | github | `gh repo view <owner/repo> --json name,description,primaryLanguage,stargazersCount` or `tap fetch` |
 | `*.pdf` / PDF content-type | pdf | `kreuzberg extract` if local; `curl -sL ... -o /tmp/recally-article.pdf && kreuzberg extract` if remote |
 | Everything else | web | `tap fetch --json <url>` |
 
@@ -38,8 +45,11 @@ Recally is Anna's built-in reading assistant. Save articles, tweets, videos, and
 Always fetch content to `/tmp/recally-article.md` first. Read that file for summarization, then pass it to `save`. Never pipe content directly.
 
 ```bash
-# Web article — saves markdown + metadata JSON; use .canonical_url for deduplication
+# Web article — --json returns structured fields (.markdown, .title, .author, .published, .domain)
 tap fetch --json https://example.com/article > /tmp/recally-article.md
+
+# JS-heavy page, no login needed — Lightpanda is faster than full Chrome
+tap fetch --lp --json https://example.com/spa > /tmp/recally-article.md
 
 # GitHub repo
 gh repo view owner/repo --json name,description,primaryLanguage,stargazersCount > /tmp/recally-article.md
@@ -48,6 +58,20 @@ gh repo view owner/repo --json name,description,primaryLanguage,stargazersCount 
 curl -sL https://example.com/paper.pdf -o /tmp/recally-article.pdf
 kreuzberg extract /tmp/recally-article.pdf > /tmp/recally-article.md
 ```
+
+**`tap` quick reference** (covers normal recally use — load the tap skill only for auth/CDP flows):
+
+| Command / Flag | Effect |
+|----------------|--------|
+| `tap site search <domain>` | Check if a structured site script exists |
+| `tap site <site/action> [k=v]` | Run a site script (best quality for known sites) |
+| `tap fetch <url>` | Clean readable markdown |
+| `tap fetch --json <url>` | JSON with `.markdown` (clean text), `.title`, `.author`, `.published`, `.description`, `.domain`, `.wordCount` |
+| `--lp` / `--lightpanda` | Fast JS rendering without Chrome — use for SPAs and JS-heavy pages that don't need login |
+| `-b` / `--browser` | Full Chrome rendering — use when `--lp` fails or page requires a logged-in session |
+| `--wait <dur>` | Fixed post-navigation delay (e.g. `--wait 3s`) |
+
+**Escalation order**: site script → `tap fetch --json` → `tap fetch --lp --json` → `tap fetch -b --json` → load tap skill for auth.
 
 After fetching, read `/tmp/recally-article.md` and produce a summary: **Title**, **Author**, **Summary** (2-4 sentences), **Tags** (3-7 lowercase keywords), **Source Type**.
 
@@ -67,7 +91,7 @@ anna recally save \
     --metadata '{"key":"value"}'
 ```
 
-Key flags: `--url` (required), `--content-file`, `--canonical-url` (from `tap fetch --json` output), `--source-type`, `--published-at` (RFC3339), `--metadata`.
+Key flags: `--url` (required), `--content-file`, `--canonical-url` (optional override for deduplication; derive from `.domain` + path if needed), `--source-type`, `--published-at` (RFC3339; use `.published` from `tap fetch --json`), `--metadata`.
 
 URL normalization strips `utm_*`, `fbclid`, lowercases host. `--canonical-url` overrides computed canonical for deduplication.
 
