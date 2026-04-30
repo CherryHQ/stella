@@ -3,6 +3,7 @@ package vault_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -135,8 +136,11 @@ func TestLoadEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnv: %v", err)
 	}
-	if len(env) != len(secrets) {
-		t.Fatalf("LoadEnv: got %d entries, want %d", len(env), len(secrets))
+	if len(env) != len(secrets)+1 {
+		t.Fatalf("LoadEnv: got %d entries, want %d", len(env), len(secrets)+1)
+	}
+	if got := env[vault.AnnaTokenName]; !strings.HasPrefix(got, "anna_") {
+		t.Fatalf("LoadEnv[%q] = %q, want anna_ prefix", vault.AnnaTokenName, got)
 	}
 	for name, want := range secrets {
 		got, ok := env[name]
@@ -200,7 +204,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 }
 
-func TestLoadEnvEmpty(t *testing.T) {
+func TestLoadEnvAutoCreatesAnnaToken(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
 	ctx := context.Background()
@@ -209,8 +213,17 @@ func TestLoadEnvEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnv: %v", err)
 	}
-	if len(env) != 0 {
-		t.Fatalf("LoadEnv: got %d entries, want 0", len(env))
+	token := env[vault.AnnaTokenName]
+	if !strings.HasPrefix(token, "anna_") {
+		t.Fatalf("LoadEnv[%q] = %q, want anna_ prefix", vault.AnnaTokenName, token)
+	}
+
+	again, err := svc.LoadEnv(ctx, userID)
+	if err != nil {
+		t.Fatalf("LoadEnv again: %v", err)
+	}
+	if again[vault.AnnaTokenName] != token {
+		t.Fatal("LoadEnv regenerated ANNA_TOKEN; want stable token")
 	}
 }
 

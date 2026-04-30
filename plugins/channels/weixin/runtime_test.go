@@ -51,7 +51,7 @@ func TestWeixinManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"bot_token": "wx-token", "base_url": "https://wx.example", "bot_id": "bot-1", "user_id": "user-1", "enable_notify": true}}
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"bot_token": "wx-token", "base_url": "https://wx.example", "bot_id": "bot-1", "user_id": "user-1"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -67,9 +67,6 @@ func TestWeixinManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	if snap.State != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %q, want running", snap.State)
 	}
-	if snap.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", snap.Metadata["notify_enabled"])
-	}
 	if snap.Metadata["has_bot_identity"] != true {
 		t.Fatalf("has_bot_identity = %#v, want true", snap.Metadata["has_bot_identity"])
 	}
@@ -79,8 +76,8 @@ func TestWeixinManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	}
 	waitClosed(t, first.stopped, "first weixin stop")
 	waitClosed(t, second.started, "second weixin start")
-	if got := notifier.Channels(); len(got) != 0 {
-		t.Fatalf("notifier channels after reconfigure = %v, want []", got)
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformWeixin {
+		t.Fatalf("notifier channels after reconfigure = %v, want [weixin]", got)
 	}
 
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: false, Config: map[string]any{"bot_token": "wx-token-2"}}); err != nil {

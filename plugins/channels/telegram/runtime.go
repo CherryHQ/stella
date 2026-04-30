@@ -40,17 +40,16 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
 	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.TelegramConfig]{
-		Parent:               deps.Parent,
-		Handler:              deps.Handler,
-		Notifier:             deps.Notifications,
-		Platform:             pkgchannel.PlatformTelegram,
-		DecodeConfig:         DecodeConfig,
-		ConfigureConfig:      configureConfig,
-		ValidateConfig:       validateConfig,
-		NotificationsEnabled: func(cfg pkgchannel.TelegramConfig) bool { return cfg.EnableNotify },
-		NewChannel:           deps.NewChannel,
-		Snapshot:             runtimeSnapshot,
-		Now:                  deps.Now,
+		Parent:          deps.Parent,
+		Handler:         deps.Handler,
+		Notifier:        deps.Notifications,
+		Platform:        pkgchannel.PlatformTelegram,
+		DecodeConfig:    DecodeConfig,
+		ConfigureConfig: configureConfig,
+		ValidateConfig:  validateConfig,
+		NewChannel:      deps.NewChannel,
+		Snapshot:        runtimeSnapshot,
+		Now:             deps.Now,
 	})
 }
 
@@ -69,7 +68,6 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		Metadata: map[string]any{
 			"channel_id":          cfg.ChannelID,
 			"group_mode":          cfg.GroupMode,
-			"notify_enabled":      cfg.EnableNotify,
 			"has_default_channel": cfg.ChannelID != "",
 		},
 	}

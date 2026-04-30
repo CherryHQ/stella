@@ -11,18 +11,17 @@ import (
 )
 
 type BotRuntimeDeps[T any] struct {
-	Parent               context.Context
-	Handler              pkgchannel.Handler
-	Notifier             ChannelRegistry
-	Log                  *slog.Logger
-	Now                  func() time.Time
-	Platform             string
-	DecodeConfig         func(map[string]any) (T, error)
-	ConfigureConfig      func(T, PluginState) T
-	ValidateConfig       func(T) string
-	NotificationsEnabled func(T) bool
-	NewChannel           func(T, pkgchannel.Handler) (pkgchannel.Channel, error)
-	Snapshot             func(time.Time, RuntimeState, string, T) RuntimeStatus
+	Parent          context.Context
+	Handler         pkgchannel.Handler
+	Notifier        ChannelRegistry
+	Log             *slog.Logger
+	Now             func() time.Time
+	Platform        string
+	DecodeConfig    func(map[string]any) (T, error)
+	ConfigureConfig func(T, PluginState) T
+	ValidateConfig  func(T) string
+	NewChannel      func(T, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Snapshot        func(time.Time, RuntimeState, string, T) RuntimeStatus
 }
 
 type botManagedRuntime[T any] struct {
@@ -50,9 +49,6 @@ func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
 	}
 	if deps.ValidateConfig == nil {
 		deps.ValidateConfig = func(T) string { return "" }
-	}
-	if deps.NotificationsEnabled == nil {
-		deps.NotificationsEnabled = func(T) bool { return false }
 	}
 	if deps.NewChannel == nil {
 		panic("plugins: missing bot runtime channel factory")
@@ -124,7 +120,7 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 		r.mu.Unlock()
 		return fmt.Errorf("build %s channel: empty channel name", r.deps.Platform)
 	}
-	if r.deps.NotificationsEnabled(cfg) && r.deps.Notifier != nil {
+	if r.deps.Notifier != nil {
 		r.deps.Notifier.Register(ch)
 	}
 	childCtx, stop := context.WithCancel(r.deps.Parent)

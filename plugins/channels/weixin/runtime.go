@@ -31,18 +31,17 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 		}
 	}
 	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.WeixinConfig]{
-		Parent:               deps.Parent,
-		Handler:              deps.Handler,
-		Notifier:             deps.Notifications,
-		Log:                  deps.Log,
-		Now:                  deps.Now,
-		Platform:             pkgchannel.PlatformWeixin,
-		DecodeConfig:         DecodeConfig,
-		ConfigureConfig:      configureConfig,
-		ValidateConfig:       validateConfig,
-		NotificationsEnabled: func(cfg pkgchannel.WeixinConfig) bool { return cfg.EnableNotify },
-		NewChannel:           deps.NewChannel,
-		Snapshot:             runtimeSnapshot,
+		Parent:          deps.Parent,
+		Handler:         deps.Handler,
+		Notifier:        deps.Notifications,
+		Log:             deps.Log,
+		Now:             deps.Now,
+		Platform:        pkgchannel.PlatformWeixin,
+		DecodeConfig:    DecodeConfig,
+		ConfigureConfig: configureConfig,
+		ValidateConfig:  validateConfig,
+		NewChannel:      deps.NewChannel,
+		Snapshot:        runtimeSnapshot,
 	})
 }
 
@@ -89,11 +88,6 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"description": "Optional Weixin user identity.",
 			},
-			"enable_notify": map[string]any{
-				"type":        "boolean",
-				"description": "Whether scheduler and system notifications are delivered to Weixin.",
-				"default":     false,
-			},
 		},
 		"required": []any{"bot_token"},
 	}
@@ -115,7 +109,6 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 			"base_url":          cfg.BaseURL,
 			"bot_id":            cfg.BotID,
 			"user_id":           cfg.UserID,
-			"notify_enabled":    cfg.EnableNotify,
 			"has_bot_identity":  cfg.BotID != "",
 			"has_user_identity": cfg.UserID != "",
 		},

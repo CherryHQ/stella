@@ -251,11 +251,6 @@ templ ChannelsPage() {
 
 templ dedicatedInstanceFields(model string) {
 	<div class="space-y-4">
-		<label class="flex items-center gap-3 cursor-pointer">
-			<input type="checkbox" x-model={ model + ".enable_notify" } class="toggle toggle-primary toggle-sm"/>
-			<span class="text-sm">Notifications</span>
-		</label>
-
 		<div x-show={ model + ".type === 'telegram'" } x-cloak class="space-y-4">
 			<div>
 				@ui.FormField("Bot Token") {

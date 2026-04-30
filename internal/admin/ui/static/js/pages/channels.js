@@ -5,7 +5,6 @@ const platformMeta = {
   telegram: {
     label: 'Telegram',
     defaults: {
-      enable_notify: false,
       token: '',
       channel_id: '',
       group_mode: '',
@@ -14,7 +13,6 @@ const platformMeta = {
   qq: {
     label: 'QQ',
     defaults: {
-      enable_notify: false,
       app_id: '',
       app_secret: '',
       group_mode: '',
@@ -23,7 +21,6 @@ const platformMeta = {
   feishu: {
     label: 'Feishu',
     defaults: {
-      enable_notify: false,
       app_id: '',
       app_secret: '',
       encrypt_key: '',
@@ -35,9 +32,7 @@ const platformMeta = {
   },
   weixin: {
     label: 'Weixin',
-    defaults: {
-      enable_notify: false,
-    },
+    defaults: {},
   },
 }
 

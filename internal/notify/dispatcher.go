@@ -169,13 +169,7 @@ type platformNamedChannel interface {
 }
 
 func channelMatches(ch pkgchannel.Channel, name string) bool {
-	if ch.Name() == name {
-		return true
-	}
-	if typed, ok := ch.(platformNamedChannel); ok {
-		return typed.Platform() == name
-	}
-	return false
+	return ch.Name() == name
 }
 
 func (d *Dispatcher) routingTable(ctx context.Context) (routingTable, error) {

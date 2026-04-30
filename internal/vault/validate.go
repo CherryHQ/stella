@@ -28,6 +28,9 @@ var reservedWordPrefixes = []string{
 	"TMPDIR",
 }
 
+// AnnaTokenName is the per-user service token exposed to sandbox sessions.
+const AnnaTokenName = "ANNA_TOKEN"
+
 // ValidateName checks that a vault entry name is a valid env var name
 // and is not reserved.
 func ValidateName(name string) error {
@@ -38,9 +41,10 @@ func ValidateName(name string) error {
 		return fmt.Errorf("vault: name %q is invalid: must match ^[A-Z][A-Z0-9_]{0,127}$", name)
 	}
 
-	// Check reserved prefixes (ANNA_, LC_, XDG_).
+	// Check reserved prefixes (ANNA_, LC_, XDG_), with ANNA_TOKEN as the
+	// only supported Anna-managed credential exposed to sandbox sessions.
 	for _, prefix := range reservedPrefixes {
-		if strings.HasPrefix(name, prefix) {
+		if strings.HasPrefix(name, prefix) && name != AnnaTokenName {
 			return fmt.Errorf("vault: name %q is reserved: must not start with %q", name, prefix)
 		}
 	}
