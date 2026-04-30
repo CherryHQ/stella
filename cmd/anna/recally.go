@@ -149,7 +149,7 @@ func recallySaveCommand() *ucli.Command {
 			} else {
 				// Try to read from stdin
 				stat, err := os.Stdin.Stat()
-				if err == nil && stat.Size() > 0 {
+				if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
 					data, err := io.ReadAll(os.Stdin)
 					if err != nil {
 						return fmt.Errorf("read stdin: %w", err)
@@ -553,7 +553,7 @@ func recallyUpdateCommand() *ucli.Command {
 
 			if content, err := fm.ReadArticleFull(filePath); err == nil {
 				// Extract body, rewrite with updated article
-				_, body := splitFrontmatter(content)
+				_, body := recally.SplitFrontmatter(content)
 				if err := fm.WriteArticle(filePath, updated, strings.TrimSpace(body)); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to update file frontmatter: %v\n", err)
 				}
@@ -768,7 +768,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally feed remove <feed-id>")
 			}
 
-			_, err := resolveUserID(c)
+			userID, err := resolveUserID(c)
 			if err != nil {
 				return err
 			}
@@ -782,6 +782,14 @@ func recallyFeedRemoveCommand() *ucli.Command {
 					err = cerr
 				}
 			}()
+
+			feed, err := store.GetFeed(c.Context, feedID)
+			if err != nil {
+				return fmt.Errorf("get feed: %w", err)
+			}
+			if feed.UserID != userID {
+				return fmt.Errorf("feed %s does not belong to this user", feedID[:8])
+			}
 
 			if err := store.DeleteFeed(c.Context, feedID); err != nil {
 				return fmt.Errorf("remove feed: %w", err)
@@ -1000,7 +1008,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna recally feed mark <entry-id> --status <status>")
 			}
 
-			_, err := resolveUserID(c)
+			userID, err := resolveUserID(c)
 			if err != nil {
 				return err
 			}
@@ -1028,6 +1036,18 @@ func recallyFeedMarkCommand() *ucli.Command {
 				}
 			}()
 
+			feedEntry, err := store.GetFeedEntry(c.Context, entryID)
+			if err != nil {
+				return fmt.Errorf("get entry: %w", err)
+			}
+			feed, err := store.GetFeed(c.Context, feedEntry.FeedID)
+			if err != nil {
+				return fmt.Errorf("get feed: %w", err)
+			}
+			if feed.UserID != userID {
+				return fmt.Errorf("entry %s does not belong to this user", entryID[:8])
+			}
+
 			var articleID *string
 			if aid := c.String("article-id"); aid != "" {
 				articleID = &aid
@@ -1043,18 +1063,4 @@ func recallyFeedMarkCommand() *ucli.Command {
 			return nil
 		},
 	}
-}
-
-// splitFrontmatter splits content into frontmatter and body.
-// Used for updating file frontmatter after DB update.
-func splitFrontmatter(content string) (string, string) {
-	if !strings.HasPrefix(content, "---\n") && content != "---" {
-		return "", content
-	}
-	rest := strings.TrimPrefix(content, "---")
-	before, after, ok := strings.Cut(rest, "\n---")
-	if !ok {
-		return "", content
-	}
-	return strings.TrimPrefix(before, "\n"), strings.TrimPrefix(after, "\n")
 }

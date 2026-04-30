@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -193,7 +194,8 @@ func (s *Store) ListArticles(ctx context.Context, userID int64, filter ArticleFi
 		limit = 50
 	}
 
-	starred := any(int64(0))
+	// SQL: (starred = 0 OR starred = ?), so 0 means "don't filter", 1 means "only starred"
+	var starred any = int64(0)
 	if filter.Starred != nil && *filter.Starred {
 		starred = int64(1)
 	}
@@ -419,6 +421,20 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 	return entries, nil
 }
 
+// GetFeedEntry retrieves a feed entry by ID.
+func (s *Store) GetFeedEntry(ctx context.Context, entryID string) (*FeedEntry, error) {
+	row, err := s.q.GetRSSFeedEntry(ctx, entryID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("feed entry not found: %s", entryID)
+		}
+		return nil, fmt.Errorf("get feed entry: %w", err)
+	}
+	var entry FeedEntry
+	entry.FromSQLCFeedEntry(row)
+	return &entry, nil
+}
+
 // MarkFeedEntry updates the status of a feed entry after processing.
 func (s *Store) MarkFeedEntry(ctx context.Context, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
 	updated, err := s.q.UpdateRSSFeedEntry(ctx, sqlc.UpdateRSSFeedEntryParams{
@@ -541,14 +557,9 @@ func (s *Store) GetDigest(ctx context.Context, userID int64) (*Digest, error) {
 			Count: count,
 		})
 	}
-	// Sort by count descending (simple bubble sort for small lists)
-	for i := 0; i < len(digest.TopTags); i++ {
-		for j := i + 1; j < len(digest.TopTags); j++ {
-			if digest.TopTags[j].Count > digest.TopTags[i].Count {
-				digest.TopTags[i], digest.TopTags[j] = digest.TopTags[j], digest.TopTags[i]
-			}
-		}
-	}
+	sort.Slice(digest.TopTags, func(i, j int) bool {
+		return digest.TopTags[i].Count > digest.TopTags[j].Count
+	})
 	// Limit to top 10
 	if len(digest.TopTags) > 10 {
 		digest.TopTags = digest.TopTags[:10]

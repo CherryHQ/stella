@@ -68,7 +68,7 @@ func (fm *FileManager) ReadArticle(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, body := splitFrontmatter(content)
+	_, body := SplitFrontmatter(content)
 	return strings.TrimSpace(body), nil
 }
 
@@ -137,7 +137,7 @@ func (fm *FileManager) buildFrontmatter(article *Article) (string, error) {
 	return "---\n" + string(buf) + "---", nil
 }
 
-func splitFrontmatter(content string) (string, string) {
+func SplitFrontmatter(content string) (string, string) {
 	if !strings.HasPrefix(content, "---\n") && content != "---" {
 		return "", content
 	}
