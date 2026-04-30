@@ -50,4 +50,13 @@ type AuthStore interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID int64) error
 	UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error
+
+	// User tokens
+	CreateUserToken(ctx context.Context, token UserToken) (UserToken, error)
+	GetUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
+	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
+	GetActiveAutoUserToken(ctx context.Context, userID int64) (UserToken, error)
+	RotateUserToken(ctx context.Context, id int64) (int64, error)
+	RevokeUserToken(ctx context.Context, id int64) (int64, error)
+	UpdateUserTokenLastUsed(ctx context.Context, id int64) (int64, error)
 }
