@@ -20,6 +20,10 @@ WHERE token_hash = ?
   AND (expires_at IS NULL OR expires_at > datetime('now'));
 
 -- name: GetActiveAutoAuthUserTokenByUser :one
+-- expires_at is intentionally not filtered here: TokenService rotates at
+-- autoTokenRotateAfter (60 days), which is always before autoTokenTTL (90 days),
+-- so an auto token is replaced before it can expire. The Go layer handles
+-- time-based rotation rather than relying on the DB expiry column.
 SELECT * FROM auth_user_tokens
 WHERE user_id = ?
   AND auto_generated = 1

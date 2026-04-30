@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vaayne/anna/internal/vault"
 )
 
 const (
-	AnnaTokenName        = "ANNA_TOKEN"
+	// AnnaTokenName is re-exported from the vault package for callers that only
+	// import auth.
+	AnnaTokenName        = vault.AnnaTokenName
 	autoTokenTTL         = 90 * 24 * time.Hour
 	autoTokenRotateAfter = 60 * 24 * time.Hour
 	tokenPrefixLength    = 13
@@ -51,6 +55,10 @@ func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
 }
 
 // EnsureAutoToken ensures userID has one active auto-generated token in the vault and token table.
+// Concurrent calls for the same user are safe: the unique partial index on
+// (user_id) WHERE auto_generated=1 AND revoked_at IS NULL prevents duplicate
+// rows; the losing writer gets a constraint error that the caller is expected
+// to log and ignore (see buildSandboxEnv).
 func (s *TokenService) EnsureAutoToken(ctx context.Context, userID int64) error {
 	token, err := s.store.GetActiveAutoUserToken(ctx, userID)
 	if err == nil {
@@ -137,6 +145,10 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID int64, 
 	return nil
 }
 
+// loadVaultToken attempts to read an existing ANNA_TOKEN from the vault for
+// backfill migration. Returns ("", false, nil) when the vault does not
+// implement vaultLoader (e.g. write-only test stubs), which intentionally
+// skips backfill and falls through to token generation.
 func (s *TokenService) loadVaultToken(ctx context.Context, userID int64) (string, bool, error) {
 	loader, ok := s.vault.(vaultLoader)
 	if !ok {

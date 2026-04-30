@@ -136,6 +136,10 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	env := make(map[string]string)
 
 	if cfg.TokenService != nil {
+		// EnsureAutoToken is idempotent; concurrent calls for the same user
+		// may return a constraint error (two sessions starting simultaneously).
+		// That is harmless: the vault already holds a valid token from the
+		// winning writer, so LoadEnv below will find it.
 		if err := cfg.TokenService.EnsureAutoToken(ctx, cfg.UserID); err != nil {
 			slog.Warn("auto token ensure skipped",
 				"component", "runner_sandbox",

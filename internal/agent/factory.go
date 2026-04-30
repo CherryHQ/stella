@@ -26,6 +26,8 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
+//
+// TODO: consolidate the 14 positional parameters into a RunnerFactoryConfig struct.
 func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn func() []pkgplugins.SystemPromptSection, sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader VaultEnvLoader, tokenService *auth.TokenService, tokenManager *oauth.TokenManager) (NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
