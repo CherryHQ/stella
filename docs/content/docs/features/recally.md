@@ -207,16 +207,11 @@ Outputs a structured JSON summary:
 - `revisit`: Articles worth revisiting (unread > 3 days old)
 - `top_tags`: Top tags from this week
 
-## User ID Resolution
+## Authentication
 
-The CLI requires a user ID for all operations. Resolution order:
+The CLI authenticates with `ANNA_TOKEN` for all operations. Agent sandbox sessions receive this token automatically, and Recally resolves the user from the authenticated token.
 
-1. `ANNA_USER_ID` environment variable (authoritative, used in sandbox sessions)
-2. `--user-id` flag (only when env var is not set)
-
-If `ANNA_USER_ID` is set and differs from `--user-id`, a warning is printed and the env var wins.
-
-For direct CLI usage (not through agent), pass `--user-id` explicitly.
+For direct CLI usage outside Anna, provide a valid `ANNA_TOKEN` in the environment.
 
 ## Skill Usage
 
@@ -304,7 +299,7 @@ This keeps search fast while preserving full content for deep queries.
 | DB schema (RSS) | `internal/db/schemas/tables/rss_feeds.sql` |
 | DB queries | `internal/db/queries/articles.sql` |
 | DB queries (RSS) | `internal/db/queries/rss_feeds.sql` |
-| Sandbox env | `internal/agent/sandbox_backend.go` (injects `ANNA_USER_ID`) |
+| Sandbox auth env | `internal/agent/sandbox_backend.go` (injects `ANNA_TOKEN`) |
 
 ## Future Improvements
 

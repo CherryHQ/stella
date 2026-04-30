@@ -127,17 +127,22 @@ run = """
   DIR=plugins/sandbox/docker
   UID_ARG=$(id -u)
   GID_ARG=$(id -g)
+  VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
   if [ -n "${GITHUB_TOKEN:-}" ]; then
     DOCKER_BUILDKIT=1 docker build \
       --secret id=github_token,env=GITHUB_TOKEN \
       --build-arg USER_UID=$UID_ARG \
       --build-arg USER_GID=$GID_ARG \
-      -t anna-sandbox:dev "$DIR"
+      --build-arg VERSION=$VERSION_ARG \
+      -f "$DIR/Dockerfile" \
+      -t anna-sandbox:dev .
   else
     DOCKER_BUILDKIT=1 docker build \
       --build-arg USER_UID=$UID_ARG \
       --build-arg USER_GID=$GID_ARG \
-      -t anna-sandbox:dev "$DIR"
+      --build-arg VERSION=$VERSION_ARG \
+      -f "$DIR/Dockerfile" \
+      -t anna-sandbox:dev .
   fi
 """
 

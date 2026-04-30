@@ -207,16 +207,11 @@ anna recally digest [--json]
 - `revisit`: 值得回顾的文章（未读超过 3 天）
 - `top_tags`: 本周热门标签
 
-## 用户 ID 解析
+## 认证
 
-CLI 需要用户 ID 才能执行所有操作。解析顺序：
+CLI 的所有操作都通过 `ANNA_TOKEN` 认证。Agent 沙盒会话会自动获得该 token，Recally 会从认证后的 token 解析用户。
 
-1. `ANNA_USER_ID` 环境变量（权威，用于沙盒会话）
-2. `--user-id` 标志（仅在未设置环境变量时使用）
-
-如果设置了 `ANNA_USER_ID` 且与 `--user-id` 不同，将打印警告并使用环境变量的值。
-
-对于直接使用 CLI（不通过 Agent），显式传递 `--user-id`。
+在 Anna 外部直接使用 CLI 时，请在环境变量中提供有效的 `ANNA_TOKEN`。
 
 ## 技能使用
 
@@ -304,7 +299,7 @@ Agent 通过两步流程访问保存的内容：
 | 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql` |
 | 数据库查询 | `internal/db/queries/articles.sql` |
 | 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql` |
-| 沙盒环境 | `internal/agent/sandbox_backend.go`（注入 `ANNA_USER_ID`） |
+| 沙盒认证环境 | `internal/agent/sandbox_backend.go`（注入 `ANNA_TOKEN`） |
 
 ## 未来改进
 

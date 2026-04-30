@@ -12,7 +12,7 @@ metadata:
 
 Recally is Anna's built-in reading assistant. Save articles, tweets, videos, and documents to your personal library, organize them with tags, and search them later. RSS feeds can be monitored for automatic ingestion.
 
-**Environment**: The CLI uses `ANNA_USER_ID` from the sandbox environment (automatically set). Never pass `--user-id` unless running outside Anna.
+**Environment**: The CLI authenticates with `ANNA_TOKEN` from the sandbox environment (automatically set). Do not pass user identity flags; Recally resolves the user from the token.
 
 ## Core Workflow: Save an Article
 
