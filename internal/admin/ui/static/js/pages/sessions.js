@@ -136,6 +136,58 @@ export function register(Alpine) {
       return name ? name[0].toUpperCase() : 'U'
     },
 
+    toolColor(name) {
+      const n = (name || '').toLowerCase()
+      if (n === 'bash') return 'text-warning'
+      if (n === 'skill' || n === 'skills') return 'text-info'
+      if (n === 'read' || n === 'write' || n === 'edit') return 'text-secondary'
+      if (n === 'grep' || n === 'glob') return 'text-accent'
+      if (n === 'webfetch' || n === 'websearch') return 'text-success'
+      if (n === 'agent') return 'text-primary'
+      return 'text-primary'
+    },
+
+    toolPreview(block) {
+      const args = block.arguments || {}
+      const n = (block.name || '').toLowerCase()
+      if (n === 'bash') {
+        const cmd = args.command || args.input || ''
+        return cmd.length > 55 ? '$ ' + cmd.slice(0, 55) + '…' : '$ ' + cmd
+      }
+      if (n === 'skill' || n === 'skills') {
+        const skill = args.skill || args.name || ''
+        const action = args.action || ''
+        const input = args.args || args.input || ''
+        const parts = [action, skill, input].filter(Boolean)
+        const preview = parts.join(' › ')
+        return preview.length > 55 ? preview.slice(0, 55) + '…' : preview
+      }
+      if (n === 'read') {
+        const p = args.file_path || args.path || ''
+        const parts = p.split('/')
+        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
+      }
+      if (n === 'write' || n === 'edit') {
+        const p = args.file_path || args.path || ''
+        const parts = p.split('/')
+        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
+      }
+      if (n === 'glob') return args.pattern || ''
+      if (n === 'grep') {
+        return args.pattern ? '/' + args.pattern + '/' : ''
+      }
+      if (n === 'websearch') return args.query || ''
+      if (n === 'webfetch') {
+        const url = args.url || ''
+        try { return new URL(url).hostname } catch { return url.slice(0, 45) }
+      }
+      if (n === 'agent') {
+        const desc = args.description || args.task || args.prompt || ''
+        return desc.length > 55 ? desc.slice(0, 55) + '…' : desc
+      }
+      return ''
+    },
+
     renderMd(text) {
       return marked.parse(text || '')
     },
