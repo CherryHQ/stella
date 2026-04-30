@@ -33,75 +33,37 @@ func EnsureAnnaCLIInPath(annaHome string) error {
 	}
 
 	dest := filepath.Join(binDir, "anna")
-	if upToDate, _ := sameSize(source, dest); upToDate {
-		return nil
-	}
-	if err := copyExecutable(source, dest); err != nil {
-		return fmt.Errorf("copy anna cli into sandbox path: %w", err)
-	}
-	return nil
-}
-
-// sameSize reports whether src and dst exist and have identical sizes.
-func sameSize(src, dst string) (bool, error) {
-	si, err := os.Stat(src)
-	if err != nil {
-		return false, err
-	}
-	di, err := os.Stat(dst)
-	if err != nil {
-		return false, err
-	}
-	return si.Size() == di.Size(), nil
-}
-
-func copyExecutable(source, dest string) error {
 	in, err := os.Open(source)
 	if err != nil {
-		return err
+		return fmt.Errorf("open executable: %w", err)
 	}
 	defer func() { _ = in.Close() }()
 
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".anna-*")
+	tmp, err := os.CreateTemp(binDir, ".anna-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := io.Copy(tmp, in); err != nil {
 		_ = tmp.Close()
-		return err
+		return fmt.Errorf("copy executable: %w", err)
 	}
 	if err := tmp.Chmod(0o755); err != nil {
 		_ = tmp.Close()
-		return err
+		return fmt.Errorf("chmod executable: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return fmt.Errorf("close temp file: %w", err)
 	}
-	// Remove any existing regular file or symlink after the temp copy is fully
-	// written. This keeps the old path available if copying fails, while ensuring
-	// a stale symlink is replaced by a real executable file.
+	// Remove any existing file or symlink before rename so the destination is
+	// always a plain regular file owned by this process.
 	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("remove existing binary: %w", err)
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
-		return err
-	}
-	return ensureRegularFile(dest)
-}
-
-func ensureRegularFile(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s is still a symlink", path)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", path)
+		return fmt.Errorf("install executable: %w", err)
 	}
 	return nil
 }

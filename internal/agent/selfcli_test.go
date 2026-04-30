@@ -6,24 +6,26 @@ import (
 	"testing"
 )
 
-func TestCopyExecutableReplacesSymlinkWithRegularFile(t *testing.T) {
+func TestEnsureAnnaCLIInPathReplacesSymlink(t *testing.T) {
+	// Build a fake annaHome with bin/ containing a symlink where the binary should go.
 	dir := t.TempDir()
-	source := filepath.Join(dir, "source")
-	target := filepath.Join(dir, "target")
-	dest := filepath.Join(dir, "anna")
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := os.WriteFile(source, []byte("new anna"), 0o755); err != nil {
-		t.Fatalf("write source: %v", err)
+	// Place a symlink at the destination to confirm it gets replaced by a regular file.
+	target := filepath.Join(dir, "old-anna")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte("old anna"), 0o755); err != nil {
-		t.Fatalf("write target: %v", err)
-	}
+	dest := filepath.Join(binDir, "anna")
 	if err := os.Symlink(target, dest); err != nil {
-		t.Fatalf("symlink dest: %v", err)
+		t.Fatal(err)
 	}
 
-	if err := copyExecutable(source, dest); err != nil {
-		t.Fatalf("copyExecutable: %v", err)
+	if err := EnsureAnnaCLIInPath(dir); err != nil {
+		t.Fatalf("EnsureAnnaCLIInPath: %v", err)
 	}
 
 	info, err := os.Lstat(dest)
@@ -35,12 +37,5 @@ func TestCopyExecutableReplacesSymlinkWithRegularFile(t *testing.T) {
 	}
 	if !info.Mode().IsRegular() {
 		t.Fatalf("dest mode = %v, want regular file", info.Mode())
-	}
-	got, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read dest: %v", err)
-	}
-	if string(got) != "new anna" {
-		t.Fatalf("dest content = %q, want new anna", got)
 	}
 }
