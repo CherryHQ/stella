@@ -550,12 +550,17 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	}
 
 	var result []memory.SessionInfo
+	skipped := 0
 	for _, c := range convs {
 		info := convToSessionInfo(c)
 		if opts.AgentID != "" && info.AgentID != opts.AgentID {
 			continue
 		}
 		if opts.UserID != 0 && info.UserID != opts.UserID {
+			continue
+		}
+		if skipped < opts.Offset {
+			skipped++
 			continue
 		}
 		result = append(result, info)

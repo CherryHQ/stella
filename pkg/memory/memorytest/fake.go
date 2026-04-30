@@ -424,6 +424,12 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 		return results[i].LastActive.After(results[j].LastActive)
 	})
 
+	if opts.Offset > 0 {
+		if opts.Offset >= len(results) {
+			return nil, nil
+		}
+		results = results[opts.Offset:]
+	}
 	if opts.Limit > 0 && len(results) > opts.Limit {
 		results = results[:opts.Limit]
 	}

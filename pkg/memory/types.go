@@ -76,6 +76,7 @@ type ListOptions struct {
 	UserID          int64  // filter by user (0 = all)
 	IncludeArchived bool
 	Limit           int // 0 = no limit
+	Offset          int // skip first N matching results
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).
