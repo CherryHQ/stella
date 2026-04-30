@@ -219,7 +219,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := ensureAnnaCLIInPath(paths.AnnaHome); err != nil {
+	if err := EnsureAnnaCLIInPath(paths.AnnaHome); err != nil {
 		slog.Warn("failed to link anna cli into sandbox path", "error", err)
 	}
 
@@ -317,7 +317,7 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := ensureAnnaCLIInPath(paths.AnnaHome); err != nil {
+	if err := EnsureAnnaCLIInPath(paths.AnnaHome); err != nil {
 		slog.Warn("failed to link anna cli into sandbox path", "error", err)
 	}
 	if err := builtinres.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
