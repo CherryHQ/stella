@@ -36,6 +36,7 @@ type Server struct {
 	corsOriginV    string               // cached CORS origin
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
+	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credSvc        *credentials.Service // shared credentials service
 }
 
@@ -96,6 +97,11 @@ func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
 func (s *Server) SetVaultService(svc *vault.Service) {
 	s.vaultSvc = svc
 	s.credSvc.SetVaultService(svc)
+}
+
+// SetTokenService wires bearer token authentication into the admin server.
+func (s *Server) SetTokenService(svc *auth.TokenService) {
+	s.tokenSvc = svc
 }
 
 // CredentialsService returns the shared credentials service.

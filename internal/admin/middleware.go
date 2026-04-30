@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -52,14 +54,18 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		ctx := r.Context()
+		if info := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); info != nil {
+			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
+			return
+		}
+
 		// Try to load session.
 		sessionID, err := auth.GetSessionCookie(r)
 		if err != nil {
 			s.denyAccess(w, r)
 			return
 		}
-
-		ctx := r.Context()
 
 		// Clean up expired sessions lazily.
 		_ = s.authStore.DeleteExpiredSessions(ctx)
@@ -107,6 +113,29 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 	})
+}
+
+func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInfo {
+	if s.tokenSvc == nil {
+		return nil
+	}
+	scheme, rawToken, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(rawToken) == "" {
+		return nil
+	}
+	user, err := s.tokenSvc.Authenticate(ctx, rawToken)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			s.log.Warn("bearer token auth failed", "error", err)
+		}
+		return nil
+	}
+	return &AuthInfo{
+		UserID:   user.ID,
+		Username: user.Username,
+		Role:     user.Role,
+		IsAdmin:  user.IsAdmin(),
+	}
 }
 
 // adminOnlyMiddleware checks that the authenticated user has the admin role.

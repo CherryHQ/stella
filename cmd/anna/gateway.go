@@ -121,9 +121,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
 		} else {
+			tokenSvc := auth.NewTokenService(as, vaultSvc)
 			adminSrv.SetVaultService(vaultSvc)
+			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
+			s.poolManager.SetTokenService(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
 			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -146,6 +147,13 @@ func WithVaultEnvLoader(v VaultEnvLoader) PoolManagerOption {
 	}
 }
 
+// WithTokenService sets the auth token service for ANNA_TOKEN lifecycle.
+func WithTokenService(ts *auth.TokenService) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.tokenService = ts
+	}
+}
+
 // WithTokenManager sets the OAuth token manager for runtime token injection.
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) {
@@ -176,6 +184,7 @@ type PoolManager struct {
 	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           VaultEnvLoader
+	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	log                      *slog.Logger
@@ -228,6 +237,21 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v VaultEnvLoader) 
 	for agentID, pool := range pools {
 		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
+		}
+	}
+}
+
+// SetTokenService sets the token service and rebuilds all pool factories so new runners ensure ANNA_TOKEN.
+func (pm *PoolManager) SetTokenService(ctx context.Context, ts *auth.TokenService) {
+	pm.mu.Lock()
+	pm.tokenService = ts
+	pools := make(map[string]*Pool, len(pm.pools))
+	maps.Copy(pools, pm.pools)
+	pm.mu.Unlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after token service set", "agent_id", agentID, "error", err)
 		}
 	}
 }
@@ -538,7 +562,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.pluginPromptsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.pluginPromptsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenService, pm.tokenManager)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more
