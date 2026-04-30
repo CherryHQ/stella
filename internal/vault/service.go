@@ -2,8 +2,6 @@ package vault
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 
 	"filippo.io/age"
@@ -128,15 +126,6 @@ func (s *Service) LoadEnv(ctx context.Context, userID int64) (map[string]string,
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: list entries: %w", err)
 	}
-	if !hasVaultEntry(entries, AnnaTokenName) {
-		if err := s.Set(ctx, userID, AnnaTokenName, newAnnaToken()); err != nil {
-			return nil, fmt.Errorf("vault: load env: create %s: %w", AnnaTokenName, err)
-		}
-		entries, err = s.db.ListVaultEntriesByUser(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("vault: load env: list entries after %s creation: %w", AnnaTokenName, err)
-		}
-	}
 
 	env := make(map[string]string, len(entries))
 	for _, e := range entries {
@@ -147,21 +136,4 @@ func (s *Service) LoadEnv(ctx context.Context, userID int64) (map[string]string,
 		env[e.Name] = plaintext
 	}
 	return env, nil
-}
-
-func hasVaultEntry(entries []sqlc.VaultEntry, name string) bool {
-	for _, e := range entries {
-		if e.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func newAnnaToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic("vault: crypto/rand failed: " + err.Error())
-	}
-	return "anna_" + base64.RawURLEncoding.EncodeToString(b)
 }
