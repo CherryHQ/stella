@@ -140,50 +140,38 @@ export function register(Alpine) {
       const n = (name || '').toLowerCase()
       if (n === 'bash') return 'text-warning'
       if (n === 'skill' || n === 'skills') return 'text-info'
-      if (n === 'read' || n === 'write' || n === 'edit') return 'text-secondary'
-      if (n === 'grep' || n === 'glob') return 'text-accent'
-      if (n === 'webfetch' || n === 'websearch') return 'text-success'
+      if (n === 'memory') return 'text-accent'
       if (n === 'agent') return 'text-primary'
+      if (n === 'read' || n === 'write' || n === 'edit') return 'text-secondary'
       return 'text-primary'
     },
 
     toolPreview(block) {
       const args = block.arguments || {}
       const n = (block.name || '').toLowerCase()
-      if (n === 'bash') {
-        const cmd = args.command || args.input || ''
-        return cmd.length > 55 ? '$ ' + cmd.slice(0, 55) + '…' : '$ ' + cmd
-      }
+      const trunc = (s, len = 55) => s.length > len ? s.slice(0, len) + '…' : s
+      const shortPath = p => { const pts = (p || '').split('/'); return pts.length > 2 ? '…/' + pts.slice(-2).join('/') : p }
+      if (n === 'bash') return trunc('$ ' + (args.command || args.input || ''))
       if (n === 'skill' || n === 'skills') {
-        const skill = args.skill || args.name || ''
+        const parts = [args.action, args.skill || args.name, args.args || args.input].filter(Boolean)
+        return trunc(parts.join(' › '))
+      }
+      if (n === 'read') return shortPath(args.path || args.file_path)
+      if (n === 'write') {
+        const lines = args.content ? args.content.split('\n').length : 0
+        return shortPath(args.path || args.file_path) + (lines ? ' (' + lines + ' lines)' : '')
+      }
+      if (n === 'edit') return shortPath(args.path || args.file_path)
+      if (n === 'memory') {
         const action = args.action || ''
-        const input = args.args || args.input || ''
-        const parts = [action, skill, input].filter(Boolean)
-        const preview = parts.join(' › ')
-        return preview.length > 55 ? preview.slice(0, 55) + '…' : preview
-      }
-      if (n === 'read') {
-        const p = args.file_path || args.path || ''
-        const parts = p.split('/')
-        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
-      }
-      if (n === 'write' || n === 'edit') {
-        const p = args.file_path || args.path || ''
-        const parts = p.split('/')
-        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : p
-      }
-      if (n === 'glob') return args.pattern || ''
-      if (n === 'grep') {
-        return args.pattern ? '/' + args.pattern + '/' : ''
-      }
-      if (n === 'websearch') return args.query || ''
-      if (n === 'webfetch') {
-        const url = args.url || ''
-        try { return new URL(url).hostname } catch { return url.slice(0, 45) }
+        const detail = args.pattern || args.constraint_text || args.history_scope || ''
+        return detail ? action + ': ' + trunc(detail, 40) : action
       }
       if (n === 'agent') {
-        const desc = args.description || args.task || args.prompt || ''
-        return desc.length > 55 ? desc.slice(0, 55) + '…' : desc
+        const tasks = args.tasks || []
+        if (!tasks.length) return ''
+        const prefix = tasks.length > 1 ? '[' + tasks.length + '] ' : ''
+        return trunc(prefix + (tasks[0].task || ''))
       }
       return ''
     },
