@@ -2,6 +2,8 @@ package admin_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -216,4 +218,119 @@ func TestExpiredSessionDenied(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
+}
+
+type adminTokenVault struct {
+	env map[int64]map[string]string
+}
+
+func newAdminTokenVault() *adminTokenVault {
+	return &adminTokenVault{env: make(map[int64]map[string]string)}
+}
+
+func (v *adminTokenVault) Set(_ context.Context, userID int64, name string, plaintext string) error {
+	if v.env[userID] == nil {
+		v.env[userID] = make(map[string]string)
+	}
+	v.env[userID][name] = plaintext
+	return nil
+}
+
+func (v *adminTokenVault) LoadEnv(_ context.Context, userID int64) (map[string]string, error) {
+	return v.env[userID], nil
+}
+
+func TestBearerAuthSuccess(t *testing.T) {
+	env := setupAdmin(t)
+	vault := newAdminTokenVault()
+	tokenSvc := auth.NewTokenService(env.authStore, vault)
+	env.srv.SetTokenService(tokenSvc)
+
+	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
+		t.Fatalf("EnsureAutoToken: %v", err)
+	}
+	token := vault.env[env.adminUser.ID][auth.AnnaTokenName]
+	rr := doBearerRequest(t, env.srv, token, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestBearerAuthRejectsExpiredToken(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	expired := time.Now().Add(-time.Hour)
+	rawToken := "anna_expired"
+	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
+		UserID:      env.adminUser.ID,
+		Name:        auth.AnnaTokenName,
+		TokenHash:   testTokenHash(rawToken),
+		TokenPrefix: rawToken,
+		ExpiresAt:   &expired,
+	}); err != nil {
+		t.Fatalf("CreateUserToken: %v", err)
+	}
+
+	rr := doBearerRequest(t, env.srv, rawToken, "GET", "/api/agents", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBearerAuthRejectsRevokedToken(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	rawToken := "anna_revoked"
+	token, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
+		UserID:      env.adminUser.ID,
+		Name:        auth.AnnaTokenName,
+		TokenHash:   testTokenHash(rawToken),
+		TokenPrefix: rawToken,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserToken: %v", err)
+	}
+	if _, err := env.authStore.RevokeUserToken(context.Background(), token.ID); err != nil {
+		t.Fatalf("RevokeUserToken: %v", err)
+	}
+
+	rr := doBearerRequest(t, env.srv, rawToken, "GET", "/api/agents", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBearerAuthRejectsInactiveUser(t *testing.T) {
+	env := setupAdmin(t)
+	vault := newAdminTokenVault()
+	tokenSvc := auth.NewTokenService(env.authStore, vault)
+	env.srv.SetTokenService(tokenSvc)
+	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
+		t.Fatalf("EnsureAutoToken: %v", err)
+	}
+	user := env.adminUser
+	user.PasswordHash = "hash"
+	user.IsActive = false
+	if err := env.authStore.UpdateUser(context.Background(), user); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+
+	rr := doBearerRequest(t, env.srv, vault.env[env.adminUser.ID][auth.AnnaTokenName], "GET", "/api/agents", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBearerAuthFallsBackToCookie(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
+	rr := doBearerRequestWithSession(t, env.srv, env.sessionID, "anna_wrong", "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func testTokenHash(rawToken string) string {
+	sum := sha256.Sum256([]byte(rawToken))
+	return hex.EncodeToString(sum[:])
 }

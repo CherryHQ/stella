@@ -177,6 +177,34 @@ func doUnauthRequest(t *testing.T, srv *admin.Server, method, path string, body 
 	return doRequestWithSession(t, srv, "", method, path, body)
 }
 
+func doBearerRequest(t *testing.T, srv *admin.Server, token, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	return doBearerRequestWithSession(t, srv, "", token, method, path, body)
+}
+
+func doBearerRequestWithSession(t *testing.T, srv *admin.Server, sessionID, token, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if sessionID != "" {
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	}
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	return rr
+}
+
 type apiResponse struct {
 	Data  json.RawMessage `json:"data"`
 	Error string          `json:"error"`

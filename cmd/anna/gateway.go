@@ -123,6 +123,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			tokenSvc := auth.NewTokenService(as, vaultSvc)
 			adminSrv.SetVaultService(vaultSvc)
+			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
 			s.poolManager.SetTokenService(gctx, tokenSvc)
