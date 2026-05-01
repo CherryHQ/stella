@@ -125,14 +125,36 @@ func recallySaveCommand() *ucli.Command {
 				PublishedAt:  publishedAt,
 			}
 
+			annaHome := config.AnnaHome()
+			fm := recally.NewFileManager(annaHome)
+			if content == "" {
+				canonicalURL := req.CanonicalURL
+				if canonicalURL == "" {
+					canonicalURL = recally.NormalizeURL(req.URL)
+				}
+				existing, err := store.GetArticleByCanonicalURL(c.Context, userID, canonicalURL)
+				if err != nil {
+					return fmt.Errorf("content is required for new articles; provide --content-file or pipe content on stdin")
+				}
+				existingPath := existing.FilePath
+				if !filepath.IsAbs(existingPath) {
+					existingPath = filepath.Join(annaHome, existingPath)
+				}
+				existingContent, err := fm.ReadArticleFull(existingPath)
+				if err != nil {
+					return fmt.Errorf("read existing article content: %w", err)
+				}
+				_, body := recally.SplitFrontmatter(existingContent)
+				content = strings.TrimSpace(body)
+				req.Content = content
+			}
+
 			article, isNew, err := store.SaveArticle(c.Context, userID, req)
 			if err != nil {
 				return fmt.Errorf("save article: %w", err)
 			}
 
-			annaHome := config.AnnaHome()
-			fm := recally.NewFileManager(annaHome)
-			filePath := fm.ArticlePath(userID, article.Title, article.SavedAt)
+			filePath := fm.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
 			if err := fm.WriteArticle(filePath, article, content); err != nil {
 				return fmt.Errorf("write article file: %w", err)
 			}

@@ -12,38 +12,42 @@ func TestFileManager_ArticlePath(t *testing.T) {
 	fm := NewFileManager("/tmp/anna")
 
 	tests := []struct {
-		name    string
-		userID  int64
-		title   string
-		savedAt time.Time
-		want    string
+		name      string
+		userID    int64
+		title     string
+		savedAt   time.Time
+		articleID string
+		want      string
 	}{
 		{
-			name:    "basic path",
-			userID:  1,
-			title:   "Test Article",
-			savedAt: time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
-			want:    "/tmp/anna/library/1/articles/2026/04/29-test-article.md",
+			name:      "basic path",
+			userID:    1,
+			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
+			title:     "Test Article",
+			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
+			want:      "/tmp/anna/library/1/articles/2026/04/29-test-article-01HX3Q9M8N7P.md",
 		},
 		{
-			name:    "title with special chars",
-			userID:  42,
-			title:   "What's New?!",
-			savedAt: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
-			want:    "/tmp/anna/library/42/articles/2026/01/15-what-s-new.md",
+			name:      "title with special chars",
+			userID:    42,
+			articleID: "shortid",
+			title:     "What's New?!",
+			savedAt:   time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+			want:      "/tmp/anna/library/42/articles/2026/01/15-what-s-new-shortid.md",
 		},
 		{
-			name:    "empty title",
-			userID:  1,
-			title:   "",
-			savedAt: time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
-			want:    "/tmp/anna/library/1/articles/2026/04/29-untitled.md",
+			name:      "empty title",
+			userID:    1,
+			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
+			title:     "",
+			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
+			want:      "/tmp/anna/library/1/articles/2026/04/29-untitled-01HX3Q9M8N7P.md",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := fm.ArticlePath(tt.userID, tt.title, tt.savedAt)
+			got := fm.ArticlePath(tt.userID, tt.articleID, tt.title, tt.savedAt)
 			if got != tt.want {
 				t.Errorf("ArticlePath() = %v, want %v", got, tt.want)
 			}

@@ -4,7 +4,7 @@
 
 After `anna recally feed poll --json`, iterate the `pending` array in each feed result:
 
-1. **Fetch to file**: `tap fetch --json <entry.url> > /tmp/recally-article.md`
+1. **Fetch to file**: `tap fetch <entry.url> > /tmp/recally-article.md` (or `tap fetch --json <entry.url> | jq -r .markdown > /tmp/recally-article.md` when JSON metadata is needed)
 2. **Generate summary**: Read `/tmp/recally-article.md`, then produce Title, Author, Summary (2-4 sentences), Tags (3-7), Source Type = `rss`
 3. **Save**:
    ```bash

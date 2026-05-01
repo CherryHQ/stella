@@ -91,6 +91,20 @@ func (s *Store) SaveArticle(ctx context.Context, userID int64, req SaveRequest) 
 	return &article, true, nil
 }
 
+// GetArticleByCanonicalURL retrieves an article by canonical URL for a user.
+func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID int64, canonicalURL string) (*Article, error) {
+	row, err := s.q.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("article not found for canonical URL: %s", canonicalURL)
+		}
+		return nil, fmt.Errorf("get article by canonical URL: %w", err)
+	}
+	var article Article
+	article.FromSQLCArticle(row)
+	return &article, nil
+}
+
 // GetArticle retrieves an article by ID.
 func (s *Store) GetArticle(ctx context.Context, articleID string) (*Article, error) {
 	row, err := s.q.GetArticle(ctx, articleID)

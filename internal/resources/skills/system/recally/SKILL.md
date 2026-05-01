@@ -45,11 +45,11 @@ tap site <site/action> [key=value]   # run it if found
 Always fetch content to `/tmp/recally-article.md` first. Read that file for summarization, then pass it to `save`. Never pipe content directly.
 
 ```bash
-# Web article — --json returns structured fields (.markdown, .title, .author, .published, .domain)
-tap fetch --json https://example.com/article > /tmp/recally-article.md
+# Web article — fetch clean markdown for the saved body
+tap fetch https://example.com/article > /tmp/recally-article.md
 
 # JS-heavy page, no login needed — Lightpanda is faster than full Chrome
-tap fetch --lp --json https://example.com/spa > /tmp/recally-article.md
+tap fetch --lp https://example.com/spa > /tmp/recally-article.md
 
 # GitHub repo
 gh repo view owner/repo --json name,description,primaryLanguage,stargazersCount > /tmp/recally-article.md
@@ -71,7 +71,7 @@ kreuzberg extract /tmp/recally-article.pdf > /tmp/recally-article.md
 | `-b` / `--browser` | Full Chrome rendering — use when `--lp` fails or page requires a logged-in session |
 | `--wait <dur>` | Fixed post-navigation delay (e.g. `--wait 3s`) |
 
-**Escalation order**: site script → `tap fetch --json` → `tap fetch --lp --json` → `tap fetch -b --json` → load tap skill for auth.
+**Escalation order**: site script → `tap fetch` → `tap fetch --lp` → `tap fetch -b` → load tap skill for auth. Use `tap fetch --json <url> | jq -r .markdown > /tmp/recally-article.md` only when you also need JSON metadata fields.
 
 After fetching, read `/tmp/recally-article.md` and produce a summary: **Title**, **Author**, **Summary** (2-4 sentences), **Tags** (3-7 lowercase keywords), **Source Type**.
 

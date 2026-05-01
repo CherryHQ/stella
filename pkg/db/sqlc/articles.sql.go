@@ -191,7 +191,7 @@ func (q *Queries) GetArticleByCanonicalURL(ctx context.Context, arg GetArticleBy
 const getArticlesSavedThisWeek = `-- name: GetArticlesSavedThisWeek :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
 WHERE user_id = ?
-  AND saved_at >= datetime('now', '-7 days')
+  AND datetime(saved_at) >= datetime('now', '-7 days')
 ORDER BY saved_at DESC
 `
 
@@ -359,7 +359,7 @@ const listUnreadArticlesOlderThan = `-- name: ListUnreadArticlesOlderThan :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles
 WHERE user_id = ?
   AND status = 'unread'
-  AND saved_at < datetime('now', ?)
+  AND datetime(saved_at) < datetime('now', ?)
 ORDER BY saved_at ASC
 LIMIT ?
 `

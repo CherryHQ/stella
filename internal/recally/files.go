@@ -23,12 +23,19 @@ func NewFileManager(annaHome string) *FileManager {
 }
 
 // ArticlePath generates the storage path for an article file.
-func (fm *FileManager) ArticlePath(userID int64, title string, savedAt time.Time) string {
+func (fm *FileManager) ArticlePath(userID int64, articleID, title string, savedAt time.Time) string {
 	slug := ExtractSlug(title)
 	year := savedAt.UTC().Format("2006")
 	month := savedAt.UTC().Format("01")
 	day := savedAt.UTC().Format("02")
-	return filepath.Join(fm.annaHome, "library", fmt.Sprintf("%d", userID), "articles", year, month, fmt.Sprintf("%s-%s.md", day, slug))
+	return filepath.Join(fm.annaHome, "library", fmt.Sprintf("%d", userID), "articles", year, month, fmt.Sprintf("%s-%s-%s.md", day, slug, articlePathID(articleID)))
+}
+
+func articlePathID(articleID string) string {
+	if len(articleID) <= 12 {
+		return articleID
+	}
+	return articleID[:12]
 }
 
 // RelativePath returns a path relative to ANNA_HOME.

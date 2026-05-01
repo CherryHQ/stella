@@ -68,12 +68,12 @@ ORDER BY saved_at DESC;
 SELECT * FROM articles
 WHERE user_id = ?
   AND status = 'unread'
-  AND saved_at < datetime('now', ?)
+  AND datetime(saved_at) < datetime('now', ?)
 ORDER BY saved_at ASC
 LIMIT ?;
 
 -- name: GetArticlesSavedThisWeek :many
 SELECT * FROM articles
 WHERE user_id = ?
-  AND saved_at >= datetime('now', '-7 days')
+  AND datetime(saved_at) >= datetime('now', '-7 days')
 ORDER BY saved_at DESC;
