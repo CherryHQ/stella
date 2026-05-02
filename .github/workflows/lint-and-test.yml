@@ -57,8 +57,8 @@ jobs:
       - name: Check coverage threshold
         run: |
           THRESHOLD=50
-          # Exclude templ-generated files from coverage calculation
-          grep -v '_templ\.go' coverage.out > coverage-filtered.out || true
+          # Exclude templ-generated and SQLC-generated files from coverage calculation
+          grep -v '_templ\.go' coverage.out | grep -v 'pkg/db/sqlc' > coverage-filtered.out || true
           COVERAGE=$(go tool cover -func=coverage-filtered.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
           echo "Total coverage: ${COVERAGE}%"
           if [ "$(echo "${COVERAGE} < ${THRESHOLD}" | bc -l)" -eq 1 ]; then

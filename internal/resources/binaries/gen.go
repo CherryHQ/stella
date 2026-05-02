@@ -61,6 +61,17 @@ func main() {
 		fatalf("unsupported platform: %s", platform)
 	}
 
+	outDir := filepath.Join("binaries", platform)
+	outName := "mise.gz"
+	if goos == "windows" {
+		outName = "mise.exe.gz"
+	}
+	outPath := filepath.Join(outDir, outName)
+	if _, err := os.Stat(outPath); err == nil {
+		fmt.Printf("skipping %s (already exists)\n", outPath)
+		return
+	}
+
 	ver := "v" + miseVersion
 	fileName := strings.ReplaceAll(spec.file, "{ver}", ver)
 	url := fmt.Sprintf("https://github.com/jdx/mise/releases/download/%s/%s", ver, fileName)
@@ -96,15 +107,9 @@ func main() {
 		fatalf("find binary in archive: %v", err)
 	}
 
-	outDir := filepath.Join("binaries", platform)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		fatalf("create output dir: %v", err)
 	}
-	outName := "mise.gz"
-	if goos == "windows" {
-		outName = "mise.exe.gz"
-	}
-	outPath := filepath.Join(outDir, outName)
 	if err := gzipFile(binaryPath, outPath); err != nil {
 		fatalf("gzip binary: %v", err)
 	}

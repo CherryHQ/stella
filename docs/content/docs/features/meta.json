@@ -1,4 +1,4 @@
 {
   "title": "Features",
-  "pages": ["plugin-system", "scheduler-system", "notification-system", "agent-templates", "skills", "vault", "cli-oauth"]
+  "pages": ["plugin-system", "scheduler-system", "notification-system", "agent-templates", "skills", "vault", "cli-oauth", "recally"]
 }

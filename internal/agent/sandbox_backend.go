@@ -174,6 +174,7 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
+
 	return env, nil
 }
 
@@ -464,6 +465,7 @@ func createHostSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession,
 	if err != nil {
 		return nil, err
 	}
+	env["PATH"] = localSandboxPath(paths.AnnaHome)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),

@@ -7,8 +7,18 @@
 #   - dev builds      → anna-sandbox:dev            (built locally)
 #   - tagged releases → ghcr.io/vaayne/anna-sandbox:<version>
 
+FROM golang:1.25 AS anna-builder
+
+WORKDIR /src
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-X github.com/vaayne/anna/internal/version.Version=${VERSION}" \
+    -o /out/anna ./cmd/anna
+
 FROM debian:13-slim
 
+COPY --from=anna-builder /out/anna /usr/local/bin/anna
 COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /usr/local/bin/mise
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
 COPY --from=oven/bun:1.3.12 /usr/local/bin/bunx /usr/local/bin/bun /usr/local/bin/
@@ -37,7 +47,7 @@ ENV HOME=/home/anna
 ENV PATH=/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WORKDIR /home/anna/workspace
 
-COPY --chown=anna:anna _mise.toml /home/anna/.config/mise/config.toml
+COPY --chown=anna:anna plugins/sandbox/docker/_mise.toml /home/anna/.config/mise/config.toml
 
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     mise install && \

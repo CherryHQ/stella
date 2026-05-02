@@ -304,21 +304,156 @@ templ sessionDetailPanel() {
 													<div class="md-prose" x-html="renderMd(block.text)"></div>
 												</template>
 												<template x-if="block.type === 'tool_call'">
-													<div x-data="{ expanded: false }" class="pl-3 border-l-2 border-primary/25">
-														<button @click="expanded = !expanded" class="text-xs font-mono cursor-pointer flex items-center gap-1.5 py-0.5">
-															<span x-text="expanded ? '&#9662;' : '&#9656;'" class="text-secondary text-[10px]"></span>
-															<span class="text-primary font-medium" x-text="block.name"></span>
-															<span class="text-base-content/25 text-[10px]" x-text="block.id ? '#' + block.id.slice(-4) : ''"></span>
+													<div x-data="{ expanded: false }" class="pl-3 border-l-2 border-primary/20">
+														<!-- Header row -->
+														<button @click="expanded = !expanded" class="text-xs font-mono cursor-pointer flex items-center gap-1.5 py-0.5 w-full min-w-0">
+															<span x-text="expanded ? '&#9662;' : '&#9656;'" class="text-secondary text-[10px] shrink-0"></span>
+															<span class="font-semibold shrink-0" :class="toolColor(block.name)" x-text="block.name"></span>
+															<span class="text-base-content/25 text-[10px] shrink-0" x-text="block.id ? '#' + block.id.slice(-4) : ''"></span>
+															<span class="text-base-content/40 text-[10px] truncate min-w-0 flex-1 text-left" x-show="!expanded" x-text="toolPreview(block)"></span>
 															<template x-if="block.result && !expanded">
-																<span class="ml-auto text-[10px] font-mono" :class="block.result.is_error ? 'text-error' : 'text-success'" x-text="block.result.is_error ? '✕ error' : (block.result.content ? '~' + Math.round(block.result.content.length/4) + ' tok' : '✓')"></span>
+																<span class="ml-auto shrink-0 text-[10px] font-mono" :class="block.result.is_error ? 'text-error' : 'text-success'" x-text="block.result.is_error ? '✕ error' : (block.result.content ? '~' + Math.round(block.result.content.length/4) + ' tok' : '✓')"></span>
+															</template>
+															<template x-if="!block.result && !expanded">
+																<span class="ml-auto shrink-0 flex gap-0.5">
+																	<span class="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style="animation-delay:0ms"></span>
+																	<span class="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style="animation-delay:150ms"></span>
+																	<span class="w-1 h-1 rounded-full bg-primary/50 animate-bounce" style="animation-delay:300ms"></span>
+																</span>
 															</template>
 														</button>
-														<div x-show="expanded" x-transition class="mt-1 space-y-1">
-															<pre class="text-[10px] font-mono text-base-content/60 bg-base-200 px-3 py-2 rounded overflow-x-auto max-h-64 overflow-y-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
+														<!-- Expanded content -->
+														<div x-show="expanded" x-transition class="mt-1 space-y-1.5">
+															<!-- Bash: terminal style -->
+															<div x-show="block.name === 'bash'" class="bg-base-300/60 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-warning font-bold">$</span>
+																	<span>bash</span>
+																</div>
+																<pre class="text-[10px] font-mono text-warning/80 px-3 py-2 whitespace-pre-wrap overflow-x-auto leading-relaxed" x-text="block.arguments?.command || block.arguments?.input || JSON.stringify(block.arguments, null, 2)"></pre>
+															</div>
+															<!-- Skill: structured key-value -->
+															<div x-show="block.name === 'skill' || block.name === 'skills'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-info font-bold">◈</span>
+																	<span>skill</span>
+																</div>
+																<div class="px-3 py-2 space-y-1">
+																	<template x-if="block.arguments?.skill || block.arguments?.name">
+																		<div class="flex gap-2 text-[10px] font-mono items-baseline">
+																			<span class="text-base-content/35 w-10 shrink-0">skill</span>
+																			<span class="text-info font-semibold" x-text="block.arguments?.skill || block.arguments?.name"></span>
+																		</div>
+																	</template>
+																	<template x-if="block.arguments?.action">
+																		<div class="flex gap-2 text-[10px] font-mono items-baseline">
+																			<span class="text-base-content/35 w-10 shrink-0">action</span>
+																			<span class="text-base-content/70" x-text="block.arguments?.action"></span>
+																		</div>
+																	</template>
+																	<template x-if="block.arguments?.args || block.arguments?.input">
+																		<div class="flex gap-2 text-[10px] font-mono items-baseline">
+																			<span class="text-base-content/35 w-10 shrink-0">args</span>
+																			<span class="text-base-content/60 whitespace-pre-wrap break-all" x-text="block.arguments?.args || block.arguments?.input"></span>
+																		</div>
+																	</template>
+																</div>
+															</div>
+															<!-- Memory -->
+															<div x-show="block.name === 'memory'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-accent font-bold">◯</span><span>memory</span><span class="text-accent font-semibold ml-1" x-text="block.arguments?.action || block.arguments?.input"></span>
+																</div>
+																<div class="px-3 py-2 space-y-1">
+																	<template x-if="block.arguments?.pattern">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-14 shrink-0">pattern</span><span class="text-base-content/70" x-text="block.arguments.pattern"></span></div>
+																	</template>
+																	<template x-if="block.arguments?.history_scope">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-14 shrink-0">scope</span><span class="text-base-content/70" x-text="block.arguments.history_scope"></span></div>
+																	</template>
+																	<template x-if="block.arguments?.summary_id">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-14 shrink-0">id</span><span class="text-base-content/60" x-text="block.arguments.summary_id"></span></div>
+																	</template>
+																	<template x-if="block.arguments?.constraint_text">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-14 shrink-0">constraint</span><span class="text-base-content/70" x-text="block.arguments.constraint_text"></span></div>
+																	</template>
+																	<template x-if="block.arguments?.content">
+																		<div class="text-[10px] font-mono text-base-content/50 bg-base-300/50 px-2 py-1.5 rounded mt-1 whitespace-pre-wrap max-h-24 overflow-y-auto" x-text="block.arguments.content"></div>
+																	</template>
+																</div>
+															</div>
+															<!-- Read -->
+															<div x-show="block.name === 'read'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-secondary font-bold">▤</span><span>read</span>
+																</div>
+																<div class="px-3 py-2 space-y-1">
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
+																	<template x-if="block.arguments?.offset">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">from</span><span class="text-base-content/60" x-text="'line ' + block.arguments.offset"></span></div>
+																	</template>
+																	<template x-if="block.arguments?.limit">
+																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">limit</span><span class="text-base-content/60" x-text="block.arguments.limit + ' lines'"></span></div>
+																	</template>
+																</div>
+															</div>
+															<!-- Write -->
+															<div x-show="block.name === 'write'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-secondary font-bold">✎</span><span>write</span>
+																	<span class="ml-auto text-base-content/30" x-text="block.arguments?.content ? block.arguments.content.split('\\n').length + ' lines' : ''"></span>
+																</div>
+																<div class="px-3 py-2">
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
+																</div>
+															</div>
+															<!-- Edit -->
+															<div x-show="block.name === 'edit'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-secondary font-bold">∂</span><span>edit</span>
+																</div>
+																<div class="px-3 py-2 space-y-1.5">
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
+																	<template x-if="block.arguments?.oldText || block.arguments?.old_string">
+																		<div><div class="text-[9px] font-mono text-error/60 mb-0.5">- remove</div><pre class="text-[10px] font-mono text-error/70 bg-error/5 px-2 py-1.5 rounded max-h-20 overflow-y-auto whitespace-pre-wrap" x-text="(block.arguments?.oldText || block.arguments?.old_string || '').slice(0, 300)"></pre></div>
+																	</template>
+																	<template x-if="block.arguments?.newText || block.arguments?.new_string">
+																		<div><div class="text-[9px] font-mono text-success/60 mb-0.5">+ insert</div><pre class="text-[10px] font-mono text-success/70 bg-success/5 px-2 py-1.5 rounded max-h-20 overflow-y-auto whitespace-pre-wrap" x-text="(block.arguments?.newText || block.arguments?.new_string || '').slice(0, 300)"></pre></div>
+																	</template>
+																</div>
+															</div>
+															<!-- Agent -->
+															<div x-show="block.name === 'agent'" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
+																	<span class="text-primary font-bold">⬡</span><span>agent</span>
+																	<span class="ml-auto text-base-content/30" x-text="(block.arguments?.tasks || []).length + ' task(s)'"></span>
+																</div>
+																<div class="divide-y divide-base-300">
+																	<template x-for="(task, ti) in (block.arguments?.tasks || [])" :key="ti">
+																		<div class="px-3 py-2">
+																			<div class="flex items-center gap-1.5 mb-1">
+																				<span class="text-[9px] font-mono text-primary/60 bg-primary/10 px-1.5 py-0.5 rounded" x-text="task.id || ('task_' + ti)"></span>
+																				<span class="text-[9px] font-mono text-base-content/40" x-show="task.preset" x-text="'@ ' + task.preset"></span>
+																			</div>
+																			<div class="text-[10px] font-mono text-base-content/60 leading-relaxed" x-text="(task.task || '').slice(0, 200) + ((task.task || '').length > 200 ? '\u2026' : '')"></div>
+																		</div>
+																	</template>
+																</div>
+															</div>
+															<!-- Default: JSON -->
+															<div x-show="!['bash','skill','skills','memory','read','write','edit','agent'].includes(block.name)" class="bg-base-200 rounded overflow-hidden">
+																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300">input</div>
+																<pre class="text-[10px] font-mono text-base-content/60 px-3 py-2 overflow-x-auto max-h-64 overflow-y-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
+															</div>
+															<!-- Result -->
 															<template x-if="block.result">
-																<div class="pl-3" :class="block.result.is_error ? 'border-l border-error/40' : 'border-l border-success/40'">
-																	<div class="text-[10px] font-mono mb-1" :class="block.result.is_error ? 'text-error' : 'text-success'" x-text="block.result.is_error ? 'error' : 'result'"></div>
-																	<pre class="text-[10px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed bg-base-200/50 px-3 py-2 rounded" :class="block.result.is_error ? 'text-error/70' : 'text-base-content/50'" x-text="block.result.content || '(empty)'"></pre>
+																<div class="rounded overflow-hidden" :class="block.result.is_error ? 'border border-error/30' : 'border border-success/20'">
+																	<div class="px-2.5 py-1 text-[9px] font-mono border-b flex items-center gap-1.5" :class="block.result.is_error ? 'text-error border-error/30 bg-error/5' : 'text-success border-success/20 bg-success/5'">
+																		<span x-text="block.result.is_error ? '✕' : '✓'"></span>
+																		<span x-text="block.result.is_error ? 'error' : 'result'"></span>
+																		<span class="ml-auto text-base-content/30" x-text="block.result.content ? '~' + Math.round(block.result.content.length/4) + ' tok' : ''"></span>
+																	</div>
+																	<pre class="text-[10px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed px-3 py-2" :class="block.result.is_error ? 'text-error/70' : 'text-base-content/50'" x-text="block.result.content || '(empty)'"></pre>
 																</div>
 															</template>
 														</div>

@@ -146,6 +146,46 @@ export function register(Alpine) {
       return name ? name[0].toUpperCase() : 'U'
     },
 
+    toolColor(name) {
+      const n = (name || '').toLowerCase()
+      if (n === 'bash') return 'text-warning'
+      if (n === 'skill' || n === 'skills') return 'text-info'
+      if (n === 'memory') return 'text-accent'
+      if (n === 'agent') return 'text-primary'
+      if (n === 'read' || n === 'write' || n === 'edit') return 'text-secondary'
+      return 'text-primary'
+    },
+
+    toolPreview(block) {
+      const args = block.arguments || {}
+      const n = (block.name || '').toLowerCase()
+      const trunc = (s, len = 55) => s.length > len ? s.slice(0, len) + '…' : s
+      const shortPath = p => { const pts = (p || '').split('/'); return pts.length > 2 ? '…/' + pts.slice(-2).join('/') : p }
+      if (n === 'bash') return trunc('$ ' + (args.command || args.input || ''))
+      if (n === 'skill' || n === 'skills') {
+        const parts = [args.action, args.skill || args.name, args.args || args.input].filter(Boolean)
+        return trunc(parts.join(' › '))
+      }
+      if (n === 'read') return shortPath(args.path || args.file_path || args.input)
+      if (n === 'write') {
+        const lines = args.content ? args.content.split('\n').length : 0
+        return shortPath(args.path || args.file_path || args.input) + (lines ? ' (' + lines + ' lines)' : '')
+      }
+      if (n === 'edit') return shortPath(args.path || args.file_path || args.input)
+      if (n === 'memory') {
+        const action = args.action || args.input || ''
+        const detail = args.pattern || args.constraint_text || args.history_scope || ''
+        return detail ? action + ': ' + trunc(detail, 40) : action
+      }
+      if (n === 'agent') {
+        const tasks = args.tasks || []
+        if (!tasks.length) return args.input || ''
+        const prefix = tasks.length > 1 ? '[' + tasks.length + '] ' : ''
+        return trunc(prefix + (tasks[0].task || ''))
+      }
+      return ''
+    },
+
     renderMd(text) {
       if (!text) return ''
       if (!this._mdCache[text]) {
@@ -230,6 +270,16 @@ export function register(Alpine) {
       } finally {
         this.sessionMessagesLoading = false
       }
+      // If the transcript isn't scrollable yet (messages fit the viewport),
+      // the scroll event can never fire — keep loading until it overflows.
+      if (this.sessionMessagesHasMore) {
+        this.$nextTick(() => {
+          const el = this.$refs.transcript
+          if (el && el.scrollHeight <= el.clientHeight + 20) {
+            this.handleTranscriptScroll(el)
+          }
+        })
+      }
     },
 
     async handleTranscriptScroll(el) {
@@ -254,6 +304,14 @@ export function register(Alpine) {
         console.error(e)
       } finally {
         this.sessionMessagesLoading = false
+      }
+      // Keep filling if the transcript still doesn't overflow after this batch.
+      if (this.sessionMessagesHasMore) {
+        this.$nextTick(() => {
+          if (el.scrollHeight <= el.clientHeight + 20) {
+            this.handleTranscriptScroll(el)
+          }
+        })
       }
     },
 
