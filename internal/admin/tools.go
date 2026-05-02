@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"github.com/vaayne/anna/internal/credentials"
-	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
@@ -50,7 +49,7 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	// Agent tool (always present).
 	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
-	// Builtin tools (scheduler, memory, skills).
+	// Builtin tools (memory, skills, credentials).
 	for _, def := range s.builtinToolDefinitions() {
 		tools = append(tools, defToJSON(def, "builtin"))
 	}
@@ -70,7 +69,6 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 // package. The memory tool definition is built dynamically from the provider.
 func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
-		scheduler.SchedulerDefinition(),
 		skillstool.SkillsDefinition(),
 		credentials.OAuthDefinition(),
 		credentials.VaultDefinition(),

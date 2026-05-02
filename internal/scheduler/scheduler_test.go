@@ -251,67 +251,6 @@ func TestOnJobCallbackFires(t *testing.T) {
 	}
 }
 
-func TestSchedulerToolAddListRemove(t *testing.T) {
-	svc := testService(t)
-	ct := NewTool(svc)
-
-	// Definition should have name "scheduler".
-	def := ct.Definition()
-	if def.Name != "scheduler" {
-		t.Errorf("tool name = %q, want %q", def.Name, "scheduler")
-	}
-
-	// Add via tool.
-	result, err := ct.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"name":    "tool-test",
-		"message": "do something",
-		"every":   "1h",
-	})
-	if err != nil {
-		t.Fatalf("Execute add: %v", err)
-	}
-	if result == "" {
-		t.Fatal("expected non-empty result from add")
-	}
-
-	// List via tool.
-	result, err = ct.Execute(context.Background(), map[string]any{
-		"action": "list",
-	})
-	if err != nil {
-		t.Fatalf("Execute list: %v", err)
-	}
-	if result == "No scheduled jobs." {
-		t.Error("expected jobs in list")
-	}
-
-	// Get the job ID for removal.
-	jobs := svc.ListJobs()
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(jobs))
-	}
-
-	// Remove via tool.
-	_, err = ct.Execute(context.Background(), map[string]any{
-		"action": "remove",
-		"id":     jobs[0].ID,
-	})
-	if err != nil {
-		t.Fatalf("Execute remove: %v", err)
-	}
-
-	// Verify removed.
-	result, err = ct.Execute(context.Background(), map[string]any{
-		"action": "list",
-	})
-	if err != nil {
-		t.Fatalf("Execute list after remove: %v", err)
-	}
-	if result != "No scheduled jobs." {
-		t.Errorf("expected no jobs, got %q", result)
-	}
-}
 
 func TestOneTimeJobCreation(t *testing.T) {
 	svc := testService(t)
@@ -444,33 +383,6 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	}
 }
 
-func TestSchedulerToolAddOneTimeJob(t *testing.T) {
-	svc := testService(t)
-	ct := NewTool(svc)
-
-	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-	result, err := ct.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"name":    "reminder",
-		"message": "check the weather",
-		"at":      futureTime,
-	})
-	if err != nil {
-		t.Fatalf("Execute add one-time: %v", err)
-	}
-	if result == "" {
-		t.Fatal("expected non-empty result")
-	}
-
-	jobs := svc.ListJobs()
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(jobs))
-	}
-	if jobs[0].Schedule.At != futureTime {
-		t.Errorf("At = %q, want %q", jobs[0].Schedule.At, futureTime)
-	}
-}
-
 func TestSessionModeDefault(t *testing.T) {
 	svc := testService(t)
 
@@ -532,87 +444,20 @@ func TestSessionModeInvalid(t *testing.T) {
 	}
 }
 
-func TestSchedulerToolSessionMode(t *testing.T) {
+func TestAddJobForContextCapturesOwnership(t *testing.T) {
 	svc := testService(t)
-	ct := NewTool(svc)
-
-	// Add with session_mode "new" via tool.
-	_, err := ct.Execute(context.Background(), map[string]any{
-		"action":       "add",
-		"name":         "fresh-session",
-		"message":      "do work",
-		"every":        "1h",
-		"session_mode": "new",
-	})
-	if err != nil {
-		t.Fatalf("Execute add: %v", err)
-	}
-
-	jobs := svc.ListJobs()
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(jobs))
-	}
-	if jobs[0].SessionMode != SessionNew {
-		t.Errorf("SessionMode = %q, want %q", jobs[0].SessionMode, SessionNew)
-	}
-}
-
-func TestSchedulerToolCapturesContextOwnership(t *testing.T) {
-	svc := testService(t)
-	ct := NewTool(svc)
 
 	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), 42), "agent-blue")
-	_, err := ct.Execute(ctx, map[string]any{
-		"action":  "add",
-		"name":    "owned-job",
-		"message": "do work",
-		"every":   "1h",
-	})
+	job, err := svc.AddJobForContext(ctx, "owned-job", "do work", Schedule{Every: "1h"}, SessionReuse)
 	if err != nil {
-		t.Fatalf("Execute add: %v", err)
+		t.Fatalf("AddJobForContext: %v", err)
 	}
 
-	jobs := svc.ListJobs()
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(jobs))
+	if job.UserID != 42 {
+		t.Fatalf("UserID = %d, want 42", job.UserID)
 	}
-	if jobs[0].UserID != 42 {
-		t.Fatalf("UserID = %d, want 42", jobs[0].UserID)
-	}
-	if jobs[0].AgentID != "agent-blue" {
-		t.Fatalf("AgentID = %q, want %q", jobs[0].AgentID, "agent-blue")
-	}
-}
-
-func TestSchedulerToolInvalidAction(t *testing.T) {
-	db := testDB(t)
-	svc, err := New(db)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	ct := NewTool(svc)
-
-	_, err = ct.Execute(context.Background(), map[string]any{
-		"action": "invalid",
-	})
-	if err == nil {
-		t.Error("expected error for invalid action")
-	}
-}
-
-func TestSchedulerToolRemoveMissingID(t *testing.T) {
-	db := testDB(t)
-	svc, err := New(db)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	ct := NewTool(svc)
-
-	_, err = ct.Execute(context.Background(), map[string]any{
-		"action": "remove",
-	})
-	if err == nil {
-		t.Error("expected error for missing ID")
+	if job.AgentID != "agent-blue" {
+		t.Fatalf("AgentID = %q, want %q", job.AgentID, "agent-blue")
 	}
 }
 

@@ -53,6 +53,7 @@ func newApp() *ucli.App {
 			versionCommand(),
 			upgradeCommand(),
 			recallyCommand(),
+			schedulerCommand(),
 		},
 	}
 }
@@ -228,10 +229,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
-	// Create the shared scheduler service before runner construction so both
-	// plugin-owned jobs and the user-facing scheduler tool can use it.
-	// Reuse the process-wide DB handle so scheduler persistence and memory writes
-	// do not contend through separate SQLite pools.
+	// Create the shared scheduler service before runner construction so
+	// plugin-owned jobs can use it. Reuse the process-wide DB handle so
+	// scheduler persistence and memory writes do not contend through separate SQLite pools.
 	schedulerSvc, err := scheduler.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
@@ -244,7 +244,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
-	builtinTools := []tools.Tool{scheduler.NewTool(schedulerSvc)}
+	builtinTools := []tools.Tool{}
 
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return phost.BuildProviderRegistry(api, map[string]any{
@@ -346,7 +346,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
 	// Create PoolManager with builtin tools and external plugin tools.
-	// WithBuiltinTools sets the always-on builtin tools (scheduler, memory).
+	// WithBuiltinTools sets the always-on builtin tools (memory, etc.).
 	// WithPluginToolsBuilder provides the function for hot-reloadable external tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	toolLifecycle := &coreagent.ToolLifecycle{
