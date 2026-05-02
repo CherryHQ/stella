@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-
 	ucli "github.com/urfave/cli/v2"
+	recallyclient "github.com/vaayne/anna/pkg/recally/client"
 )
 
 func recallyDigestCommand() *ucli.Command {
@@ -17,34 +15,22 @@ func recallyDigestCommand() *ucli.Command {
 - Articles worth revisiting (unread > 3 days old)
 - Top tags from this week`,
 		Flags: []ucli.Flag{
-			&ucli.BoolFlag{
-				Name:  "json",
-				Usage: "Output as JSON (default)",
-				Value: true,
-			},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON (default)", Value: true},
 		},
 		Action: func(c *ucli.Context) error {
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			digest, err := store.GetDigest(c.Context, userID)
+			resp, err := api.GetDigest(c.Context)
 			if err != nil {
-				return fmt.Errorf("generate digest: %w", err)
+				return wrapServerErr(err)
 			}
-
-			out, err := json.MarshalIndent(digest, "", "  ")
-			if err != nil {
-				return fmt.Errorf("marshal digest: %w", err)
+			var digest recallyclient.Digest
+			if err := recallyclient.DecodeJSON(resp, &digest); err != nil {
+				return err
 			}
-			fmt.Println(string(out))
-			return nil
+			return printJSON(digest)
 		},
 	}
 }

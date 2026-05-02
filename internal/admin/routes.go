@@ -20,6 +20,13 @@ func (s *Server) registerRoutes() {
 	s.registerSkillRoutes()
 	s.registerBuiltinRoutes()
 	s.registerManifestPluginRoutes()
+	s.registerRecallyRoutes()
+}
+
+// registerRecallyRoutes mounts the generated recally REST API onto the admin
+// mux. Auth is enforced by the global authMiddleware (Bearer + session).
+func (s *Server) registerRecallyRoutes() {
+	HandlerFromMux(s.recally, s.mux)
 }
 
 func (s *Server) registerStaticRoutes() {

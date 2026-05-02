@@ -53,3 +53,13 @@ func CachePath() string {
 func DBPath() string {
 	return filepath.Join(AnnaHome(), "anna.db")
 }
+
+// ServerURL returns the URL CLI commands should use to talk to the local
+// anna server. Priority: ANNA_SERVER_URL env -> http://127.0.0.1:25678
+// (the default admin port from cmd/anna/gateway.go).
+func ServerURL() string {
+	if v := os.Getenv("ANNA_SERVER_URL"); v != "" {
+		return v
+	}
+	return "http://127.0.0.1:25678"
+}

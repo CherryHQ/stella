@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/recally"
+	recallyclient "github.com/vaayne/anna/pkg/recally/client"
 )
 
 func recallySaveCommand() *ucli.Command {
@@ -19,84 +17,29 @@ func recallySaveCommand() *ucli.Command {
 		Name:  "save",
 		Usage: "Save an article to your library",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{
-				Name:     "url",
-				Usage:    "Article URL (required)",
-				Required: true,
-			},
-			&ucli.StringFlag{
-				Name:  "canonical-url",
-				Usage: "Canonical URL (optional, overrides computed canonical URL for deduplication)",
-			},
-			&ucli.StringFlag{
-				Name:  "title",
-				Usage: "Article title",
-				Value: "",
-			},
-			&ucli.StringFlag{
-				Name:  "summary",
-				Usage: "Article summary",
-				Value: "",
-			},
-			&ucli.StringSliceFlag{
-				Name:  "tags",
-				Usage: "Article tags (can be used multiple times)",
-			},
-			&ucli.StringFlag{
-				Name:  "source-type",
-				Usage: "Source type: web, twitter, youtube, github, rss, pdf",
-				Value: "web",
-			},
-			&ucli.StringFlag{
-				Name:  "author",
-				Usage: "Article author",
-				Value: "",
-			},
-			&ucli.StringFlag{
-				Name:  "content-file",
-				Usage: "Path to file containing article content (stdin used if not provided)",
-			},
-			&ucli.StringFlag{
-				Name:  "metadata",
-				Usage: "JSON metadata string",
-				Value: "{}",
-			},
-			&ucli.StringFlag{
-				Name:  "published-at",
-				Usage: "Original publication date (RFC3339)",
-			},
+			&ucli.StringFlag{Name: "url", Usage: "Article URL (required)", Required: true},
+			&ucli.StringFlag{Name: "canonical-url", Usage: "Canonical URL (optional, overrides computed canonical URL for deduplication)"},
+			&ucli.StringFlag{Name: "title", Usage: "Article title"},
+			&ucli.StringFlag{Name: "summary", Usage: "Article summary"},
+			&ucli.StringSliceFlag{Name: "tags", Usage: "Article tags (can be used multiple times)"},
+			&ucli.StringFlag{Name: "source-type", Usage: "Source type: web, twitter, youtube, github, rss, pdf", Value: "web"},
+			&ucli.StringFlag{Name: "author", Usage: "Article author"},
+			&ucli.StringFlag{Name: "content-file", Usage: "Path to file containing article content (stdin used if not provided)"},
+			&ucli.StringFlag{Name: "metadata", Usage: "JSON metadata string", Value: "{}"},
+			&ucli.StringFlag{Name: "published-at", Usage: "Original publication date (RFC3339)"},
 		},
 		Action: func(c *ucli.Context) error {
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
 
-			var content string
-			contentFile := c.String("content-file")
-			if contentFile != "" {
-				data, err := os.ReadFile(contentFile)
-				if err != nil {
-					return fmt.Errorf("read content file: %w", err)
-				}
-				content = string(data)
-			} else {
-				stat, err := os.Stdin.Stat()
-				if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-					data, err := io.ReadAll(os.Stdin)
-					if err != nil {
-						return fmt.Errorf("read stdin: %w", err)
-					}
-					content = string(data)
-				}
+			content, err := readContentArg(c.String("content-file"))
+			if err != nil {
+				return err
 			}
 
-			metadata := make(map[string]string)
+			metadata := map[string]string{}
 			if metaStr := c.String("metadata"); metaStr != "" && metaStr != "{}" {
 				if err := json.Unmarshal([]byte(metaStr), &metadata); err != nil {
 					return fmt.Errorf("parse metadata JSON: %w", err)
@@ -112,75 +55,41 @@ func recallySaveCommand() *ucli.Command {
 				publishedAt = &t
 			}
 
-			req := recally.SaveRequest{
-				URL:          c.String("url"),
-				CanonicalURL: c.String("canonical-url"),
-				SourceType:   recally.SourceType(c.String("source-type")),
-				Title:        c.String("title"),
-				Author:       c.String("author"),
-				Summary:      c.String("summary"),
-				Tags:         c.StringSlice("tags"),
-				Content:      content,
-				Metadata:     metadata,
+			body := recallyclient.SaveArticleJSONRequestBody{
+				Url:          c.String("url"),
+				CanonicalUrl: optionalString(c.String("canonical-url")),
+				SourceType:   sourceTypePtr(c.String("source-type")),
+				Title:        optionalString(c.String("title")),
+				Author:       optionalString(c.String("author")),
+				Summary:      optionalString(c.String("summary")),
+				Tags:         optionalStringSlice(c.StringSlice("tags")),
+				Content:      optionalString(content),
 				PublishedAt:  publishedAt,
 			}
-
-			annaHome := config.AnnaHome()
-			fm := recally.NewFileManager(annaHome)
-			if content == "" {
-				canonicalURL := req.CanonicalURL
-				if canonicalURL == "" {
-					canonicalURL = recally.NormalizeURL(req.URL)
-				}
-				existing, err := store.GetArticleByCanonicalURL(c.Context, userID, canonicalURL)
-				if err != nil {
-					return fmt.Errorf("content is required for new articles; provide --content-file or pipe content on stdin")
-				}
-				existingPath := existing.FilePath
-				if !filepath.IsAbs(existingPath) {
-					existingPath = filepath.Join(annaHome, existingPath)
-				}
-				existingContent, err := fm.ReadArticleFull(existingPath)
-				if err != nil {
-					return fmt.Errorf("read existing article content: %w", err)
-				}
-				_, body := recally.SplitFrontmatter(existingContent)
-				content = strings.TrimSpace(body)
-				req.Content = content
+			if len(metadata) > 0 {
+				body.Metadata = &metadata
 			}
 
-			article, isNew, err := store.SaveArticle(c.Context, userID, req)
+			resp, err := api.SaveArticle(c.Context, body)
 			if err != nil {
-				return fmt.Errorf("save article: %w", err)
+				return wrapServerErr(err)
 			}
-
-			filePath := fm.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
-			if err := fm.WriteArticle(filePath, article, content); err != nil {
-				return fmt.Errorf("write article file: %w", err)
+			var article recallyclient.Article
+			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
+				return err
 			}
-
-			relPath := fm.RelativePath(filePath)
-			if err := store.UpdateArticleFilePath(c.Context, article.ID, relPath); err != nil {
-				return fmt.Errorf("update file path: %w", err)
-			}
-			article.FilePath = relPath
-
+			created := resp.StatusCode == http.StatusCreated
 			result := map[string]any{
-				"id":        article.ID,
+				"id":        article.Id,
 				"file_path": article.FilePath,
-				"created":   isNew,
+				"created":   created,
 			}
-			if isNew {
+			if created {
 				result["message"] = "Article saved successfully"
 			} else {
 				result["message"] = "Article already exists, updated metadata"
 			}
-			out, err := json.MarshalIndent(result, "", "  ")
-			if err != nil {
-				return fmt.Errorf("marshal result: %w", err)
-			}
-			fmt.Println(string(out))
-			return nil
+			return printJSON(result)
 		},
 	}
 }
@@ -190,160 +99,94 @@ func recallyListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List saved articles",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{
-				Name:  "status",
-				Usage: "Filter by status: unread, read, archived",
-			},
-			&ucli.StringFlag{
-				Name:  "source-type",
-				Usage: "Filter by source type: web, twitter, youtube, github, rss, pdf",
-			},
-			&ucli.BoolFlag{
-				Name:  "starred",
-				Usage: "Show only starred articles",
-			},
-			&ucli.IntFlag{
-				Name:  "limit",
-				Usage: "Maximum number of articles to return",
-				Value: 50,
-			},
-			&ucli.BoolFlag{
-				Name:  "json",
-				Usage: "Output as JSON",
-			},
+			&ucli.StringFlag{Name: "status", Usage: "Filter by status: unread, read, archived"},
+			&ucli.StringFlag{Name: "source-type", Usage: "Filter by source type: web, twitter, youtube, github, rss, pdf"},
+			&ucli.BoolFlag{Name: "starred", Usage: "Show only starred articles"},
+			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of articles to return", Value: 50},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			starred := c.Bool("starred")
-			filter := recally.ArticleFilter{
-				Status:     recally.ArticleStatus(c.String("status")),
-				SourceType: recally.SourceType(c.String("source-type")),
-				Starred:    &starred,
-				Limit:      c.Int("limit"),
+			params := &recallyclient.ListArticlesParams{
+				Limit: recallyclient.Ptr(c.Int("limit")),
 			}
-
-			articles, err := store.ListArticles(c.Context, userID, filter)
+			if v := c.String("status"); v != "" {
+				st := recallyclient.ArticleStatus(v)
+				params.Status = &st
+			}
+			if v := c.String("source-type"); v != "" {
+				st := recallyclient.SourceType(v)
+				params.SourceType = &st
+			}
+			if c.IsSet("starred") {
+				params.Starred = recallyclient.Ptr(c.Bool("starred"))
+			}
+			resp, err := api.ListArticles(c.Context, params)
 			if err != nil {
-				return fmt.Errorf("list articles: %w", err)
+				return wrapServerErr(err)
 			}
-
+			var list recallyclient.ArticleList
+			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+				return err
+			}
 			if c.Bool("json") {
-				out, err := json.MarshalIndent(articles, "", "  ")
-				if err != nil {
-					return fmt.Errorf("marshal articles: %w", err)
-				}
-				fmt.Println(string(out))
-				return nil
+				return printJSON(list.Items)
 			}
-
-			if len(articles) == 0 {
+			if len(list.Items) == 0 {
 				fmt.Println("No articles found.")
 				return nil
 			}
-
-			fmt.Printf("Found %d article(s):\n\n", len(articles))
-			for _, a := range articles {
-				starMark := " "
-				if a.Starred {
-					starMark = "★"
-				}
-				fmt.Printf("[%s] %s %s\n", a.ID[:8], starMark, a.Title)
-				fmt.Printf("    URL: %s\n", a.URL)
-				if a.Summary != "" {
-					summary := a.Summary
-					if len(summary) > 100 {
-						summary = summary[:97] + "..."
-					}
-					fmt.Printf("    %s\n", summary)
-				}
-				fmt.Printf("    Status: %s | Source: %s | Saved: %s\n",
-					a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
-				fmt.Println()
+			fmt.Printf("Found %d article(s):\n\n", len(list.Items))
+			for _, a := range list.Items {
+				printArticleSummary(a, 100)
 			}
 			return nil
 		},
 	}
 }
 
-// recallySearchCommand handles `anna recally search <query>`.
-// Phase 1 MVP: Uses LIKE-based search (FTS5 deferred to future phase).
 func recallySearchCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "search",
-		Usage:     "Search articles by title, summary, tags, or author (metadata-based search)",
+		Usage:     "Search articles by title, summary, tags, or author",
 		ArgsUsage: "<query>",
 		Flags: []ucli.Flag{
-			&ucli.IntFlag{
-				Name:  "limit",
-				Usage: "Maximum number of results",
-				Value: 50,
-			},
-			&ucli.BoolFlag{
-				Name:  "json",
-				Usage: "Output as JSON",
-			},
+			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of results", Value: 50},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
 			query := c.Args().First()
 			if query == "" {
 				return fmt.Errorf("usage: anna recally search <query>")
 			}
-
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			articles, err := store.SearchArticles(c.Context, userID, query, c.Int("limit"))
+			resp, err := api.ListArticles(c.Context, &recallyclient.ListArticlesParams{
+				Q:     &query,
+				Limit: recallyclient.Ptr(c.Int("limit")),
+			})
 			if err != nil {
-				return fmt.Errorf("search articles: %w", err)
+				return wrapServerErr(err)
 			}
-
+			var list recallyclient.ArticleList
+			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+				return err
+			}
 			if c.Bool("json") {
-				out, err := json.MarshalIndent(articles, "", "  ")
-				if err != nil {
-					return fmt.Errorf("marshal articles: %w", err)
-				}
-				fmt.Println(string(out))
-				return nil
+				return printJSON(list.Items)
 			}
-
-			if len(articles) == 0 {
+			if len(list.Items) == 0 {
 				fmt.Println("No articles found matching your query.")
 				return nil
 			}
-
-			fmt.Printf("Found %d article(s) matching %q:\n\n", len(articles), query)
-			for _, a := range articles {
-				starMark := " "
-				if a.Starred {
-					starMark = "★"
-				}
-				fmt.Printf("[%s] %s %s\n", a.ID[:8], starMark, a.Title)
-				fmt.Printf("    URL: %s\n", a.URL)
-				if a.Summary != "" {
-					summary := a.Summary
-					if len(summary) > 80 {
-						summary = summary[:77] + "..."
-					}
-					fmt.Printf("    %s\n", summary)
-				}
-				fmt.Printf("    Status: %s | Source: %s\n", a.Status, a.SourceType)
-				fmt.Println()
+			fmt.Printf("Found %d article(s) matching %q:\n\n", len(list.Items), query)
+			for _, a := range list.Items {
+				printArticleSummary(a, 80)
 			}
 			return nil
 		},
@@ -360,40 +203,26 @@ func recallyReadCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: anna recally read <article-id>")
 			}
-
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			article, err := store.GetArticle(c.Context, articleID)
+			include := "content"
+			resp, err := api.GetArticle(c.Context, articleID, &recallyclient.GetArticleParams{Include: &include})
 			if err != nil {
+				return wrapServerErr(err)
+			}
+			var article recallyclient.Article
+			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
 				return err
 			}
-
-			if article.UserID != userID {
-				return fmt.Errorf("article not found or access denied")
+			if article.Content != nil && *article.Content != "" {
+				fmt.Println(*article.Content)
+				return nil
 			}
-
-			annaHome := config.AnnaHome()
-			fm := recally.NewFileManager(annaHome)
-			filePath := article.FilePath
-			if !filepath.IsAbs(filePath) {
-				filePath = filepath.Join(annaHome, filePath)
+			if article.Summary != nil {
+				fmt.Println(*article.Summary)
 			}
-
-			content, err := fm.ReadArticleFull(filePath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not read file: %v\n", err)
-				content = article.Summary
-			}
-
-			fmt.Println(content)
 			return nil
 		},
 	}
@@ -405,85 +234,47 @@ func recallyUpdateCommand() *ucli.Command {
 		Usage:     "Update article metadata",
 		ArgsUsage: "<article-id>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{
-				Name:  "status",
-				Usage: "New status: unread, read, archived",
-			},
-			&ucli.BoolFlag{
-				Name:  "starred",
-				Usage: "Star or unstar the article",
-			},
-			&ucli.StringFlag{
-				Name:  "summary",
-				Usage: "New summary",
-			},
-			&ucli.StringSliceFlag{
-				Name:  "tags",
-				Usage: "New tags (replaces existing)",
-			},
+			&ucli.StringFlag{Name: "status", Usage: "New status: unread, read, archived"},
+			&ucli.BoolFlag{Name: "starred", Usage: "Star or unstar the article"},
+			&ucli.StringFlag{Name: "summary", Usage: "New summary"},
+			&ucli.StringSliceFlag{Name: "tags", Usage: "New tags (replaces existing)"},
 		},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
 			if articleID == "" {
 				return fmt.Errorf("usage: anna recally update <article-id>")
 			}
-
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			article, err := store.GetArticle(c.Context, articleID)
-			if err != nil {
-				return err
-			}
-			if article.UserID != userID {
-				return fmt.Errorf("article not found or access denied")
-			}
-
-			updates := make(map[string]any)
+			body := recallyclient.UpdateArticleJSONRequestBody{}
 			if c.IsSet("status") {
-				updates["status"] = c.String("status")
+				st := recallyclient.ArticleStatus(c.String("status"))
+				body.Status = &st
 			}
 			if c.IsSet("starred") {
-				updates["starred"] = c.Bool("starred")
+				body.Starred = recallyclient.Ptr(c.Bool("starred"))
 			}
 			if c.IsSet("summary") {
-				updates["summary"] = c.String("summary")
+				body.Summary = recallyclient.Ptr(c.String("summary"))
 			}
 			if c.IsSet("tags") {
-				updates["tags"] = c.StringSlice("tags")
+				tags := c.StringSlice("tags")
+				body.Tags = &tags
 			}
-
-			if len(updates) == 0 {
+			if body.Status == nil && body.Starred == nil && body.Summary == nil && body.Tags == nil {
 				return fmt.Errorf("no updates specified")
 			}
-
-			updated, err := store.UpdateArticle(c.Context, articleID, updates)
+			resp, err := api.UpdateArticle(c.Context, articleID, body)
 			if err != nil {
-				return fmt.Errorf("update article: %w", err)
+				return wrapServerErr(err)
 			}
-
-			annaHome := config.AnnaHome()
-			fm := recally.NewFileManager(annaHome)
-			filePath := updated.FilePath
-			if !filepath.IsAbs(filePath) {
-				filePath = filepath.Join(annaHome, filePath)
+			var updated recallyclient.Article
+			if err := recallyclient.DecodeJSON(resp, &updated); err != nil {
+				return err
 			}
-
-			if content, err := fm.ReadArticleFull(filePath); err == nil {
-				_, body := recally.SplitFrontmatter(content)
-				if err := fm.WriteArticle(filePath, updated, strings.TrimSpace(body)); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to update file frontmatter: %v\n", err)
-				}
-			}
-
-			fmt.Printf("Article %s updated successfully.\n", articleID[:8])
+			fmt.Printf("Article %s updated successfully.\n", shortID(updated.Id))
 			return nil
 		},
 	}
@@ -499,41 +290,109 @@ func recallyDeleteCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: anna recally delete <article-id>")
 			}
-
-			store, userID, dbConn, err := openRecally(c.Context)
+			api, err := recallyAPI()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if cerr := dbConn.Close(); cerr != nil && err == nil {
-					err = cerr
-				}
-			}()
-
-			article, err := store.GetArticle(c.Context, articleID)
+			resp, err := api.DeleteArticle(c.Context, articleID)
 			if err != nil {
+				return wrapServerErr(err)
+			}
+			if err := recallyclient.DecodeJSON(resp, nil); err != nil {
 				return err
 			}
-			if article.UserID != userID {
-				return fmt.Errorf("article not found or access denied")
-			}
-
-			if err := store.DeleteArticle(c.Context, articleID); err != nil {
-				return fmt.Errorf("delete article: %w", err)
-			}
-
-			annaHome := config.AnnaHome()
-			fm := recally.NewFileManager(annaHome)
-			filePath := article.FilePath
-			if !filepath.IsAbs(filePath) {
-				filePath = filepath.Join(annaHome, filePath)
-			}
-			if err := fm.DeleteArticle(filePath); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to delete file: %v\n", err)
-			}
-
-			fmt.Printf("Article %s deleted.\n", articleID[:8])
+			fmt.Printf("Article %s deleted.\n", shortID(articleID))
 			return nil
 		},
 	}
+}
+
+// ----------------------------- shared CLI helpers ---------------------------
+
+// readContentArg reads article content from --content-file, stdin (if piped),
+// or returns "" so the server can decide between create and metadata-only
+// update.
+func readContentArg(contentFile string) (string, error) {
+	if contentFile != "" {
+		data, err := os.ReadFile(contentFile)
+		if err != nil {
+			return "", fmt.Errorf("read content file: %w", err)
+		}
+		return string(data), nil
+	}
+	stat, err := os.Stdin.Stat()
+	if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read stdin: %w", err)
+		}
+		return string(data), nil
+	}
+	return "", nil
+}
+
+func printArticleSummary(a recallyclient.Article, summaryWidth int) {
+	starMark := " "
+	if a.Starred {
+		starMark = "★"
+	}
+	fmt.Printf("[%s] %s %s\n", shortID(a.Id), starMark, a.Title)
+	fmt.Printf("    URL: %s\n", a.Url)
+	if a.Summary != nil && *a.Summary != "" {
+		summary := *a.Summary
+		if len(summary) > summaryWidth {
+			summary = summary[:summaryWidth-3] + "..."
+		}
+		fmt.Printf("    %s\n", summary)
+	}
+	fmt.Printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
+	fmt.Println()
+}
+
+func printJSON(v any) error {
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
+	fmt.Println(string(out))
+	return nil
+}
+
+// shortID returns the first 8 chars of an ID for display.
+func shortID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
+}
+
+func optionalString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func optionalStringSlice(v []string) *[]string {
+	if len(v) == 0 {
+		return nil
+	}
+	return &v
+}
+
+func sourceTypePtr(v string) *recallyclient.SourceType {
+	if v == "" {
+		return nil
+	}
+	st := recallyclient.SourceType(v)
+	return &st
+}
+
+// wrapServerErr decorates connection errors with a hint about ANNA_SERVER_URL
+// so users immediately understand whether the server is reachable.
+func wrapServerErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("call anna server: %w (run 'anna serve' or set ANNA_SERVER_URL)", err)
 }

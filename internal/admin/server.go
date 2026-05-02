@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/credentials"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/recally"
 	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -38,6 +39,7 @@ type Server struct {
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credSvc        *credentials.Service // shared credentials service
+	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 }
 
 // New creates an admin server with all API routes mounted.
@@ -72,6 +74,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		log:         slog.With("component", "admin"),
 		corsOriginV: corsOrigin,
 		credSvc:     credSvc,
+		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.AnnaHome())),
 	}
 
 	s.registerRoutes()

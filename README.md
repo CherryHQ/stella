@@ -225,7 +225,8 @@ anna upgrade               # Self-update to latest release
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
 | [WeChat Bot](docs/content/docs/channels/weixin.md) | iLink Bot setup, QR login, DM |
 | [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
-| [Recally](docs/content/docs/features/recally.md) | Reading assistant for saved articles, RSS feeds, and daily digests |
+| [Recally](docs/content/docs/features/recally.md) | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `anna serve`; needs `ANNA_TOKEN`) |
+| [CLI as REST client](docs/content/docs/core/cli-as-client.md) | API-first model — every CLI command is a thin HTTP client of `anna serve` |
 | [Plugin System](docs/content/docs/features/plugin-system.md) | Unified subprocess plugin model for tools and channels |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 
