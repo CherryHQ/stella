@@ -357,7 +357,6 @@ plugins:
     display_name: Lark CLI
     description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
     enabled: true
-    prompt: "Read `lark` skill and use lark-cli when user want to oprate feishu or lark"
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli
@@ -409,7 +408,6 @@ plugins:
     display_name: Kreuzberg
     description: "Extract text, metadata, images, and structured information from PDFs, Office documents, images, and 97+ formats."
     enabled: true
-    prompt: "Read `kreuzberg` skill and prefer kreuzberg to extract text from PDFs, images, and documents before processing."
     binaries:
       - name: kreuzberg
         tool: github:kreuzberg-dev/kreuzberg

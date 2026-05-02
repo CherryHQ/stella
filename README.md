@@ -225,6 +225,7 @@ anna upgrade               # Self-update to latest release
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
 | [WeChat Bot](docs/content/docs/channels/weixin.md) | iLink Bot setup, QR login, DM |
 | [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
+| [Recally](docs/content/docs/features/recally.md) | Reading assistant for saved articles, RSS feeds, and daily digests |
 | [Plugin System](docs/content/docs/features/plugin-system.md) | Unified subprocess plugin model for tools and channels |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 

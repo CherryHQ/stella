@@ -52,6 +52,7 @@ func newApp() *ucli.App {
 			pluginCommand(),
 			versionCommand(),
 			upgradeCommand(),
+			recallyCommand(),
 		},
 	}
 }
@@ -97,6 +98,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 	if err := binaries.VerifyTools(config.AnnaHome()); err != nil {
 		return nil, err
+	}
+	if err := agent.EnsureAnnaCLIInPath(config.AnnaHome()); err != nil {
+		return nil, fmt.Errorf("copy anna cli into sandbox path: %w", err)
 	}
 
 	if err := builtinres.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
