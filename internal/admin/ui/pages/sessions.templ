@@ -362,7 +362,7 @@ templ sessionDetailPanel() {
 															<!-- Memory -->
 															<div x-show="block.name === 'memory'" class="bg-base-200 rounded overflow-hidden">
 																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
-																	<span class="text-accent font-bold">◯</span><span>memory</span><span class="text-accent font-semibold ml-1" x-text="block.arguments?.action"></span>
+																	<span class="text-accent font-bold">◯</span><span>memory</span><span class="text-accent font-semibold ml-1" x-text="block.arguments?.action || block.arguments?.input"></span>
 																</div>
 																<div class="px-3 py-2 space-y-1">
 																	<template x-if="block.arguments?.pattern">
@@ -388,7 +388,7 @@ templ sessionDetailPanel() {
 																	<span class="text-secondary font-bold">▤</span><span>read</span>
 																</div>
 																<div class="px-3 py-2 space-y-1">
-																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path"></span></div>
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
 																	<template x-if="block.arguments?.offset">
 																		<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">from</span><span class="text-base-content/60" x-text="'line ' + block.arguments.offset"></span></div>
 																	</template>
@@ -404,7 +404,7 @@ templ sessionDetailPanel() {
 																	<span class="ml-auto text-base-content/30" x-text="block.arguments?.content ? block.arguments.content.split('\\n').length + ' lines' : ''"></span>
 																</div>
 																<div class="px-3 py-2">
-																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path"></span></div>
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
 																</div>
 															</div>
 															<!-- Edit -->
@@ -413,7 +413,7 @@ templ sessionDetailPanel() {
 																	<span class="text-secondary font-bold">∂</span><span>edit</span>
 																</div>
 																<div class="px-3 py-2 space-y-1.5">
-																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path"></span></div>
+																	<div class="flex gap-2 text-[10px] font-mono"><span class="text-base-content/35 w-10 shrink-0">path</span><span class="text-secondary font-medium break-all" x-text="block.arguments?.path || block.arguments?.file_path || block.arguments?.input"></span></div>
 																	<template x-if="block.arguments?.oldText || block.arguments?.old_string">
 																		<div><div class="text-[9px] font-mono text-error/60 mb-0.5">- remove</div><pre class="text-[10px] font-mono text-error/70 bg-error/5 px-2 py-1.5 rounded max-h-20 overflow-y-auto whitespace-pre-wrap" x-text="(block.arguments?.oldText || block.arguments?.old_string || '').slice(0, 300)"></pre></div>
 																	</template>

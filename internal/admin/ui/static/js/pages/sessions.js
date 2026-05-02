@@ -166,20 +166,20 @@ export function register(Alpine) {
         const parts = [args.action, args.skill || args.name, args.args || args.input].filter(Boolean)
         return trunc(parts.join(' › '))
       }
-      if (n === 'read') return shortPath(args.path || args.file_path)
+      if (n === 'read') return shortPath(args.path || args.file_path || args.input)
       if (n === 'write') {
         const lines = args.content ? args.content.split('\n').length : 0
-        return shortPath(args.path || args.file_path) + (lines ? ' (' + lines + ' lines)' : '')
+        return shortPath(args.path || args.file_path || args.input) + (lines ? ' (' + lines + ' lines)' : '')
       }
-      if (n === 'edit') return shortPath(args.path || args.file_path)
+      if (n === 'edit') return shortPath(args.path || args.file_path || args.input)
       if (n === 'memory') {
-        const action = args.action || ''
+        const action = args.action || args.input || ''
         const detail = args.pattern || args.constraint_text || args.history_scope || ''
         return detail ? action + ': ' + trunc(detail, 40) : action
       }
       if (n === 'agent') {
         const tasks = args.tasks || []
-        if (!tasks.length) return ''
+        if (!tasks.length) return args.input || ''
         const prefix = tasks.length > 1 ? '[' + tasks.length + '] ' : ''
         return trunc(prefix + (tasks[0].task || ''))
       }
