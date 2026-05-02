@@ -322,8 +322,8 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 			limit = l
 		}
 	}
-	// skip counts rows from the end, enabling backwards pagination.
-	// skip=0 → last 20 rows; skip=20 → rows 20–40 from the end, etc.
+	// skip counts serialized messages from the end, enabling backwards pagination.
+	// skip=0 → last 20 messages; skip=20 → messages 20–40 from the end, etc.
 	skip := 0
 	if sStr := r.URL.Query().Get("skip"); sStr != "" {
 		if s, err := strconv.Atoi(sStr); err == nil && s >= 0 {
@@ -343,18 +343,24 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total := len(rows)
+	// Serialize first so that skip/limit count logical (serialized) messages,
+	// matching what the frontend tracks in sessionMessagesSkip. Without this,
+	// consecutive assistant rows (tool-call turns) collapse into fewer messages
+	// than DB rows, causing the frontend skip cursor to drift and pages to
+	// overlap or go missing.
+	all := serializeDBMessages(rows)
+	total := len(all)
 	if limit > 0 {
 		end := total - skip
 		if end <= 0 {
-			rows = nil
+			all = nil
 		} else {
 			start := max(end-limit, 0)
-			rows = rows[start:end]
+			all = all[start:end]
 		}
 	}
 
-	writeData(w, http.StatusOK, serializeDBMessages(rows))
+	writeData(w, http.StatusOK, all)
 }
 
 // checkSessionAccess verifies the current user has access to the session.

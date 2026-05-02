@@ -270,6 +270,16 @@ export function register(Alpine) {
       } finally {
         this.sessionMessagesLoading = false
       }
+      // If the transcript isn't scrollable yet (messages fit the viewport),
+      // the scroll event can never fire — keep loading until it overflows.
+      if (this.sessionMessagesHasMore) {
+        this.$nextTick(() => {
+          const el = this.$refs.transcript
+          if (el && el.scrollHeight <= el.clientHeight + 20) {
+            this.handleTranscriptScroll(el)
+          }
+        })
+      }
     },
 
     async handleTranscriptScroll(el) {
@@ -294,6 +304,14 @@ export function register(Alpine) {
         console.error(e)
       } finally {
         this.sessionMessagesLoading = false
+      }
+      // Keep filling if the transcript still doesn't overflow after this batch.
+      if (this.sessionMessagesHasMore) {
+        this.$nextTick(() => {
+          if (el.scrollHeight <= el.clientHeight + 20) {
+            this.handleTranscriptScroll(el)
+          }
+        })
       }
     },
 
