@@ -146,6 +146,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				ToolLifecycle:    toolLifecycle,
 				Providers:        providerRegistryBuilder,
 				UserID:           params.UserID,
+				AgentID:          params.AgentID,
 				VaultEnvLoader:   vaultEnvLoader,
 				TokenService:     tokenService,
 				TokenManager:     tokenManager,

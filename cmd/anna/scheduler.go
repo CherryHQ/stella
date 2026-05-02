@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/auth"
@@ -64,6 +65,7 @@ func schedulerAddCommand() *ucli.Command {
 				Schedule:    scheduler.Schedule{Cron: c.String("cron"), Every: c.String("every"), At: c.String("at")},
 				SessionMode: c.String("session-mode"),
 				UserID:      userID,
+				AgentID:     os.Getenv("ANNA_AGENT_ID"),
 			})
 			if err != nil {
 				return err

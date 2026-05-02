@@ -170,6 +170,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	s.scheduler.Start()
 	if loadPersisted {
 		s.log.Info("scheduler service started", "jobs", len(jobs))
+		go s.runDBSync(ctx)
 	} else {
 		s.log.Info("scheduler service started without persisted jobs")
 	}
@@ -185,6 +186,77 @@ func (s *Service) Stop() error {
 		}
 	}
 	return err
+}
+
+const dbSyncInterval = 30 * time.Second
+
+// runDBSync periodically calls syncFromDB to pick up jobs added or removed
+// outside the running process (e.g. via `anna scheduler` CLI commands).
+func (s *Service) runDBSync(ctx context.Context) {
+	ticker := time.NewTicker(dbSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.syncFromDB(ctx)
+		}
+	}
+}
+
+// syncFromDB reconciles in-memory gocron state against the persisted jobs table.
+// Jobs present in DB but not in memory are scheduled; jobs missing from DB are removed.
+func (s *Service) syncFromDB(ctx context.Context) {
+	rows, err := s.q.ListSchedulerJobs(ctx)
+	if err != nil {
+		s.log.Warn("syncFromDB: list jobs failed", "error", err)
+		return
+	}
+
+	dbJobs := make(map[string]Job, len(rows))
+	for _, r := range rows {
+		dbJobs[r.ID] = dbRowToJob(r)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, job := range dbJobs {
+		if _, exists := s.jobs[id]; exists {
+			continue
+		}
+		if job.OwnerKind == JobOwnerPlugin {
+			continue
+		}
+		if job.OwnerKind == JobOwnerUser && !s.userJobsEnabled {
+			continue
+		}
+		if !job.Enabled {
+			s.jobs[id] = job
+			continue
+		}
+		if err := s.scheduleJob(ctx, job); err != nil {
+			if errors.Is(err, errOneTimeJobPast) {
+				s.log.Info("syncFromDB: skipping one-time job with past timestamp", "id", id)
+			} else {
+				s.log.Warn("syncFromDB: failed to schedule job", "id", id, "error", err)
+			}
+		}
+		s.jobs[id] = job
+		s.log.Info("syncFromDB: picked up new job", "id", id, "name", job.Name)
+	}
+
+	for id := range s.jobs {
+		if _, exists := dbJobs[id]; !exists {
+			if gid, ok := s.gids[id]; ok {
+				_ = s.scheduler.RemoveJob(gid)
+				delete(s.gids, id)
+			}
+			delete(s.jobs, id)
+			s.log.Info("syncFromDB: removed job deleted from DB", "id", id)
+		}
+	}
 }
 
 // ScheduleEvery registers a non-persisted recurring task on the existing scheduler.
