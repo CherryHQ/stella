@@ -333,7 +333,7 @@ templ sessionDetailPanel() {
 																<pre class="text-[10px] font-mono text-warning/80 px-3 py-2 whitespace-pre-wrap overflow-x-auto leading-relaxed" x-text="block.arguments?.command || block.arguments?.input || JSON.stringify(block.arguments, null, 2)"></pre>
 															</div>
 															<!-- Skill: structured key-value -->
-															<div x-show="block.name === 'skills'" class="bg-base-200 rounded overflow-hidden">
+															<div x-show="block.name === 'skill' || block.name === 'skills'" class="bg-base-200 rounded overflow-hidden">
 																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300 flex gap-1.5 items-center">
 																	<span class="text-info font-bold">◈</span>
 																	<span>skill</span>
@@ -441,7 +441,7 @@ templ sessionDetailPanel() {
 																</div>
 															</div>
 															<!-- Default: JSON -->
-															<div x-show="!['bash','skills','memory','read','write','edit','agent'].includes(block.name)" class="bg-base-200 rounded overflow-hidden">
+															<div x-show="!['bash','skill','skills','memory','read','write','edit','agent'].includes(block.name)" class="bg-base-200 rounded overflow-hidden">
 																<div class="px-2.5 py-1 text-[9px] font-mono text-base-content/40 border-b border-base-300">input</div>
 																<pre class="text-[10px] font-mono text-base-content/60 px-3 py-2 overflow-x-auto max-h-64 overflow-y-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
 															</div>
