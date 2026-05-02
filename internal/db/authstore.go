@@ -392,6 +392,7 @@ func (s *AuthStore) CreateUserToken(ctx context.Context, token auth.UserToken) (
 	}
 	r, err := s.q.CreateAuthUserToken(ctx, sqlc.CreateAuthUserTokenParams{
 		UserID:        token.UserID,
+		AgentID:       sql.NullString{String: token.AgentID, Valid: token.AgentID != ""},
 		Name:          token.Name,
 		TokenHash:     token.TokenHash,
 		TokenPrefix:   token.TokenPrefix,
@@ -426,6 +427,28 @@ func (s *AuthStore) GetActiveAutoUserToken(ctx context.Context, userID int64) (a
 		return auth.UserToken{}, fmt.Errorf("get active auto user token for user %d: %w", userID, err)
 	}
 	return userTokenFromDB(r), nil
+}
+
+func (s *AuthStore) GetActiveAutoAgentToken(ctx context.Context, userID int64, agentID string) (auth.UserToken, error) {
+	r, err := s.q.GetActiveAutoAuthAgentTokenByUser(ctx, sqlc.GetActiveAutoAuthAgentTokenByUserParams{
+		UserID:  userID,
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+	})
+	if err != nil {
+		return auth.UserToken{}, fmt.Errorf("get active auto agent token for user %d agent %s: %w", userID, agentID, err)
+	}
+	return userTokenFromDB(r), nil
+}
+
+func (s *AuthStore) RevokeAutoAgentToken(ctx context.Context, userID int64, agentID string) (int64, error) {
+	rows, err := s.q.RevokeAutoAgentToken(ctx, sqlc.RevokeAutoAgentTokenParams{
+		UserID:  userID,
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("revoke auto agent token for user %d agent %s: %w", userID, agentID, err)
+	}
+	return rows, nil
 }
 
 func (s *AuthStore) RotateUserToken(ctx context.Context, id int64) (int64, error) {
@@ -519,7 +542,7 @@ func sessionFromDB(r sqlc.AuthSession) auth.Session {
 }
 
 func userTokenFromDB(r sqlc.AuthUserToken) auth.UserToken {
-	return auth.UserToken{
+	t := auth.UserToken{
 		ID:            r.ID,
 		UserID:        r.UserID,
 		Name:          r.Name,
@@ -533,6 +556,10 @@ func userTokenFromDB(r sqlc.AuthUserToken) auth.UserToken {
 		CreatedAt:     parseAuthTime(r.CreatedAt),
 		UpdatedAt:     parseAuthTime(r.UpdatedAt),
 	}
+	if r.AgentID.Valid {
+		t.AgentID = r.AgentID.String
+	}
+	return t
 }
 
 func nullStringFromTimePtr(t *time.Time) sql.NullString {

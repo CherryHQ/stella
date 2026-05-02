@@ -23,7 +23,6 @@ type sandboxPaths struct {
 	AnnaHome string
 	UserRoot string
 	WorkDir  string
-	AgentID  string
 }
 
 // resolveRunnerPaths converts GoRunnerConfig into the minimal path set the
@@ -62,7 +61,6 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 		AnnaHome: annaHome,
 		UserRoot: userRoot,
 		WorkDir:  workDir,
-		AgentID:  cfg.AgentID,
 	}, nil
 }
 
@@ -90,9 +88,6 @@ func sandboxProcessEnv(paths sandboxPaths) map[string]string {
 	env := map[string]string{}
 	if paths.AnnaHome != "" {
 		env["ANNA_HOME"] = paths.AnnaHome
-	}
-	if paths.AgentID != "" {
-		env["ANNA_AGENT_ID"] = paths.AgentID
 	}
 	return env
 }

@@ -1,6 +1,7 @@
 CREATE TABLE auth_user_tokens (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    agent_id       TEXT,
     name           TEXT NOT NULL DEFAULT '',
     token_hash     TEXT NOT NULL UNIQUE,
     token_prefix   TEXT NOT NULL DEFAULT '',
@@ -13,6 +14,12 @@ CREATE TABLE auth_user_tokens (
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_auth_user_tokens_auto_active
+-- One active auto token per user (no agent binding).
+CREATE UNIQUE INDEX idx_auth_user_tokens_auto_active_user
 ON auth_user_tokens(user_id)
-WHERE auto_generated = 1 AND revoked_at IS NULL;
+WHERE auto_generated = 1 AND revoked_at IS NULL AND agent_id IS NULL;
+
+-- One active auto token per (user, agent).
+CREATE UNIQUE INDEX idx_auth_user_tokens_auto_active_agent
+ON auth_user_tokens(user_id, agent_id)
+WHERE auto_generated = 1 AND revoked_at IS NULL AND agent_id IS NOT NULL;

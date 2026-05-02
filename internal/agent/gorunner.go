@@ -59,7 +59,8 @@ type GoRunnerConfig struct {
 	Sandbox          config.SandboxConfig
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 	UserID           int64                            // auth user ID; used for vault secret injection
-	AgentID          string                           // agent ID; injected as ANNA_AGENT_ID into sandbox env
+	AgentID          string                           // agent ID; used to create per-agent ANNA_TOKEN for sandbox
+	AgentToken       string                           // pre-computed agent-scoped ANNA_TOKEN plaintext; overrides vault value
 	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
 	TokenService     *auth.TokenService               // optional; if set, ensures ANNA_TOKEN before vault env injection
 	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env

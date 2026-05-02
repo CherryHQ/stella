@@ -56,6 +56,8 @@ type AuthStore interface {
 	GetUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveAutoUserToken(ctx context.Context, userID int64) (UserToken, error)
+	GetActiveAutoAgentToken(ctx context.Context, userID int64, agentID string) (UserToken, error)
+	RevokeAutoAgentToken(ctx context.Context, userID int64, agentID string) (int64, error)
 	RotateUserToken(ctx context.Context, id int64) (int64, error)
 	RevokeUserToken(ctx context.Context, id int64) (int64, error)
 	UpdateUserTokenLastUsed(ctx context.Context, id int64) (int64, error)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,20 +25,34 @@ func schedulerCommand() *ucli.Command {
 	}
 }
 
+// resolveUserAndAgent authenticates via ANNA_TOKEN and returns the user ID plus
+// the agent ID cryptographically bound to the token (empty for user-level tokens).
+func resolveUserAndAgent(ctx context.Context, svc *auth.TokenService) (int64, string, error) {
+	token := os.Getenv("ANNA_TOKEN")
+	if token == "" {
+		return 0, "", fmt.Errorf("ANNA_TOKEN env var is required")
+	}
+	user, agentID, err := svc.AuthenticateWithAgent(ctx, token)
+	if err != nil {
+		return 0, "", fmt.Errorf("ANNA_TOKEN authentication failed: %w", err)
+	}
+	return user.ID, agentID, nil
+}
+
 // openScheduler opens the DB, authenticates via ANNA_TOKEN, and returns a ready Store.
-func openScheduler(c *ucli.Context) (*scheduler.Store, int64, func(), error) {
+func openScheduler(c *ucli.Context) (*scheduler.Store, int64, string, func(), error) {
 	rawDB, err := db.OpenDB(config.DBPath())
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("open database: %w", err)
+		return nil, 0, "", nil, fmt.Errorf("open database: %w", err)
 	}
 	authStore := db.NewAuthStore(rawDB)
 	tokenSvc := auth.NewTokenService(authStore, nil)
-	userID, err := resolveUserID(c.Context, tokenSvc)
+	userID, agentID, err := resolveUserAndAgent(c.Context, tokenSvc)
 	if err != nil {
 		_ = rawDB.Close()
-		return nil, 0, nil, err
+		return nil, 0, "", nil, err
 	}
-	return scheduler.NewStore(rawDB), userID, func() { _ = rawDB.Close() }, nil
+	return scheduler.NewStore(rawDB), userID, agentID, func() { _ = rawDB.Close() }, nil
 }
 
 func schedulerAddCommand() *ucli.Command {
@@ -53,7 +68,7 @@ func schedulerAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "session-mode", Usage: "'reuse' (default) or 'new'", Value: scheduler.SessionReuse},
 		},
 		Action: func(c *ucli.Context) error {
-			store, userID, close, err := openScheduler(c)
+			store, userID, agentID, close, err := openScheduler(c)
 			if err != nil {
 				return err
 			}
@@ -65,7 +80,7 @@ func schedulerAddCommand() *ucli.Command {
 				Schedule:    scheduler.Schedule{Cron: c.String("cron"), Every: c.String("every"), At: c.String("at")},
 				SessionMode: c.String("session-mode"),
 				UserID:      userID,
-				AgentID:     os.Getenv("ANNA_AGENT_ID"),
+				AgentID:     agentID,
 			})
 			if err != nil {
 				return err
@@ -82,7 +97,7 @@ func schedulerListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List scheduled jobs",
 		Action: func(c *ucli.Context) error {
-			store, userID, close, err := openScheduler(c)
+			store, userID, _, close, err := openScheduler(c)
 			if err != nil {
 				return err
 			}
@@ -113,7 +128,7 @@ func schedulerRemoveCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: anna scheduler remove <job-id>")
 			}
-			store, userID, close, err := openScheduler(c)
+			store, userID, _, close, err := openScheduler(c)
 			if err != nil {
 				return err
 			}

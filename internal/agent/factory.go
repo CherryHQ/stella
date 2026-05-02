@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -117,6 +118,24 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				hookPlugins = params.HooksFn()
 			}
 
+			// Create a per-agent ANNA_TOKEN bound to this agent's ID in the DB.
+			// The plaintext is injected into the sandbox env, overriding the
+			// user-level vault token. CLI subprocesses recover the agent ID from
+			// the validated token record — no spoofable env var needed.
+			var agentToken string
+			if params.AgentID != "" && tokenService != nil {
+				var tokenErr error
+				agentToken, tokenErr = tokenService.EnsureAutoAgentToken(ctx, params.UserID, params.AgentID)
+				if tokenErr != nil {
+					slog.Warn("agent token creation skipped",
+						"component", "runner_factory",
+						"user_id", params.UserID,
+						"agent_id", params.AgentID,
+						"error", tokenErr,
+					)
+				}
+			}
+
 			runnerTools := append([]tools.Tool{}, builtinTools...)
 			runnerTools = append(runnerTools, skillstool.NewTool(
 				skillStore,
@@ -147,6 +166,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				Providers:        providerRegistryBuilder,
 				UserID:           params.UserID,
 				AgentID:          params.AgentID,
+				AgentToken:       agentToken,
 				VaultEnvLoader:   vaultEnvLoader,
 				TokenService:     tokenService,
 				TokenManager:     tokenManager,

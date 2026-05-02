@@ -82,6 +82,7 @@ type AuthUserAgent struct {
 type AuthUserToken struct {
 	ID            int64          `json:"id"`
 	UserID        int64          `json:"user_id"`
+	AgentID       sql.NullString `json:"agent_id"`
 	Name          string         `json:"name"`
 	TokenHash     string         `json:"token_hash"`
 	TokenPrefix   string         `json:"token_prefix"`

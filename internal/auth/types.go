@@ -115,6 +115,7 @@ type Session struct {
 type UserToken struct {
 	ID            int64      `json:"id"`
 	UserID        int64      `json:"user_id"`
+	AgentID       string     `json:"agent_id,omitempty"`
 	Name          string     `json:"name"`
 	TokenHash     string     `json:"-"`
 	TokenPrefix   string     `json:"token_prefix"`

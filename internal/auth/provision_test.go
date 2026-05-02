@@ -338,6 +338,14 @@ func (s provisionStubStore) RotateUserToken(context.Context, int64) (int64, erro
 	panic("unused")
 }
 
+func (s provisionStubStore) GetActiveAutoAgentToken(context.Context, int64, string) (auth.UserToken, error) {
+	panic("unused")
+}
+
+func (s provisionStubStore) RevokeAutoAgentToken(context.Context, int64, string) (int64, error) {
+	panic("unused")
+}
+
 func (s provisionStubStore) RevokeUserToken(context.Context, int64) (int64, error) {
 	panic("unused")
 }

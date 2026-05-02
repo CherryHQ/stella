@@ -175,6 +175,14 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
 
+	// Override ANNA_TOKEN with an agent-scoped token when available. This token
+	// is cryptographically bound to the agent ID in the DB, so CLI subprocesses
+	// (e.g. anna scheduler add) can recover the agent ID via token lookup without
+	// trusting any env var the LLM could forge.
+	if cfg.AgentToken != "" {
+		env["ANNA_TOKEN"] = cfg.AgentToken
+	}
+
 	return env, nil
 }
 
