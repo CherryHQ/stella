@@ -312,9 +312,9 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 	if pool.AgentID() != "" {
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
-	// Scheduled executions already have an external delivery path and should not
-	// mutate scheduler control-plane state while they run.
-	ctx = agent.WithExcludedTools(ctx, "notify", "scheduler")
+	// Scheduled executions already have an external delivery path; exclude notify
+	// so the job response is not double-delivered.
+	ctx = agent.WithExcludedTools(ctx, "notify")
 	return ctx
 }
 

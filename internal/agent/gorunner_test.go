@@ -99,9 +99,8 @@ func TestFilterRunnerTools(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&stubTool{name: "bash"})
 	reg.Register(&stubTool{name: "notify"})
-	reg.Register(&stubTool{name: "scheduler"})
 
-	set, defs, err := filterRunnerTools(reg, []string{"notify", "scheduler"})
+	set, defs, err := filterRunnerTools(reg, []string{"notify"})
 	if err != nil {
 		t.Fatalf("filterRunnerTools: %v", err)
 	}
@@ -110,9 +109,6 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 	if _, ok := set["notify"]; ok {
 		t.Fatal("notify should be excluded")
-	}
-	if _, ok := set["scheduler"]; ok {
-		t.Fatal("scheduler should be excluded")
 	}
 	if _, ok := set["bash"]; !ok {
 		t.Fatal("bash should remain available")
