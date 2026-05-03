@@ -46,24 +46,18 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 
 	// Telemetry: count turns and tool results before compaction.
 	userTurns := 0
-	toolResultsBefore := 0
+	toolResults := 0
 	for _, m := range tailMsgs {
 		if _, ok := m.(ai.UserMessage); ok {
 			userTurns++
 		}
 		if _, ok := m.(ai.ToolResultMessage); ok {
-			toolResultsBefore++
+			toolResults++
 		}
 	}
 
-	tailMsgs = compactOversizedTailResults(tailMsgs)
-
-	toolResultsAfter := 0
-	for _, m := range tailMsgs {
-		if _, ok := m.(ai.ToolResultMessage); ok {
-			toolResultsAfter++
-		}
-	}
+	var compacted int
+	tailMsgs, compacted = compactOversizedTailResults(tailMsgs)
 
 	itemsPerTurn := float64(len(tailMsgs)) / float64(max(userTurns, 1))
 	a.log.Info("lcm tail telemetry",
@@ -71,8 +65,8 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 		slog.Int("tail_messages", len(tailMsgs)),
 		slog.Int("user_turns", userTurns),
 		slog.Float64("items_per_turn", itemsPerTurn),
-		slog.Int("tool_results_before", toolResultsBefore),
-		slog.Int("tool_results_after", toolResultsAfter),
+		slog.Int("tool_results", toolResults),
+		slog.Int("tool_results_compacted", compacted),
 	)
 
 	tailTokens := 0
@@ -115,7 +109,8 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 // been processed (i.e. followed by at least one assistant message) with a compact
 // placeholder. The returned slice is a shallow copy; original messages are not
 // modified. ToolCallID, ToolName, IsError, and Timestamp are preserved.
-func compactOversizedTailResults(msgs []ai.Message) []ai.Message {
+// The second return value is the count of results that were replaced.
+func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
 	// Find the last AssistantMessage — tool results after this index are
 	// part of the in-flight exchange and must not be compacted.
 	lastAssistantIdx := -1
@@ -125,12 +120,13 @@ func compactOversizedTailResults(msgs []ai.Message) []ai.Message {
 		}
 	}
 	if lastAssistantIdx < 0 {
-		return msgs
+		return msgs, 0
 	}
 
 	result := make([]ai.Message, len(msgs))
 	copy(result, msgs)
 
+	compacted := 0
 	for i := 0; i < lastAssistantIdx; i++ {
 		tr, ok := result[i].(ai.ToolResultMessage)
 		if !ok {
@@ -148,9 +144,10 @@ func compactOversizedTailResults(msgs []ai.Message) []ai.Message {
 			IsError:   tr.IsError,
 			Timestamp: tr.Timestamp,
 		}
+		compacted++
 	}
 
-	return result
+	return result, compacted
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.

@@ -162,12 +162,12 @@ func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
 			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
 		}
+		if env.Error != "" {
+			return fmt.Sprintf("[tool:%s] error: %s", env.Tool, env.Error)
+		}
 		var text string
 		if err := json.Unmarshal(env.Result, &text); err != nil {
 			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
-		}
-		if env.Error != "" {
-			return fmt.Sprintf("[tool:%s] error: %s", env.Tool, env.Error)
 		}
 		preview := truncateUTF8(text, 300)
 		return fmt.Sprintf("[tool:%s] result(%d chars): %s", env.Tool, len(text), preview)
@@ -177,7 +177,7 @@ func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
 			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
 		}
-		args := string(env.Args)
+		args := truncateUTF8(string(env.Args), 300)
 		return fmt.Sprintf("[assistant:call %s] args: %s", env.Tool, args)
 
 	default:

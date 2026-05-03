@@ -232,6 +232,19 @@ func TestFormatMessageForSummarizer(t *testing.T) {
 		t.Errorf("tool_call: got %q, want %q", got, want)
 	}
 
+	// tool_call — large args are truncated.
+	largeArgs := `"` + strings.Repeat("x", 400) + `"`
+	tcEnv = toolCallEnvelope{ID: "tc2", Tool: "write_file", Args: json.RawMessage(largeArgs)}
+	data, _ = json.Marshal(tcEnv)
+	msg = sqlc.CtxMessage{Role: "assistant", EventType: eventTypeToolCall, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	if len([]rune(got)) > len("[assistant:call write_file] args: ")+300+3 {
+		t.Errorf("tool_call large args not truncated: len=%d", len(got))
+	}
+	if !strings.Contains(got, "[assistant:call write_file] args: ") {
+		t.Errorf("tool_call prefix missing: %q", got)
+	}
+
 	// Fallback — malformed JSON.
 	msg = sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: "not json"}
 	got = formatMessageForSummarizer(msg)
@@ -267,7 +280,10 @@ func TestCompactOversizedTailResults(t *testing.T) {
 
 	// Large tool result followed by assistant — should be compacted.
 	msgs := []ai.Message{largeTool, assistant}
-	got := compactOversizedTailResults(msgs)
+	got, n := compactOversizedTailResults(msgs)
+	if n != 1 {
+		t.Errorf("expected 1 compacted, got %d", n)
+	}
 	if len(got) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(got))
 	}
@@ -287,7 +303,10 @@ func TestCompactOversizedTailResults(t *testing.T) {
 
 	// Large tool result as last message — should be preserved.
 	msgs = []ai.Message{assistant, largeTool}
-	got = compactOversizedTailResults(msgs)
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted, got %d", n)
+	}
 	tr, ok = got[1].(ai.ToolResultMessage)
 	if !ok {
 		t.Fatalf("expected ToolResultMessage at 1, got %T", got[1])
@@ -298,7 +317,10 @@ func TestCompactOversizedTailResults(t *testing.T) {
 
 	// Small tool result — should be preserved (under threshold).
 	msgs = []ai.Message{smallTool, assistant}
-	got = compactOversizedTailResults(msgs)
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted, got %d", n)
+	}
 	tr, ok = got[0].(ai.ToolResultMessage)
 	if !ok {
 		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
@@ -309,7 +331,10 @@ func TestCompactOversizedTailResults(t *testing.T) {
 
 	// No assistant message — nothing compacted.
 	msgs = []ai.Message{largeTool}
-	got = compactOversizedTailResults(msgs)
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted, got %d", n)
+	}
 	tr, ok = got[0].(ai.ToolResultMessage)
 	if !ok {
 		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
