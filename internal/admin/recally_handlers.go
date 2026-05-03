@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -504,6 +505,8 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	now := time.Now().UTC()
 	if updated, err := h.store.UpdateFeed(r.Context(), feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
 		result.Feed = toAPIFeed(updated)
+	} else {
+		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)
 	}
 	writeJSON(w, http.StatusOK, result)
 }

@@ -217,7 +217,7 @@ paths:
       summary: List entries for a feed
       operationId: listFeedEntries
       parameters:
-        - { name: status, in: query, schema: { $ref: "#/components/schemas/FeedEntryStatus" } }
+        - { name: status, in: query, description: "Filter by entry status. Currently only 'pending' is supported; other values return 400.", schema: { $ref: "#/components/schemas/FeedEntryStatus" } }
         - { name: limit,  in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 20 } }
       responses:
         "200":
