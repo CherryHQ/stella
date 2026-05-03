@@ -8,6 +8,7 @@ import (
 
 	"filippo.io/age"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
@@ -121,4 +122,63 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 // the credentials tool from outside the admin package.
 func (s *Server) CredentialsService() *credentials.Service {
 	return s.credSvc
+}
+
+// Recally method delegations — Server implements apiserver.ServerInterface by
+// forwarding all recally operations to the embedded recallyHandlers.
+
+func (s *Server) ListArticles(w http.ResponseWriter, r *http.Request, params apiserver.ListArticlesParams) {
+	s.recally.ListArticles(w, r, params)
+}
+
+func (s *Server) SaveArticle(w http.ResponseWriter, r *http.Request) {
+	s.recally.SaveArticle(w, r)
+}
+
+func (s *Server) DeleteArticle(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.DeleteArticle(w, r, id)
+}
+
+func (s *Server) GetArticle(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetArticleParams) {
+	s.recally.GetArticle(w, r, id, params)
+}
+
+func (s *Server) UpdateArticle(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.UpdateArticle(w, r, id)
+}
+
+func (s *Server) GetDigest(w http.ResponseWriter, r *http.Request) {
+	s.recally.GetDigest(w, r)
+}
+
+func (s *Server) ListFeeds(w http.ResponseWriter, r *http.Request, params apiserver.ListFeedsParams) {
+	s.recally.ListFeeds(w, r, params)
+}
+
+func (s *Server) CreateFeed(w http.ResponseWriter, r *http.Request) {
+	s.recally.CreateFeed(w, r)
+}
+
+func (s *Server) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params apiserver.ListFeedEntriesParams) {
+	s.recally.ListFeedEntries(w, r, feedId, params)
+}
+
+func (s *Server) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
+	s.recally.UpdateFeedEntry(w, r, feedId, id)
+}
+
+func (s *Server) DeleteFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.DeleteFeed(w, r, id)
+}
+
+func (s *Server) GetFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.GetFeed(w, r, id)
+}
+
+func (s *Server) UpdateFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.UpdateFeed(w, r, id)
+}
+
+func (s *Server) PollFeed(w http.ResponseWriter, r *http.Request, id string, params apiserver.PollFeedParams) {
+	s.recally.PollFeed(w, r, id, params)
 }

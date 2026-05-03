@@ -1,6 +1,10 @@
 package admin
 
-import "net/http"
+import (
+	"net/http"
+
+	apiserver "github.com/vaayne/anna/api/server"
+)
 
 func (s *Server) registerRoutes() {
 	s.registerStaticRoutes()
@@ -16,17 +20,16 @@ func (s *Server) registerRoutes() {
 	s.registerPluginRoutes()
 	s.registerModelRoutes()
 	s.registerToolRoutes()
-	s.registerSchedulerRoutes()
 	s.registerSkillRoutes()
 	s.registerBuiltinRoutes()
 	s.registerManifestPluginRoutes()
-	s.registerRecallyRoutes()
+	s.registerAPIRoutes()
 }
 
-// registerRecallyRoutes mounts the generated recally REST API onto the admin
-// mux. Auth is enforced by the global authMiddleware (Bearer + session).
-func (s *Server) registerRecallyRoutes() {
-	HandlerFromMux(s.recally, s.mux)
+// registerAPIRoutes mounts the generated recally + scheduler REST API onto the
+// admin mux. Auth is enforced by the global authMiddleware (Bearer + session).
+func (s *Server) registerAPIRoutes() {
+	apiserver.HandlerFromMux(s, s.mux)
 }
 
 func (s *Server) registerStaticRoutes() {
@@ -195,13 +198,6 @@ func (s *Server) registerModelRoutes() {
 
 func (s *Server) registerToolRoutes() {
 	s.mux.HandleFunc("GET /api/tools", s.listAgentTools)
-}
-
-func (s *Server) registerSchedulerRoutes() {
-	s.mux.HandleFunc("GET /api/scheduler/jobs", s.listSchedulerJobs)
-	s.mux.HandleFunc("POST /api/scheduler/jobs", s.createSchedulerJob)
-	s.mux.HandleFunc("PUT /api/scheduler/jobs/{id}", s.updateSchedulerJob)
-	s.mux.HandleFunc("DELETE /api/scheduler/jobs/{id}", s.deleteSchedulerJob)
 }
 
 func (s *Server) registerSkillRoutes() {

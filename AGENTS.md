@@ -48,6 +48,29 @@ When behavior, APIs, config, commands, or architecture change:
 - Keep `internal/agent/runner/builtin/anna/` in sync with user-facing changes.
 - Docs are maintained in English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) only. Always update both when adding or changing doc content. No other locales.
 
+## API-first design
+
+Every new HTTP API must follow this workflow:
+
+1. Define the endpoint in the appropriate OpenAPI spec under `api/`:
+   - `api/recally.yaml` — recally articles/feeds/digest endpoints
+   - `api/scheduler.yaml` — scheduler job endpoints
+   - `api/openapi.yaml` — aggregated spec (imports all sub-specs; add inline schemas here)
+2. Run `mise run generate:api` to regenerate:
+   - `api/server/gen.go` — server interface + routing (`package server`)
+   - `api/client/gen.go` — HTTP client + types (`package client`)
+3. Implement the new method on `*Server` in `internal/admin/` (it must satisfy `server.ServerInterface`).
+4. Never hand-write server routing for recally/scheduler — it comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
+
+**Where generated code lives:**
+
+| File | Package | Purpose |
+|------|---------|---------|
+| `api/server/gen.go` | `server` | `ServerInterface` + `HandlerFromMux` + all param/response types |
+| `api/client/gen.go` | `client` | HTTP client methods + all shared types |
+
+**Key rule:** `api/openapi.yaml` is the single source of truth for codegen. It must have all schemas inlined in `components/schemas` (path-level `$ref` to sub-specs is fine; schema-level `$ref` to sub-specs is not — oapi-codegen won't follow them for type generation).
+
 ## Releases
 
 Use `.agents/skills/release/SKILL.md` for the full release workflow.

@@ -37,7 +37,7 @@ type schedulerJobJSON struct {
 	LastError   string         `json:"last_error,omitempty"`
 }
 
-func (s *Server) listSchedulerJobs(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 
 	rows, err := s.q.ListSchedulerJobs(r.Context())
@@ -60,7 +60,7 @@ func (s *Server) listSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, jobs)
 }
 
-func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 
 	var body schedulerJobJSON
@@ -136,9 +136,8 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, body)
 }
 
-func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
 	info := UserFromContext(r.Context())
-	id := r.PathValue("id")
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), id)
 	if err != nil {
@@ -221,9 +220,8 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, body)
 }
 
-func (s *Server) deleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
 	info := UserFromContext(r.Context())
-	id := r.PathValue("id")
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), id)
 	if err != nil {

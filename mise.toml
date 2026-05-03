@@ -32,12 +32,12 @@ run = "templ generate && sqlc generate"
 description = "Generate Go server interface and client from OpenAPI specs"
 sources = ["api/recally.yaml", "api/scheduler.yaml", "api/openapi.yaml"]
 outputs = [
-    "internal/admin/recally_gen.go",
+    "api/server/gen.go",
     "api/client/gen.go",
 ]
 run = """
-go tool oapi-codegen -package admin   -generate std-http,types -o internal/admin/recally_gen.go  api/recally.yaml
-go tool oapi-codegen -package client  -generate client,types   -o api/client/gen.go               api/openapi.yaml
+go tool oapi-codegen -package server  -generate std-http,types -o api/server/gen.go   api/openapi.yaml
+go tool oapi-codegen -package client  -generate client,types   -o api/client/gen.go   api/openapi.yaml
 """
 
 # ============================================================================
