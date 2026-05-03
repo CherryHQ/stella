@@ -2,15 +2,15 @@ openapi: 3.0.3
 info:
   title: anna recally API
   description: |
-    REST API for the recally reading-assistant feature of anna.
+    Sub-spec for the recally reading-assistant feature. Part of the full anna
+    API defined in api/openapi.yaml.
 
     The anna server is the only process that reads or writes the recally
-    database and the article markdown files on disk. CLI, web UI, and
-    third-party clients all talk HTTP.
+    database and the article markdown files on disk.
 
-    This spec is the source of truth: the generated Go server interface
+    Source of truth for the generated Go server interface
     (`internal/admin/recally_gen.go`) and Go client
-    (`pkg/recally/client/client_gen.go`) are derived from it.
+    (`pkg/recally/client/client_gen.go`).
   version: "1"
 servers:
   - url: http://127.0.0.1:25678

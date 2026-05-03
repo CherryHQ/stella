@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	ucli "github.com/urfave/cli/v2"
-	recallyclient "github.com/vaayne/anna/pkg/recally/client"
+	client "github.com/vaayne/anna/api/client"
 )
 
 func recallyFeedCommand() *ucli.Command {
@@ -35,13 +35,13 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := api.CreateFeed(c.Context, recallyclient.CreateFeedJSONRequestBody{Url: feedURL})
+			resp, err := api.CreateFeed(c.Context, client.CreateFeedJSONRequestBody{Url: feedURL})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var feed recallyclient.Feed
-			if err := recallyclient.DecodeJSON(resp, &feed); err != nil {
+			var feed client.Feed
+			if err := client.DecodeJSON(resp, &feed); err != nil {
 				return err
 			}
 			fmt.Printf("Subscribed to feed: %s\n", feed.Id)
@@ -64,13 +64,13 @@ func recallyFeedListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := api.ListFeeds(c.Context, &recallyclient.ListFeedsParams{})
+			resp, err := api.ListFeeds(c.Context, &client.ListFeedsParams{})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var list recallyclient.FeedList
-			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+			var list client.FeedList
+			if err := client.DecodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -118,7 +118,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := recallyclient.DecodeJSON(resp, nil); err != nil {
+			if err := client.DecodeJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Feed %s removed.\n", shortID(feedID))
@@ -145,13 +145,13 @@ func recallyFeedPollCommand() *ucli.Command {
 			if id := c.Args().First(); id != "" {
 				feedIDs = append(feedIDs, id)
 			} else {
-				resp, err := api.ListFeeds(c.Context, &recallyclient.ListFeedsParams{})
+				resp, err := api.ListFeeds(c.Context, &client.ListFeedsParams{})
 				if err != nil {
 					return wrapServerErr(err)
 				}
 				defer resp.Body.Close() //nolint:errcheck
-				var list recallyclient.FeedList
-				if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+				var list client.FeedList
+				if err := client.DecodeJSON(resp, &list); err != nil {
 					return err
 				}
 				for _, f := range list.Items {
@@ -161,14 +161,14 @@ func recallyFeedPollCommand() *ucli.Command {
 				}
 			}
 
-			results := make([]recallyclient.FeedPollResult, 0, len(feedIDs))
+			results := make([]client.FeedPollResult, 0, len(feedIDs))
 			for _, id := range feedIDs {
-				resp, err := api.PollFeed(c.Context, id, &recallyclient.PollFeedParams{Limit: recallyclient.Ptr(c.Int("limit"))})
+				resp, err := api.PollFeed(c.Context, id, &client.PollFeedParams{Limit: client.Ptr(c.Int("limit"))})
 				if err != nil {
 					return wrapServerErr(err)
 				}
-				var pr recallyclient.FeedPollResult
-				decodeErr := recallyclient.DecodeJSON(resp, &pr)
+				var pr client.FeedPollResult
+				decodeErr := client.DecodeJSON(resp, &pr)
 				_ = resp.Body.Close()
 				if decodeErr != nil {
 					return decodeErr
@@ -208,16 +208,16 @@ func recallyFeedMarkCommand() *ucli.Command {
 			}
 			feedID, entryID := args[0], args[1]
 
-			status := recallyclient.FeedEntryStatus(c.String("status"))
+			status := client.FeedEntryStatus(c.String("status"))
 			switch status {
-			case recallyclient.FeedEntryStatusSaved, recallyclient.FeedEntryStatusSkipped, recallyclient.FeedEntryStatusError:
+			case client.FeedEntryStatusSaved, client.FeedEntryStatusSkipped, client.FeedEntryStatusError:
 			default:
 				return fmt.Errorf("invalid status: %s (must be saved, skipped, or error)", status)
 			}
-			if status == recallyclient.FeedEntryStatusSaved && c.String("article-id") == "" {
+			if status == client.FeedEntryStatusSaved && c.String("article-id") == "" {
 				return fmt.Errorf("--article-id required when marking as saved")
 			}
-			body := recallyclient.UpdateFeedEntryJSONRequestBody{Status: status}
+			body := client.UpdateFeedEntryJSONRequestBody{Status: status}
 			if v := c.String("article-id"); v != "" {
 				body.ArticleId = &v
 			}
@@ -233,8 +233,8 @@ func recallyFeedMarkCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var entry recallyclient.FeedEntry
-			if err := recallyclient.DecodeJSON(resp, &entry); err != nil {
+			var entry client.FeedEntry
+			if err := client.DecodeJSON(resp, &entry); err != nil {
 				return err
 			}
 			fmt.Printf("Entry %s marked as %s (attempts: %d)\n", shortID(entryID), status, entry.Attempts)

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	ucli "github.com/urfave/cli/v2"
-	schedulerclient "github.com/vaayne/anna/pkg/scheduler/client"
+	client "github.com/vaayne/anna/api/client"
 )
 
 func schedulerCommand() *ucli.Command {
@@ -19,8 +19,8 @@ func schedulerCommand() *ucli.Command {
 	}
 }
 
-func schedulerAPI() (*schedulerclient.Client, error) {
-	return schedulerclient.NewFromEnv()
+func schedulerAPI() (*client.Client, error) {
+	return client.NewFromEnv()
 }
 
 func schedulerAddCommand() *ucli.Command {
@@ -62,18 +62,38 @@ func schedulerAddCommand() *ucli.Command {
 				return err
 			}
 
-			job, err := api.CreateJob(c.Context, schedulerclient.CreateJobRequest{
-				Name:        c.String("name"),
-				Message:     c.String("message"),
-				Cron:        cron,
-				Every:       every,
-				At:          at,
-				SessionMode: c.String("session-mode"),
-				Enabled:     true,
-				AgentID:     c.String("agent-id"),
-			})
+			name := c.String("name")
+			msg := c.String("message")
+			mode := c.String("session-mode")
+			agentID := c.String("agent-id")
+			enabled := true
+			body := client.CreateSchedulerJobJSONRequestBody{
+				Name:        &name,
+				Message:     &msg,
+				SessionMode: &mode,
+				Enabled:     &enabled,
+			}
+			if cron != "" {
+				body.Cron = &cron
+			}
+			if every != "" {
+				body.Every = &every
+			}
+			if at != "" {
+				body.At = &at
+			}
+			if agentID != "" {
+				body.AgentId = &agentID
+			}
+
+			resp, err := api.CreateSchedulerJob(c.Context, body)
 			if err != nil {
 				return wrapServerErr(err)
+			}
+			defer resp.Body.Close() //nolint:errcheck
+			var job client.Job
+			if err := client.DecodeData(resp, &job); err != nil {
+				return err
 			}
 			return printJSON(job)
 		},
@@ -92,32 +112,37 @@ func schedulerListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			jobs, err := api.ListJobs(c.Context)
+			resp, err := api.ListSchedulerJobs(c.Context)
 			if err != nil {
 				return wrapServerErr(err)
 			}
-			if c.Bool("json") {
-				return printJSON(jobs)
+			defer resp.Body.Close() //nolint:errcheck
+			var list client.JobList
+			if err := client.DecodeData(resp, &list); err != nil {
+				return err
 			}
-			if len(jobs) == 0 {
+			if c.Bool("json") {
+				return printJSON(list.Items)
+			}
+			if len(list.Items) == 0 {
 				fmt.Println("No scheduled jobs.")
 				return nil
 			}
 			fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
-			for _, j := range jobs {
-				sched := j.Cron
+			for _, j := range list.Items {
+				sched := derefStr(j.Cron)
 				if sched == "" {
-					sched = j.Every
+					sched = derefStr(j.Every)
 				}
 				if sched == "" {
-					sched = j.At
+					sched = derefStr(j.At)
 				}
-				lastRun := j.LastRunAt
+				lastRun := derefStr(j.LastRunAt)
 				if lastRun == "" {
 					lastRun = "never"
 				}
 				fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n",
-					shortID(j.ID), truncate(j.Name, 20), truncate(sched, 20), j.SessionMode, lastRun)
+					shortID(j.Id), truncate(j.Name, 20), truncate(sched, 20), j.SessionMode, lastRun)
 			}
 			return nil
 		},
@@ -138,8 +163,13 @@ func schedulerRemoveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if err := api.DeleteJob(c.Context, id); err != nil {
+			resp, err := api.DeleteSchedulerJob(c.Context, id)
+			if err != nil {
 				return wrapServerErr(err)
+			}
+			defer resp.Body.Close() //nolint:errcheck
+			if err := client.DecodeData(resp, nil); err != nil {
+				return err
 			}
 			fmt.Printf("Job %q removed.\n", id)
 			return nil
@@ -153,4 +183,11 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-1] + "…"
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
