@@ -105,18 +105,18 @@ Tool activity from the runner is summarized inline during streaming.
 
 ## Supported Message Types
 
-| Type               | Behavior                                               |
-| ------------------ | ------------------------------------------------------ |
-| Text               | Sent to the LLM as text                                |
-| Image              | Downloaded and passed as multimodal input              |
-| Post               | Raw rich-text JSON is forwarded                        |
-| Audio              | Sent as descriptive text with duration                 |
-| Video              | Sent as descriptive text with duration                 |
+| Type               | Behavior                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Text               | Sent to the LLM as text                                                             |
+| Image              | Downloaded and passed as multimodal input                                           |
+| Post               | Raw rich-text JSON is forwarded                                                     |
+| Audio              | Sent as descriptive text with duration                                              |
+| Video              | Sent as descriptive text with duration                                              |
 | File               | Downloaded, saved to disk, and passed to the agent with a kreuzberg extraction hint |
-| Sticker            | Sent as descriptive text                               |
-| Location           | Sent as descriptive text with coordinates when present |
-| Shared chat/user   | Sent as descriptive text                               |
-| Forwarded messages | Sent as a summary marker                               |
+| Sticker            | Sent as descriptive text                                                            |
+| Location           | Sent as descriptive text with coordinates when present                              |
+| Shared chat/user   | Sent as descriptive text                                                            |
+| Forwarded messages | Sent as a summary marker                                                            |
 
 ## Native Threading
 
@@ -166,17 +166,17 @@ Feishu supports the standard chat commands:
 }
 ```
 
-| Field                | Description                                                           |
-| -------------------- | --------------------------------------------------------------------- |
-| `app_id`             | Feishu app ID                                                         |
-| `app_secret`         | Feishu app secret                                                     |
-| `encrypt_key`        | Optional event encryption key                                         |
-| `verification_token` | Optional event verification token                                     |
-| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`            |
-| `enable_notify`      | Allow scheduler and notify output to target Feishu                    |
+| Field                | Description                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `app_id`             | Feishu app ID                                                                                                      |
+| `app_secret`         | Feishu app secret                                                                                                  |
+| `encrypt_key`        | Optional event encryption key                                                                                      |
+| `verification_token` | Optional event verification token                                                                                  |
+| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`                                                         |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                 |
 | `tenant_key`         | Your enterprise tenant key. Optional: anna can auto-detect it at startup, but setting it explicitly is recommended |
-| `auto_provision`     | Automatically create Anna accounts for users handled by this Feishu channel instance |
-| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                 |
+| `auto_provision`     | Automatically create Anna accounts for users handled by this Feishu channel instance                               |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                              |
 
 ## Troubleshooting Auto-Provisioning
 

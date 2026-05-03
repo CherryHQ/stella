@@ -8,12 +8,12 @@ Anna ships with a curated catalog of **builtin resources** so a fresh install is
 
 Four resource kinds are shipped:
 
-| Kind          | Purpose                                                              | Where it runs                                      |
-| ------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
-| **Skill**     | Reusable knowledge/playbook the agent can load on demand             | DB-synced into `skills(scope='system')` on startup |
-| **Soul**      | Persona/tone fragment layered into the agent's system prompt         | Copied into an agent at creation time              |
-| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool    | Extracted to `$ANNA_HOME/agents/` on startup       |
-| **Template**  | Full agent bootstrap (model + system prompt + soul) | Read once at agent creation; no persistent link    |
+| Kind          | Purpose                                                           | Where it runs                                      |
+| ------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
+| **Skill**     | Reusable knowledge/playbook the agent can load on demand          | DB-synced into `skills(scope='system')` on startup |
+| **Soul**      | Persona/tone fragment layered into the agent's system prompt      | Copied into an agent at creation time              |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$ANNA_HOME/agents/` on startup       |
+| **Template**  | Full agent bootstrap (model + system prompt + soul)               | Read once at agent creation; no persistent link    |
 
 ## Templates
 
@@ -57,7 +57,6 @@ An agent's skill catalog in the prompt is:
  ∪ {user-scope DB skills}
  ∪ {project skills from .agents/skills}
 ```
-
 
 Shipped system skills live under `internal/resources/skills/system/` and are synced into `skills(scope='system')` on startup. Startup sync is authoritative: skills removed from the embedded system catalog are deleted from the database on the next sync.
 

@@ -56,29 +56,29 @@ plugins:
     binaries:
       - name: my-cli
         tool: github:owner/my-cli
-        version: "1.2.3"   # omit for latest
+        version: '1.2.3' # omit for latest
     session_env:
       - env_var: MY_TOKEN
         source: static
-        value: "abc123"
+        value: 'abc123'
         required: true
 ```
 
 ## Plugin fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli` |
-| `kind` | Yes | Plugin kind, typically `tool` |
-| `name` | Yes | Short machine-readable name |
-| `display_name` | No | Human-readable label shown in the admin UI |
-| `description` | No | Short description shown in the admin UI |
-| `enabled` | No | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries` | No | CLI binaries to download and place in `$ANNA_HOME/bin` |
-| `session_env` | No | Environment variables to inject into sandbox sessions |
-| `oauth_provider` | No | Static OAuth provider ID used by `oauth.*` session env sources, such as `github` |
-| `oauth_provider_config_field` | No | Plugin config field that dynamically selects the OAuth provider, such as `brand` |
-| `oauth_provider_choices` | Conditional | Allowed provider IDs when `oauth_provider_config_field` is set |
+| Field                         | Required    | Description                                                                        |
+| ----------------------------- | ----------- | ---------------------------------------------------------------------------------- |
+| `id`                          | Yes         | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                           |
+| `kind`                        | Yes         | Plugin kind, typically `tool`                                                      |
+| `name`                        | Yes         | Short machine-readable name                                                        |
+| `display_name`                | No          | Human-readable label shown in the admin UI                                         |
+| `description`                 | No          | Short description shown in the admin UI                                            |
+| `enabled`                     | No          | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
+| `binaries`                    | No          | CLI binaries to download and place in `$ANNA_HOME/bin`                             |
+| `session_env`                 | No          | Environment variables to inject into sandbox sessions                              |
+| `oauth_provider`              | No          | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
+| `oauth_provider_config_field` | No          | Plugin config field that dynamically selects the OAuth provider, such as `brand`   |
+| `oauth_provider_choices`      | Conditional | Allowed provider IDs when `oauth_provider_config_field` is set                     |
 
 ## Binary fields
 
@@ -86,16 +86,16 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 
 ### Common fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Binary filename placed in `$ANNA_HOME/bin` (without extension) |
-| `tool` | Yes | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`) |
-| `version` | No | Version to install. Defaults to `latest` for all backends. |
-| `strip_components` | No | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
-| `bin_path` | No | Subdirectory inside the archive containing the binary (e.g. `"bin"`). |
-| `bin` | No | Rename the downloaded file when the asset is a single binary (non-archive). |
-| `rename_exe` | No | Rename the executable after extraction from an archive. |
-| `checksum` | No | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
+| Field              | Required | Description                                                                                   |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------- |
+| `name`             | Yes      | Binary filename placed in `$ANNA_HOME/bin` (without extension)                                |
+| `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
+| `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
+| `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
+| `bin_path`         | No       | Subdirectory inside the archive containing the binary (e.g. `"bin"`).                         |
+| `bin`              | No       | Rename the downloaded file when the asset is a single binary (non-archive).                   |
+| `rename_exe`       | No       | Rename the executable after extraction from an archive.                                       |
+| `checksum`         | No       | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`).            |
 
 ### GitHub backend (`github:owner/repo`)
 
@@ -103,18 +103,18 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 binaries:
   - name: gh
     tool: github:cli/cli
-    version: "2.40.1"
+    version: '2.40.1'
     bin_path: bin
 ```
 
-| Field | Description |
-|-------|-------------|
-| `asset_pattern` | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`). |
-| `version_prefix` | Custom tag prefix (e.g. `"release-"`). |
-| `no_app` | Skip macOS `.app` bundles; prefer standalone binaries. |
-| `filter_bins` | Comma-separated list of binaries to expose when the archive contains multiple executables. |
-| `prerelease` | Include pre-release versions when resolving `latest`. |
-| `api_url` | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`). |
+| Field            | Description                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `asset_pattern`  | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`).                 |
+| `version_prefix` | Custom tag prefix (e.g. `"release-"`).                                                     |
+| `no_app`         | Skip macOS `.app` bundles; prefer standalone binaries.                                     |
+| `filter_bins`    | Comma-separated list of binaries to expose when the archive contains multiple executables. |
+| `prerelease`     | Include pre-release versions when resolving `latest`.                                      |
+| `api_url`        | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`).    |
 
 ### HTTP backend (`http:name`)
 
@@ -124,19 +124,19 @@ The identifier after `http:` is the tool name used internally by mise.
 binaries:
   - name: sentinel
     tool: http:sentinel
-    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
-    version: "0.26.3"
+    url: 'https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip'
+    version: '0.26.3'
 ```
 
-| Field | Description |
-|-------|-------------|
-| `url` | Download URL. Required for http backend. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
-| `size` | Expected file size in bytes for verification. |
-| `format` | Archive format override (e.g. `"tar.xz"`). |
-| `version_list_url` | URL to fetch available versions from. |
-| `version_regex` | Regex to extract versions from the version list. |
-| `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`). |
-| `version_expr` | expr-lang expression to extract versions. |
+| Field               | Description                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `url`               | Download URL. Required for http backend. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
+| `size`              | Expected file size in bytes for verification.                                                        |
+| `format`            | Archive format override (e.g. `"tar.xz"`).                                                           |
+| `version_list_url`  | URL to fetch available versions from.                                                                |
+| `version_regex`     | Regex to extract versions from the version list.                                                     |
+| `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`).                                 |
+| `version_expr`      | expr-lang expression to extract versions.                                                            |
 
 ### Pipx backend (`pipx:package`)
 
@@ -146,15 +146,15 @@ The identifier is the PyPI package name, `org/repo` for a GitHub source, or a `g
 binaries:
   - name: mypy
     tool: pipx:mypy
-    version: "1.8.0"
+    version: '1.8.0'
 ```
 
-| Field | Description |
-|-------|-------------|
-| `extras` | Pip extras to install alongside the package. |
-| `pipx_args` | Extra arguments to pass to pipx. |
-| `uvx` | Use `uvx` (uv's tool runner) instead of pipx. |
-| `uvx_args` | Extra arguments for uvx. |
+| Field       | Description                                   |
+| ----------- | --------------------------------------------- |
+| `extras`    | Pip extras to install alongside the package.  |
+| `pipx_args` | Extra arguments to pass to pipx.              |
+| `uvx`       | Use `uvx` (uv's tool runner) instead of pipx. |
+| `uvx_args`  | Extra arguments for uvx.                      |
 
 ### NPM backend (`npm:package`)
 
@@ -162,28 +162,28 @@ binaries:
 binaries:
   - name: serve
     tool: npm:serve
-    version: "14.2.0"
+    version: '14.2.0'
 ```
 
 Platform-specific asset patterns (`platforms:` map) are not supported in the manifest.
 
 ## Session env fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `env_var` | Yes | Environment variable name |
-| `source` | Yes | How the value is resolved (see below) |
-| `value` | Conditional | Value when `source: static` |
-| `required` | No | If true, session creation fails when the value cannot be resolved |
+| Field      | Required    | Description                                                       |
+| ---------- | ----------- | ----------------------------------------------------------------- |
+| `env_var`  | Yes         | Environment variable name                                         |
+| `source`   | Yes         | How the value is resolved (see below)                             |
+| `value`    | Conditional | Value when `source: static`                                       |
+| `required` | No          | If true, session creation fails when the value cannot be resolved |
 
 ### Env sources
 
-| Source | Description |
-|--------|-------------|
-| `static` | Uses the literal `value` from the manifest |
-| `oauth.access_token` | Injects the connected provider's OAuth access token |
-| `oauth.client_id` | Injects the connected provider bundle's client/app ID |
-| `oauth.brand` | Injects the connected provider bundle's brand, when present |
+| Source               | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `static`             | Uses the literal `value` from the manifest                  |
+| `oauth.access_token` | Injects the connected provider's OAuth access token         |
+| `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
+| `oauth.brand`        | Injects the connected provider bundle's brand, when present |
 
 `oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Anna's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the admin panel.
 
@@ -210,7 +210,7 @@ plugins:
     binaries:
       - name: tap
         tool: github:vaayne/tap
-        version: "0.5.0"
+        version: '0.5.0'
 ```
 
 Built-in plugin overrides are full-entry replacements. If you override a built-in
