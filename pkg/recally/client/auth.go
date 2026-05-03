@@ -39,7 +39,6 @@ func BearerAuth(token string) RequestEditorFn {
 // DecodeJSON reads the response body, decodes JSON into out, and converts
 // non-2xx responses into an error carrying the API error message.
 func DecodeJSON(resp *http.Response, out any) error {
-	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)

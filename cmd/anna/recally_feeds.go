@@ -39,6 +39,7 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var feed recallyclient.Feed
 			if err := recallyclient.DecodeJSON(resp, &feed); err != nil {
 				return err
@@ -67,6 +68,7 @@ func recallyFeedListCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var list recallyclient.FeedList
 			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
 				return err
@@ -115,6 +117,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			if err := recallyclient.DecodeJSON(resp, nil); err != nil {
 				return err
 			}
@@ -146,6 +149,7 @@ func recallyFeedPollCommand() *ucli.Command {
 				if err != nil {
 					return wrapServerErr(err)
 				}
+				defer resp.Body.Close() //nolint:errcheck
 				var list recallyclient.FeedList
 				if err := recallyclient.DecodeJSON(resp, &list); err != nil {
 					return err
@@ -164,8 +168,10 @@ func recallyFeedPollCommand() *ucli.Command {
 					return wrapServerErr(err)
 				}
 				var pr recallyclient.FeedPollResult
-				if err := recallyclient.DecodeJSON(resp, &pr); err != nil {
-					return err
+				decodeErr := recallyclient.DecodeJSON(resp, &pr)
+				_ = resp.Body.Close()
+				if decodeErr != nil {
+					return decodeErr
 				}
 				results = append(results, pr)
 			}
@@ -226,6 +232,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var entry recallyclient.FeedEntry
 			if err := recallyclient.DecodeJSON(resp, &entry); err != nil {
 				return err

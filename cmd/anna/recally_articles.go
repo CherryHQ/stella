@@ -74,6 +74,7 @@ func recallySaveCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var article recallyclient.Article
 			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
 				return err
@@ -128,6 +129,7 @@ func recallyListCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var list recallyclient.ArticleList
 			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
 				return err
@@ -173,6 +175,7 @@ func recallySearchCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var list recallyclient.ArticleList
 			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
 				return err
@@ -212,6 +215,7 @@ func recallyReadCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var article recallyclient.Article
 			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
 				return err
@@ -270,6 +274,7 @@ func recallyUpdateCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var updated recallyclient.Article
 			if err := recallyclient.DecodeJSON(resp, &updated); err != nil {
 				return err
@@ -298,6 +303,7 @@ func recallyDeleteCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			if err := recallyclient.DecodeJSON(resp, nil); err != nil {
 				return err
 			}

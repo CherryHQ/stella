@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -611,7 +613,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func includesContent(include string) bool {
-	for _, part := range strings.Split(include, ",") {
+	for part := range strings.SplitSeq(include, ",") {
 		if strings.TrimSpace(part) == "content" {
 			return true
 		}
@@ -641,8 +643,11 @@ func (h *recallyHandlers) rewriteArticleFile(article *recally.Article, newConten
 	body := newContent
 	if body == "" {
 		existing, err := h.files.ReadArticle(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
-			return nil // file may not exist locally; skip silently
+			return err
 		}
 		body = existing
 	}
@@ -704,9 +709,7 @@ func toAPIArticle(a *recally.Article, content string) Article {
 	}
 	if len(a.Metadata) > 0 {
 		md := make(map[string]string, len(a.Metadata))
-		for k, v := range a.Metadata {
-			md[k] = v
-		}
+		maps.Copy(md, a.Metadata)
 		out.Metadata = &md
 	}
 	if content != "" {

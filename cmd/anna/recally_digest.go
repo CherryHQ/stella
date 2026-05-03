@@ -26,6 +26,7 @@ func recallyDigestCommand() *ucli.Command {
 			if err != nil {
 				return wrapServerErr(err)
 			}
+			defer resp.Body.Close() //nolint:errcheck
 			var digest recallyclient.Digest
 			if err := recallyclient.DecodeJSON(resp, &digest); err != nil {
 				return err
