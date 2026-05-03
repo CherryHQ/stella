@@ -2,10 +2,12 @@ package lcm
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
@@ -197,4 +199,153 @@ func TestParseTime_AllLayouts(t *testing.T) {
 			t.Errorf("parseTime(%q) [%s]: expected non-zero time", tc.input, tc.layout)
 		}
 	}
+}
+
+func TestFormatMessageForSummarizer(t *testing.T) {
+	// tool_result — normal result.
+	env := toolResultEnvelope{ID: "tc1", Tool: "read_file", Result: json.RawMessage(`"file content here"`)}
+	data, _ := json.Marshal(env)
+	msg := sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: string(data)}
+	got := formatMessageForSummarizer(msg)
+	want := "[tool:read_file] result(17 chars): file content here"
+	if got != want {
+		t.Errorf("tool_result normal: got %q, want %q", got, want)
+	}
+
+	// tool_result — error result.
+	env = toolResultEnvelope{ID: "tc1", Tool: "read_file", Error: "file not found"}
+	data, _ = json.Marshal(env)
+	msg = sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	want = "[tool:read_file] error: file not found"
+	if got != want {
+		t.Errorf("tool_result error: got %q, want %q", got, want)
+	}
+
+	// tool_call.
+	tcEnv := toolCallEnvelope{ID: "tc1", Tool: "bash", Args: json.RawMessage(`{"command":"ls"}`)}
+	data, _ = json.Marshal(tcEnv)
+	msg = sqlc.CtxMessage{Role: "assistant", EventType: eventTypeToolCall, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	want = `[assistant:call bash] args: {"command":"ls"}`
+	if got != want {
+		t.Errorf("tool_call: got %q, want %q", got, want)
+	}
+
+	// tool_call — large args are truncated.
+	largeArgs := `"` + strings.Repeat("x", 400) + `"`
+	tcEnv = toolCallEnvelope{ID: "tc2", Tool: "write_file", Args: json.RawMessage(largeArgs)}
+	data, _ = json.Marshal(tcEnv)
+	msg = sqlc.CtxMessage{Role: "assistant", EventType: eventTypeToolCall, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	if len([]rune(got)) > len("[assistant:call write_file] args: ")+300+3 {
+		t.Errorf("tool_call large args not truncated: len=%d", len(got))
+	}
+	if !strings.Contains(got, "[assistant:call write_file] args: ") {
+		t.Errorf("tool_call prefix missing: %q", got)
+	}
+
+	// Fallback — malformed JSON.
+	msg = sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: "not json"}
+	got = formatMessageForSummarizer(msg)
+	want = "[tool] not json"
+	if got != want {
+		t.Errorf("fallback: got %q, want %q", got, want)
+	}
+
+	// Default — text message.
+	msg = sqlc.CtxMessage{Role: "user", EventType: eventTypeText, Content: "hello"}
+	got = formatMessageForSummarizer(msg)
+	want = "[user] hello"
+	if got != want {
+		t.Errorf("default: got %q, want %q", got, want)
+	}
+}
+
+func TestCompactOversizedTailResults(t *testing.T) {
+	largeText := strings.Repeat("a", 10000) // ~2500 tokens
+	largeTool := ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "read_file",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: largeText}},
+	}
+	largeTool2 := ai.ToolResultMessage{
+		ToolCallID: "tc2",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: largeText}},
+	}
+	smallTool := ai.ToolResultMessage{
+		ToolCallID: "tc3",
+		ToolName:   "stat",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+	}
+	assistant := ai.AssistantMessage{
+		Content: []ai.ContentBlock{ai.TextContent{Text: "done"}},
+	}
+	user := ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "hi"}}}
+	user2 := ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "follow-up"}}}
+
+	// Large tool result from a completed prior turn — should be compacted.
+	// Pattern: [largeTool, assistant(final), user(new turn)]
+	msgs := []ai.Message{largeTool, assistant, user2}
+	got, n := compactOversizedTailResults(msgs)
+	if n != 1 {
+		t.Errorf("expected 1 compacted, got %d", n)
+	}
+	tr, ok := got[0].(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
+	}
+	if tr.ToolCallID != "tc1" || tr.ToolName != "read_file" {
+		t.Errorf("metadata lost: got %+v", tr)
+	}
+	if strings.Contains(ai.FlattenText(tr.Content), "aaaaaaaa") {
+		t.Error("large content should have been replaced")
+	}
+	if !strings.Contains(ai.FlattenText(tr.Content), "Content omitted") {
+		t.Errorf("expected placeholder text, got %q", ai.FlattenText(tr.Content))
+	}
+
+	// Multi-step tool chain within the current user turn — all preserved.
+	// Pattern: [user, asst(tc1), largeTool1, asst(tc2), largeTool2]
+	// Assembling for the final answer: model still needs both tool results.
+	msgs = []ai.Message{user, assistant, largeTool, assistant, largeTool2}
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted for in-flight multi-step chain, got %d", n)
+	}
+	if ai.FlattenText(got[2].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("first tool result in current turn must not be compacted")
+	}
+	if ai.FlattenText(got[4].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("second tool result in current turn must not be compacted")
+	}
+
+	// Small tool result from completed turn — preserved (under threshold).
+	msgs = []ai.Message{smallTool, assistant, user2}
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted for small result, got %d", n)
+	}
+	if ai.FlattenText(got[0].(ai.ToolResultMessage).Content) != "ok" {
+		t.Error("small tool result should not be compacted")
+	}
+
+	// No user message — nothing compacted (safe fallback).
+	msgs = []ai.Message{largeTool, assistant}
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted with no user message, got %d", n)
+	}
+	if ai.FlattenText(got[0].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("tool result should not be compacted when no user message present")
+	}
+
+	// Only one user message (first element) — nothing eligible before it.
+	msgs = []ai.Message{user, largeTool}
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted when user is first element, got %d", n)
+	}
+	_ = got
 }

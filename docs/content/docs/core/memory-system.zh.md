@@ -6,21 +6,21 @@ title: 记忆系统
 
 Anna 的记忆系统是在插件化对话存储之上构建的四个逻辑空间：
 
-| 空间 | 用途 | 底层存储 |
-| ---- | ---- | -------- |
-| **约束（Constraints）** | 用户确认过的硬性规则，例如“执行破坏性生产命令前必须先询问”。 | `ctx_agent_memory.constraints` |
-| **身份（Identity）** | Agent soul 和每用户画像笔记。 | `settings_agents.system_prompt`、`ctx_agent_memory.content`、`ctx_agent_memory.soul` |
-| **对话（Conversation）** | 原始消息、摘要、压缩、搜索和恢复。 | 记忆 Provider 表（`ctx_messages`、`ctx_items`、`ctx_summaries` 等） |
-| **知识（Knowledge）** | 应该影响后续会话、但不是可调用技能的事实和时效性背景。 | `skills.metadata.knowledge_type`，并设置 `disable_model_invocation=true` |
+| 空间                     | 用途                                                         | 底层存储                                                                             |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| **约束（Constraints）**  | 用户确认过的硬性规则，例如“执行破坏性生产命令前必须先询问”。 | `ctx_agent_memory.constraints`                                                       |
+| **身份（Identity）**     | Agent soul 和每用户画像笔记。                                | `settings_agents.system_prompt`、`ctx_agent_memory.content`、`ctx_agent_memory.soul` |
+| **对话（Conversation）** | 原始消息、摘要、压缩、搜索和恢复。                           | 记忆 Provider 表（`ctx_messages`、`ctx_items`、`ctx_summaries` 等）                  |
+| **知识（Knowledge）**    | 应该影响后续会话、但不是可调用技能的事实和时效性背景。       | `skills.metadata.knowledge_type`，并设置 `disable_model_invocation=true`             |
 
 这四个空间不是四套独立引擎。设计目标是继续保持 LCM/Simple 记忆插件、ProfileStore、Reflect 和 SkillStore 的松耦合，同时在它们周围增加版本历史和会话快照。
 
 Anna 内置两个记忆插件：
 
-| 插件       | 包路径                   | 默认启用 | 说明                                                         |
-| ---------- | ------------------------ | -------- | ------------------------------------------------------------ |
-| **LCM**    | `plugins/memory/lcm/`    | 是       | 无损上下文管理 —— 摘要 DAG、压缩、搜索、探索                 |
-| **Simple** | `plugins/memory/simple/` | 否       | 滑动窗口 —— 在 token 预算内保留最近 N 条消息，无摘要         |
+| 插件       | 包路径                   | 默认启用 | 说明                                                 |
+| ---------- | ------------------------ | -------- | ---------------------------------------------------- |
+| **LCM**    | `plugins/memory/lcm/`    | 是       | 无损上下文管理 —— 摘要 DAG、压缩、搜索、探索         |
+| **Simple** | `plugins/memory/simple/` | 否       | 滑动窗口 —— 在 token 预算内保留最近 N 条消息，无摘要 |
 
 ### 切换插件
 
@@ -37,30 +37,30 @@ anna plugin enable memory/simple
 
 核心 `Provider` 接口（`pkg/memory/provider.go`）包含 5 个方法：
 
-| 方法                                        | 说明                                           |
-| ------------------------------------------- | ---------------------------------------------- |
-| `Bootstrap(ctx, session)`                   | 确保会话的对话记录存在                         |
-| `Append(ctx, session, msgs)`                | 持久化消息并添加上下文项                       |
-| `Assemble(ctx, session, budget, freshTail)` | 在 token 预算内组装对话上下文                  |
-| `Stats(ctx, session)`                       | 返回会话统计（token 数、消息数）               |
-| `Close()`                                   | 释放资源                                       |
+| 方法                                        | 说明                             |
+| ------------------------------------------- | -------------------------------- |
+| `Bootstrap(ctx, session)`                   | 确保会话的对话记录存在           |
+| `Append(ctx, session, msgs)`                | 持久化消息并添加上下文项         |
+| `Assemble(ctx, session, budget, freshTail)` | 在 token 预算内组装对话上下文    |
+| `Stats(ctx, session)`                       | 返回会话统计（token 数、消息数） |
+| `Close()`                                   | 释放资源                         |
 
 ### 可选能力
 
 Provider 可以通过类型断言实现额外接口：
 
-| 接口 | 说明 |
-| ---- | ---- |
-| `Compactor` | 上下文窗口压缩 |
-| `Searcher` | 跨消息和摘要的全文搜索 |
-| `Explorer` | 检查和深入摘要 |
-| `ProfileStore` | 每用户每代理的 profile 和 soul 文本 |
-| `ConstraintStore` | 每用户每代理的硬性约束 |
-| `ChangelogReader` / `ChangelogWriter` | 记忆写入版本历史 |
-| `VersionedProfileStore` / `VersionedConstraintStore` | 按冻结版本读取身份/约束状态 |
-| `SessionSnapshotStore` | 冻结和推进每会话记忆版本 |
-| `SessionManager` | 会话元数据和历史管理 |
-| `ReviewSource` | Reflect 自我改进评审数据 |
+| 接口                                                 | 说明                                |
+| ---------------------------------------------------- | ----------------------------------- |
+| `Compactor`                                          | 上下文窗口压缩                      |
+| `Searcher`                                           | 跨消息和摘要的全文搜索              |
+| `Explorer`                                           | 检查和深入摘要                      |
+| `ProfileStore`                                       | 每用户每代理的 profile 和 soul 文本 |
+| `ConstraintStore`                                    | 每用户每代理的硬性约束              |
+| `ChangelogReader` / `ChangelogWriter`                | 记忆写入版本历史                    |
+| `VersionedProfileStore` / `VersionedConstraintStore` | 按冻结版本读取身份/约束状态         |
+| `SessionSnapshotStore`                               | 冻结和推进每会话记忆版本            |
+| `SessionManager`                                     | 会话元数据和历史管理                |
+| `ReviewSource`                                       | Reflect 自我改进评审数据            |
 
 LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约束、changelog、snapshot 和会话管理，但不支持压缩、搜索和探索。
 
@@ -68,21 +68,21 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 `memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`：
 
-| 动作 | 需要接口 | 说明 |
-| ---- | -------- | ---- |
-| `status` | 始终可用 | 显示会话统计 |
-| `search` | `Searcher` | 按模式搜索消息和摘要 |
-| `describe` | `Explorer` | 检查摘要的元数据和血统 |
-| `expand` | `Explorer` | 深入压缩后的摘要 |
-| `profile_get` | `ProfileStore` | 读取持久用户画像笔记 |
-| `profile_update` | `ProfileStore` | 替换持久用户画像笔记 |
-| `soul_get` | `ProfileStore` | 读取每用户 agent soul 覆盖 |
-| `soul_update` | `ProfileStore` | 更新每用户 agent soul 覆盖 |
-| `profile_history` | `ChangelogReader` | 查看最近 profile/soul 变更历史 |
-| `profile_rollback` | `ChangelogReader` + `ProfileStore` | 从 changelog 的旧版本恢复 profile/soul 文本 |
-| `constraint_list` | `ConstraintStore` | 列出硬性约束 |
-| `constraint_add` | `ConstraintStore` | 在对话中获得用户确认后添加硬性约束 |
-| `constraint_remove` | `ConstraintStore` | 按 ID 删除硬性约束 |
+| 动作                | 需要接口                           | 说明                                        |
+| ------------------- | ---------------------------------- | ------------------------------------------- |
+| `status`            | 始终可用                           | 显示会话统计                                |
+| `search`            | `Searcher`                         | 按模式搜索消息和摘要                        |
+| `describe`          | `Explorer`                         | 检查摘要的元数据和血统                      |
+| `expand`            | `Explorer`                         | 深入压缩后的摘要                            |
+| `profile_get`       | `ProfileStore`                     | 读取持久用户画像笔记                        |
+| `profile_update`    | `ProfileStore`                     | 替换持久用户画像笔记                        |
+| `soul_get`          | `ProfileStore`                     | 读取每用户 agent soul 覆盖                  |
+| `soul_update`       | `ProfileStore`                     | 更新每用户 agent soul 覆盖                  |
+| `profile_history`   | `ChangelogReader`                  | 查看最近 profile/soul 变更历史              |
+| `profile_rollback`  | `ChangelogReader` + `ProfileStore` | 从 changelog 的旧版本恢复 profile/soul 文本 |
+| `constraint_list`   | `ConstraintStore`                  | 列出硬性约束                                |
+| `constraint_add`    | `ConstraintStore`                  | 在对话中获得用户确认后添加硬性约束          |
+| `constraint_remove` | `ConstraintStore`                  | 按 ID 删除硬性约束                          |
 
 工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。
 
@@ -136,12 +136,12 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 可见性规则：
 
-| 写入路径 | 当前会话是否可见？ | 原因 |
-| -------- | ------------------ | ---- |
-| 用户通过记忆工具要求 Anna 记住某事 | 是，从下一轮开始 | 记忆工具会推进当前会话快照 |
-| 用户通过记忆工具添加/删除约束 | 是，从下一轮开始 | 前台写入后推进 snapshot |
-| Reflect 在后台更新 profile/knowledge | 否 | Reflect 没有活跃 session context，不推进 snapshot |
-| 新会话开始 | 是 | 新会话会快照最新记忆版本 |
+| 写入路径                             | 当前会话是否可见？ | 原因                                              |
+| ------------------------------------ | ------------------ | ------------------------------------------------- |
+| 用户通过记忆工具要求 Anna 记住某事   | 是，从下一轮开始   | 记忆工具会推进当前会话快照                        |
+| 用户通过记忆工具添加/删除约束        | 是，从下一轮开始   | 前台写入后推进 snapshot                           |
+| Reflect 在后台更新 profile/knowledge | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
+| 新会话开始                           | 是                 | 新会话会快照最新记忆版本                          |
 
 这样既保证用户前台意图能及时生效，又避免后台反思在进行中的会话里造成行为漂移。
 
@@ -149,11 +149,11 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 知识通过 `metadata.knowledge_type` 扩展 skills 表：
 
-| 类型 | 含义 | 模型可调用？ | 默认过期 |
-| ---- | ---- | ------------ | -------- |
-| `skill` | 可复用流程或操作步骤 | 是 | draft 30 天 |
-| `fact` | 持久项目/领域事实 | 否 | draft 90 天 |
-| `context` | 有时效性的背景信息 | 否 | draft 30 天 |
+| 类型      | 含义                 | 模型可调用？ | 默认过期    |
+| --------- | -------------------- | ------------ | ----------- |
+| `skill`   | 可复用流程或操作步骤 | 是           | draft 30 天 |
+| `fact`    | 持久项目/领域事实    | 否           | draft 90 天 |
+| `context` | 有时效性的背景信息   | 否           | draft 30 天 |
 
 Fact/context 条目存储在 `skills` 表中，并设置 `disable_model_invocation=true`。它们不会出现在 `<available_skills>` 中，也不能通过 skills tool 当作可执行技能加载。Active 条目会注入系统提示的 `## Knowledge` 区块。
 
@@ -194,14 +194,30 @@ ai.Message (user/assistant/tool_result)
 1. **叶子遍历** —— 将 fresh tail 之外的连续消息项分组。10 条以上的消息组会变成 `leaf` 摘要。
 2. **聚合遍历** —— 将相同深度的摘要分组。2 个以上的摘要组会变成更高深度的 `condensed` 摘要。
 
+在送入摘要模型之前，tool result 和 tool call 会先被格式化为紧凑、可读的形式，而不是原始 JSON：
+
+| 事件类型              | 格式化输出示例                                            |
+| --------------------- | --------------------------------------------------------- |
+| `tool_result`         | `[tool:read_file] result(1234 chars): first 300 chars...` |
+| `tool_result`（错误） | `[tool:read_file] error: file not found`                  |
+| `tool_call`           | `[assistant:call bash] args: {"command":"ls"}`            |
+| text / image / 其他   | `[user] hello`（保持原格式）                              |
+
+如果消息无法解析（遗留数据或损坏的 JSON），格式化器会回退到原始的 `[role] content` 字符串。
+
 摘要会按需从普通模式升级到“只保留持久事实”的激进模式，最后再退回到按句子边界截断的确定性模式。
 
 ### 上下文组装
 
 1. 将上下文项分为 **fresh tail**（最后 N 个消息项，默认 20）和较旧项。
-2. 将 fresh tail 解析为 `ai.Message` —— 无论预算如何都始终包含。
-3. 用较旧项填充剩余预算，最新优先。
-4. 返回按时间顺序排列的较旧事件，再接 fresh tail。
+2. 将 fresh tail 解析为 `ai.Message`。
+3. 将 tail 中已处理完的大型 tool result（>2000 tokens）替换为紧凑占位符，同时保留 `ToolCallID`、`ToolName`、`IsError` 和 `Timestamp`，以便模型知道内容已被省略并在需要时重新调用工具。仍在处理中的 tool result（尚无 assistant 回复）保持完整大小。
+4. 在已压缩的 tail 上计算 token 成本，然后用较旧项填充剩余预算，最新优先。
+5. 返回按时间顺序排列的较旧事件，再接 fresh tail。
+
+> **注意：** `defaultFreshTail` 统计的是 `CtxItem` 行数，而不是对话轮次。一次包含多个 tool call 的 agent 轮次可能产生 4 条以上的 item（用户消息 + assistant 文本 + tool call + tool result）。如果你的会话工具调用密集，且典型的 item-per-turn 比值较高，在观察 telemetry 后你可能需要通过插件配置提高 `fresh_tail`。
+
+每次组装都会输出一条结构化日志（`lcm tail telemetry`），包含 `tail_items`、`tail_messages`、`user_turns`、`items_per_turn` 和 `tool_results_before/after`，用于数据驱动的参数调优。
 
 ## Simple 插件
 
@@ -222,26 +238,27 @@ Simple 插件使用滑动窗口方式：
 
 **核心 schema：**
 
-| 表 | 用途 |
-| -- | ---- |
-| `ctx_conversations` | 每会话一条（`session_id` -> `id` 映射），包含 agent/user ID |
-| `ctx_messages` | 原始消息，包含 `role`、`content`、`token_count`、顺序 `seq` |
-| `ctx_summaries` | 摘要 DAG 节点 |
-| `ctx_items` | 有序上下文窗口：指向消息或摘要 |
-| `ctx_summary_messages` | 将叶子摘要链接到源消息 |
-| `ctx_summary_parents` | 将聚合摘要链接到父摘要 |
-| `ctx_agent_memory` | Profile、soul、constraints 和行级 version |
-| `memory_changelog` | 记忆写入的追加式审计日志 |
-| `memory_snapshots` | 每会话冻结的记忆版本 |
-| `skills` | 技能，以及不可调用的 fact/context 知识条目 |
+| 表                     | 用途                                                        |
+| ---------------------- | ----------------------------------------------------------- |
+| `ctx_conversations`    | 每会话一条（`session_id` -> `id` 映射），包含 agent/user ID |
+| `ctx_messages`         | 原始消息，包含 `role`、`content`、`token_count`、顺序 `seq` |
+| `ctx_summaries`        | 摘要 DAG 节点                                               |
+| `ctx_items`            | 有序上下文窗口：指向消息或摘要                              |
+| `ctx_summary_messages` | 将叶子摘要链接到源消息                                      |
+| `ctx_summary_parents`  | 将聚合摘要链接到父摘要                                      |
+| `ctx_agent_memory`     | Profile、soul、constraints 和行级 version                   |
+| `memory_changelog`     | 记忆写入的追加式审计日志                                    |
+| `memory_snapshots`     | 每会话冻结的记忆版本                                        |
+| `skills`               | 技能，以及不可调用的 fact/context 知识条目                  |
 
 ## 配置默认值
 
-| 常量 | 值 | 说明 |
-| ---- | -- | ---- |
-| `DefaultFreshTail` | 20 | 受保护免于压缩的消息 |
-| `DefaultContextThreshold` | 0.75 | 触发压缩的预算比例 |
-| `DefaultLeafChunkSize` | 10 | 每个叶子摘要的最小消息数 |
+| 常量                        | 值   | 说明                                           |
+| --------------------------- | ---- | ---------------------------------------------- |
+| `DefaultFreshTail`          | 20   | 受保护免于压缩的消息                           |
+| `DefaultContextThreshold`   | 0.75 | 触发压缩的预算比例                             |
+| `DefaultLeafChunkSize`      | 10   | 每个叶子摘要的最小消息数                       |
+| `OversizedToolResultTokens` | 2000 | 超过此阈值的 tail tool result 会被替换为占位符 |
 
 ## Agent 工作区
 
