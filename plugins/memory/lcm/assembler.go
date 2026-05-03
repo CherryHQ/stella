@@ -3,6 +3,7 @@ package lcm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/vaayne/anna/pkg/ai"
@@ -11,11 +12,15 @@ import (
 
 // assembler builds context for the model within a token budget.
 type assembler struct {
-	q *sqlc.Queries
+	q   *sqlc.Queries
+	log *slog.Logger
 }
 
-func newAssembler(q *sqlc.Queries) *assembler {
-	return &assembler{q: q}
+func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &assembler{q: q, log: log}
 }
 
 // assemble builds a context window from context_items, respecting the token budget.
@@ -38,7 +43,38 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
+
+	// Telemetry: count turns and tool results before compaction.
+	userTurns := 0
+	toolResultsBefore := 0
+	for _, m := range tailMsgs {
+		if _, ok := m.(ai.UserMessage); ok {
+			userTurns++
+		}
+		if _, ok := m.(ai.ToolResultMessage); ok {
+			toolResultsBefore++
+		}
+	}
+
 	tailMsgs = compactOversizedTailResults(tailMsgs)
+
+	toolResultsAfter := 0
+	for _, m := range tailMsgs {
+		if _, ok := m.(ai.ToolResultMessage); ok {
+			toolResultsAfter++
+		}
+	}
+
+	itemsPerTurn := float64(len(tailMsgs)) / float64(max(userTurns, 1))
+	a.log.Info("lcm tail telemetry",
+		slog.Int("tail_items", len(tail)),
+		slog.Int("tail_messages", len(tailMsgs)),
+		slog.Int("user_turns", userTurns),
+		slog.Float64("items_per_turn", itemsPerTurn),
+		slog.Int("tool_results_before", toolResultsBefore),
+		slog.Int("tool_results_after", toolResultsAfter),
+	)
+
 	tailTokens := 0
 	for _, m := range tailMsgs {
 		tailTokens += estimateMessageTokens(m)
