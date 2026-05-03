@@ -304,6 +304,7 @@ type ListFeedsParams struct {
 
 // ListFeedEntriesParams defines parameters for ListFeedEntries.
 type ListFeedEntriesParams struct {
+	// Status Filter by entry status. Currently only 'pending' is supported; other values return 400.
 	Status *FeedEntryStatus `form:"status,omitempty" json:"status,omitempty"`
 	Limit  *int             `form:"limit,omitempty" json:"limit,omitempty"`
 }
