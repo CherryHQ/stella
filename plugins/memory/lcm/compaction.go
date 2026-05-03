@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -150,6 +151,40 @@ func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 	return runs
 }
 
+// formatMessageForSummarizer formats a CtxMessage for compaction summarization.
+// Tool results and tool calls are rendered compactly; all other messages keep
+// the original [role] content shape. On any JSON unmarshal error the original
+// format is returned as a safe fallback (handles legacy rows).
+func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
+	switch msg.EventType {
+	case eventTypeToolResult:
+		var env toolResultEnvelope
+		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
+			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+		}
+		var text string
+		if err := json.Unmarshal(env.Result, &text); err != nil {
+			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+		}
+		if env.Error != "" {
+			return fmt.Sprintf("[tool:%s] error: %s", env.Tool, env.Error)
+		}
+		preview := truncateUTF8(text, 300)
+		return fmt.Sprintf("[tool:%s] result(%d chars): %s", env.Tool, len(text), preview)
+
+	case eventTypeToolCall:
+		var env toolCallEnvelope
+		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
+			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+		}
+		args := string(env.Args)
+		return fmt.Sprintf("[assistant:call %s] args: %s", env.Tool, args)
+
+	default:
+		return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+	}
+}
+
 // compactMessageRun creates a leaf summary from a message run.
 func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, run messageRun, result *memory.CompactionResult) error {
 	// Load source messages before opening a transaction. The summarizer may call
@@ -171,7 +206,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 			return fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
 		}
 		messages = append(messages, msg)
-		textParts = append(textParts, fmt.Sprintf("[%s] %s", msg.Role, msg.Content))
+		textParts = append(textParts, formatMessageForSummarizer(msg))
 		totalTokens += msg.TokenCount
 
 		if earliestAt == "" || msg.CreatedAt < earliestAt {

@@ -2,10 +2,12 @@ package lcm
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
@@ -196,5 +198,123 @@ func TestParseTime_AllLayouts(t *testing.T) {
 		if got.IsZero() {
 			t.Errorf("parseTime(%q) [%s]: expected non-zero time", tc.input, tc.layout)
 		}
+	}
+}
+
+func TestFormatMessageForSummarizer(t *testing.T) {
+	// tool_result — normal result.
+	env := toolResultEnvelope{ID: "tc1", Tool: "read_file", Result: json.RawMessage(`"file content here"`)}
+	data, _ := json.Marshal(env)
+	msg := sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: string(data)}
+	got := formatMessageForSummarizer(msg)
+	want := "[tool:read_file] result(17 chars): file content here"
+	if got != want {
+		t.Errorf("tool_result normal: got %q, want %q", got, want)
+	}
+
+	// tool_result — error result.
+	env = toolResultEnvelope{ID: "tc1", Tool: "read_file", Error: "file not found"}
+	data, _ = json.Marshal(env)
+	msg = sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	want = "[tool:read_file] error: file not found"
+	if got != want {
+		t.Errorf("tool_result error: got %q, want %q", got, want)
+	}
+
+	// tool_call.
+	tcEnv := toolCallEnvelope{ID: "tc1", Tool: "bash", Args: json.RawMessage(`{"command":"ls"}`)}
+	data, _ = json.Marshal(tcEnv)
+	msg = sqlc.CtxMessage{Role: "assistant", EventType: eventTypeToolCall, Content: string(data)}
+	got = formatMessageForSummarizer(msg)
+	want = `[assistant:call bash] args: {"command":"ls"}`
+	if got != want {
+		t.Errorf("tool_call: got %q, want %q", got, want)
+	}
+
+	// Fallback — malformed JSON.
+	msg = sqlc.CtxMessage{Role: "tool", EventType: eventTypeToolResult, Content: "not json"}
+	got = formatMessageForSummarizer(msg)
+	want = "[tool] not json"
+	if got != want {
+		t.Errorf("fallback: got %q, want %q", got, want)
+	}
+
+	// Default — text message.
+	msg = sqlc.CtxMessage{Role: "user", EventType: eventTypeText, Content: "hello"}
+	got = formatMessageForSummarizer(msg)
+	want = "[user] hello"
+	if got != want {
+		t.Errorf("default: got %q, want %q", got, want)
+	}
+}
+
+func TestCompactOversizedTailResults(t *testing.T) {
+	largeText := strings.Repeat("a", 10000) // ~2500 tokens
+	largeTool := ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "read_file",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: largeText}},
+	}
+	smallTool := ai.ToolResultMessage{
+		ToolCallID: "tc2",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "ok"}},
+	}
+	assistant := ai.AssistantMessage{
+		Content: []ai.ContentBlock{ai.TextContent{Text: "done"}},
+	}
+
+	// Large tool result followed by assistant — should be compacted.
+	msgs := []ai.Message{largeTool, assistant}
+	got := compactOversizedTailResults(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got))
+	}
+	tr, ok := got[0].(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
+	}
+	if tr.ToolCallID != "tc1" || tr.ToolName != "read_file" {
+		t.Errorf("metadata lost: got %+v", tr)
+	}
+	if strings.Contains(ai.FlattenText(tr.Content), "aaaaaaaa") {
+		t.Error("large content should have been replaced")
+	}
+	if !strings.Contains(ai.FlattenText(tr.Content), "Content omitted") {
+		t.Errorf("expected placeholder text, got %q", ai.FlattenText(tr.Content))
+	}
+
+	// Large tool result as last message — should be preserved.
+	msgs = []ai.Message{assistant, largeTool}
+	got = compactOversizedTailResults(msgs)
+	tr, ok = got[1].(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("expected ToolResultMessage at 1, got %T", got[1])
+	}
+	if ai.FlattenText(tr.Content) != largeText {
+		t.Error("last-message tool result should not be compacted")
+	}
+
+	// Small tool result — should be preserved (under threshold).
+	msgs = []ai.Message{smallTool, assistant}
+	got = compactOversizedTailResults(msgs)
+	tr, ok = got[0].(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
+	}
+	if ai.FlattenText(tr.Content) != "ok" {
+		t.Error("small tool result should not be compacted")
+	}
+
+	// No assistant message — nothing compacted.
+	msgs = []ai.Message{largeTool}
+	got = compactOversizedTailResults(msgs)
+	tr, ok = got[0].(ai.ToolResultMessage)
+	if !ok {
+		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
+	}
+	if ai.FlattenText(tr.Content) != largeText {
+		t.Error("tool result should not be compacted when no assistant follows")
 	}
 }

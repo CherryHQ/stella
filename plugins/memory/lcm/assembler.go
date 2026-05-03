@@ -38,6 +38,7 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
+	tailMsgs = compactOversizedTailResults(tailMsgs)
 	tailTokens := 0
 	for _, m := range tailMsgs {
 		tailTokens += estimateMessageTokens(m)
@@ -72,6 +73,48 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	result = append(result, olderMsgs...)
 	result = append(result, tailMsgs...)
 	return result, nil
+}
+
+// compactOversizedTailResults replaces large tool results that have already
+// been processed (i.e. followed by at least one assistant message) with a compact
+// placeholder. The returned slice is a shallow copy; original messages are not
+// modified. ToolCallID, ToolName, IsError, and Timestamp are preserved.
+func compactOversizedTailResults(msgs []ai.Message) []ai.Message {
+	// Find the last AssistantMessage — tool results after this index are
+	// part of the in-flight exchange and must not be compacted.
+	lastAssistantIdx := -1
+	for i, m := range msgs {
+		if _, ok := m.(ai.AssistantMessage); ok {
+			lastAssistantIdx = i
+		}
+	}
+	if lastAssistantIdx < 0 {
+		return msgs
+	}
+
+	result := make([]ai.Message, len(msgs))
+	copy(result, msgs)
+
+	for i := 0; i < lastAssistantIdx; i++ {
+		tr, ok := result[i].(ai.ToolResultMessage)
+		if !ok {
+			continue
+		}
+		if estimateMessageTokens(tr) <= oversizedToolResultTokens {
+			continue
+		}
+		result[i] = ai.ToolResultMessage{
+			ToolCallID: tr.ToolCallID,
+			ToolName:   tr.ToolName,
+			Content: []ai.ContentBlock{ai.TextContent{
+				Text: "[Content omitted — this large tool result has already been processed. Re-invoke the tool if you need the data again.]",
+			}},
+			IsError:   tr.IsError,
+			Timestamp: tr.Timestamp,
+		}
+	}
+
+	return result
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.
