@@ -57,8 +57,8 @@ jobs:
       - name: Check coverage threshold
         run: |
           THRESHOLD=50
-          # Exclude templ-generated and SQLC-generated files from coverage calculation
-          grep -v '_templ\.go' coverage.out | grep -v 'pkg/db/sqlc' > coverage-filtered.out || true
+          # Exclude generated files from coverage calculation
+          grep -v '_templ\.go' coverage.out | grep -v '_gen\.go' | grep -v 'pkg/db/sqlc' > coverage-filtered.out || true
           COVERAGE=$(go tool cover -func=coverage-filtered.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
           echo "Total coverage: ${COVERAGE}%"
           if [ "$(echo "${COVERAGE} < ${THRESHOLD}" | bc -l)" -eq 1 ]; then
@@ -70,17 +70,17 @@ jobs:
       - name: Generate coverage report
         if: github.event_name == 'pull_request'
         run: |
-          TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}')
+          TOTAL=$(go tool cover -func=coverage-filtered.out | grep '^total:' | awk '{print $NF}')
           {
             echo "## 📊 Coverage Report"
             echo ""
-            echo "**Total coverage: ${TOTAL}**"
+            echo "**Total coverage: ${TOTAL}** (generated files excluded)"
             echo ""
             echo "<details>"
             echo "<summary>Per-package breakdown</summary>"
             echo ""
             echo '```'
-            go tool cover -func=coverage.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -t'%' -k2 -n
+            go tool cover -func=coverage-filtered.out | grep -v '^total:' | awk '{printf "%-60s %s\n", $1, $NF}' | sort -t'%' -k2 -n
             echo '```'
             echo ""
             echo "</details>"

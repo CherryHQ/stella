@@ -15,9 +15,9 @@ After `anna recally feed poll --json`, iterate the `pending` array in each feed 
    anna recally save --content-file $f --url "<entry.url>" \
        --title "..." --summary "..." --tags "tag1" --tags "tag2" --source-type rss
    ```
-4. **Mark saved**:
+4. **Mark saved** (the entry is nested under its feed, so pass both IDs):
    ```bash
-   anna recally feed mark <entry-id> --status saved --article-id <article-id>
+   anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
    ```
 
 ## Error Handling
@@ -25,7 +25,7 @@ After `anna recally feed poll --json`, iterate the `pending` array in each feed 
 If fetch or save fails:
 
 ```bash
-anna recally feed mark <entry-id> --status error --error "Failed to fetch: timeout"
+anna recally feed mark <feed-id> <entry-id> --status error --error "Failed to fetch: timeout"
 ```
 
 Entries with `error` status and fewer than 3 attempts are retried on the next poll cycle.
@@ -35,7 +35,7 @@ Entries with `error` status and fewer than 3 attempts are retried on the next po
 For duplicates, off-topic, or paywalled entries:
 
 ```bash
-anna recally feed mark <entry-id> --status skipped
+anna recally feed mark <feed-id> <entry-id> --status skipped
 ```
 
 ## Batch Processing

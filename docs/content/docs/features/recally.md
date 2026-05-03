@@ -19,6 +19,10 @@ Unlike simple bookmarks, Recally stores full article content as markdown files w
 
 ## Architecture
 
+The recally CLI is a thin REST client. The running anna server (`anna serve`)
+is the only process that touches the recally database and the markdown library
+on disk; CLI, web UI, and SDK consumers all talk HTTP.
+
 ```
 User sends URL → Agent loads recally skill
     |
@@ -28,11 +32,45 @@ Agent summarizes + extracts metadata
     |
     | anna recally save --url ... --title ... --summary ...
     v
-CLI writes markdown file + DB index row
+CLI builds JSON request → POST /api/recally/articles  (Authorization: Bearer ANNA_TOKEN)
+    |
+    v
+anna server: writes markdown file + DB index row
     |
     v
 Library: $ANNA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
 ```
+
+### Prerequisites
+
+Before running any `anna recally …` command:
+
+1. The anna server must be running (`anna serve`) on the same host or reachable
+   over HTTP.
+2. Set `ANNA_TOKEN` to a token issued by your account (the server requires
+   `ANNA_VAULT_KEY` for token-based auth to be available).
+3. Optional: set `ANNA_SERVER_URL` to point the CLI at a remote server. Default
+   is `http://127.0.0.1:25678`.
+
+The CLI never opens the SQLite database directly — that responsibility belongs
+exclusively to the server.
+
+### REST API
+
+The full contract lives in [`api/recally.openapi.yaml`](https://github.com/vaayne/anna/blob/main/api/recally.openapi.yaml).
+Resources:
+
+- `GET/POST /api/recally/articles` — list/search/upsert
+- `GET/PUT/DELETE /api/recally/articles/{id}` — read/update/delete; pass
+  `?include=content` on GET to also receive the markdown body
+- `GET/POST /api/recally/feeds`, `GET/PUT/DELETE /api/recally/feeds/{id}`
+- `POST /api/recally/feeds/{id}/poll` — server fetches RSS, creates pending
+  entries
+- `GET /api/recally/feeds/{feedId}/entries`, `PUT .../entries/{id}`
+- `GET /api/recally/digest`
+
+To regenerate the server interface and client after editing the spec, run
+`mise run generate:api`.
 
 ### Storage Layout
 
@@ -184,9 +222,9 @@ Output includes `feed_id`, `new_entries` count, and `pending` array of entries t
 #### Mark an entry
 
 ```bash
-anna recally feed mark <entry-id> --status saved --article-id <article-id>
-anna recally feed mark <entry-id> --status skipped
-anna recally feed mark <entry-id> --status error --error "timeout fetching"
+anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
+anna recally feed mark <feed-id> <entry-id> --status skipped
+anna recally feed mark <feed-id> <entry-id> --status error --error "timeout fetching"
 ```
 
 Updates entry status. Auto-increments `attempts` and sets `processed_at`.
