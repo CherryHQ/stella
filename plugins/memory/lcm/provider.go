@@ -68,7 +68,7 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 	p := &Provider{
 		db:        db,
 		q:         q,
-		assembler: newAssembler(q),
+		assembler: newAssembler(q, slog.Default()),
 		retrieval: newRetrievalEngine(q),
 		sessionMu: make(map[string]*sync.Mutex),
 		convCache: make(map[string]int64),

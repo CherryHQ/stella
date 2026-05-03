@@ -35,8 +35,9 @@ const (
 	scopeSummaries = "summaries"
 	scopeBoth      = "both"
 
-	defaultFreshTail     = 20
-	defaultLeafChunkSize = 10
+	defaultFreshTail          = 20
+	defaultLeafChunkSize      = 10
+	oversizedToolResultTokens = 2000
 )
 
 // withSessionLock acquires a per-session mutex before running fn.
