@@ -85,6 +85,19 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		body.UserID = info.UserID
 	}
 
+	if s.schedulerSvc != nil {
+		sched := scheduler.Schedule{Cron: body.Cron, Every: body.Every, At: body.At}
+		job, err := s.schedulerSvc.AddJobWithOwner(body.Name, body.Message, sched, body.SessionMode, body.AgentID, body.UserID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		body.ID = job.ID
+		body.Enabled = job.Enabled
+		writeData(w, http.StatusCreated, body)
+		return
+	}
+
 	id := generateShortID()
 	enabled := int64(0)
 	if body.Enabled {
@@ -231,8 +244,14 @@ func (s *Server) deleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.q.DeleteSchedulerJob(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	var deleteErr error
+	if s.schedulerSvc != nil {
+		deleteErr = s.schedulerSvc.RemoveJob(id)
+	} else {
+		deleteErr = s.q.DeleteSchedulerJob(r.Context(), id)
+	}
+	if deleteErr != nil {
+		writeError(w, http.StatusInternalServerError, deleteErr.Error())
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})

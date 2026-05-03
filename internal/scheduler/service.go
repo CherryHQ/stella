@@ -230,6 +230,12 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 	)
 }
 
+// AddJobWithOwner creates a user-owned job with explicit owner parameters.
+// Use AddJobForContext when a Go context carries agent/user scope.
+func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
+	return s.addJobWithOwner(name, message, sched, sessionMode, agentID, userID)
+}
+
 func (s *Service) addJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
