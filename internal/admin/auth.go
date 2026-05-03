@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,11 +215,30 @@ func (s *Server) meHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // isLocalhost returns true if the request host is localhost or 127.0.0.1.
+// It also returns true for private network addresses like 192.168.x.x, 10.x.x.x, etc.
 func isLocalhost(r *http.Request) bool {
 	host := r.Host
-	return strings.HasPrefix(host, "localhost") ||
+	if strings.HasPrefix(host, "localhost") ||
 		strings.HasPrefix(host, "127.0.0.1") ||
-		strings.HasPrefix(host, "[::1]")
+		strings.HasPrefix(host, "[::1]") {
+		return true
+	}
+	// Check for private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+	hostOnly := strings.Split(host, ":")[0]
+	if strings.HasPrefix(hostOnly, "192.168.") ||
+		strings.HasPrefix(hostOnly, "10.") ||
+		(strings.HasPrefix(hostOnly, "172.") && len(hostOnly) >= 7) {
+		// Check if second octet is 16-31 for 172.x.x.x
+		if strings.HasPrefix(hostOnly, "172.") {
+			secondOctet := strings.Split(strings.TrimPrefix(hostOnly, "172."), ".")[0]
+			second, _ := strconv.Atoi(secondOctet)
+			if second < 16 || second > 31 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // clientIP extracts the client IP from the request, checking X-Forwarded-For
