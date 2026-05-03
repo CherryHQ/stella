@@ -24,8 +24,21 @@ description = "Remove build artifacts"
 run = "rm -rf bin/"
 
 [tasks.generate]
-description = "Generate templ components and sqlc queries"
+description = "Generate templ components, sqlc queries, and OpenAPI clients"
+depends = ["generate:api"]
 run = "templ generate && sqlc generate"
+
+[tasks."generate:api"]
+description = "Generate Go server interface and client from OpenAPI specs"
+sources = ["api/recally.openapi.yaml"]
+outputs = [
+    "internal/admin/recally_gen.go",
+    "pkg/recally/client/client_gen.go",
+]
+run = """
+go tool oapi-codegen -package admin         -generate std-http,types -o internal/admin/recally_gen.go        api/recally.openapi.yaml
+go tool oapi-codegen -package recallyclient -generate client,types   -o pkg/recally/client/client_gen.go     api/recally.openapi.yaml
+"""
 
 # ============================================================================
 # Run

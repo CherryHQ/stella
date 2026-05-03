@@ -19,6 +19,10 @@ Recally 是 Anna 的阅读助手 —— 一个用于保存、组织和回顾网�
 
 ## 架构
 
+recally CLI 是一个轻量的 REST 客户端。运行中的 anna server（`anna serve`）
+是唯一直接读写 recally 数据库和磁盘 Markdown 文件的进程；CLI、Web UI 以及 SDK
+消费者都走 HTTP。
+
 ```
 用户发送 URL → Agent 加载 recally 技能
     |
@@ -28,11 +32,39 @@ Agent 总结 + 提取元数据
     |
     | anna recally save --url ... --title ... --summary ...
     v
-CLI 写入 Markdown 文件 + 数据库索引行
+CLI 构造 JSON 请求 → POST /api/recally/articles  (Authorization: Bearer ANNA_TOKEN)
+    |
+    v
+anna server: 写入 Markdown 文件 + 数据库索引行
     |
     v
 库目录: $ANNA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
 ```
+
+### 前置条件
+
+执行任何 `anna recally …` 命令之前：
+
+1. anna server 必须在本机或可经 HTTP 访问的远端启动（`anna serve`）。
+2. 设置 `ANNA_TOKEN` 为账号生成的 token（server 需开启 `ANNA_VAULT_KEY` 才能启用 token 认证）。
+3. 可选：设置 `ANNA_SERVER_URL` 指向远端 server，默认 `http://127.0.0.1:25678`。
+
+CLI 不再直接打开 SQLite 数据库——这个职责完全在 server。
+
+### REST API
+
+完整契约见 [`api/recally.openapi.yaml`](https://github.com/vaayne/anna/blob/main/api/recally.openapi.yaml)。
+资源：
+
+- `GET/POST /api/recally/articles` —— 列表/搜索/upsert
+- `GET/PUT/DELETE /api/recally/articles/{id}` —— 读/改/删；GET 加 `?include=content`
+  返回 Markdown 正文
+- `GET/POST /api/recally/feeds`、`GET/PUT/DELETE /api/recally/feeds/{id}`
+- `POST /api/recally/feeds/{id}/poll` —— server 端拉 RSS，创建 pending entry
+- `GET /api/recally/feeds/{feedId}/entries`、`PUT .../entries/{id}`
+- `GET /api/recally/digest`
+
+修改 spec 后运行 `mise run generate:api` 重新生成 server interface 和 client。
 
 ### 存储结构
 
@@ -184,9 +216,9 @@ anna recally feed poll [<feed-id>] [--limit 20] [--json]
 #### 标记条目
 
 ```bash
-anna recally feed mark <entry-id> --status saved --article-id <article-id>
-anna recally feed mark <entry-id> --status skipped
-anna recally feed mark <entry-id> --status error --error "获取超时"
+anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
+anna recally feed mark <feed-id> <entry-id> --status skipped
+anna recally feed mark <feed-id> <entry-id> --status error --error "获取超时"
 ```
 
 更新条目状态。自动递增 `attempts` 并设置 `processed_at`。
