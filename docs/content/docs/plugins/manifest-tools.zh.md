@@ -56,29 +56,29 @@ plugins:
     binaries:
       - name: my-cli
         tool: github:owner/my-cli
-        version: '1.2.3' # 省略则使用最新版
+        version: "1.2.3"   # 省略则使用最新版
     session_env:
       - env_var: MY_TOKEN
         source: static
-        value: 'abc123'
+        value: "abc123"
         required: true
 ```
 
 ## 插件字段
 
-| 字段                          | 必填     | 描述                                                                  |
-| ----------------------------- | -------- | --------------------------------------------------------------------- |
-| `id`                          | 是       | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
-| `kind`                        | 是       | 插件类型，通常为 `tool`                                               |
-| `name`                        | 是       | 简短的机器可读名称                                                    |
-| `display_name`                | 否       | 在管理界面显示的人类可读标签                                          |
-| `description`                 | 否       | 在管理界面显示的简短描述                                              |
-| `enabled`                     | 否       | 插件是否激活，默认为 false。内置插件默认为 true。                     |
-| `binaries`                    | 否       | 需要下载并放置到 `$ANNA_HOME/bin` 的 CLI 二进制文件                   |
-| `session_env`                 | 否       | 要注入沙箱会话的环境变量                                              |
-| `oauth_provider`              | 否       | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
-| `oauth_provider_config_field` | 否       | 用于动态选择 OAuth provider 的插件配置字段，例如 `brand`              |
-| `oauth_provider_choices`      | 条件必填 | 设置 `oauth_provider_config_field` 时允许选择的 provider ID           |
+| 字段 | 必填 | 描述 |
+|------|------|------|
+| `id` | 是 | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli` |
+| `kind` | 是 | 插件类型，通常为 `tool` |
+| `name` | 是 | 简短的机器可读名称 |
+| `display_name` | 否 | 在管理界面显示的人类可读标签 |
+| `description` | 否 | 在管理界面显示的简短描述 |
+| `enabled` | 否 | 插件是否激活，默认为 false。内置插件默认为 true。 |
+| `binaries` | 否 | 需要下载并放置到 `$ANNA_HOME/bin` 的 CLI 二进制文件 |
+| `session_env` | 否 | 要注入沙箱会话的环境变量 |
+| `oauth_provider` | 否 | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
+| `oauth_provider_config_field` | 否 | 用于动态选择 OAuth provider 的插件配置字段，例如 `brand` |
+| `oauth_provider_choices` | 条件必填 | 设置 `oauth_provider_config_field` 时允许选择的 provider ID |
 
 ## 二进制字段
 
@@ -86,16 +86,16 @@ plugins:
 
 ### 公共字段
 
-| 字段               | 必填 | 描述                                                            |
-| ------------------ | ---- | --------------------------------------------------------------- |
-| `name`             | 是   | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名）            |
-| `tool`             | 是   | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
-| `version`          | 否   | 要安装的版本，默认为 `latest`。                                 |
-| `strip_components` | 否   | 解压归档时去除的前导目录层数，大多数布局可自动检测。            |
-| `bin_path`         | 否   | 归档内包含二进制的子目录（如 `"bin"`）。                        |
-| `bin`              | 否   | 当资产为单个二进制（非归档）时重命名下载文件。                  |
-| `rename_exe`       | 否   | 从归档提取后重命名可执行文件。                                  |
-| `checksum`         | 否   | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。   |
+| 字段 | 必填 | 描述 |
+|------|------|------|
+| `name` | 是 | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名） |
+| `tool` | 是 | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
+| `version` | 否 | 要安装的版本，默认为 `latest`。 |
+| `strip_components` | 否 | 解压归档时去除的前导目录层数，大多数布局可自动检测。 |
+| `bin_path` | 否 | 归档内包含二进制的子目录（如 `"bin"`）。 |
+| `bin` | 否 | 当资产为单个二进制（非归档）时重命名下载文件。 |
+| `rename_exe` | 否 | 从归档提取后重命名可执行文件。 |
+| `checksum` | 否 | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。 |
 
 ### GitHub 后端（`github:owner/repo`）
 
@@ -103,18 +103,18 @@ plugins:
 binaries:
   - name: gh
     tool: github:cli/cli
-    version: '2.40.1'
+    version: "2.40.1"
     bin_path: bin
 ```
 
-| 字段             | 描述                                                                            |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `asset_pattern`  | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。                      |
-| `version_prefix` | 标签自定义前缀（如 `"release-"`）。                                             |
-| `no_app`         | 跳过 macOS `.app` 包，优先使用独立二进制。                                      |
-| `filter_bins`    | 当归档含多个可执行文件时，逗号分隔的 PATH 可见二进制列表。                      |
-| `prerelease`     | 解析 `latest` 时包含预发布版本。                                                |
-| `api_url`        | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
+| 字段 | 描述 |
+|------|------|
+| `asset_pattern` | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。 |
+| `version_prefix` | 标签自定义前缀（如 `"release-"`）。 |
+| `no_app` | 跳过 macOS `.app` 包，优先使用独立二进制。 |
+| `filter_bins` | 当归档含多个可执行文件时，逗号分隔的 PATH 可见二进制列表。 |
+| `prerelease` | 解析 `latest` 时包含预发布版本。 |
+| `api_url` | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
 
 ### HTTP 后端（`http:name`）
 
@@ -124,19 +124,19 @@ binaries:
 binaries:
   - name: sentinel
     tool: http:sentinel
-    url: 'https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip'
-    version: '0.26.3'
+    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
+    version: "0.26.3"
 ```
 
-| 字段                | 描述                                                                         |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `url`               | 下载 URL，http 后端必填，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
-| `size`              | 用于验证的预期文件大小（字节）。                                             |
-| `format`            | 归档格式覆盖（如 `"tar.xz"`）。                                              |
-| `version_list_url`  | 获取可用版本列表的 URL。                                                     |
-| `version_regex`     | 从版本列表中提取版本号的正则表达式。                                         |
-| `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。                    |
-| `version_expr`      | 提取版本的 expr-lang 表达式。                                                |
+| 字段 | 描述 |
+|------|------|
+| `url` | 下载 URL，http 后端必填，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
+| `size` | 用于验证的预期文件大小（字节）。 |
+| `format` | 归档格式覆盖（如 `"tar.xz"`）。 |
+| `version_list_url` | 获取可用版本列表的 URL。 |
+| `version_regex` | 从版本列表中提取版本号的正则表达式。 |
+| `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。 |
+| `version_expr` | 提取版本的 expr-lang 表达式。 |
 
 ### Pipx 后端（`pipx:package`）
 
@@ -146,15 +146,15 @@ binaries:
 binaries:
   - name: mypy
     tool: pipx:mypy
-    version: '1.8.0'
+    version: "1.8.0"
 ```
 
-| 字段        | 描述                                     |
-| ----------- | ---------------------------------------- |
-| `extras`    | 随包安装的 pip extras。                  |
-| `pipx_args` | 传递给 pipx 的额外参数。                 |
-| `uvx`       | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
-| `uvx_args`  | uvx 的额外参数。                         |
+| 字段 | 描述 |
+|------|------|
+| `extras` | 随包安装的 pip extras。 |
+| `pipx_args` | 传递给 pipx 的额外参数。 |
+| `uvx` | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
+| `uvx_args` | uvx 的额外参数。 |
 
 ### NPM 后端（`npm:package`）
 
@@ -162,28 +162,28 @@ binaries:
 binaries:
   - name: serve
     tool: npm:serve
-    version: '14.2.0'
+    version: "14.2.0"
 ```
 
 平台特定资产模式（`platforms:` 映射）在清单中不受支持。
 
 ## 会话环境变量字段
 
-| 字段       | 必填     | 描述                                    |
-| ---------- | -------- | --------------------------------------- |
-| `env_var`  | 是       | 环境变量名称                            |
-| `source`   | 是       | 值的解析方式（见下文）                  |
-| `value`    | 条件必填 | 当 `source: static` 时使用的字面值      |
-| `required` | 否       | 若为 true，则当值无法解析时会话创建失败 |
+| 字段 | 必填 | 描述 |
+|------|------|------|
+| `env_var` | 是 | 环境变量名称 |
+| `source` | 是 | 值的解析方式（见下文） |
+| `value` | 条件必填 | 当 `source: static` 时使用的字面值 |
+| `required` | 否 | 若为 true，则当值无法解析时会话创建失败 |
 
 ### 环境变量来源
 
-| 来源                 | 描述                                               |
-| -------------------- | -------------------------------------------------- |
-| `static`             | 使用清单中的字面 `value`                           |
-| `oauth.access_token` | 注入已连接 provider 的 OAuth access token          |
-| `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID       |
-| `oauth.brand`        | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
+| 来源 | 描述 |
+|------|------|
+| `static` | 使用清单中的字面 `value` |
+| `oauth.access_token` | 注入已连接 provider 的 OAuth access token |
+| `oauth.client_id` | 注入已连接 provider 令牌包中的 client/app ID |
+| `oauth.brand` | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
 
 `oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Anna 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。飞书/Lark 来源仍需要先在管理面板中配置 Lark CLI 插件凭据。
 
@@ -210,7 +210,7 @@ plugins:
     binaries:
       - name: tap
         tool: github:vaayne/tap
-        version: '0.5.0'
+        version: "0.5.0"
 ```
 
 内置插件覆盖是完整条目替换。如果为了修改某个字段而覆盖内置插件，需要把仍然需要的其他字段也一并写上。

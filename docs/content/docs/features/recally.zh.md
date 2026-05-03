@@ -90,14 +90,14 @@ $ANNA_HOME/
 
 ### 来源类型
 
-| 类型      | 获取策略                 | 工具                     |
-| --------- | ------------------------ | ------------------------ |
-| `web`     | 可读的 Markdown 提取     | `tap fetch`              |
-| `twitter` | 推文文本 + 媒体          | `tap fetch`              |
-| `youtube` | 元数据 + 字幕            | `tap fetch`              |
-| `github`  | 仓库信息、议题、PR       | `gh` + `tap fetch`       |
-| `pdf`     | 文本提取                 | `kreuzberg extract`      |
-| `rss`     | 订阅源轮询 → 条目 → 保存 | `anna recally feed poll` |
+| 类型 | 获取策略 | 工具 |
+|------|----------|------|
+| `web` | 可读的 Markdown 提取 | `tap fetch` |
+| `twitter` | 推文文本 + 媒体 | `tap fetch` |
+| `youtube` | 元数据 + 字幕 | `tap fetch` |
+| `github` | 仓库信息、议题、PR | `gh` + `tap fetch` |
+| `pdf` | 文本提取 | `kreuzberg extract` |
+| `rss` | 订阅源轮询 → 条目 → 保存 | `anna recally feed poll` |
 
 ## CLI 参考
 
@@ -134,7 +134,6 @@ anna recally list [--status unread] [--starred] [--json]
 ```
 
 筛选条件：
-
 - `--status`: `unread`（未读）、`read`（已读）、`archived`（已归档）
 - `--source-type`: 按来源类型筛选
 - `--starred`: 仅显示标星文章
@@ -235,7 +234,6 @@ anna recally digest [--json]
 ```
 
 输出结构化的 JSON 摘要：
-
 - `yesterday`: 昨天保存的文章
 - `counts`: 未读/已读/已归档/已标星计数
 - `revisit`: 值得回顾的文章（未读超过 3 天）
@@ -258,7 +256,6 @@ CLI 的所有操作都通过 `ANNA_TOKEN` 认证。Agent 沙盒会话会自动�
 - "给我今天的阅读摘要"
 
 该技能包括：
-
 - URL 分类（检测 Twitter、YouTube、GitHub、PDF）
 - 按来源的获取策略（tap、gh、kreuzberg）
 - 摘要格式模板
@@ -303,7 +300,6 @@ Recally 与 Anna 的调度器集成以实现自动 RSS 轮询。当用户首次�
 ## 重复处理
 
 文章按标准 URL 去重。CLI：
-
 1. 从原始 URL 计算确定性的标准 URL（小写主机、删除跟踪参数、排序查询参数、删除片段）
 2. 在数据库中检查现有的 `(user_id, canonical_url)`
 3. 如果找到：更新元数据（标题、摘要、标签）并返回 `created: false`
@@ -323,19 +319,19 @@ Agent 通过两步流程访问保存的内容：
 
 ## 实现细节
 
-| 组件             | 位置                                                     |
-| ---------------- | -------------------------------------------------------- |
-| CLI 命令         | `cmd/anna/recally.go`                                    |
-| 存储层           | `internal/recally/store.go`                              |
-| 文件管理器       | `internal/recally/files.go`                              |
-| URL 规范化       | `internal/recally/urlnorm.go`                            |
-| 类型定义         | `internal/recally/types.go`                              |
-| 技能文件         | `internal/resources/skills/system/recally/SKILL.md`      |
-| 数据库架构       | `internal/db/schemas/tables/articles.sql`                |
-| 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql`               |
-| 数据库查询       | `internal/db/queries/articles.sql`                       |
-| 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql`                      |
-| 沙盒认证环境     | `internal/agent/sandbox_backend.go`（注入 `ANNA_TOKEN`） |
+| 组件 | 位置 |
+|------|------|
+| CLI 命令 | `cmd/anna/recally.go` |
+| 存储层 | `internal/recally/store.go` |
+| 文件管理器 | `internal/recally/files.go` |
+| URL 规范化 | `internal/recally/urlnorm.go` |
+| 类型定义 | `internal/recally/types.go` |
+| 技能文件 | `internal/resources/skills/system/recally/SKILL.md` |
+| 数据库架构 | `internal/db/schemas/tables/articles.sql` |
+| 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql` |
+| 数据库查询 | `internal/db/queries/articles.sql` |
+| 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql` |
+| 沙盒认证环境 | `internal/agent/sandbox_backend.go`（注入 `ANNA_TOKEN`） |
 
 ## 未来改进
 

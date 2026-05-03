@@ -96,14 +96,14 @@ The database stores only an index row with URL, title, summary, tags, status, an
 
 ### Source Types
 
-| Type      | Fetch Strategy                | Tool                     |
-| --------- | ----------------------------- | ------------------------ |
-| `web`     | Readable markdown extraction  | `tap fetch`              |
-| `twitter` | Tweet text + media            | `tap fetch`              |
-| `youtube` | Metadata + transcript         | `tap fetch`              |
-| `github`  | Repo info, issues, PRs        | `gh` + `tap fetch`       |
-| `pdf`     | Text extraction               | `kreuzberg extract`      |
-| `rss`     | Feed polling → entries → save | `anna recally feed poll` |
+| Type | Fetch Strategy | Tool |
+|------|---------------|------|
+| `web` | Readable markdown extraction | `tap fetch` |
+| `twitter` | Tweet text + media | `tap fetch` |
+| `youtube` | Metadata + transcript | `tap fetch` |
+| `github` | Repo info, issues, PRs | `gh` + `tap fetch` |
+| `pdf` | Text extraction | `kreuzberg extract` |
+| `rss` | Feed polling → entries → save | `anna recally feed poll` |
 
 ## CLI Reference
 
@@ -140,7 +140,6 @@ anna recally list [--status unread] [--starred] [--json]
 ```
 
 Filters:
-
 - `--status`: `unread`, `read`, `archived`
 - `--source-type`: Filter by source type
 - `--starred`: Show only starred articles
@@ -241,7 +240,6 @@ anna recally digest [--json]
 ```
 
 Outputs a structured JSON summary:
-
 - `yesterday`: Articles saved yesterday
 - `counts`: Unread/read/archived/starred counts
 - `revisit`: Articles worth revisiting (unread > 3 days old)
@@ -264,7 +262,6 @@ The `recally` system skill (`internal/resources/skills/system/recally/SKILL.md`)
 - "Give me my daily reading digest"
 
 The skill includes:
-
 - URL classification (detects Twitter, YouTube, GitHub, PDFs)
 - Per-source fetch strategy (tap, gh, kreuzberg)
 - Summary format template
@@ -309,7 +306,6 @@ Starred (orthogonal to status)
 ## Duplicate Handling
 
 Articles are deduplicated by canonical URL. The CLI:
-
 1. Computes a deterministic canonical URL from the original URL (lowercase host, strip tracking params, sort query params, remove fragment)
 2. Checks for existing `(user_id, canonical_url)` in DB
 3. If found: updates metadata (title, summary, tags) and returns `created: false`
@@ -329,19 +325,19 @@ This keeps search fast while preserving full content for deep queries.
 
 ## Implementation Details
 
-| Component         | Location                                                   |
-| ----------------- | ---------------------------------------------------------- |
-| CLI command       | `cmd/anna/recally.go`                                      |
-| Store layer       | `internal/recally/store.go`                                |
-| File manager      | `internal/recally/files.go`                                |
-| URL normalization | `internal/recally/urlnorm.go`                              |
-| Types             | `internal/recally/types.go`                                |
-| Skill file        | `internal/resources/skills/system/recally/SKILL.md`        |
-| DB schema         | `internal/db/schemas/tables/articles.sql`                  |
-| DB schema (RSS)   | `internal/db/schemas/tables/rss_feeds.sql`                 |
-| DB queries        | `internal/db/queries/articles.sql`                         |
-| DB queries (RSS)  | `internal/db/queries/rss_feeds.sql`                        |
-| Sandbox auth env  | `internal/agent/sandbox_backend.go` (injects `ANNA_TOKEN`) |
+| Component | Location |
+|-----------|----------|
+| CLI command | `cmd/anna/recally.go` |
+| Store layer | `internal/recally/store.go` |
+| File manager | `internal/recally/files.go` |
+| URL normalization | `internal/recally/urlnorm.go` |
+| Types | `internal/recally/types.go` |
+| Skill file | `internal/resources/skills/system/recally/SKILL.md` |
+| DB schema | `internal/db/schemas/tables/articles.sql` |
+| DB schema (RSS) | `internal/db/schemas/tables/rss_feeds.sql` |
+| DB queries | `internal/db/queries/articles.sql` |
+| DB queries (RSS) | `internal/db/queries/rss_feeds.sql` |
+| Sandbox auth env | `internal/agent/sandbox_backend.go` (injects `ANNA_TOKEN`) |
 
 ## Future Improvements
 

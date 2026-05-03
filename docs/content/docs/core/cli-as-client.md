@@ -32,7 +32,7 @@ SDKs and integrations all consume the same contract).
   across CLI/Web/SDK. Two DB writers race on schema changes; one writer
   cannot.
 - **Remote use works.** `ANNA_SERVER_URL=https://anna.example.com anna recally
-list` is the same code path as the local case.
+  list` is the same code path as the local case.
 - **Auditability.** Every mutation flows through HTTP, so logging, metrics,
   rate limiting, and authorization happen in one place.
 - **Type safety.** The OpenAPI spec is the contract. Drift between server

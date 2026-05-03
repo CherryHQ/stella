@@ -1,13 +1,4 @@
 {
   "title": "功能",
-  "pages": [
-    "plugin-system",
-    "scheduler-system",
-    "notification-system",
-    "agent-templates",
-    "skills",
-    "vault",
-    "cli-oauth",
-    "recally"
-  ]
+  "pages": ["plugin-system", "scheduler-system", "notification-system", "agent-templates", "skills", "vault", "cli-oauth", "recally"]
 }
