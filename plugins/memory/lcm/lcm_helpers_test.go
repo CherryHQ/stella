@@ -269,23 +269,28 @@ func TestCompactOversizedTailResults(t *testing.T) {
 		ToolName:   "read_file",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: largeText}},
 	}
-	smallTool := ai.ToolResultMessage{
+	largeTool2 := ai.ToolResultMessage{
 		ToolCallID: "tc2",
 		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: largeText}},
+	}
+	smallTool := ai.ToolResultMessage{
+		ToolCallID: "tc3",
+		ToolName:   "stat",
 		Content:    []ai.ContentBlock{ai.TextContent{Text: "ok"}},
 	}
 	assistant := ai.AssistantMessage{
 		Content: []ai.ContentBlock{ai.TextContent{Text: "done"}},
 	}
+	user := ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "hi"}}}
+	user2 := ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "follow-up"}}}
 
-	// Large tool result followed by assistant — should be compacted.
-	msgs := []ai.Message{largeTool, assistant}
+	// Large tool result from a completed prior turn — should be compacted.
+	// Pattern: [largeTool, assistant(final), user(new turn)]
+	msgs := []ai.Message{largeTool, assistant, user2}
 	got, n := compactOversizedTailResults(msgs)
 	if n != 1 {
 		t.Errorf("expected 1 compacted, got %d", n)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(got))
 	}
 	tr, ok := got[0].(ai.ToolResultMessage)
 	if !ok {
@@ -301,45 +306,46 @@ func TestCompactOversizedTailResults(t *testing.T) {
 		t.Errorf("expected placeholder text, got %q", ai.FlattenText(tr.Content))
 	}
 
-	// Large tool result as last message — should be preserved.
-	msgs = []ai.Message{assistant, largeTool}
+	// Multi-step tool chain within the current user turn — all preserved.
+	// Pattern: [user, asst(tc1), largeTool1, asst(tc2), largeTool2]
+	// Assembling for the final answer: model still needs both tool results.
+	msgs = []ai.Message{user, assistant, largeTool, assistant, largeTool2}
 	got, n = compactOversizedTailResults(msgs)
 	if n != 0 {
-		t.Errorf("expected 0 compacted, got %d", n)
+		t.Errorf("expected 0 compacted for in-flight multi-step chain, got %d", n)
 	}
-	tr, ok = got[1].(ai.ToolResultMessage)
-	if !ok {
-		t.Fatalf("expected ToolResultMessage at 1, got %T", got[1])
+	if ai.FlattenText(got[2].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("first tool result in current turn must not be compacted")
 	}
-	if ai.FlattenText(tr.Content) != largeText {
-		t.Error("last-message tool result should not be compacted")
+	if ai.FlattenText(got[4].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("second tool result in current turn must not be compacted")
 	}
 
-	// Small tool result — should be preserved (under threshold).
-	msgs = []ai.Message{smallTool, assistant}
+	// Small tool result from completed turn — preserved (under threshold).
+	msgs = []ai.Message{smallTool, assistant, user2}
 	got, n = compactOversizedTailResults(msgs)
 	if n != 0 {
-		t.Errorf("expected 0 compacted, got %d", n)
+		t.Errorf("expected 0 compacted for small result, got %d", n)
 	}
-	tr, ok = got[0].(ai.ToolResultMessage)
-	if !ok {
-		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
-	}
-	if ai.FlattenText(tr.Content) != "ok" {
+	if ai.FlattenText(got[0].(ai.ToolResultMessage).Content) != "ok" {
 		t.Error("small tool result should not be compacted")
 	}
 
-	// No assistant message — nothing compacted.
-	msgs = []ai.Message{largeTool}
+	// No user message — nothing compacted (safe fallback).
+	msgs = []ai.Message{largeTool, assistant}
 	got, n = compactOversizedTailResults(msgs)
 	if n != 0 {
-		t.Errorf("expected 0 compacted, got %d", n)
+		t.Errorf("expected 0 compacted with no user message, got %d", n)
 	}
-	tr, ok = got[0].(ai.ToolResultMessage)
-	if !ok {
-		t.Fatalf("expected ToolResultMessage at 0, got %T", got[0])
+	if ai.FlattenText(got[0].(ai.ToolResultMessage).Content) != largeText {
+		t.Error("tool result should not be compacted when no user message present")
 	}
-	if ai.FlattenText(tr.Content) != largeText {
-		t.Error("tool result should not be compacted when no assistant follows")
+
+	// Only one user message (first element) — nothing eligible before it.
+	msgs = []ai.Message{user, largeTool}
+	got, n = compactOversizedTailResults(msgs)
+	if n != 0 {
+		t.Errorf("expected 0 compacted when user is first element, got %d", n)
 	}
+	_ = got
 }

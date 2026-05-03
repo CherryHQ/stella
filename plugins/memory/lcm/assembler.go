@@ -105,21 +105,25 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	return result, nil
 }
 
-// compactOversizedTailResults replaces large tool results that have already
-// been processed (i.e. followed by at least one assistant message) with a compact
-// placeholder. The returned slice is a shallow copy; original messages are not
-// modified. ToolCallID, ToolName, IsError, and Timestamp are preserved.
-// The second return value is the count of results that were replaced.
+// compactOversizedTailResults replaces large tool results from completed prior
+// turns with a compact placeholder. Only tool results that appear before the
+// last UserMessage are eligible — everything at or after it belongs to the
+// current user turn and is preserved at full size, including intermediate tool
+// results in multi-step tool chains. The returned slice is a shallow copy;
+// original messages are not modified. ToolCallID, ToolName, IsError, and
+// Timestamp are preserved. The second return value is the count of results
+// that were replaced.
 func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
-	// Find the last AssistantMessage — tool results after this index are
-	// part of the in-flight exchange and must not be compacted.
-	lastAssistantIdx := -1
+	// Find the last UserMessage. Tool results after this index are part of the
+	// current user turn — even if assistant messages follow, the model may still
+	// need them to synthesize its final answer (multi-step tool chains).
+	lastUserIdx := -1
 	for i, m := range msgs {
-		if _, ok := m.(ai.AssistantMessage); ok {
-			lastAssistantIdx = i
+		if _, ok := m.(ai.UserMessage); ok {
+			lastUserIdx = i
 		}
 	}
-	if lastAssistantIdx < 0 {
+	if lastUserIdx <= 0 {
 		return msgs, 0
 	}
 
@@ -127,7 +131,7 @@ func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
 	copy(result, msgs)
 
 	compacted := 0
-	for i := 0; i < lastAssistantIdx; i++ {
+	for i := 0; i < lastUserIdx; i++ {
 		tr, ok := result[i].(ai.ToolResultMessage)
 		if !ok {
 			continue
