@@ -277,3 +277,41 @@ func nullableTime(t *time.Time) sql.NullString {
 	}
 	return sql.NullString{String: t.UTC().Format("2006-01-02 15:04:05"), Valid: true}
 }
+
+func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, startedAt time.Time) error {
+	_, err := s.q.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
+		ID:        id,
+		JobID:     jobID,
+		SessionID: sessionID,
+		Status:    RunStatusRunning,
+		StartedAt: startedAt.UTC().Format("2006-01-02 15:04:05"),
+	})
+	return err
+}
+
+func (s *Service) finishJobRun(ctx context.Context, id, status string, finishedAt time.Time, errStr string) error {
+	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
+		Status:     status,
+		FinishedAt: sql.NullString{String: finishedAt.UTC().Format("2006-01-02 15:04:05"), Valid: true},
+		Error:      errStr,
+		ID:         id,
+	})
+}
+
+func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
+	startedAt, _ := time.Parse("2006-01-02 15:04:05", r.StartedAt)
+	run := JobRun{
+		ID:        r.ID,
+		JobID:     r.JobID,
+		SessionID: r.SessionID,
+		Status:    r.Status,
+		StartedAt: startedAt,
+		Error:     r.Error,
+	}
+	if r.FinishedAt.Valid {
+		if parsed, err := time.Parse("2006-01-02 15:04:05", r.FinishedAt.String); err == nil {
+			run.FinishedAt = &parsed
+		}
+	}
+	return run
+}

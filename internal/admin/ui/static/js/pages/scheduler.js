@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { formatTime } from '/static/js/utils.js'
 
 /**
  * Registers the schedulerPage Alpine.data component.
@@ -11,6 +12,9 @@ export function register(Alpine) {
     agents: [],
     isAdmin: false,
     editingJobId: null,
+    expandedJobId: null,
+    triggeringJobId: null,
+    runHistories: {},
     jobForm: {
       name: '',
       cron: '',
@@ -106,8 +110,6 @@ export function register(Alpine) {
         enabled: this.jobForm.enabled,
         agent_id: this.jobForm.agent_id,
       }
-      // Admin can create system jobs (user_id=0) by toggling the checkbox.
-      // Non-admin: server auto-assigns user_id.
       if (this.isAdmin && this.jobForm.system_job) {
         payload.user_id = 0
       }
@@ -158,6 +160,48 @@ export function register(Alpine) {
     confirmDelete(msg, action) {
       this.confirmMsg = msg
       this.confirmAction = action
+    },
+
+    async triggerJob(j) {
+      this.triggeringJobId = j.id
+      try {
+        await api('POST', '/api/scheduler/jobs/' + j.id + '/run')
+        this.$store.toast.show('Job triggered')
+        if (this.expandedJobId === j.id) {
+          await this.loadRuns(j.id)
+        }
+        await this.loadJobs()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.triggeringJobId = null
+      }
+    },
+
+    async loadRuns(jobId) {
+      try {
+        this.runHistories[jobId] = await api('GET', '/api/scheduler/jobs/' + jobId + '/runs') || []
+      } catch (e) {
+        console.error(e)
+      }
+    },
+
+    async toggleRuns(jobId) {
+      if (this.expandedJobId === jobId) {
+        this.expandedJobId = null
+        return
+      }
+      this.expandedJobId = jobId
+      await this.loadRuns(jobId)
+    },
+
+    formatTime,
+
+    statusBadgeClass(status) {
+      if (status === 'success') return 'badge-success'
+      if (status === 'error') return 'badge-error'
+      if (status === 'running') return 'badge-warning'
+      return 'badge-ghost'
     },
   }))
 }

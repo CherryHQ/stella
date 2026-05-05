@@ -1,4 +1,4 @@
-h1:Tgun1eJPZ6gkFi5lthUs6F7bRBvV7TjnZdH+R6k0RNk=
+h1:9RcL7UCzzRgVgExh6IzfEe/qhvti/kiMfiyY4EthDU0=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -29,3 +29,4 @@ h1:Tgun1eJPZ6gkFi5lthUs6F7bRBvV7TjnZdH+R6k0RNk=
 20260428160338_add-memory-snapshots.sql h1:Q/xsA44PnqPKWoqo1y/Er9wG9dwWrlfm7z2NJEK5eMg=
 20260429152627_add_recally.sql h1:WXE3gMx6FhnxwFJnaMFZ5ZChzdXojsrJn5goiQiHiDg=
 20260430070811_add-auth-user-tokens.sql h1:gCgxrfUlfZ7UmTfl0MFfO/3WnDxic/1AI1pnAnQbgVw=
+20260505150748_add_sched_job_runs.sql h1:uGV2TKJjsyd1Nhhr37xen/9BsFLjjJTSuDZzDsiTPhs=

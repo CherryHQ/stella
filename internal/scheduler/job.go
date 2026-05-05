@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -44,6 +45,35 @@ type Job struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`
 	LastError   string         `json:"last_error,omitempty"`
+}
+
+const (
+	RunStatusRunning = "running"
+	RunStatusSuccess = "success"
+	RunStatusError   = "error"
+)
+
+type JobRun struct {
+	ID         string     `json:"id"`
+	JobID      string     `json:"job_id"`
+	SessionID  string     `json:"session_id"`
+	Status     string     `json:"status"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Error      string     `json:"error,omitempty"`
+}
+
+type runSessionIDKey struct{}
+
+func WithRunSessionID(ctx context.Context, sid string) context.Context {
+	return context.WithValue(ctx, runSessionIDKey{}, sid)
+}
+
+func RunSessionIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(runSessionIDKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // SessionID returns the session identifier for this job execution.

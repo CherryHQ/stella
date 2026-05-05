@@ -15,6 +15,7 @@ import (
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/recally"
+	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -40,6 +41,7 @@ type Server struct {
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
+	schedulerSvc   *scheduler.Service   // optional; if nil, manual trigger returns 503
 }
 
 // New creates an admin server with all API routes mounted.
@@ -105,6 +107,12 @@ func (s *Server) SetVaultService(svc *vault.Service) {
 // SetTokenService wires bearer token authentication into the admin server.
 func (s *Server) SetTokenService(svc *auth.TokenService) {
 	s.tokenSvc = svc
+}
+
+// SetSchedulerService wires the scheduler service into the admin server.
+// Required for manual job triggering. If not set, the trigger endpoint returns 503.
+func (s *Server) SetSchedulerService(svc *scheduler.Service) {
+	s.schedulerSvc = svc
 }
 
 // CredentialsService returns the shared credentials service.

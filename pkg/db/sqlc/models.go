@@ -267,6 +267,16 @@ type SchedJob struct {
 	LastError     string         `json:"last_error"`
 }
 
+type SchedJobRun struct {
+	ID         string         `json:"id"`
+	JobID      string         `json:"job_id"`
+	SessionID  string         `json:"session_id"`
+	Status     string         `json:"status"`
+	StartedAt  string         `json:"started_at"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	Error      string         `json:"error"`
+}
+
 type Setting struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
