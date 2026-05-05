@@ -125,6 +125,17 @@ templ SchedulerPage() {
 								</template>
 							</div>
 							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+								<button
+									@click.stop="triggerJob(j)"
+									:disabled="triggeringJobId === j.id"
+									class="text-xs text-secondary hover:text-primary cursor-pointer"
+									x-text="triggeringJobId === j.id ? 'running...' : 'run now'"
+								></button>
+								<button
+									@click="toggleRuns(j.id)"
+									class="text-xs text-secondary hover:text-base-content cursor-pointer"
+									x-text="expandedJobId === j.id ? 'hide runs' : 'show runs'"
+								></button>
 								<template x-if="j.owner_kind !== 'plugin'">
 									<div class="flex items-center gap-3">
 										<button @click="toggleJob(j)" class="text-xs text-secondary hover:text-base-content cursor-pointer" x-text="j.enabled ? 'disable' : 'enable'"></button>
@@ -161,7 +172,7 @@ templ SchedulerPage() {
 								<span class="badge badge-ghost badge-xs" x-text="'user:' + j.user_id"></span>
 							</template>
 							<template x-if="j.last_run_at">
-								<span class="badge badge-ghost badge-xs" x-text="'last run: ' + j.last_run_at"></span>
+								<span class="badge badge-ghost badge-xs" x-text="'last run: ' + formatTime(j.last_run_at)"></span>
 							</template>
 							<template x-if="j.last_error">
 								<span class="badge badge-error badge-xs" x-text="'error: ' + j.last_error"></span>
@@ -169,6 +180,36 @@ templ SchedulerPage() {
 						</div>
 						<template x-if="j.owner_kind === 'plugin' && j.payload && Object.keys(j.payload).length">
 							<pre class="mt-3 text-xs bg-base-200 rounded-lg p-3 overflow-x-auto" x-text="JSON.stringify(j.payload, null, 2)"></pre>
+						</template>
+						<!-- Run history -->
+						<template x-if="expandedJobId === j.id">
+							<div class="mt-3 ml-4 border-l-2 border-base-300 pl-4 space-y-2">
+								<template x-if="!runHistories[j.id] || runHistories[j.id].length === 0">
+									<p class="text-xs text-secondary">No runs yet.</p>
+								</template>
+								<template x-for="run in (runHistories[j.id] || [])" :key="run.id">
+									<div class="flex items-center gap-3 text-xs py-1">
+										<span
+											class="badge badge-xs"
+											:class="statusBadgeClass(run.status)"
+											x-text="run.status"
+										></span>
+										<span class="text-secondary" x-text="formatTime(run.started_at)"></span>
+										<template x-if="run.duration">
+											<span class="font-mono text-secondary" x-text="run.duration"></span>
+										</template>
+										<template x-if="run.session_id">
+											<a
+												:href="'/sessions#' + run.session_id"
+												class="text-primary hover:underline"
+											>session</a>
+										</template>
+										<template x-if="run.error">
+											<span class="text-error truncate max-w-xs" :title="run.error" x-text="run.error"></span>
+										</template>
+									</div>
+								</template>
+							</div>
 						</template>
 					</div>
 				</template>

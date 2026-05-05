@@ -218,6 +218,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
+		adminSrv.SetSchedulerService(s.schedulerSvc)
 		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
@@ -253,7 +254,10 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 		}
 
 		pool := schedulerPool(job, poolMgr, defaultPool)
-		sessionID := job.SessionID()
+		sessionID := scheduler.RunSessionIDFromContext(ctx)
+		if sessionID == "" {
+			sessionID = job.SessionID()
+		}
 		msg := schedulerJobMessage(job)
 
 		jobCtx := schedulerJobContext(ctx, pool, job)

@@ -316,3 +316,106 @@ func generateShortID() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+type jobRunJSON struct {
+	ID         string `json:"id"`
+	JobID      string `json:"job_id"`
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Duration   string `json:"duration,omitempty"`
+}
+
+func (s *Server) triggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
+
+	id := r.PathValue("id")
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		if existing.OwnerKind == scheduler.JobOwnerPlugin {
+			writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
+			return
+		}
+		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	runID, err := s.schedulerSvc.RunJobNow(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	writeData(w, http.StatusAccepted, map[string]string{
+		"run_id": runID,
+		"status": "running",
+	})
+}
+
+func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		if existing.OwnerKind == scheduler.JobOwnerPlugin ||
+			(existing.UserID.Valid && existing.UserID.Int64 != info.UserID) {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
+		JobID: id,
+		Limit: 20,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := make([]jobRunJSON, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbRowToJobRunJSON(row))
+	}
+	writeData(w, http.StatusOK, result)
+}
+
+func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
+	j := jobRunJSON{
+		ID:        row.ID,
+		JobID:     row.JobID,
+		SessionID: row.SessionID,
+		Status:    row.Status,
+		StartedAt: row.StartedAt,
+		Error:     row.Error,
+	}
+	if row.FinishedAt.Valid {
+		j.FinishedAt = row.FinishedAt.String
+		startedAt, err1 := time.Parse("2006-01-02 15:04:05", row.StartedAt)
+		finishedAt, err2 := time.Parse("2006-01-02 15:04:05", row.FinishedAt.String)
+		if err1 == nil && err2 == nil {
+			j.Duration = finishedAt.Sub(startedAt).Truncate(time.Second).String()
+		}
+	}
+	return j
+}

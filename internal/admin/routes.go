@@ -202,6 +202,8 @@ func (s *Server) registerSchedulerRoutes() {
 	s.mux.HandleFunc("POST /api/scheduler/jobs", s.createSchedulerJob)
 	s.mux.HandleFunc("PUT /api/scheduler/jobs/{id}", s.updateSchedulerJob)
 	s.mux.HandleFunc("DELETE /api/scheduler/jobs/{id}", s.deleteSchedulerJob)
+	s.mux.HandleFunc("POST /api/scheduler/jobs/{id}/run", s.triggerSchedulerJob)
+	s.mux.HandleFunc("GET /api/scheduler/jobs/{id}/runs", s.listSchedulerJobRuns)
 }
 
 func (s *Server) registerSkillRoutes() {

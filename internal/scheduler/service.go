@@ -477,40 +477,7 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	captured := job
 	isOneTime := job.Schedule.At != ""
 	gj, err := s.scheduler.NewJob(jobDef, gocron.NewTask(func() {
-		s.mu.Lock()
-		fn := s.onJob
-		listeners := append([]OnJobFunc(nil), s.listeners...)
-		s.mu.Unlock()
-		var runErr error
-		if fn != nil {
-			if err := fn(ctx, captured); err != nil {
-				runErr = err
-			}
-		}
-		for _, listener := range listeners {
-			if err := listener(ctx, captured); err != nil && runErr == nil {
-				runErr = err
-			}
-		}
-		ranAt := time.Now().UTC()
-		s.mu.Lock()
-		if jobState, ok := s.jobs[captured.ID]; ok {
-			jobState.LastRunAt = &ranAt
-			if runErr != nil {
-				jobState.LastError = runErr.Error()
-			} else {
-				jobState.LastError = ""
-			}
-			jobState.UpdatedAt = ranAt
-			s.jobs[captured.ID] = jobState
-		}
-		s.mu.Unlock()
-		if err := s.recordJobRun(ctx, captured.ID, ranAt, runErr); err != nil {
-			s.log.Warn("failed to record scheduler job run", "id", captured.ID, "error", err)
-		}
-		if isOneTime {
-			go s.removeOneTimeJob(captured.ID)
-		}
+		s.executeJob(ctx, captured, isOneTime)
 	}))
 	if err != nil {
 		return err
@@ -518,6 +485,167 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 
 	s.gids[job.ID] = gj.ID()
 	return nil
+}
+
+// executeJob runs the job callback with run tracking.
+func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
+	sessionID := job.SessionID()
+	runID := uuid.New().String()[:8]
+	startedAt := time.Now().UTC()
+
+	if err := s.createJobRun(ctx, runID, job.ID, sessionID, startedAt); err != nil {
+		s.log.Warn("failed to create job run record", "job_id", job.ID, "error", err)
+	}
+
+	runCtx := WithRunSessionID(ctx, sessionID)
+
+	s.mu.Lock()
+	fn := s.onJob
+	listeners := append([]OnJobFunc(nil), s.listeners...)
+	s.mu.Unlock()
+
+	var runErr error
+	if fn != nil {
+		if err := fn(runCtx, job); err != nil {
+			runErr = err
+		}
+	}
+	for _, listener := range listeners {
+		if err := listener(runCtx, job); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+
+	finishedAt := time.Now().UTC()
+	status := RunStatusSuccess
+	errStr := ""
+	if runErr != nil {
+		status = RunStatusError
+		errStr = runErr.Error()
+	}
+
+	if err := s.finishJobRun(ctx, runID, status, finishedAt, errStr); err != nil {
+		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
+	}
+
+	s.mu.Lock()
+	if jobState, ok := s.jobs[job.ID]; ok {
+		jobState.LastRunAt = &finishedAt
+		if runErr != nil {
+			jobState.LastError = runErr.Error()
+		} else {
+			jobState.LastError = ""
+		}
+		jobState.UpdatedAt = finishedAt
+		s.jobs[job.ID] = jobState
+	}
+	s.mu.Unlock()
+
+	if err := s.recordJobRun(ctx, job.ID, finishedAt, runErr); err != nil {
+		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
+	}
+	if isOneTime {
+		go s.removeOneTimeJob(job.ID)
+	}
+}
+
+// RunJobNow triggers an immediate execution of the given job.
+// It runs asynchronously and returns the run ID.
+func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
+	s.mu.Lock()
+	job, ok := s.jobs[jobID]
+	svcCtx := s.ctx
+	s.mu.Unlock()
+
+	if !ok {
+		return "", fmt.Errorf("job %q not found", jobID)
+	}
+
+	count, err := s.q.CountRunningSchedJobRuns(ctx, jobID)
+	if err != nil {
+		return "", fmt.Errorf("check running runs: %w", err)
+	}
+	if count > 0 {
+		return "", fmt.Errorf("job %q already has a run in progress", jobID)
+	}
+
+	sessionID := job.SessionID()
+	runID := uuid.New().String()[:8]
+	startedAt := time.Now().UTC()
+
+	if err := s.createJobRun(ctx, runID, jobID, sessionID, startedAt); err != nil {
+		return "", fmt.Errorf("create run record: %w", err)
+	}
+
+	go func() {
+		runCtx := WithRunSessionID(svcCtx, sessionID)
+
+		s.mu.Lock()
+		fn := s.onJob
+		listeners := append([]OnJobFunc(nil), s.listeners...)
+		s.mu.Unlock()
+
+		var runErr error
+		if fn != nil {
+			if err := fn(runCtx, job); err != nil {
+				runErr = err
+			}
+		}
+		for _, listener := range listeners {
+			if err := listener(runCtx, job); err != nil && runErr == nil {
+				runErr = err
+			}
+		}
+
+		finishedAt := time.Now().UTC()
+		status := RunStatusSuccess
+		errStr := ""
+		if runErr != nil {
+			status = RunStatusError
+			errStr = runErr.Error()
+		}
+
+		if err := s.finishJobRun(svcCtx, runID, status, finishedAt, errStr); err != nil {
+			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
+		}
+		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {
+			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
+		}
+
+		s.mu.Lock()
+		if jobState, ok := s.jobs[jobID]; ok {
+			jobState.LastRunAt = &finishedAt
+			if runErr != nil {
+				jobState.LastError = runErr.Error()
+			} else {
+				jobState.LastError = ""
+			}
+			jobState.UpdatedAt = finishedAt
+			s.jobs[jobID] = jobState
+		}
+		s.mu.Unlock()
+	}()
+
+	return runID, nil
+}
+
+// ListJobRuns returns recent runs for a job.
+func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]JobRun, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
+		JobID: jobID,
+		Limit: int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]JobRun, 0, len(rows))
+	for _, r := range rows {
+		runs = append(runs, dbRowToJobRun(r))
+	}
+	return runs, nil
 }
 
 // removeOneTimeJob cleans up a one-time job after it fires.
