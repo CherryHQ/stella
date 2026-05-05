@@ -225,6 +225,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
+	if s.schedulerSvc != nil {
+		s.schedulerSvc.EnsureBuiltinJobs()
+	}
+
 	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
 		if err := s.schedulerSvc.StartHeartbeat(ctx, s.snap.Heartbeat.Interval()); err != nil {
 			return fmt.Errorf("schedule heartbeat: %w", err)
