@@ -397,6 +397,49 @@ func (s *Service) RemoveJob(id string) error {
 	return nil
 }
 
+// EnsureJob creates a job if no job with the same name exists, or updates
+// the existing job when the message, schedule, or session mode has changed.
+// It is intended for builtin jobs that should be seeded on startup.
+func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode string) (Job, error) {
+	if sessionMode == "" {
+		sessionMode = SessionReuse
+	}
+
+	s.mu.Lock()
+	for _, j := range s.jobs {
+		if j.Name != name {
+			continue
+		}
+		if j.Message == message && j.Schedule == sched && j.SessionMode == sessionMode {
+			s.mu.Unlock()
+			return j, nil
+		}
+		j.Message = message
+		j.Schedule = sched
+		j.SessionMode = sessionMode
+		j.UpdatedAt = time.Now().UTC()
+
+		if gid, ok := s.gids[j.ID]; ok {
+			_ = s.scheduler.RemoveJob(gid)
+			delete(s.gids, j.ID)
+		}
+		if err := s.scheduleJob(s.ctx, j); err != nil {
+			s.mu.Unlock()
+			return Job{}, fmt.Errorf("reschedule job: %w", err)
+		}
+		s.jobs[j.ID] = j
+		s.mu.Unlock()
+
+		if err := s.updateJob(s.ctx, j); err != nil {
+			return Job{}, fmt.Errorf("persist job update: %w", err)
+		}
+		s.log.Info("builtin job updated", "id", j.ID, "name", name)
+		return j, nil
+	}
+	s.mu.Unlock()
+	return s.AddJob(name, message, sched, sessionMode)
+}
+
 // ListJobs returns all jobs.
 func (s *Service) ListJobs() []Job {
 	s.mu.Lock()

@@ -676,3 +676,107 @@ func TestMigrateJobsFile(t *testing.T) {
 		t.Error("expected jobs.json to be removed after migration")
 	}
 }
+
+func TestEnsureJobCreatesOnce(t *testing.T) {
+	svc := testService(t)
+
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("first EnsureJob: %v", err)
+	}
+
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("second EnsureJob: %v", err)
+	}
+	if job2.ID != job1.ID {
+		t.Errorf("second call created a new job: got ID %q, want %q", job2.ID, job1.ID)
+	}
+
+	jobs := svc.ListJobs()
+	if len(jobs) != 1 {
+		t.Errorf("ListJobs: got %d, want 1", len(jobs))
+	}
+}
+
+func TestEnsureJobUpdatesExisting(t *testing.T) {
+	svc := testService(t)
+
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds v1", Schedule{Every: "1h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("first EnsureJob: %v", err)
+	}
+
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds v2", Schedule{Every: "30m"}, SessionNew)
+	if err != nil {
+		t.Fatalf("second EnsureJob: %v", err)
+	}
+	if job2.ID != job1.ID {
+		t.Errorf("update created new job: got ID %q, want %q", job2.ID, job1.ID)
+	}
+	if job2.Message != "poll feeds v2" {
+		t.Errorf("Message = %q, want %q", job2.Message, "poll feeds v2")
+	}
+	if job2.Schedule.Every != "30m" {
+		t.Errorf("Schedule.Every = %q, want %q", job2.Schedule.Every, "30m")
+	}
+	if job2.SessionMode != SessionNew {
+		t.Errorf("SessionMode = %q, want %q", job2.SessionMode, SessionNew)
+	}
+
+	jobs := svc.ListJobs()
+	if len(jobs) != 1 {
+		t.Errorf("ListJobs: got %d, want 1", len(jobs))
+	}
+}
+
+func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	db1, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc1, err := New(db1)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc1.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	job1, err := svc1.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("EnsureJob: %v", err)
+	}
+	_ = svc1.Stop()
+	_ = db1.Close()
+
+	db2, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc2, err := New(db2)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc2.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		_ = svc2.Stop()
+		_ = db2.Close()
+	}()
+
+	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("EnsureJob after restart: %v", err)
+	}
+	if job2.ID != job1.ID {
+		t.Errorf("EnsureJob after restart created new job: got ID %q, want %q", job2.ID, job1.ID)
+	}
+
+	jobs := svc2.ListJobs()
+	if len(jobs) != 1 {
+		t.Errorf("ListJobs: got %d, want 1", len(jobs))
+	}
+}
