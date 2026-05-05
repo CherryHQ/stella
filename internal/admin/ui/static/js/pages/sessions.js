@@ -30,6 +30,7 @@ export function register(Alpine) {
     activePanel: null,
     searchQuery: '',
     showArchived: false,
+    showScheduler: false,
     filterChannel: '',
     filterAgent: '',
     filterUser: '',
@@ -85,6 +86,7 @@ export function register(Alpine) {
     get filteredSessions() {
       return this.sessions.filter(s => {
         if (!this.showArchived && s.archived) return false
+        if (!this.showScheduler && s.id && (s.id.startsWith('scheduler:') || s.id.includes(':scheduler:'))) return false
         if (this.filterChannel && s.channel !== this.filterChannel) return false
         if (this.filterAgent && s.agent_id !== this.filterAgent) return false
         if (this.filterUser && String(s.user_id) !== this.filterUser) return false
