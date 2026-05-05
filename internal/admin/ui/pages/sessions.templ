@@ -38,118 +38,126 @@ templ sessionSidebar() {
 		class="border-r border-base-300 flex-col overflow-hidden"
 		:class="sessionDetail ? 'hidden lg:flex' : 'flex'"
 	>
-		<!-- Header: search + filters -->
-		<div class="flex-shrink-0 px-3 py-3 space-y-2.5 border-b border-base-300 bg-base-100">
-			<div class="flex items-center justify-between">
-				<span class="text-xs font-mono text-secondary" x-text="filteredSessions.length + ' sessions'"></span>
-				<div class="flex items-center gap-2">
-					<button
-						@click="showArchived = !showArchived"
-						class="text-[10px] font-mono cursor-pointer transition-colors"
-						:class="showArchived ? 'text-primary' : 'text-secondary hover:text-base-content'"
-						x-text="showArchived ? 'hide archived' : 'show archived'"
-					></button>
-					<div x-data="{ showNew: false }" class="relative">
-						<button @click="showNew = !showNew" class="btn btn-primary btn-xs">New Session</button>
-						<div x-show="showNew" x-cloak @click.outside="showNew = false" class="absolute right-0 top-full mt-1 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-56 space-y-2">
-							<div>
-								<div class="text-[9px] font-mono text-base-content/40 uppercase tracking-wider mb-1">Agent</div>
-								<select x-model="newSessionAgentID" class="select select-xs select-bordered w-full font-mono text-[10px]">
-									<option value="">— select agent —</option>
-									<template x-for="a in agents" :key="a.id">
-										<option :value="a.id" x-text="a.name || a.id"></option>
-									</template>
-								</select>
-							</div>
-							<div class="flex gap-1 justify-end">
-								<button @click="showNew = false" class="btn btn-ghost btn-xs">Cancel</button>
-								<button @click="createSession(); showNew = false" class="btn btn-primary btn-xs" :disabled="!newSessionAgentID">Create</button>
-							</div>
+		<div class="flex-shrink-0 bg-base-100">
+			<!-- Section 1: title + new session action -->
+			<div class="flex items-center justify-between px-4 py-3 border-b border-base-300">
+				<span class="text-[9px] font-mono uppercase tracking-[0.12em] text-base-content/40">Sessions</span>
+				<div x-data="{ showNew: false }" class="relative">
+					<button @click="showNew = !showNew" class="btn btn-primary btn-xs gap-1">
+						<svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+						</svg>
+						New
+					</button>
+					<div x-show="showNew" x-cloak @click.outside="showNew = false" class="absolute right-0 top-full mt-1 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-56 space-y-2">
+						<div>
+							<div class="text-[9px] font-mono text-base-content/40 uppercase tracking-wider mb-1">Agent</div>
+							<select x-model="newSessionAgentID" class="select select-xs select-bordered w-full font-mono text-[10px]">
+								<option value="">— select agent —</option>
+								<template x-for="a in agents" :key="a.id">
+									<option :value="a.id" x-text="a.name || a.id"></option>
+								</template>
+							</select>
+						</div>
+						<div class="flex gap-1 justify-end">
+							<button @click="showNew = false" class="btn btn-ghost btn-xs">Cancel</button>
+							<button @click="createSession(); showNew = false" class="btn btn-primary btn-xs" :disabled="!newSessionAgentID">Create</button>
 						</div>
 					</div>
 				</div>
 			</div>
-			<div class="relative">
-				<input
-					type="text"
-					x-model="searchQuery"
-					placeholder="Search sessions…"
-					class="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md border border-base-300 bg-base-100 focus:outline-none focus:border-primary transition-colors"
-				/>
-				<svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-secondary pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-					<path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"></path>
-				</svg>
+			<!-- Section 2: search -->
+			<div class="px-3 py-2.5 border-b border-base-300">
+				<div class="relative">
+					<input
+						type="text"
+						x-model="searchQuery"
+						placeholder="Search sessions…"
+						class="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md border border-base-300 bg-transparent focus:outline-none focus:border-primary/60 transition-colors"
+					/>
+					<svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-base-content/25 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"></path>
+					</svg>
+				</div>
 			</div>
-			<!-- Channel / Agent / User dropdowns -->
-			<div class="grid grid-cols-3 gap-2">
-				<div>
-					<div class="text-[9px] font-mono text-base-content/30 uppercase tracking-wider mb-1">Channel</div>
+			<!-- Section 3: filters + visibility toggles -->
+			<div class="px-3 pt-2.5 pb-3 space-y-2.5 border-b border-base-300">
+				<!-- Category filters -->
+				<div class="grid grid-cols-3 gap-1.5">
 					<select x-model="filterChannel" class="select select-xs select-bordered w-full font-mono text-[10px]">
-						<option value="">all</option>
+						<option value="">ch: all</option>
 						<template x-for="ch in uniqueChannels" :key="ch">
 							<option :value="ch" :text="channelLabel(ch)"></option>
 						</template>
 					</select>
-				</div>
-				<div>
-					<div class="text-[9px] font-mono text-base-content/30 uppercase tracking-wider mb-1">Agent</div>
 					<select x-model="filterAgent" class="select select-xs select-bordered w-full font-mono text-[10px]">
-						<option value="">all</option>
+						<option value="">agent: all</option>
 						<template x-for="a in uniqueAgents" :key="a">
 							<option :value="a" x-text="a"></option>
 						</template>
 					</select>
-				</div>
-				<div>
-					<div class="text-[9px] font-mono text-base-content/30 uppercase tracking-wider mb-1">User</div>
 					<select x-model="filterUser" class="select select-xs select-bordered w-full font-mono text-[10px]">
-						<option value="">all</option>
+						<option value="">user: all</option>
 						<template x-for="u in uniqueUsers" :key="u">
 							<option :value="u" x-text="u"></option>
 						</template>
 					</select>
 				</div>
+				<!-- Visibility toggles + count -->
+				<div class="flex items-center gap-4">
+					<label class="flex items-center gap-1.5 cursor-pointer" title="Show sessions from scheduled jobs">
+						<input type="checkbox" x-model="showScheduler" class="toggle toggle-xs toggle-primary"/>
+						<span class="text-[10px] font-mono select-none" :class="showScheduler ? 'text-base-content/55' : 'text-base-content/35'">Scheduled</span>
+					</label>
+					<label class="flex items-center gap-1.5 cursor-pointer" title="Show archived sessions">
+						<input type="checkbox" x-model="showArchived" class="toggle toggle-xs toggle-primary"/>
+						<span class="text-[10px] font-mono select-none" :class="showArchived ? 'text-base-content/55' : 'text-base-content/35'">Archived</span>
+					</label>
+					<span class="ml-auto text-[10px] font-mono text-base-content/25 tabular-nums" x-text="filteredSessions.length + ' sessions'"></span>
+				</div>
 			</div>
 		</div>
 		<!-- Session list -->
-		<div class="flex-1 overflow-y-auto divide-y divide-base-300" x-ref="sessionsList" @scroll.passive="handleSessionsScroll($el)">
+		<div class="flex-1 overflow-y-auto" x-ref="sessionsList" @scroll.passive="handleSessionsScroll($el)">
 			<template x-for="s in filteredSessions" :key="s.id">
 				<div
 					@click="openSession(s.id)"
-					class="px-4 py-3 cursor-pointer transition-colors border-l-2"
-					:class="sessionDetail?.id === s.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-base-200'"
+					class="px-4 py-3 cursor-pointer transition-colors border-l-2 border-b border-base-300/50"
+					:class="sessionDetail?.id === s.id ? 'border-l-primary bg-primary/5' : 'border-l-transparent hover:bg-base-200/70'"
 				>
-					<div class="flex items-start justify-between gap-2 mb-1.5">
-						<span
-							class="text-sm font-medium leading-snug truncate"
-							:class="sessionDetail?.id === s.id ? 'text-primary' : (s.archived ? 'text-secondary italic' : '')"
-							x-text="s.title || 'Untitled'"
-						></span>
-						<span class="text-[10px] font-mono text-base-content/30 shrink-0 mt-0.5" x-text="formatTime(s.last_active)"></span>
-					</div>
-					<div class="flex items-center gap-1.5 flex-wrap">
-						<span class="badge badge-ghost badge-xs font-mono" style="font-size:9px;" x-text="channelLabel(s.channel)"></span>
+					<!-- Title -->
+					<p
+						class="text-[13px] font-medium leading-snug truncate mb-1"
+						:class="sessionDetail?.id === s.id ? 'text-primary' : (s.archived ? 'text-base-content/40 italic' : 'text-base-content/80')"
+						x-text="s.title || 'Untitled'"
+					></p>
+					<!-- Metadata: channel · agent · user_id · time -->
+					<div class="flex items-center gap-0 text-[10px] font-mono text-base-content/35 min-w-0">
+						<span class="truncate" x-text="channelLabel(s.channel) || '—'"></span>
 						<template x-if="s.agent_id">
-							<span class="text-[10px] font-mono text-secondary" x-text="s.agent_id"></span>
+							<span class="shrink-0 px-1 text-base-content/20">·</span>
+						</template>
+						<template x-if="s.agent_id">
+							<span class="truncate" x-text="s.agent_id"></span>
 						</template>
 						<template x-if="s.user_id">
-							<span class="text-[10px] font-mono text-base-content/30" x-text="'· ' + s.user_id"></span>
+							<span class="shrink-0 px-1 text-base-content/20">·</span>
 						</template>
-						<template x-if="s.archived">
-							<span class="badge badge-ghost badge-xs text-[9px]">archived</span>
+						<template x-if="s.user_id">
+							<span class="shrink-0" x-text="s.user_id"></span>
 						</template>
+						<span class="ml-auto shrink-0 pl-2" x-text="formatTime(s.last_active)"></span>
 					</div>
 				</div>
 			</template>
 			<template x-if="filteredSessions.length === 0 && !sessionsLoading">
-				<div class="px-4 py-10 text-center">
-					<p class="text-xs text-secondary font-mono">No sessions found.</p>
+				<div class="px-4 py-12 text-center">
+					<p class="text-xs text-base-content/30 font-mono">No sessions found.</p>
 				</div>
 			</template>
-			<!-- Sessions loading indicator -->
-			<div x-show="sessionsLoading" class="px-4 py-3 flex items-center justify-center gap-2">
+			<div x-show="sessionsLoading" class="px-4 py-4 flex items-center justify-center gap-2">
 				<span class="loading loading-spinner loading-xs text-secondary"></span>
-				<span class="text-[10px] font-mono text-secondary">Loading…</span>
+				<span class="text-[10px] font-mono text-base-content/35">Loading…</span>
 			</div>
 		</div>
 	</aside>
