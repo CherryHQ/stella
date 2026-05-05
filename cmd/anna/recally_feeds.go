@@ -5,6 +5,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	client "github.com/vaayne/anna/api/client"
+	apitypes "github.com/vaayne/anna/api/types"
 )
 
 func recallyFeedCommand() *ucli.Command {
@@ -210,11 +211,11 @@ func recallyFeedMarkCommand() *ucli.Command {
 
 			status := client.FeedEntryStatus(c.String("status"))
 			switch status {
-			case client.FeedEntryStatusSaved, client.FeedEntryStatusSkipped, client.FeedEntryStatusError:
+			case apitypes.FeedEntryStatusSaved, apitypes.FeedEntryStatusSkipped, apitypes.FeedEntryStatusError:
 			default:
 				return fmt.Errorf("invalid status: %s (must be saved, skipped, or error)", status)
 			}
-			if status == client.FeedEntryStatusSaved && c.String("article-id") == "" {
+			if status == apitypes.FeedEntryStatusSaved && c.String("article-id") == "" {
 				return fmt.Errorf("--article-id required when marking as saved")
 			}
 			body := client.UpdateFeedEntryJSONRequestBody{Status: status}

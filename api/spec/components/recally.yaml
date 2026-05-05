@@ -1,93 +1,26 @@
 openapi: 3.0.3
 info:
-  title: anna API
-  description: |
-    Full REST API for anna. This is the aggregated entry point; individual
-    feature specs live in sub-files:
-
-    - Recally (reading assistant): api/recally.yaml
-    - Scheduler (job scheduling):  api/scheduler.yaml
-
-    Go code is generated from the sub-specs — see the `generate:api` task in
-    mise.toml. The sub-specs are the authoritative source of truth for codegen.
+  title: Recally Components
   version: "1"
-servers:
-  - url: http://127.0.0.1:25678
-    description: local anna server (default port)
-security:
-  - BearerAuth: []
-tags:
-  - name: articles
-  - name: feeds
-  - name: feed-entries
-  - name: digest
-  - name: jobs
-paths:
-  # ── Recally ────────────────────────────────────────────────────────────────
-  /api/recally/articles:
-    $ref: './recally.yaml#/paths/~1api~1recally~1articles'
-  /api/recally/articles/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1articles~1{id}'
-  /api/recally/feeds:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds'
-  /api/recally/feeds/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{id}'
-  /api/recally/feeds/{id}/poll:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
-  /api/recally/feeds/{feedId}/entries:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
-  /api/recally/feeds/{feedId}/entries/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
-  /api/recally/digest:
-    $ref: './recally.yaml#/paths/~1api~1recally~1digest'
-  # ── Scheduler ──────────────────────────────────────────────────────────────
-  /api/scheduler/jobs:
-    $ref: './scheduler.yaml#/paths/~1api~1scheduler~1jobs'
-  /api/scheduler/jobs/{id}:
-    $ref: './scheduler.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+paths: {}
 components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      description: ANNA_TOKEN bearer token (generated via vault)
-
-  responses:
-    Unauthorized:
-      description: missing or invalid bearer token
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    Forbidden:
-      description: insufficient permissions
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    NotFound:
-      description: resource not found
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-    BadRequest:
-      description: malformed request
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-
   schemas:
+    # ── Shared ─────────────────────────────────────────────────────────────────
     Error:
       type: object
       required: [error]
       properties:
         error: { type: string }
 
-    # ── Recally schemas ────────────────────────────────────────────────────────
+    # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string
       enum: [unread, read, archived]
+
     SourceType:
       type: string
       enum: [web, twitter, youtube, github, rss, pdf]
+
     FeedEntryStatus:
       type: string
       enum: [pending, saved, skipped, error]
@@ -200,10 +133,10 @@ components:
     UpdateFeedRequest:
       type: object
       properties:
-        title:           { type: string }
-        description:     { type: string }
-        check_interval:  { type: string }
-        enabled:         { type: boolean }
+        title:          { type: string }
+        description:    { type: string }
+        check_interval: { type: string }
+        enabled:        { type: boolean }
 
     FeedEntry:
       type: object
@@ -276,59 +209,3 @@ components:
         worth_revisiting_count: { type: integer }
         top_tags:               { type: array, items: { $ref: "#/components/schemas/TagCount" } }
         total_articles:         { type: integer, format: int64 }
-
-    # ── Scheduler schemas ──────────────────────────────────────────────────────
-    Job:
-      type: object
-      required: [id, name, message, session_mode, enabled]
-      properties:
-        id:           { type: string }
-        owner_kind:   { type: string, description: "Ownership class: 'user' or 'plugin'" }
-        plugin_id:    { type: string }
-        job_key:      { type: string }
-        runtime_name: { type: string }
-        name:         { type: string }
-        description:  { type: string }
-        cron:         { type: string, description: "Cron expression (mutually exclusive with every/at)" }
-        every:        { type: string, description: "Go duration string, e.g. '30m' (mutually exclusive with cron/at)" }
-        at:           { type: string, description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)" }
-        message:      { type: string, description: "Prompt/instruction to run on schedule" }
-        payload:
-          type: object
-          additionalProperties: {}
-          description: "Arbitrary structured data for plugin-owned jobs"
-        session_mode: { type: string, description: "Session behaviour: 'reuse' or 'new'" }
-        enabled:      { type: boolean }
-        agent_id:     { type: string }
-        user_id:      { type: integer, format: int64 }
-        created_at:   { type: string }
-        updated_at:   { type: string }
-        last_run_at:  { type: string }
-        last_error:   { type: string }
-
-    JobList:
-      type: object
-      required: [items]
-      properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Job" } }
-
-    JobInput:
-      type: object
-      description: "Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required."
-      properties:
-        name:         { type: string }
-        description:  { type: string }
-        cron:         { type: string }
-        every:        { type: string }
-        at:           { type: string }
-        message:      { type: string }
-        session_mode: { type: string }
-        enabled:      { type: boolean }
-        agent_id:     { type: string }
-        user_id:      { type: integer, format: int64, description: "Admin-only: set 0 for system jobs" }
-
-    DeleteResult:
-      type: object
-      required: [status]
-      properties:
-        status: { type: string }

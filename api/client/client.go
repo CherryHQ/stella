@@ -1,4 +1,4 @@
-package client
+package apiclient
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	apitypes "github.com/vaayne/anna/api/types"
 
 	"github.com/vaayne/anna/internal/config"
 )
@@ -41,7 +43,7 @@ func DecodeJSON(resp *http.Response, out any) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		var apiErr Error
+		var apiErr apitypes.Error
 		if jerr := json.Unmarshal(body, &apiErr); jerr == nil && apiErr.Error != "" {
 			return fmt.Errorf("anna server %d: %s", resp.StatusCode, apiErr.Error)
 		}
@@ -72,7 +74,7 @@ func DecodeData(resp *http.Response, out any) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		var apiErr Error
+		var apiErr apitypes.Error
 		if jerr := json.Unmarshal(body, &apiErr); jerr == nil && apiErr.Error != "" {
 			return fmt.Errorf("anna server %d: %s", resp.StatusCode, apiErr.Error)
 		}

@@ -3,7 +3,7 @@ package admin
 import (
 	"net/http"
 
-	apiserver "github.com/vaayne/anna/api/server"
+	"github.com/vaayne/anna/api/server"
 )
 
 func (s *Server) registerRoutes() {

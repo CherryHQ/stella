@@ -1,0 +1,9 @@
+package: apiclient
+generate:
+  client: true
+  models: true
+output: api/client/gen.go
+output-options:
+  skip-prune: true
+import-mapping:
+  ./components.yaml: github.com/vaayne/anna/api/types

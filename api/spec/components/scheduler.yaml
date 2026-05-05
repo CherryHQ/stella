@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Scheduler Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Job:
+      type: object
+      required: [id, name, message, session_mode, enabled]
+      properties:
+        id:           { type: string }
+        owner_kind:   { type: string, description: "Ownership class: 'user' or 'plugin'" }
+        plugin_id:    { type: string }
+        job_key:      { type: string }
+        runtime_name: { type: string }
+        name:         { type: string }
+        description:  { type: string }
+        cron:         { type: string, description: "Cron expression (mutually exclusive with every/at)" }
+        every:        { type: string, description: "Go duration string, e.g. '30m' (mutually exclusive with cron/at)" }
+        at:           { type: string, description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)" }
+        message:      { type: string, description: "Prompt/instruction to run on schedule" }
+        payload:
+          type: object
+          additionalProperties: {}
+          description: "Arbitrary structured data for plugin-owned jobs"
+        session_mode: { type: string, description: "Session behaviour: 'reuse' or 'new'" }
+        enabled:      { type: boolean }
+        agent_id:     { type: string }
+        user_id:      { type: integer, format: int64 }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+        last_run_at:  { type: string, format: date-time, nullable: true }
+        last_error:   { type: string }
+
+    JobList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Job" } }
+
+    JobInput:
+      type: object
+      description: "Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required."
+      properties:
+        name:         { type: string }
+        description:  { type: string }
+        cron:         { type: string }
+        every:        { type: string }
+        at:           { type: string }
+        message:      { type: string }
+        session_mode: { type: string }
+        enabled:      { type: boolean }
+        agent_id:     { type: string }
+        user_id:      { type: integer, format: int64, description: "Admin-only: set 0 for system jobs" }
+
+    DeleteResult:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }

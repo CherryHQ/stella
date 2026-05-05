@@ -1,0 +1,241 @@
+paths:
+  /api/recally/articles:
+    get:
+      tags: [articles]
+      summary: List or search articles
+      operationId: listArticles
+      parameters:
+        - { name: q,             in: query, description: "Free-text search across title, summary, tags, author", schema: { type: string } }
+        - { name: status,        in: query, schema: { $ref: "./components.yaml#/components/schemas/ArticleStatus" } }
+        - { name: source_type,   in: query, schema: { $ref: "./components.yaml#/components/schemas/SourceType" } }
+        - { name: starred,       in: query, schema: { type: boolean } }
+        - { name: canonical_url, in: query, description: "Lookup by exact canonical URL", schema: { type: string } }
+        - { name: limit,         in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/ArticleList" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [articles]
+      summary: Save an article (upsert by canonical URL)
+      operationId: saveArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./components.yaml#/components/schemas/SaveArticleRequest" }
+      responses:
+        "200":
+          description: existing article was updated (canonical URL already present)
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Article" }
+        "201":
+          description: new article was created
+          headers:
+            Location: { schema: { type: string }, description: "Path to the new article resource" }
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Article" }
+        "400": { $ref: "./components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+
+  /api/recally/articles/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [articles]
+      summary: Get an article
+      operationId: getArticle
+      parameters:
+        - { name: include, in: query, description: "Comma-separated extras (only `content` supported)", schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Article" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [articles]
+      summary: Update article fields (partial)
+      operationId: updateArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./components.yaml#/components/schemas/UpdateArticleRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Article" }
+        "400": { $ref: "./components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [articles]
+      summary: Delete an article (DB row + markdown file)
+      operationId: deleteArticle
+      responses:
+        "204": { description: deleted }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+
+  /api/recally/feeds:
+    get:
+      tags: [feeds]
+      summary: List subscribed feeds
+      operationId: listFeeds
+      parameters:
+        - { name: url, in: query, description: "Lookup by exact feed URL", schema: { type: string, format: uri } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/FeedList" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [feeds]
+      summary: Subscribe to a new feed (server fetches metadata)
+      operationId: createFeed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./components.yaml#/components/schemas/CreateFeedRequest" }
+      responses:
+        "201":
+          description: created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Feed" }
+        "400": { $ref: "./components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "409":
+          description: already subscribed
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Error" }
+
+  /api/recally/feeds/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [feeds]
+      summary: Get a feed
+      operationId: getFeed
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Feed" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [feeds]
+      summary: Update feed fields (partial)
+      operationId: updateFeed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./components.yaml#/components/schemas/UpdateFeedRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Feed" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [feeds]
+      summary: Unsubscribe from a feed (cascade deletes entries)
+      operationId: deleteFeed
+      responses:
+        "204": { description: deleted }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+
+  /api/recally/feeds/{id}/poll:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [feeds]
+      summary: Poll a feed (server fetches RSS, creates pending entries)
+      operationId: pollFeed
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 20 } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/FeedPollResult" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+
+  /api/recally/feeds/{feedId}/entries:
+    parameters:
+      - { name: feedId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [feed-entries]
+      summary: List entries for a feed
+      operationId: listFeedEntries
+      parameters:
+        - { name: status, in: query, description: "Filter by entry status. Currently only 'pending' is supported; other values return 400.", schema: { $ref: "./components.yaml#/components/schemas/FeedEntryStatus" } }
+        - { name: limit,  in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 20 } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/FeedEntryList" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+
+  /api/recally/feeds/{feedId}/entries/{id}:
+    parameters:
+      - { name: feedId, in: path, required: true, schema: { type: string } }
+      - { name: id,     in: path, required: true, schema: { type: string } }
+    put:
+      tags: [feed-entries]
+      summary: Update an entry (status transition)
+      operationId: updateFeedEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./components.yaml#/components/schemas/UpdateFeedEntryRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/FeedEntry" }
+        "400": { $ref: "./components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "./components.yaml#/components/responses/NotFound" }
+
+  /api/recally/digest:
+    get:
+      tags: [digest]
+      summary: Get the current user's reading digest
+      operationId: getDigest
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "./components.yaml#/components/schemas/Digest" }
+        "401": { $ref: "./components.yaml#/components/responses/Unauthorized" }

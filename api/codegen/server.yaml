@@ -1,0 +1,9 @@
+package: apiserver
+generate:
+  std-http-server: true
+  models: true
+output: api/server/gen.go
+output-options:
+  skip-prune: true
+import-mapping:
+  ./components.yaml: github.com/vaayne/anna/api/types

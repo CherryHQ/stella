@@ -52,24 +52,36 @@ When behavior, APIs, config, commands, or architecture change:
 
 Every new HTTP API must follow this workflow:
 
-1. Define the endpoint in the appropriate OpenAPI spec under `api/`:
-   - `api/recally.yaml` — recally articles/feeds/digest endpoints
-   - `api/scheduler.yaml` — scheduler job endpoints
-   - `api/openapi.yaml` — aggregated spec (imports all sub-specs; add inline schemas here)
-2. Run `mise run generate:api` to regenerate:
-   - `api/server/gen.go` — server interface + routing (`package server`)
-   - `api/client/gen.go` — HTTP client + types (`package client`)
-3. Implement the new method on `*Server` in `internal/admin/` (it must satisfy `server.ServerInterface`).
-4. Never hand-write server routing for recally/scheduler — it comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
+1. Add or update the schema in `api/spec/components/<domain>.yaml` (domain source of truth).
+2. Add the endpoint paths in the appropriate sub-spec:
+   - `api/spec/recally.yaml` — recally articles/feeds/digest endpoints
+   - `api/spec/scheduler.yaml` — scheduler job endpoints
+3. Add the path `$ref` to `api/spec/openapi.yaml`.
+4. Run `mise run generate:api` to regenerate:
+   - `api/spec/components.yaml` — assembled from domain files (DO NOT EDIT)
+   - `api/types/types.gen.go` — shared API types (`package apitypes`)
+   - `api/server/gen.go` — server interface + routing (`package apiserver`, types are aliases to `apitypes`)
+   - `api/client/gen.go` — HTTP client (`package apiclient`, types are aliases to `apitypes`)
+5. Implement the new method on `*Server` in `internal/admin/` (it must satisfy `apiserver.ServerInterface`).
+6. Never hand-write server routing for recally/scheduler — it comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
+
+See `api/CLAUDE.md` for the full spec layout and domain file conventions.
 
 **Where generated code lives:**
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `api/server/gen.go` | `server` | `ServerInterface` + `HandlerFromMux` + all param/response types |
-| `api/client/gen.go` | `client` | HTTP client methods + all shared types |
+| `api/types/types.gen.go` | `apitypes` | All API data types (single copy, no duplication) |
+| `api/server/gen.go` | `apiserver` | `ServerInterface` + `HandlerFromMux` + type aliases to `apitypes` |
+| `api/client/gen.go` | `apiclient` | HTTP client methods + type aliases to `apitypes` |
 
-**Key rule:** `api/openapi.yaml` is the single source of truth for codegen. It must have all schemas inlined in `components/schemas` (path-level `$ref` to sub-specs is fine; schema-level `$ref` to sub-specs is not — oapi-codegen won't follow them for type generation).
+**Codegen configs** live in `api/codegen/{types,server,client}.yaml`.
+
+**Key rules:**
+- Edit domain files in `api/spec/components/` — never edit `api/spec/components.yaml` directly.
+- Sub-specs (`recally.yaml`, `scheduler.yaml`) reference `./components.yaml` for all schemas.
+- Enum constants (e.g. `FeedEntryStatusSaved`) live in `apitypes`, not in `apiserver`/`apiclient`.
+  Import `apitypes` directly when you need them.
 
 ## Releases
 

@@ -1,0 +1,486 @@
+openapi: 3.0.3
+info:
+  title: anna API Components
+  version: "1"
+  description: Assembled from api/spec/components/*.yaml — DO NOT EDIT
+paths: {}
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: ANNA_TOKEN bearer token (generated via vault)
+  responses:
+    Unauthorized:
+      description: missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+    Forbidden:
+      description: insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+    NotFound:
+      description: resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+    BadRequest:
+      description: malformed request
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+  schemas:
+    # ── Shared ─────────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    # ── Recally ────────────────────────────────────────────────────────────────
+    ArticleStatus:
+      type: string
+      enum: [unread, read, archived]
+    SourceType:
+      type: string
+      enum: [web, twitter, youtube, github, rss, pdf]
+    FeedEntryStatus:
+      type: string
+      enum: [pending, saved, skipped, error]
+    Article:
+      type: object
+      required: [id, url, canonical_url, source_type, title, status, starred, file_path, saved_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        url:
+          type: string
+          format: uri
+        canonical_url:
+          type: string
+        source_type:
+          $ref: "#/components/schemas/SourceType"
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ArticleStatus"
+        starred:
+          type: boolean
+        file_path:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        saved_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        content:
+          type: string
+          description: "Article body in markdown. Returned only when ?include=content is set."
+          nullable: true
+    ArticleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Article"
+    SaveArticleRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        canonical_url:
+          type: string
+        source_type:
+          $ref: "#/components/schemas/SourceType"
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+          description: "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400."
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+    UpdateArticleRequest:
+      type: object
+      description: "Only provided fields are updated."
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ArticleStatus"
+        starred:
+          type: boolean
+        file_path:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        content:
+          type: string
+          description: "If set, rewrites the markdown file body."
+    Feed:
+      type: object
+      required: [id, url, title, check_interval, enabled, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        check_interval:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_etag:
+          type: string
+        last_modified:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    FeedList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Feed"
+    CreateFeedRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+          description: "Optional override; server fetches feed metadata if omitted"
+        agent_id:
+          type: string
+          nullable: true
+    UpdateFeedRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        check_interval:
+          type: string
+        enabled:
+          type: boolean
+    FeedEntry:
+      type: object
+      required: [id, feed_id, guid, url, title, status, attempts, discovered_at]
+      properties:
+        id:
+          type: string
+        feed_id:
+          type: string
+        guid:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/FeedEntryStatus"
+        article_id:
+          type: string
+          nullable: true
+        attempts:
+          type: integer
+        error_msg:
+          type: string
+        discovered_at:
+          type: string
+          format: date-time
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+    FeedEntryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedEntry"
+    UpdateFeedEntryRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/FeedEntryStatus"
+        article_id:
+          type: string
+          nullable: true
+        error_msg:
+          type: string
+    FeedPollResult:
+      type: object
+      required: [feed, new_entries]
+      properties:
+        feed:
+          $ref: "#/components/schemas/Feed"
+        new_entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedEntry"
+        error:
+          type: string
+          nullable: true
+          description: "Set if the upstream RSS fetch failed but the feed exists"
+    TagCount:
+      type: object
+      required: [tag, count]
+      properties:
+        tag:
+          type: string
+        count:
+          type: integer
+          format: int64
+    Digest:
+      type: object
+      required:
+        - date
+        - saved_yesterday
+        - saved_yesterday_count
+        - unread_count
+        - read_count
+        - archived_count
+        - starred_count
+        - worth_revisiting
+        - worth_revisiting_count
+        - top_tags
+        - total_articles
+      properties:
+        date:
+          type: string
+          format: date-time
+        saved_yesterday:
+          type: array
+          items:
+            $ref: "#/components/schemas/Article"
+        saved_yesterday_count:
+          type: integer
+        unread_count:
+          type: integer
+          format: int64
+        read_count:
+          type: integer
+          format: int64
+        archived_count:
+          type: integer
+          format: int64
+        starred_count:
+          type: integer
+          format: int64
+        worth_revisiting:
+          type: array
+          items:
+            $ref: "#/components/schemas/Article"
+        worth_revisiting_count:
+          type: integer
+        top_tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/TagCount"
+        total_articles:
+          type: integer
+          format: int64
+    Job:
+      type: object
+      required: [id, name, message, session_mode, enabled]
+      properties:
+        id:
+          type: string
+        owner_kind:
+          type: string
+          description: "Ownership class: 'user' or 'plugin'"
+        plugin_id:
+          type: string
+        job_key:
+          type: string
+        runtime_name:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        cron:
+          type: string
+          description: "Cron expression (mutually exclusive with every/at)"
+        every:
+          type: string
+          description: "Go duration string, e.g. '30m' (mutually exclusive with cron/at)"
+        at:
+          type: string
+          description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)"
+        message:
+          type: string
+          description: "Prompt/instruction to run on schedule"
+        payload:
+          type: object
+          additionalProperties: {}
+          description: "Arbitrary structured data for plugin-owned jobs"
+        session_mode:
+          type: string
+          description: "Session behaviour: 'reuse' or 'new'"
+        enabled:
+          type: boolean
+        agent_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_error:
+          type: string
+    JobList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+    JobInput:
+      type: object
+      description: "Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required."
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        cron:
+          type: string
+        every:
+          type: string
+        at:
+          type: string
+        message:
+          type: string
+        session_mode:
+          type: string
+        enabled:
+          type: boolean
+        agent_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+          description: "Admin-only: set 0 for system jobs"
+    DeleteResult:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string

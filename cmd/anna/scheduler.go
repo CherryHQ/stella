@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	ucli "github.com/urfave/cli/v2"
 	client "github.com/vaayne/anna/api/client"
@@ -137,9 +138,9 @@ func schedulerListCommand() *ucli.Command {
 				if sched == "" {
 					sched = derefStr(j.At)
 				}
-				lastRun := derefStr(j.LastRunAt)
-				if lastRun == "" {
-					lastRun = "never"
+				lastRun := "never"
+				if j.LastRunAt != nil {
+					lastRun = j.LastRunAt.Format(time.DateTime)
 				}
 				fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n",
 					shortID(j.Id), truncate(j.Name, 20), truncate(sched, 20), j.SessionMode, lastRun)

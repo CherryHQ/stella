@@ -29,15 +29,21 @@ depends = ["generate:api"]
 run = "templ generate && sqlc generate"
 
 [tasks."generate:api"]
-description = "Generate Go server interface and client from OpenAPI specs"
-sources = ["api/recally.yaml", "api/scheduler.yaml", "api/openapi.yaml"]
+description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
+sources = ["api/spec/components/*.yaml", "api/spec/recally.yaml", "api/spec/scheduler.yaml", "api/spec/openapi.yaml", "api/codegen/*.yaml"]
 outputs = [
+    "api/spec/components.yaml",
+    "api/types/types.gen.go",
     "api/server/gen.go",
     "api/client/gen.go",
 ]
 run = """
-go tool oapi-codegen -package server  -generate std-http,types -o api/server/gen.go   api/openapi.yaml
-go tool oapi-codegen -package client  -generate client,types   -o api/client/gen.go   api/openapi.yaml
+yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "anna API Components" | .info.description = "Assembled from api/spec/components/*.yaml — DO NOT EDIT"' \
+  api/spec/components/common.yaml api/spec/components/recally.yaml api/spec/components/scheduler.yaml \
+  > /tmp/anna-components.yaml && mv /tmp/anna-components.yaml api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
+go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 """
 
 # ============================================================================

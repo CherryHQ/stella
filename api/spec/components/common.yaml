@@ -1,0 +1,49 @@
+openapi: 3.0.3
+info:
+  title: Common Components
+  version: "1"
+paths: {}
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: ANNA_TOKEN bearer token (generated via vault)
+
+  responses:
+    Unauthorized:
+      description: missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
+    Forbidden:
+      description: insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
+    NotFound:
+      description: resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
+    BadRequest:
+      description: malformed request
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
