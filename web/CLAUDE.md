@@ -88,6 +88,49 @@ Page script path injected via `<meta name="page-script">` tag, read by the init 
 - Feedback: `alert alert-success`, `loading loading-spinner`
 - See https://daisyui.com/components/ for full list
 
+**URL as state:**
+
+Pages with filters, pagination, view modes, or selected tabs must encode that state in the URL — not only in Alpine component data. This makes pages shareable, bookmarkable, and browser-back-compatible.
+
+What belongs in the URL: search queries, filters, pagination, view modes, date ranges, selected tabs.  
+What does not: unsaved form input, passwords/tokens, high-frequency transient states (e.g. hover).
+
+Pattern for an Alpine page component:
+
+```javascript
+// On init — read URL into local state
+init() {
+  const params = new URLSearchParams(window.location.search);
+  this.status = params.get('status') || 'all';   // omit default from URL
+  this.page   = parseInt(params.get('page')) || 1;
+},
+
+// On change — push URL without reloading
+pushState() {
+  const params = new URLSearchParams();
+  if (this.status !== 'all') params.set('status', this.status);
+  if (this.page   !== 1)     params.set('page',   this.page);
+  const qs = params.toString();
+  window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
+},
+
+// On browser back/forward — restore state from URL
+mounted() {
+  window.addEventListener('popstate', () => {
+    const params = new URLSearchParams(window.location.search);
+    this.status = params.get('status') || 'all';
+    this.page   = parseInt(params.get('page')) || 1;
+    this.load();
+  });
+},
+```
+
+Rules:
+- Omit parameters that equal the default value — keep URLs clean
+- Use `pushState` for distinct navigation steps; `replaceState` for incremental refinements (e.g. debounced search input)
+- Debounce frequent updates (search-as-you-type) to avoid flooding browser history
+- Parameter names must be self-documenting (`status=active`, not `s=1`)
+
 **Custom terra theme:**
 
 Defined via CSS custom properties `[data-theme="terra"]` in `layout.templ`. Colors mapped from the terra/warm palette. Switchable to any of 32+ built-in daisyUI themes via the navbar theme picker.
@@ -105,6 +148,7 @@ mise run generate           # Regenerate all templ output after editing .templ f
 - templ files: `package web` for layout/components (in `web/`), `package pages` for page templates (in `web/pages/`)
 - JS files: ESM modules with `import`/`export`, no bundler
 - Each page JS exports `register(Alpine)` function
+- Pages with filters, pagination, or view modes must encode that state in the URL (see URL-as-state pattern above)
 - Keep templ files under 300 lines — split into sub-components if needed
 - `*_templ.go` files are auto-generated — never edit manually, excluded from lint
 - Always use `mise run <task>` to run tasks — never call templ, golangci-lint, etc. directly
