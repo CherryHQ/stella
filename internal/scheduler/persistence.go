@@ -5,12 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/vaayne/anna/pkg/db/sqlc"
 )
+
+// dbTimeLayout is the SQLite datetime format used for all time columns.
+const dbTimeLayout = "2006-01-02 15:04:05"
 
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
@@ -43,9 +47,9 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 		lastError = runErr.Error()
 	}
 	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
-		LastRunAt: sql.NullString{String: ranAt.UTC().Format("2006-01-02 15:04:05"), Valid: true},
+		LastRunAt: sql.NullString{String: ranAt.UTC().Format(dbTimeLayout), Valid: true},
 		LastError: lastError,
-		UpdatedAt: ranAt.UTC().Format("2006-01-02 15:04:05"),
+		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
 	})
 }
@@ -148,6 +152,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 	return sqlc.CreateSchedulerJobParams{
 		ID:            job.ID,
 		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		ExecScope:     normalizeExecScope(job.ExecScope),
 		PluginID:      job.PluginID,
 		JobKey:        job.JobKey,
 		RuntimeName:   job.RuntimeName,
@@ -162,8 +167,8 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
-		CreatedAt:     createdAt.UTC().Format("2006-01-02 15:04:05"),
-		UpdatedAt:     updatedAt.UTC().Format("2006-01-02 15:04:05"),
+		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
+		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 	}
@@ -180,6 +185,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 	}
 	return sqlc.UpdateSchedulerJobParams{
 		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		ExecScope:     normalizeExecScope(job.ExecScope),
 		PluginID:      job.PluginID,
 		JobKey:        job.JobKey,
 		RuntimeName:   job.RuntimeName,
@@ -194,7 +200,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
-		UpdatedAt:     updatedAt.UTC().Format("2006-01-02 15:04:05"),
+		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 		ID:            job.ID,
@@ -202,11 +208,12 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 }
 
 func dbRowToJob(r sqlc.SchedJob) Job {
-	createdAt, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
-	updatedAt, _ := time.Parse("2006-01-02 15:04:05", r.UpdatedAt)
+	createdAt, _ := time.Parse(dbTimeLayout, r.CreatedAt)
+	updatedAt, _ := time.Parse(dbTimeLayout, r.UpdatedAt)
 	j := Job{
 		ID:          r.ID,
 		OwnerKind:   normalizeOwnerKind(r.OwnerKind),
+		ExecScope:   normalizeExecScope(r.ExecScope),
 		PluginID:    r.PluginID,
 		JobKey:      r.JobKey,
 		RuntimeName: r.RuntimeName,
@@ -232,7 +239,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		j.UserID = r.UserID.Int64
 	}
 	if r.LastRunAt.Valid {
-		if parsed, err := time.Parse("2006-01-02 15:04:05", r.LastRunAt.String); err == nil {
+		if parsed, err := time.Parse(dbTimeLayout, r.LastRunAt.String); err == nil {
 			j.LastRunAt = &parsed
 		}
 	}
@@ -240,10 +247,28 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 }
 
 func normalizeOwnerKind(kind string) string {
-	if kind == JobOwnerPlugin {
+	switch kind {
+	case JobOwnerPlugin:
 		return JobOwnerPlugin
+	case JobOwnerSystem:
+		return JobOwnerSystem
+	default:
+		return JobOwnerUser
 	}
-	return JobOwnerUser
+}
+
+func normalizeExecScope(scope string) string {
+	switch scope {
+	case ExecScopeSystem:
+		return ExecScopeSystem
+	case ExecScopeAllUsers:
+		return ExecScopeAllUsers
+	case ExecScopeUser:
+		return ExecScopeUser
+	default:
+		slog.Default().Warn("unknown exec_scope, defaulting to user", "scope", scope)
+		return ExecScopeUser
+	}
 }
 
 func encodePayload(payload map[string]any) string {
@@ -275,5 +300,79 @@ func nullableTime(t *time.Time) sql.NullString {
 	if t == nil || t.IsZero() {
 		return sql.NullString{}
 	}
-	return sql.NullString{String: t.UTC().Format("2006-01-02 15:04:05"), Valid: true}
+	return sql.NullString{String: t.UTC().Format(dbTimeLayout), Valid: true}
+}
+
+func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, userID int64, startedAt time.Time) error {
+	_, err := s.q.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
+		ID:        id,
+		JobID:     jobID,
+		SessionID: sessionID,
+		Status:    RunStatusRunning,
+		StartedAt: startedAt.UTC().Format(dbTimeLayout),
+		UserID:    sql.NullInt64{Int64: userID, Valid: userID != 0},
+	})
+	return err
+}
+
+// tryStartJobRun atomically checks that no run is already in progress for the
+// job and creates the initial "running" record in a single transaction.
+// SQLite serializes writes, so Begin + check + insert is effectively atomic.
+// Returns errJobAlreadyRunning if a run is already active.
+func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID int64, startedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := s.q.WithTx(tx)
+	count, err := qtx.CountRunningSchedJobRuns(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("check running: %w", err)
+	}
+	if count > 0 {
+		return errJobAlreadyRunning
+	}
+	if _, err := qtx.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
+		ID:        id,
+		JobID:     jobID,
+		SessionID: sessionID,
+		Status:    RunStatusRunning,
+		StartedAt: startedAt.UTC().Format(dbTimeLayout),
+		UserID:    sql.NullInt64{Int64: userID, Valid: userID != 0},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Service) finishJobRun(ctx context.Context, id, status string, finishedAt time.Time, errStr string) error {
+	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
+		Status:     status,
+		FinishedAt: sql.NullString{String: finishedAt.UTC().Format(dbTimeLayout), Valid: true},
+		Error:      errStr,
+		ID:         id,
+	})
+}
+
+func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
+	startedAt, _ := time.Parse(dbTimeLayout, r.StartedAt)
+	run := JobRun{
+		ID:        r.ID,
+		JobID:     r.JobID,
+		SessionID: r.SessionID,
+		Status:    r.Status,
+		StartedAt: startedAt,
+		Error:     r.Error,
+	}
+	if r.UserID.Valid {
+		run.UserID = r.UserID.Int64
+	}
+	if r.FinishedAt.Valid {
+		if parsed, err := time.Parse(dbTimeLayout, r.FinishedAt.String); err == nil {
+			run.FinishedAt = &parsed
+		}
+	}
+	return run
 }

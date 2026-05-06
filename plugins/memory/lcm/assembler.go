@@ -3,6 +3,7 @@ package lcm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/vaayne/anna/pkg/ai"
@@ -11,11 +12,15 @@ import (
 
 // assembler builds context for the model within a token budget.
 type assembler struct {
-	q *sqlc.Queries
+	q   *sqlc.Queries
+	log *slog.Logger
 }
 
-func newAssembler(q *sqlc.Queries) *assembler {
-	return &assembler{q: q}
+func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &assembler{q: q, log: log}
 }
 
 // assemble builds a context window from context_items, respecting the token budget.
@@ -38,6 +43,32 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
+
+	// Telemetry: count turns and tool results before compaction.
+	userTurns := 0
+	toolResults := 0
+	for _, m := range tailMsgs {
+		if _, ok := m.(ai.UserMessage); ok {
+			userTurns++
+		}
+		if _, ok := m.(ai.ToolResultMessage); ok {
+			toolResults++
+		}
+	}
+
+	var compacted int
+	tailMsgs, compacted = compactOversizedTailResults(tailMsgs)
+
+	itemsPerTurn := float64(len(tailMsgs)) / float64(max(userTurns, 1))
+	a.log.Info("lcm tail telemetry",
+		slog.Int("tail_items", len(tail)),
+		slog.Int("tail_messages", len(tailMsgs)),
+		slog.Int("user_turns", userTurns),
+		slog.Float64("items_per_turn", itemsPerTurn),
+		slog.Int("tool_results", toolResults),
+		slog.Int("tool_results_compacted", compacted),
+	)
+
 	tailTokens := 0
 	for _, m := range tailMsgs {
 		tailTokens += estimateMessageTokens(m)
@@ -72,6 +103,55 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 	result = append(result, olderMsgs...)
 	result = append(result, tailMsgs...)
 	return result, nil
+}
+
+// compactOversizedTailResults replaces large tool results from completed prior
+// turns with a compact placeholder. Only tool results that appear before the
+// last UserMessage are eligible — everything at or after it belongs to the
+// current user turn and is preserved at full size, including intermediate tool
+// results in multi-step tool chains. The returned slice is a shallow copy;
+// original messages are not modified. ToolCallID, ToolName, IsError, and
+// Timestamp are preserved. The second return value is the count of results
+// that were replaced.
+func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
+	// Find the last UserMessage. Tool results after this index are part of the
+	// current user turn — even if assistant messages follow, the model may still
+	// need them to synthesize its final answer (multi-step tool chains).
+	lastUserIdx := -1
+	for i, m := range msgs {
+		if _, ok := m.(ai.UserMessage); ok {
+			lastUserIdx = i
+		}
+	}
+	if lastUserIdx <= 0 {
+		return msgs, 0
+	}
+
+	result := make([]ai.Message, len(msgs))
+	copy(result, msgs)
+
+	compacted := 0
+	for i := 0; i < lastUserIdx; i++ {
+		tr, ok := result[i].(ai.ToolResultMessage)
+		if !ok {
+			continue
+		}
+		if estimateMessageTokens(tr) <= oversizedToolResultTokens {
+			continue
+		}
+		result[i] = ai.ToolResultMessage{
+			ToolCallID: tr.ToolCallID,
+			ToolName:   tr.ToolName,
+			Content: []ai.ContentBlock{ai.TextContent{
+				Text: "[Content omitted — this large tool result has already been processed. Re-invoke the tool if you need the data again.]",
+			}},
+			IsError:   tr.IsError,
+			Timestamp: tr.Timestamp,
+		}
+		compacted++
+	}
+
+	return result, compacted
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.

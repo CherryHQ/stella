@@ -247,6 +247,7 @@ type RssFeedEntry struct {
 type SchedJob struct {
 	ID            string         `json:"id"`
 	OwnerKind     string         `json:"owner_kind"`
+	ExecScope     string         `json:"exec_scope"`
 	PluginID      string         `json:"plugin_id"`
 	JobKey        string         `json:"job_key"`
 	RuntimeName   string         `json:"runtime_name"`
@@ -265,6 +266,17 @@ type SchedJob struct {
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
 	LastError     string         `json:"last_error"`
+}
+
+type SchedJobRun struct {
+	ID         string         `json:"id"`
+	JobID      string         `json:"job_id"`
+	SessionID  string         `json:"session_id"`
+	Status     string         `json:"status"`
+	StartedAt  string         `json:"started_at"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	Error      string         `json:"error"`
+	UserID     sql.NullInt64  `json:"user_id"`
 }
 
 type Setting struct {

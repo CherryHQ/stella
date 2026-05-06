@@ -11,12 +11,16 @@ import (
 
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/pkg/memory"
 )
+
+const adminDBTimeLayout = "2006-01-02 15:04:05"
 
 // schedulerJobJSON is the JSON representation for scheduler jobs.
 type schedulerJobJSON struct {
 	ID          string         `json:"id"`
 	OwnerKind   string         `json:"owner_kind,omitempty"`
+	ExecScope   string         `json:"exec_scope,omitempty"`
 	PluginID    string         `json:"plugin_id,omitempty"`
 	JobKey      string         `json:"job_key,omitempty"`
 	RuntimeName string         `json:"runtime_name,omitempty"`
@@ -98,16 +102,27 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Infer exec_scope from user_id when not explicitly set.
+	execScope := body.ExecScope
+	if execScope == "" {
+		if body.UserID > 0 {
+			execScope = scheduler.ExecScopeUser
+		} else {
+			execScope = scheduler.ExecScopeSystem
+		}
+	}
+
 	id := generateShortID()
 	enabled := int64(0)
 	if body.Enabled {
 		enabled = 1
 	}
 
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC().Format(adminDBTimeLayout)
 	_, err := s.q.CreateSchedulerJob(r.Context(), sqlc.CreateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     scheduler.JobOwnerUser,
+		ExecScope:     execScope,
 		PluginID:      "",
 		JobKey:        "",
 		RuntimeName:   "",
@@ -193,6 +208,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     existing.OwnerKind,
+		ExecScope:     existing.ExecScope,
 		PluginID:      existing.PluginID,
 		JobKey:        existing.JobKey,
 		RuntimeName:   existing.RuntimeName,
@@ -207,7 +223,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: body.AgentID, Valid: body.AgentID != ""},
 		UserID:        sql.NullInt64{Int64: body.UserID, Valid: body.UserID != 0},
-		UpdatedAt:     time.Now().UTC().Format("2006-01-02 15:04:05"),
+		UpdatedAt:     time.Now().UTC().Format(adminDBTimeLayout),
 		LastRunAt:     existing.LastRunAt,
 		LastError:     existing.LastError,
 	})
@@ -259,6 +275,7 @@ func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
 	j := schedulerJobJSON{
 		ID:          row.ID,
 		OwnerKind:   row.OwnerKind,
+		ExecScope:   row.ExecScope,
 		PluginID:    row.PluginID,
 		JobKey:      row.JobKey,
 		RuntimeName: row.RuntimeName,
@@ -332,4 +349,122 @@ func generateShortID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+type jobRunJSON struct {
+	ID         string `json:"id"`
+	JobID      string `json:"job_id"`
+	SessionID  string `json:"session_id"`
+	UserID     int64  `json:"user_id,omitempty"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Duration   string `json:"duration,omitempty"`
+}
+
+func (s *Server) triggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
+
+	id := r.PathValue("id")
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		if existing.OwnerKind == scheduler.JobOwnerPlugin {
+			writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
+			return
+		}
+		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	runID, err := s.schedulerSvc.RunJobNow(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	resp := map[string]string{"status": "triggered"}
+	if runID != "" {
+		resp["run_id"] = runID
+	}
+	writeData(w, http.StatusAccepted, resp)
+}
+
+func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		// Non-admin: block plugin jobs, system jobs (no user_id), and other users' jobs.
+		if existing.OwnerKind == scheduler.JobOwnerPlugin ||
+			existing.OwnerKind == scheduler.JobOwnerSystem ||
+			!existing.UserID.Valid ||
+			existing.UserID.Int64 != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
+	}
+
+	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
+		JobID: id,
+		Limit: 20,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sm, _ := s.mem.(memory.SessionManager)
+	result := make([]jobRunJSON, 0, len(rows))
+	for _, row := range rows {
+		j := dbRowToJobRunJSON(row)
+		if j.SessionID != "" && sm != nil {
+			if _, err := sm.LoadInfo(r.Context(), j.SessionID); err != nil {
+				j.SessionID = ""
+			}
+		}
+		result = append(result, j)
+	}
+	writeData(w, http.StatusOK, result)
+}
+
+func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
+	j := jobRunJSON{
+		ID:        row.ID,
+		JobID:     row.JobID,
+		SessionID: row.SessionID,
+		Status:    row.Status,
+		StartedAt: row.StartedAt,
+		Error:     row.Error,
+	}
+	if row.UserID.Valid {
+		j.UserID = row.UserID.Int64
+	}
+	if row.FinishedAt.Valid {
+		j.FinishedAt = row.FinishedAt.String
+		startedAt, err1 := time.Parse(adminDBTimeLayout, row.StartedAt)
+		finishedAt, err2 := time.Parse(adminDBTimeLayout, row.FinishedAt.String)
+		if err1 == nil && err2 == nil {
+			j.Duration = finishedAt.Sub(startedAt).Truncate(time.Second).String()
+		}
+	}
+	return j
 }

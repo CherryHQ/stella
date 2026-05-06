@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/credentials"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/vault"
@@ -223,11 +221,29 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
-		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
+		adminSrv.SetSchedulerService(s.schedulerSvc)
+		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		defer func() { _ = s.schedulerSvc.Stop() }()
+	}
+
+	if s.schedulerSvc != nil {
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]int64, error) {
+			users, err := as.ListUsers(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]int64, 0, len(users))
+			for _, u := range users {
+				if u.IsActive {
+					ids = append(ids, u.ID)
+				}
+			}
+			return ids, nil
+		})
+		s.schedulerSvc.EnsureBuiltinJobs()
 	}
 
 	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
@@ -245,43 +261,29 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	return waitErr
 }
 
-// wireSchedulerNotifier overrides the scheduler callback to collect the agent response
-// and dispatch it via the notification dispatcher. User-owned jobs notify only their
-// owner; system jobs (user_id=0) broadcast to all channels.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *notify.Dispatcher) {
+// wireSchedulerNotifier overrides the scheduler callback to run the agent.
+// The agent decides whether to notify the user by calling the notify tool.
+func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool) {
 	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
 		if scheduler.IsPluginJob(job) {
 			return nil
 		}
 
 		pool := schedulerPool(job, poolMgr, defaultPool)
-		sessionID := job.SessionID()
+		sessionID := scheduler.RunSessionIDFromContext(ctx)
+		if sessionID == "" {
+			sessionID = job.SessionID()
+		}
 		msg := schedulerJobMessage(job)
 
 		jobCtx := schedulerJobContext(ctx, pool, job)
 
-		var result strings.Builder
 		for evt := range pool.Chat(jobCtx, sessionID, msg) {
 			if evt.Err != nil {
 				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 			}
-			if evt.Text != "" {
-				result.WriteString(evt.Text)
-			}
 		}
-		if result.Len() == 0 {
-			return nil
-		}
-
-		n := pkgchannel.Notification{
-			AgentID: pool.AgentID(),
-			Text:    fmt.Sprintf("*%s*\n\n%s", job.Name, result.String()),
-		}
-		err := dispatchSchedulerNotification(ctx, dispatcher, job, n)
-		if err != nil {
-			slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
-		}
-		return err
+		return nil
 	})
 }
 
@@ -300,14 +302,6 @@ func schedulerPool(job scheduler.Job, poolMgr *agent.PoolManager, defaultPool *a
 	return defaultPool
 }
 
-func dispatchSchedulerNotification(ctx context.Context, dispatcher *notify.Dispatcher, job scheduler.Job, notification pkgchannel.Notification) error {
-	if job.UserID != 0 {
-		return dispatcher.NotifyUser(ctx, job.UserID, notification)
-	}
-
-	return dispatcher.Notify(ctx, notification)
-}
-
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != 0 {
 		ctx = memory.WithUserID(ctx, job.UserID)
@@ -315,14 +309,13 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 	if pool.AgentID() != "" {
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
-	// Scheduled executions already have an external delivery path and should not
-	// mutate scheduler control-plane state while they run.
-	ctx = agent.WithExcludedTools(ctx, "notify", "scheduler")
+	// Prevent scheduled jobs from mutating scheduler control-plane state.
+	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx
 }
 
 func schedulerJobMessage(job scheduler.Job) string {
-	return fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s\n\nDo not use the notify tool. Your final response will be delivered automatically.", job.Name, job.Message)
+	return fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s\n\nUse the notify tool to send results to the user only when you have something meaningful to communicate.", job.Name, job.Message)
 }
 
 func launchBrowser(url string) {
