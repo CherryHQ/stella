@@ -35,6 +35,8 @@ tags:
   - name: models
   - name: tools
   - name: builtin
+  - name: channels
+  - name: weixin
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
@@ -64,6 +66,17 @@ paths:
     $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}'
   /api/builtin/{kind}/{id}:
     $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}~1{id}'
+  # ── Channels ───────────────────────────────────────────────────────────────
+  /api/channels/public:
+    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1public'
+  /api/channels:
+    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels'
+  /api/channels/{id}:
+    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1{id}'
+  /api/channels/weixin/qr:
+    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr'
+  /api/channels/weixin/qr/status:
+    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr~1status'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -105,3 +118,10 @@ components:
     Tool:                 { $ref: './components.yaml#/components/schemas/Tool' }
     BuiltinResource:      { $ref: './components.yaml#/components/schemas/BuiltinResource' }
     BuiltinResourceDetail: { $ref: './components.yaml#/components/schemas/BuiltinResourceDetail' }
+    Channel:              { $ref: './components.yaml#/components/schemas/Channel' }
+    ChannelList:          { $ref: './components.yaml#/components/schemas/ChannelList' }
+    PublicChannel:        { $ref: './components.yaml#/components/schemas/PublicChannel' }
+    PublicChannelList:    { $ref: './components.yaml#/components/schemas/PublicChannelList' }
+    ChannelWriteRequest:  { $ref: './components.yaml#/components/schemas/ChannelWriteRequest' }
+    WeixinQRCode:         { $ref: './components.yaml#/components/schemas/WeixinQRCode' }
+    WeixinQRStatus:       { $ref: './components.yaml#/components/schemas/WeixinQRStatus' }

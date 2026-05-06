@@ -144,6 +144,32 @@ type CachedModel struct {
 	Provider string `json:"provider"`
 }
 
+// Channel defines model for Channel.
+type Channel struct {
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Config JSON string of the channel config
+	Config  string `json:"config"`
+	Enabled bool   `json:"enabled"`
+	Id      string `json:"id"`
+	Type    string `json:"type"`
+}
+
+// ChannelList defines model for ChannelList.
+type ChannelList struct {
+	Items []Channel `json:"items"`
+}
+
+// ChannelWriteRequest defines model for ChannelWriteRequest.
+type ChannelWriteRequest struct {
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Config JSON string of the channel config
+	Config *string `json:"config,omitempty"`
+	Id     *string `json:"id,omitempty"`
+	Type   *string `json:"type,omitempty"`
+}
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -305,6 +331,21 @@ type JobRun struct {
 // JobRunList defines model for JobRunList.
 type JobRunList = []JobRun
 
+// PublicChannel defines model for PublicChannel.
+type PublicChannel struct {
+	AgentId   *string `json:"agent_id,omitempty"`
+	AgentName *string `json:"agent_name,omitempty"`
+	Enabled   bool    `json:"enabled"`
+	Id        string  `json:"id"`
+	Label     string  `json:"label"`
+	Type      string  `json:"type"`
+}
+
+// PublicChannelList defines model for PublicChannelList.
+type PublicChannelList struct {
+	Items []PublicChannel `json:"items"`
+}
+
 // SaveArticleRequest defines model for SaveArticleRequest.
 type SaveArticleRequest struct {
 	AgentId      *string `json:"agent_id,omitempty"`
@@ -374,6 +415,21 @@ type UpdateFeedRequest struct {
 	Description   *string `json:"description,omitempty"`
 	Enabled       *bool   `json:"enabled,omitempty"`
 	Title         *string `json:"title,omitempty"`
+}
+
+// WeixinQRCode defines model for WeixinQRCode.
+type WeixinQRCode struct {
+	Qrcode           *string `json:"qrcode,omitempty"`
+	QrcodeImgContent *string `json:"qrcode_img_content,omitempty"`
+}
+
+// WeixinQRStatus defines model for WeixinQRStatus.
+type WeixinQRStatus struct {
+	Baseurl     *string `json:"baseurl,omitempty"`
+	BotToken    *string `json:"bot_token,omitempty"`
+	IlinkBotId  *string `json:"ilink_bot_id,omitempty"`
+	IlinkUserId *string `json:"ilink_user_id,omitempty"`
+	Status      *string `json:"status,omitempty"`
 }
 
 // BadRequest defines model for BadRequest.

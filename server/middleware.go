@@ -158,7 +158,7 @@ func (s *Server) adminOnlyMiddleware(next http.Handler) http.Handler {
 // requireAdmin checks that the authenticated user has the admin role.
 // It writes a 403 JSON error and returns false when the caller is not admin.
 // Returns true when the caller is admin. Intended for inline use in API handlers.
-func requireAdmin(w http.ResponseWriter, r *http.Request) bool { //nolint:unused
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	info := UserFromContext(r.Context())
 	if info == nil || !info.IsAdmin {
 		writeError(w, http.StatusForbidden, "admin access required")

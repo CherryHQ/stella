@@ -37,6 +37,15 @@ type BuiltinResourceDetail = externalRef0.BuiltinResourceDetail
 // CachedModel defines model for CachedModel.
 type CachedModel = externalRef0.CachedModel
 
+// Channel defines model for Channel.
+type Channel = externalRef0.Channel
+
+// ChannelList defines model for ChannelList.
+type ChannelList = externalRef0.ChannelList
+
+// ChannelWriteRequest defines model for ChannelWriteRequest.
+type ChannelWriteRequest = externalRef0.ChannelWriteRequest
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest = externalRef0.CreateFeedRequest
 
@@ -76,6 +85,12 @@ type JobInput = externalRef0.JobInput
 // JobList defines model for JobList.
 type JobList = externalRef0.JobList
 
+// PublicChannel defines model for PublicChannel.
+type PublicChannel = externalRef0.PublicChannel
+
+// PublicChannelList defines model for PublicChannelList.
+type PublicChannelList = externalRef0.PublicChannelList
+
 // SaveArticleRequest defines model for SaveArticleRequest.
 type SaveArticleRequest = externalRef0.SaveArticleRequest
 
@@ -97,8 +112,20 @@ type UpdateFeedEntryRequest = externalRef0.UpdateFeedEntryRequest
 // UpdateFeedRequest defines model for UpdateFeedRequest.
 type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
+// WeixinQRCode defines model for WeixinQRCode.
+type WeixinQRCode = externalRef0.WeixinQRCode
+
+// WeixinQRStatus defines model for WeixinQRStatus.
+type WeixinQRStatus = externalRef0.WeixinQRStatus
+
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
+
+// PollWeixinQRStatusParams defines parameters for PollWeixinQRStatus.
+type PollWeixinQRStatusParams struct {
+	// Qrcode QR code token from startWeixinQR
+	Qrcode string `form:"qrcode" json:"qrcode"`
+}
 
 // ListArticlesParams defines parameters for ListArticles.
 type ListArticlesParams struct {
@@ -137,6 +164,12 @@ type PollFeedParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// CreateChannelJSONRequestBody defines body for CreateChannel for application/json ContentType.
+type CreateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
+
+// UpdateChannelJSONRequestBody defines body for UpdateChannel for application/json ContentType.
+type UpdateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
+
 // SaveArticleJSONRequestBody defines body for SaveArticle for application/json ContentType.
 type SaveArticleJSONRequestBody = externalRef0.SaveArticleRequest
 
@@ -166,6 +199,30 @@ type ServerInterface interface {
 	// Get a specific builtin resource
 	// (GET /api/builtin/{kind}/{id})
 	GetBuiltinResource(w http.ResponseWriter, r *http.Request, kind string, id string)
+	// List all channels (admin only)
+	// (GET /api/channels)
+	ListChannels(w http.ResponseWriter, r *http.Request)
+	// Create a channel (admin only)
+	// (POST /api/channels)
+	CreateChannel(w http.ResponseWriter, r *http.Request)
+	// List public channels (any authenticated user)
+	// (GET /api/channels/public)
+	ListPublicChannels(w http.ResponseWriter, r *http.Request)
+	// Start WeChat QR login flow (any authenticated user)
+	// (POST /api/channels/weixin/qr)
+	StartWeixinQR(w http.ResponseWriter, r *http.Request)
+	// Poll WeChat QR login status (any authenticated user)
+	// (GET /api/channels/weixin/qr/status)
+	PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, params PollWeixinQRStatusParams)
+	// Delete a channel (admin only)
+	// (DELETE /api/channels/{id})
+	DeleteChannel(w http.ResponseWriter, r *http.Request, id string)
+	// Get a channel (admin only)
+	// (GET /api/channels/{id})
+	GetChannel(w http.ResponseWriter, r *http.Request, id string)
+	// Update a channel (admin only)
+	// (PUT /api/channels/{id})
+	UpdateChannel(w http.ResponseWriter, r *http.Request, id string)
 	// List enabled models from provider config and cache
 	// (GET /api/models)
 	ListModels(w http.ResponseWriter, r *http.Request)
@@ -307,6 +364,221 @@ func (siw *ServerInterfaceWrapper) GetBuiltinResource(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetBuiltinResource(w, r, kind, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannels operation middleware
+func (siw *ServerInterfaceWrapper) ListChannels(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateChannel operation middleware
+func (siw *ServerInterfaceWrapper) CreateChannel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateChannel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPublicChannels operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPublicChannels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartWeixinQR operation middleware
+func (siw *ServerInterfaceWrapper) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartWeixinQR(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PollWeixinQRStatus operation middleware
+func (siw *ServerInterfaceWrapper) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PollWeixinQRStatusParams
+
+	// ------------- Required query parameter "qrcode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "qrcode", r.URL.Query(), &params.Qrcode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "qrcode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "qrcode", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PollWeixinQRStatus(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteChannel operation middleware
+func (siw *ServerInterfaceWrapper) DeleteChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteChannel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChannel operation middleware
+func (siw *ServerInterfaceWrapper) GetChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChannel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateChannel operation middleware
+func (siw *ServerInterfaceWrapper) UpdateChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateChannel(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1207,6 +1479,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}", wrapper.ListBuiltinResources)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}/{id}", wrapper.GetBuiltinResource)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels", wrapper.ListChannels)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/channels", wrapper.CreateChannel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/public", wrapper.ListPublicChannels)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/channels/weixin/qr", wrapper.StartWeixinQR)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/weixin/qr/status", wrapper.PollWeixinQRStatus)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/channels/{id}", wrapper.DeleteChannel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/{id}", wrapper.GetChannel)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/channels/{id}", wrapper.UpdateChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/models", wrapper.ListModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
