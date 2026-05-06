@@ -54,7 +54,7 @@ Every new or changed HTTP API must follow this workflow:
    - `api/types/gen.go` — shared API types (`package types`).
    - `api/server/gen.go` — server interface, routing helpers, and aliases to `types`.
    - `api/client/gen.go` — HTTP client and aliases to `types`.
-5. Implement the generated server methods on `*Server` in `internal/admin/`.
+5. Implement the generated server methods on `*Server` in `server/`.
 6. Verify `*Server` satisfies `apiserver.ServerInterface`.
 
 ## Adding a schema
@@ -69,7 +69,7 @@ Every new or changed HTTP API must follow this workflow:
 2. Create `api/spec/domain/<domain>/paths.yaml` with paths referencing `../../components.yaml#/…`.
 3. Add path `$ref`s to `api/spec/openapi.yaml`.
 4. Run `mise run generate:api` — the yq glob picks up the new schemas automatically.
-5. Implement the new `ServerInterface` methods in `internal/admin/`.
+5. Implement the new `ServerInterface` methods in `server/`.
 
 ## Rules
 

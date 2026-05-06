@@ -40,8 +40,8 @@ anna CLI 被有意做成轻量 REST 客户端。运行中的 `anna serve` 进程
 
 1. `api/<domain>.openapi.yaml`（OpenAPI 3.0）—— **契约源头**，spec 改了
    再回头生成代码，不允许反向。
-2. 生成的 server interface `internal/admin/<domain>_gen.go`，对应实现
-   `internal/admin/<domain>_handlers.go`。
+2. 生成的 server interface `server/<domain>_gen.go`，对应实现
+   `server/<domain>_handlers.go`。
 3. 生成的 client `pkg/<domain>/client/client_gen.go`，外加一个小 `auth.go`
    读取环境变量 `ANNA_TOKEN` / `ANNA_SERVER_URL`。
 4. CLI 子命令 `cmd/anna/<domain>*.go`，从 flag 构造类型化请求、调用生成的
@@ -60,19 +60,19 @@ mise run generate:api
 1. 写 `api/notes.openapi.yaml`，挑标准 REST URL（`/api/notes`、
    `/api/notes/{id}`），错误响应复用现有 `Error` 形状。
 2. 把 codegen 命令加进 `mise run generate:api`（`mise.toml`）。
-3. 跑 `mise run generate:api` 产出 `internal/admin/notes_gen.go` 与
+3. 跑 `mise run generate:api` 产出 `server/notes_gen.go` 与
    `pkg/notes/client/client_gen.go`。
-4. 在 `internal/admin/notes_handlers.go` 实现生成的 `ServerInterface`。
-5. 在 `internal/admin/routes.go` 接线：
+4. 在 `server/notes_handlers.go` 实现生成的 `ServerInterface`。
+5. 在 `server/routes.go` 接线：
    `s.registerNotesRoutes()` → `HandlerFromMux(s.notes, s.mux)`。
-6. 在 `internal/admin/server.go` 注入新 domain 的 store。
+6. 在 `server/server.go` 注入新 domain 的 store。
 7. 把 `cmd/anna/notes*.go` 里直连 DB 的代码替换为
    `notesclient.NewFromEnv()`。
 
 ## Bearer token 鉴权
 
 CLI 读取 `ANNA_TOKEN` 并以 `Authorization: Bearer …` 发送。server 的
-`authMiddleware`（`internal/admin/middleware.go`）已经通过
+`authMiddleware`（`server/middleware.go`）已经通过
 `authInfoFromBearer` 处理了 bearer，因此新 domain 的路由只要挂到 `s.mux`
 上就自动有鉴权。
 

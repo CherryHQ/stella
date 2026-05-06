@@ -15,7 +15,6 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
-	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
@@ -31,6 +30,7 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
+	"github.com/vaayne/anna/server"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -94,7 +94,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
-	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv := server.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}

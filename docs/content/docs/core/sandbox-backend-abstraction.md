@@ -179,7 +179,7 @@ Every new sandbox backend requires changes in all of the following locations —
 | 4 | `plugins/sandbox/plugin.go` | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata |
 | 5 | `internal/sandbox/factory.go` | Call `mustRegisterFactory(r, <name>plugin.NewFactory(), true)` in `DefaultRegistry()` |
 | 6 | `internal/agent/sandbox_backend.go` | Add `config.SandboxBackend<Name>: create<Name>Session` to `sessionRegistry` and implement the factory function |
-| 7 | `internal/admin/ui/static/js/pages/plugins.js` | Add `"sandbox/<name>"` to `validBackends` and a `sandboxMeta` entry with features/limitations |
+| 7 | `web/static/js/pages/plugins.js` | Add `"sandbox/<name>"` to `validBackends` and a `sandboxMeta` entry with features/limitations |
 | 8 | Docs | Update this file and `sandbox-backend-abstraction.zh.md` |
 
 ## Related Docs

@@ -179,7 +179,7 @@ Anna 优先选择显式拒绝而非静默降级：
 | 4 | `plugins/sandbox/plugin.go` | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据 |
 | 5 | `internal/sandbox/factory.go` | 在 `DefaultRegistry()` 中调用 `mustRegisterFactory(r, <name>plugin.NewFactory(), true)` |
 | 6 | `internal/agent/sandbox_backend.go` | 在 `sessionRegistry` 中添加 `config.SandboxBackend<Name>: create<Name>Session`，并实现工厂函数 |
-| 7 | `internal/admin/ui/static/js/pages/plugins.js` | 将 `"sandbox/<name>"` 添加到 `validBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
+| 7 | `web/static/js/pages/plugins.js` | 将 `"sandbox/<name>"` 添加到 `validBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
 | 8 | 文档 | 更新本文件及 `sandbox-backend-abstraction.zh.md` |
 
 ## 相关文档
