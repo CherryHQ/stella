@@ -60,8 +60,9 @@ type GoRunnerConfig struct {
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 	UserID           int64                            // auth user ID; used for vault secret injection
 	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
-	TokenService     *auth.TokenService               // optional; if set, ensures ANNA_TOKEN before vault env injection
-	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
+	TokenService       *auth.TokenService               // optional; if set, ensures ANNA_TOKEN before vault env injection
+	TokenManager       *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
+	SubagentTimeout    time.Duration                    // default wall-clock timeout per subagent (0 = 15m)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -145,15 +146,16 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers:     reg,
-		Registry:      toolReg,
-		Model:         model,
-		APIKey:        cfg.APIKey,
-		BaseURL:       cfg.BaseURL,
-		System:        system,
-		Presets:       presets,
-		Hooks:         hookSet,
-		ToolLifecycle: cfg.ToolLifecycle,
+		Providers:      reg,
+		Registry:       toolReg,
+		Model:          model,
+		APIKey:         cfg.APIKey,
+		BaseURL:        cfg.BaseURL,
+		System:         system,
+		Presets:        presets,
+		Hooks:          hookSet,
+		ToolLifecycle:  cfg.ToolLifecycle,
+		DefaultTimeout: cfg.SubagentTimeout,
 	}))
 
 	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}

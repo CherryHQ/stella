@@ -138,7 +138,6 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (AgentPres
 		System:      strings.TrimSpace(body),
 		Tools:       fm.Tools,
 		HasTools:    fm.HasTools,
-		MaxTurns:    fm.MaxTurns,
 		Timeout:     timeout,
 		Model:       fm.Model,
 		FilePath:    filePath,

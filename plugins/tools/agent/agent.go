@@ -21,9 +21,13 @@ import (
 const (
 	agentToolName = "agent"
 
-	// Defaults (overridable via AgentConfig).
-	defaultMaxTurns       = 50
-	defaultTimeoutSeconds = 600
+	// defaultMaxTurns is a fixed internal safety rail. It is not user-configurable;
+	// use the timeout to bound long subagent tasks by wall-clock time instead.
+	defaultMaxTurns = 50
+	// defaultTimeout is the wall-clock deadline applied to every subagent run.
+	// Overridable globally via AgentConfig.DefaultTimeout (runner.subagent_timeout
+	// in admin settings) or per-preset via the timeout front-matter field.
+	defaultTimeout        = 15 * time.Minute
 	defaultMaxConcurrency = 10
 )
 
@@ -41,7 +45,8 @@ type AgentConfig struct {
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
-	MaxConcurrency int // max parallel subagent goroutines
+	MaxConcurrency     int           // max parallel subagent goroutines
+	DefaultTimeout     time.Duration // default subagent wall-clock timeout (0 = 15m)
 }
 
 func (c AgentConfig) maxConcurrency() int {
@@ -49,6 +54,13 @@ func (c AgentConfig) maxConcurrency() int {
 		return c.MaxConcurrency
 	}
 	return defaultMaxConcurrency
+}
+
+func (c AgentConfig) subagentTimeout() time.Duration {
+	if c.DefaultTimeout > 0 {
+		return c.DefaultTimeout
+	}
+	return defaultTimeout
 }
 
 // AgentTool spawns child agent loops for bounded subtasks.
@@ -163,7 +175,6 @@ type agentTaskConfig struct {
 	System         string
 	Tools          []string
 	HasTools       bool
-	MaxTurns       int
 	TimeoutSeconds int
 }
 
@@ -179,9 +190,6 @@ func (tc *agentTaskConfig) applyPreset(p AgentPreset) {
 	if !tc.HasTools && p.HasTools {
 		tc.Tools = p.Tools
 		tc.HasTools = true
-	}
-	if tc.MaxTurns == 0 && p.MaxTurns > 0 {
-		tc.MaxTurns = p.MaxTurns
 	}
 	if tc.TimeoutSeconds == 0 && p.Timeout > 0 {
 		tc.TimeoutSeconds = int(p.Timeout.Seconds())
@@ -228,7 +236,14 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		}
 	}
 
-	timeout := time.Duration(defaultTimeoutSeconds) * time.Second
+	// Two independent limits bound every subagent run:
+	//   1. Wall-clock timeout: kills the run if it takes too long regardless of
+	//      what the agent is doing. Configurable via runner.subagent_timeout
+	//      (admin settings) or per-preset timeout front-matter. Default: 15m.
+	//   2. Turn limit (defaultMaxTurns): a fixed internal safety rail that stops
+	//      a runaway LLM loop after N turns. Not user-configurable by design —
+	//      use the timeout to bound long tasks instead.
+	timeout := t.cfg.subagentTimeout()
 	if tc.TimeoutSeconds > 0 {
 		timeout = time.Duration(tc.TimeoutSeconds) * time.Second
 	}
@@ -254,11 +269,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		model.ID = tc.Model
 	}
 
-	maxTurns := defaultMaxTurns
-	if tc.MaxTurns > 0 {
-		maxTurns = tc.MaxTurns
-	}
-
 	// Inherit parent session context so sub-agent spans link to the parent trace.
 	subMeta := hooks.HookMeta{
 		SessionID: memory.SessionIDFromContext(ctx) + ":subagent:" + tc.ID,
@@ -273,7 +283,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		ToolDefinitions: toolDefs,
 	},
 		agent.WithStreamOptions(ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL}),
-		agent.WithMaxTurns(maxTurns),
+		agent.WithMaxTurns(defaultMaxTurns),
 		agent.WithSystem(system),
 		agent.WithHooks(t.cfg.Hooks, subMeta),
 		agent.WithToolLifecycle(t.cfg.ToolLifecycle),
@@ -286,7 +296,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		ai.UserMessage{Content: tc.Task},
 	}
 
-	log.Info("subagent started", "preset", tc.Preset, "model", model.Name, "max_turns", maxTurns)
+	log.Info("subagent started", "preset", tc.Preset, "model", model.Name, "max_turns", defaultMaxTurns, "timeout", timeout)
 	start := time.Now()
 
 	t.emit(SubAgentStarted{TaskID: tc.ID, Preset: tc.Preset})

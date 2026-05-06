@@ -154,6 +154,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				VaultEnvLoader:   vaultEnvLoader,
 				TokenService:     tokenService,
 				TokenManager:     tokenManager,
+				SubagentTimeout:  snap.Runner.SubagentTimeoutDuration(),
 			})
 		}, nil
 	default:

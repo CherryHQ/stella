@@ -2,14 +2,25 @@ package config
 
 import (
 	"path/filepath"
+	"time"
 )
 
 // RunnerConfig configures the agent runner.
 type RunnerConfig struct {
-	Type        string           `json:"type"`
-	System      string           `json:"system"`
-	IdleTimeout int              `json:"idle_timeout"`
-	Compaction  CompactionConfig `json:"compaction"`
+	Type             string           `json:"type"`
+	System           string           `json:"system"`
+	IdleTimeout      int              `json:"idle_timeout"`
+	SubagentTimeout  int              `json:"subagent_timeout"` // minutes; 0 = use default (15m)
+	Compaction       CompactionConfig `json:"compaction"`
+}
+
+// SubagentTimeoutDuration returns the configured subagent timeout as a
+// time.Duration. Zero means "use the built-in default" (15 minutes).
+func (c RunnerConfig) SubagentTimeoutDuration() time.Duration {
+	if c.SubagentTimeout <= 0 {
+		return 0
+	}
+	return time.Duration(c.SubagentTimeout) * time.Minute
 }
 
 // CompactionConfig controls automatic session compaction.
