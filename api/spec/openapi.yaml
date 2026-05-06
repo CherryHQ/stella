@@ -2,11 +2,14 @@ openapi: 3.0.3
 info:
   title: anna API
   description: |
-    Full REST API for anna. This is the aggregated entry point; individual
-    feature specs live in sub-files:
+    Full REST API for anna covering ALL /api/* routes. This is the aggregated
+    entry point; individual feature specs live in sub-files under api/spec/domain/:
 
-    - Recally (reading assistant): api/spec/domain/recally/paths.yaml
-    - Scheduler (job scheduling):  api/spec/domain/scheduler/paths.yaml
+    - Agents, Skills, Sessions, Models, Providers
+    - Auth, Auth-Users, Profile, OAuth
+    - Channels, Plugins, Manifest-Plugins
+    - Recally (reading assistant), Scheduler (job scheduling)
+    - Users, Vault, Builtin, Tools, Weixin
 
     Schema source of truth (human-edited, domain-organized):
       api/spec/components/common.yaml    — security schemes, shared responses
