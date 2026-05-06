@@ -15,11 +15,12 @@ import (
 
 	"github.com/mmcdole/gofeed"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/recally"
 )
 
-// recallyHandlers implements the generated recally ServerInterface and is the
+// recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
 // single entry point through which CLI/web/SDK clients reach the recally store
 // and on-disk markdown library. All bodies live on the server; clients are
 // purely HTTP.
@@ -74,7 +75,7 @@ func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, 
 
 // ----------------------------- articles -------------------------------------
 
-func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, params ListArticlesParams) {
+func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, params apiserver.ListArticlesParams) {
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -88,10 +89,10 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	if params.CanonicalUrl != nil && *params.CanonicalUrl != "" {
 		article, err := h.store.GetArticleByCanonicalURL(ctx, userID, *params.CanonicalUrl)
 		if err != nil {
-			writeJSON(w, http.StatusOK, ArticleList{Items: []Article{}})
+			writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, ArticleList{Items: []Article{toAPIArticle(article, "")}})
+		writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{toAPIArticle(article, "")}})
 		return
 	}
 
@@ -101,7 +102,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, ArticleList{Items: toAPIArticles(articles)})
+		writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
 		return
 	}
 
@@ -120,7 +121,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, ArticleList{Items: toAPIArticles(articles)})
+	writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
 }
 
 func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +129,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body SaveArticleRequest
+	var body apiserver.SaveArticleRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -191,9 +192,9 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 			filePath = filepath.Join(annaHome, filePath)
 		}
 		if content == "" {
-			body, readErr := h.files.ReadArticle(filePath)
+			body2, readErr := h.files.ReadArticle(filePath)
 			if readErr == nil {
-				content = body
+				content = body2
 			}
 		}
 	default:
@@ -218,7 +219,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, toAPIArticle(article, ""))
 }
 
-func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id string, params GetArticleParams) {
+func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetArticleParams) {
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -248,7 +249,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	var body UpdateArticleRequest
+	var body apiserver.UpdateArticleRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -328,7 +329,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 
 // ------------------------------- feeds --------------------------------------
 
-func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, params ListFeedsParams) {
+func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, params apiserver.ListFeedsParams) {
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -336,10 +337,10 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	if params.Url != nil && *params.Url != "" {
 		feed, err := h.store.GetFeedByURL(r.Context(), userID, *params.Url)
 		if err != nil {
-			writeJSON(w, http.StatusOK, FeedList{Items: []Feed{}})
+			writeJSON(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, FeedList{Items: []Feed{toAPIFeed(feed)}})
+		writeJSON(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{toAPIFeed(feed)}})
 		return
 	}
 	feeds, err := h.store.ListFeeds(r.Context(), userID)
@@ -347,11 +348,11 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]Feed, 0, len(feeds))
+	items := make([]apiserver.Feed, 0, len(feeds))
 	for i := range feeds {
 		items = append(items, toAPIFeed(&feeds[i]))
 	}
-	writeJSON(w, http.StatusOK, FeedList{Items: items})
+	writeJSON(w, http.StatusOK, apiserver.FeedList{Items: items})
 }
 
 func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +360,7 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body CreateFeedRequest
+	var body apiserver.CreateFeedRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -415,7 +416,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
 		return
 	}
-	var body UpdateFeedRequest
+	var body apiserver.UpdateFeedRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -456,7 +457,7 @@ func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id string, params PollFeedParams) {
+func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id string, params apiserver.PollFeedParams) {
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -469,7 +470,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	if params.Limit != nil && *params.Limit > 0 {
 		limit = *params.Limit
 	}
-	result := FeedPollResult{Feed: toAPIFeed(feed), NewEntries: []FeedEntry{}}
+	result := apiserver.FeedPollResult{Feed: toAPIFeed(feed), NewEntries: []apiserver.FeedEntry{}}
 	if !feed.Enabled {
 		writeJSON(w, http.StatusOK, result)
 		return
@@ -515,7 +516,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 
 // ---------------------------- feed entries ----------------------------------
 
-func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params ListFeedEntriesParams) {
+func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params apiserver.ListFeedEntriesParams) {
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -541,11 +542,11 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]FeedEntry, 0, len(entries))
+	items := make([]apiserver.FeedEntry, 0, len(entries))
 	for i := range entries {
 		items = append(items, toAPIFeedEntry(&entries[i]))
 	}
-	writeJSON(w, http.StatusOK, FeedEntryList{Items: items})
+	writeJSON(w, http.StatusOK, apiserver.FeedEntryList{Items: items})
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
@@ -565,7 +566,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
 		return
 	}
-	var body UpdateFeedEntryRequest
+	var body apiserver.UpdateFeedEntryRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -684,17 +685,17 @@ func ptrStr(s string) *string {
 
 // ------------------------- API model conversions ----------------------------
 
-func toAPIArticle(a *recally.Article, content string) Article {
-	out := Article{
+func toAPIArticle(a *recally.Article, content string) apiserver.Article {
+	out := apiserver.Article{
 		Id:           a.ID,
 		AgentId:      a.AgentID,
 		Url:          a.URL,
 		CanonicalUrl: a.CanonicalURL,
-		SourceType:   SourceType(a.SourceType),
+		SourceType:   apiserver.SourceType(a.SourceType),
 		Title:        a.Title,
 		Author:       ptrStr(a.Author),
 		Summary:      ptrStr(a.Summary),
-		Status:       ArticleStatus(a.Status),
+		Status:       apiserver.ArticleStatus(a.Status),
 		Starred:      a.Starred,
 		FilePath:     a.FilePath,
 		PublishedAt:  a.PublishedAt,
@@ -718,16 +719,16 @@ func toAPIArticle(a *recally.Article, content string) Article {
 	return out
 }
 
-func toAPIArticles(articles []recally.Article) []Article {
-	items := make([]Article, 0, len(articles))
+func toAPIArticles(articles []recally.Article) []apiserver.Article {
+	items := make([]apiserver.Article, 0, len(articles))
 	for i := range articles {
 		items = append(items, toAPIArticle(&articles[i], ""))
 	}
 	return items
 }
 
-func toAPIFeed(f *recally.Feed) Feed {
-	return Feed{
+func toAPIFeed(f *recally.Feed) apiserver.Feed {
+	return apiserver.Feed{
 		Id:            f.ID,
 		AgentId:       f.AgentID,
 		Url:           f.URL,
@@ -743,14 +744,14 @@ func toAPIFeed(f *recally.Feed) Feed {
 	}
 }
 
-func toAPIFeedEntry(e *recally.FeedEntry) FeedEntry {
-	return FeedEntry{
+func toAPIFeedEntry(e *recally.FeedEntry) apiserver.FeedEntry {
+	return apiserver.FeedEntry{
 		Id:           e.ID,
 		FeedId:       e.FeedID,
 		Guid:         e.GUID,
 		Url:          e.URL,
 		Title:        e.Title,
-		Status:       FeedEntryStatus(e.Status),
+		Status:       apiserver.FeedEntryStatus(e.Status),
 		ArticleId:    e.ArticleID,
 		Attempts:     e.Attempts,
 		ErrorMsg:     ptrStr(e.ErrorMsg),
@@ -759,8 +760,8 @@ func toAPIFeedEntry(e *recally.FeedEntry) FeedEntry {
 	}
 }
 
-func toAPIDigest(d *recally.Digest) Digest {
-	out := Digest{
+func toAPIDigest(d *recally.Digest) apiserver.Digest {
+	out := apiserver.Digest{
 		Date:                 d.Date,
 		SavedYesterday:       toAPIArticles(d.SavedYesterday),
 		SavedYesterdayCount:  d.SavedYesterdayCount,
@@ -771,10 +772,10 @@ func toAPIDigest(d *recally.Digest) Digest {
 		WorthRevisiting:      toAPIArticles(d.WorthRevisiting),
 		WorthRevisitingCount: d.WorthRevisitingCount,
 		TotalArticles:        d.TotalArticles,
-		TopTags:              make([]TagCount, 0, len(d.TopTags)),
+		TopTags:              make([]apiserver.TagCount, 0, len(d.TopTags)),
 	}
 	for _, t := range d.TopTags {
-		out.TopTags = append(out.TopTags, TagCount{Tag: t.Tag, Count: t.Count})
+		out.TopTags = append(out.TopTags, apiserver.TagCount{Tag: t.Tag, Count: t.Count})
 	}
 	return out
 }

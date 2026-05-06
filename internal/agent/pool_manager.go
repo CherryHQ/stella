@@ -170,7 +170,7 @@ type PoolManager struct {
 	mu                       sync.RWMutex
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
-	builtinTools             []tools.Tool       // always-on builtin tools (scheduler, memory, etc.)
+	builtinTools             []tools.Tool       // always-on builtin tools (memory, credentials, etc.)
 	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
 	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state

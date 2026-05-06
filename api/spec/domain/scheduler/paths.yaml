@@ -1,0 +1,101 @@
+paths:
+  /api/scheduler/jobs:
+    get:
+      tags: [jobs]
+      summary: List scheduler jobs
+      operationId: listSchedulerJobs
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/JobList" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [jobs]
+      summary: Create a scheduler job
+      operationId: createSchedulerJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/JobInput" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Job" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/scheduler/jobs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [jobs]
+      summary: Update a scheduler job (partial — missing fields are merged from existing)
+      operationId: updateSchedulerJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/JobInput" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Job" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [jobs]
+      summary: Delete a scheduler job
+      operationId: deleteSchedulerJob
+      responses:
+        "200":
+          description: deleted
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/scheduler/jobs/{id}/run:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [jobs]
+      summary: Trigger a scheduler job immediately
+      operationId: triggerSchedulerJob
+      responses:
+        "202":
+          description: triggered
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/TriggerJobResult" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/scheduler/jobs/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [jobs]
+      summary: List scheduler job runs
+      operationId: listSchedulerJobRuns
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/JobRunList" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

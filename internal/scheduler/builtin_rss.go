@@ -18,7 +18,7 @@ func init() {
       anna recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
 3. Use the notify tool to send the user a brief summary only if new articles were saved.`,
 		Schedule:    Schedule{Every: "1h"},
-		SessionMode: SessionReuse,
+		SessionMode: SessionNew,
 		ExecScope:   ExecScopeAllUsers,
 	})
 }

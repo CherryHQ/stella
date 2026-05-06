@@ -49,7 +49,7 @@ internal/
   admin/               HTTP API + embedded SPA (templ + Alpine.js + daisyUI)
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  SQLite, Atlas migrations, sqlc queries
-  scheduler/           gocron service, heartbeat, scheduler tool
+  scheduler/           gocron service, heartbeat (skill via anna scheduler CLI)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   memory/              Memory Provider interface, types, Summarizer, tool auto-generation, test helpers

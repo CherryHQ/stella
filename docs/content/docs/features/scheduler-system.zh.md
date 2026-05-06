@@ -4,7 +4,7 @@ title: 调度器系统
 
 ## 状态
 
-已实现——`internal/scheduler/` 包,包含 gocron/v2 调度器、SQLite 持久化、管理面板 CRUD 和代理工具。
+已实现——`internal/scheduler/` 包,包含 gocron/v2 调度器、SQLite 持久化、管理面板 CRUD 和通过 `anna scheduler` CLI 命令支持的内置技能。
 
 ## 概述
 
@@ -13,36 +13,37 @@ Anna 支持定时任务执行,让代理可以设置提醒、运行周期性任�
 ## 架构
 
 ```
-Agent (via tool call)
+Agent (via skill + anna scheduler CLI)
     |
     |  add / list / remove
     v
-+----------+       +-------------+
-| SchedulerTool | ----> |   Service   |
-+----------+       +------+------+
-                          |
-              +-----------+-----------+
-              |                       |
-     gocron/v2 Scheduler     sched_jobs (SQLite)
-              |
-              v
-        OnJobFunc callback
-              |
-              v
-      PoolManager.Chat(ctx, agentID, userID, sessionID, message)
+anna scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
+                                    |
+                                    v
+                              Scheduler Service
+                                    |
+                        +-----------+-----------+
+                        |                       |
+               gocron/v2 Scheduler     sched_jobs (SQLite)
+                        |
+                        v
+                  OnJobFunc callback
+                        |
+                        v
+          PoolManager.Chat(ctx, agentID, userID, sessionID, message)
 ```
 
 ### 包: `internal/scheduler/`
 
 顶层包(在 `internal/` 下)。五个文件:
 
-| 文件                                | 用途                                         |
-| ----------------------------------- | -------------------------------------------- |
-| `internal/scheduler/job.go`         | `Job` 和 `Schedule` 类型                     |
-| `internal/scheduler/service.go`     | `Service`——gocron 包装器,调度,任务 CRUD      |
-| `internal/scheduler/heartbeat.go`   | 心跳轮询——通过 LLM 决策/执行/通知            |
-| `internal/scheduler/persistence.go` | 数据库持久化(加载/保存/迁移任务)             |
-| `internal/scheduler/tool.go`        | `SchedulerTool`——实现 `tool.Tool` 的代理工具 |
+| 文件                                                  | 用途                                     |
+| ----------------------------------------------------- | ---------------------------------------- |
+| `internal/scheduler/job.go`                           | `Job` 和 `Schedule` 类型                 |
+| `internal/scheduler/service.go`                       | `Service`——gocron 包装器,调度,任务 CRUD  |
+| `internal/scheduler/heartbeat.go`                     | 心跳轮询——通过 LLM 决策/执行/通知        |
+| `internal/scheduler/persistence.go`                   | 数据库持久化(加载/保存/迁移任务)         |
+| `internal/resources/skills/system/scheduler/SKILL.md` | 内置技能——记录 `anna scheduler` CLI 命令 |
 
 ### 关键类型
 
@@ -121,52 +122,46 @@ type Job struct {
 | `PUT`    | `/api/scheduler/jobs/{id}` | 更新现有任务     |
 | `DELETE` | `/api/scheduler/jobs/{id}` | 删除任务         |
 
-## 代理工具
+## 代理技能
 
-启用调度器时,`scheduler` 工具会自动注册到 Go runner。代理通过三个操作的工具调用使用它:
+`scheduler` 内置技能自动加载。它记录代理通过 Bash 调用的 `anna scheduler` CLI 命令。
 
-### `add`——创建任务
+### `anna scheduler add`——创建任务
 
-参数:
+标志:
 
-- `name` (必需)——人类可读的名称
-- `message` (必需)——每次运行时执行的指令
-- `cron`——cron 表达式(使用此项或 `every` 或 `at`)
-- `every`——Go duration(使用此项或 `cron` 或 `at`)
-- `at`——一次性任务的 RFC3339 时间戳(使用此项或 `cron` 或 `every`)
-- `session_mode`——`"reuse"`(默认)保留对话历史;`"new"` 每次执行都重新开始
+- `--name` (必需)——人类可读的名称
+- `--message` (必需)——每次运行时执行的指令
+- `--cron`——cron 表达式(使用 `--cron`、`--every` 或 `--at` 之一)
+- `--every`——Go duration(使用 `--cron`、`--every` 或 `--at` 之一)
+- `--at`——一次性任务的 RFC3339 时间戳(使用 `--cron`、`--every` 或 `--at` 之一)
+- `--session-mode`——`reuse`(默认)保留对话历史;`new` 每次执行都重新开始
+- `--agent-id`——可选,默认使用默认代理
 
-示例(重复): _"每 30 分钟设置一个提醒检查我的邮件"_ 触发:
+示例(重复):
 
-```json
-{
-  "action": "add",
-  "name": "email check",
-  "message": "Check my email and summarize new messages",
-  "every": "30m"
-}
+```bash
+anna scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
 ```
 
-示例(一次性): _"下午 2:40 提醒我查看北京天气"_ 触发:
+示例(一次性):
 
-```json
-{
-  "action": "add",
-  "name": "weather reminder",
-  "message": "Check Beijing weather and send me a summary",
-  "at": "2024-01-15T14:40:00+08:00"
-}
+```bash
+anna scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
 ```
 
-### `list`——列出所有任务
+### `anna scheduler list`——列出所有任务
 
-无参数。以 JSON 格式返回所有定时任务。
+```bash
+anna scheduler list --json   # JSON 输出用于脚本
+anna scheduler list          # 人类可读表格
+```
 
-### `remove`——删除任务
+### `anna scheduler remove`——删除任务
 
-参数:
-
-- `id` (必需)——来自 `add` 或 `list` 的任务 ID
+```bash
+anna scheduler remove <job-id>
+```
 
 ## 心跳
 
@@ -194,10 +189,10 @@ type Job struct {
 
 ## 连接
 
-调度器系统通过 `main.go` 中的延迟连接解决循环依赖(服务需要池来回调,runner 需要工具):
+`gateway.go` 和 `commands.go` 中的连接:
 
 1. 创建不带回调的 `scheduler.Service`
-2. 创建 `scheduler.NewTool(service)` 并通过 `ExtraTools` 传递给 runner
+2. 通过 `adminSrv.SetSchedulerService(svc)` 将服务注入管理服务器,使 HTTP create/delete 通过活跃调度器
 3. 使用 runner 工厂创建 PoolManager
 4. 使用通过 PoolManager 路由的回调调用 `service.SetOnJob(...)`,使用任务的 `agent_id` 和 `user_id`
 5. 如果启用了心跳,使用聊天函数和通知器调用 `service.SetHeartbeat(...)`
@@ -218,11 +213,8 @@ type Job struct {
 - 一次性任务创建和验证
 - 一次性任务恰好触发一次并自动删除
 - 重启时跳过带有过去时间戳的一次性任务
-- 一次性任务的工具接口
+- `AddJobWithOwner` 测试(所有权、enabled 标志)
 - 会话模式默认、reuse、new 和无效验证
-- 通过工具接口的会话模式
-- 完整工具接口(通过 `Execute` 添加/列出/删除)
-- 错误情况(无效操作、缺少 ID)
 - 心跳: 文件缺失时跳过
 - 心跳: 快速模型用于决策
 - 心跳: 运行决策执行并通知

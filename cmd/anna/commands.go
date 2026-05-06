@@ -53,6 +53,7 @@ func newApp() *ucli.App {
 			versionCommand(),
 			upgradeCommand(),
 			recallyCommand(),
+			schedulerCommand(),
 		},
 	}
 }
@@ -229,7 +230,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	// Create the shared scheduler service before runner construction so both
-	// plugin-owned jobs and the user-facing scheduler tool can use it.
+	// plugin-owned jobs and the user-facing scheduler skill can use it.
 	// Reuse the process-wide DB handle so scheduler persistence and memory writes
 	// do not contend through separate SQLite pools.
 	schedulerSvc, err := scheduler.New(db)
@@ -244,7 +245,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
-	builtinTools := []tools.Tool{scheduler.NewTool(schedulerSvc)}
+	builtinTools := []tools.Tool{}
 
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return phost.BuildProviderRegistry(api, map[string]any{

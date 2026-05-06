@@ -11,8 +11,8 @@ func TestBuiltinRSSJobRegistered(t *testing.T) {
 			if j.Schedule.Every != "1h" {
 				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "1h")
 			}
-			if j.SessionMode != SessionReuse {
-				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionReuse)
+			if j.SessionMode != SessionNew {
+				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
 			}
 			if j.ExecScope != ExecScopeAllUsers {
 				t.Errorf("ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)

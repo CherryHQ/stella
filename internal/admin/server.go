@@ -8,6 +8,7 @@ import (
 
 	"filippo.io/age"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
@@ -41,7 +42,7 @@ type Server struct {
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
-	schedulerSvc   *scheduler.Service   // optional; if nil, manual trigger returns 503
+	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 }
 
 // New creates an admin server with all API routes mounted.
@@ -109,8 +110,9 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 	s.tokenSvc = svc
 }
 
-// SetSchedulerService wires the scheduler service into the admin server.
-// Required for manual job triggering. If not set, the trigger endpoint returns 503.
+// SetSchedulerService wires the live scheduler service into the admin server.
+// When set, create and delete job handlers go through the service (live + DB).
+// If not set, those handlers write DB-only.
 func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
 }
@@ -120,4 +122,63 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 // the credentials tool from outside the admin package.
 func (s *Server) CredentialsService() *credentials.Service {
 	return s.credSvc
+}
+
+// Recally method delegations — Server implements apiserver.ServerInterface by
+// forwarding all recally operations to the embedded recallyHandlers.
+
+func (s *Server) ListArticles(w http.ResponseWriter, r *http.Request, params apiserver.ListArticlesParams) {
+	s.recally.ListArticles(w, r, params)
+}
+
+func (s *Server) SaveArticle(w http.ResponseWriter, r *http.Request) {
+	s.recally.SaveArticle(w, r)
+}
+
+func (s *Server) DeleteArticle(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.DeleteArticle(w, r, id)
+}
+
+func (s *Server) GetArticle(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetArticleParams) {
+	s.recally.GetArticle(w, r, id, params)
+}
+
+func (s *Server) UpdateArticle(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.UpdateArticle(w, r, id)
+}
+
+func (s *Server) GetDigest(w http.ResponseWriter, r *http.Request) {
+	s.recally.GetDigest(w, r)
+}
+
+func (s *Server) ListFeeds(w http.ResponseWriter, r *http.Request, params apiserver.ListFeedsParams) {
+	s.recally.ListFeeds(w, r, params)
+}
+
+func (s *Server) CreateFeed(w http.ResponseWriter, r *http.Request) {
+	s.recally.CreateFeed(w, r)
+}
+
+func (s *Server) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params apiserver.ListFeedEntriesParams) {
+	s.recally.ListFeedEntries(w, r, feedId, params)
+}
+
+func (s *Server) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
+	s.recally.UpdateFeedEntry(w, r, feedId, id)
+}
+
+func (s *Server) DeleteFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.DeleteFeed(w, r, id)
+}
+
+func (s *Server) GetFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.GetFeed(w, r, id)
+}
+
+func (s *Server) UpdateFeed(w http.ResponseWriter, r *http.Request, id string) {
+	s.recally.UpdateFeed(w, r, id)
+}
+
+func (s *Server) PollFeed(w http.ResponseWriter, r *http.Request, id string, params apiserver.PollFeedParams) {
+	s.recally.PollFeed(w, r, id, params)
 }

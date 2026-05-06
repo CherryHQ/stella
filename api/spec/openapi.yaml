@@ -1,0 +1,89 @@
+openapi: 3.0.3
+info:
+  title: anna API
+  description: |
+    Full REST API for anna. This is the aggregated entry point; individual
+    feature specs live in sub-files:
+
+    - Recally (reading assistant): api/spec/domain/recally/paths.yaml
+    - Scheduler (job scheduling):  api/spec/domain/scheduler/paths.yaml
+
+    Schema source of truth (human-edited, domain-organized):
+      api/spec/components/common.yaml    — security schemes, shared responses
+      api/spec/domain/<domain>/schemas.yaml — domain schemas
+
+    api/spec/components.yaml is ASSEMBLED from the above by `mise run generate:api`.
+    Do not hand-edit api/spec/components.yaml.
+
+    Go code is generated via configs in api/codegen/:
+      - api/types/gen.go  — from api/spec/components.yaml
+      - api/server/gen.go       — from this file
+      - api/client/gen.go       — from this file
+    See the `generate:api` task in mise.toml.
+  version: "1"
+servers:
+  - url: http://127.0.0.1:25678
+    description: local anna server (default port)
+security:
+  - BearerAuth: []
+tags:
+  - name: articles
+  - name: feeds
+  - name: feed-entries
+  - name: digest
+  - name: jobs
+paths:
+  # ── Recally ────────────────────────────────────────────────────────────────
+  /api/recally/articles:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles'
+  /api/recally/articles/{id}:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}'
+  /api/recally/feeds:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds'
+  /api/recally/feeds/{id}:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}'
+  /api/recally/feeds/{id}/poll:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
+  /api/recally/feeds/{feedId}/entries:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
+  /api/recally/feeds/{feedId}/entries/{id}:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
+  /api/recally/digest:
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1digest'
+  # ── Scheduler ──────────────────────────────────────────────────────────────
+  /api/scheduler/jobs:
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
+  /api/scheduler/jobs/{id}:
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+  /api/scheduler/jobs/{id}/run:
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
+  /api/scheduler/jobs/{id}/runs:
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: './components.yaml#/components/securitySchemes/BearerAuth'
+
+  schemas:
+    Error:            { $ref: './components.yaml#/components/schemas/Error' }
+    ArticleStatus:    { $ref: './components.yaml#/components/schemas/ArticleStatus' }
+    SourceType:       { $ref: './components.yaml#/components/schemas/SourceType' }
+    FeedEntryStatus:  { $ref: './components.yaml#/components/schemas/FeedEntryStatus' }
+    Article:          { $ref: './components.yaml#/components/schemas/Article' }
+    ArticleList:      { $ref: './components.yaml#/components/schemas/ArticleList' }
+    SaveArticleRequest:      { $ref: './components.yaml#/components/schemas/SaveArticleRequest' }
+    UpdateArticleRequest:    { $ref: './components.yaml#/components/schemas/UpdateArticleRequest' }
+    Feed:             { $ref: './components.yaml#/components/schemas/Feed' }
+    FeedList:         { $ref: './components.yaml#/components/schemas/FeedList' }
+    CreateFeedRequest:       { $ref: './components.yaml#/components/schemas/CreateFeedRequest' }
+    UpdateFeedRequest:       { $ref: './components.yaml#/components/schemas/UpdateFeedRequest' }
+    FeedEntry:        { $ref: './components.yaml#/components/schemas/FeedEntry' }
+    FeedEntryList:    { $ref: './components.yaml#/components/schemas/FeedEntryList' }
+    UpdateFeedEntryRequest:  { $ref: './components.yaml#/components/schemas/UpdateFeedEntryRequest' }
+    FeedPollResult:   { $ref: './components.yaml#/components/schemas/FeedPollResult' }
+    TagCount:         { $ref: './components.yaml#/components/schemas/TagCount' }
+    Digest:           { $ref: './components.yaml#/components/schemas/Digest' }
+    Job:          { $ref: './components.yaml#/components/schemas/Job' }
+    JobList:      { $ref: './components.yaml#/components/schemas/JobList' }
+    JobInput:     { $ref: './components.yaml#/components/schemas/JobInput' }
+    DeleteResult: { $ref: './components.yaml#/components/schemas/DeleteResult' }
