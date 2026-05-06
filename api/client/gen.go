@@ -30,6 +30,15 @@ type ArticleList = externalRef0.ArticleList
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus = externalRef0.ArticleStatus
 
+// BuiltinResource defines model for BuiltinResource.
+type BuiltinResource = externalRef0.BuiltinResource
+
+// BuiltinResourceDetail defines model for BuiltinResourceDetail.
+type BuiltinResourceDetail = externalRef0.BuiltinResourceDetail
+
+// CachedModel defines model for CachedModel.
+type CachedModel = externalRef0.CachedModel
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest = externalRef0.CreateFeedRequest
 
@@ -77,6 +86,9 @@ type SourceType = externalRef0.SourceType
 
 // TagCount defines model for TagCount.
 type TagCount = externalRef0.TagCount
+
+// Tool defines model for Tool.
+type Tool = externalRef0.Tool
 
 // UpdateArticleRequest Only provided fields are updated.
 type UpdateArticleRequest = externalRef0.UpdateArticleRequest
@@ -221,6 +233,15 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// ListBuiltinResources request
+	ListBuiltinResources(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBuiltinResource request
+	GetBuiltinResource(ctx context.Context, kind string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListModels request
+	ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListArticles request
 	ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -294,6 +315,45 @@ type ClientInterface interface {
 
 	// ListSchedulerJobRuns request
 	ListSchedulerJobRuns(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTools request
+	ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) ListBuiltinResources(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBuiltinResourcesRequest(c.Server, kind)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetBuiltinResource(ctx context.Context, kind string, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBuiltinResourceRequest(c.Server, kind, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListModelsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -618,6 +678,120 @@ func (c *Client) ListSchedulerJobRuns(ctx context.Context, id string, reqEditors
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+func (c *Client) ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListToolsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewListBuiltinResourcesRequest generates requests for ListBuiltinResources
+func NewListBuiltinResourcesRequest(server string, kind string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/builtin/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetBuiltinResourceRequest generates requests for GetBuiltinResource
+func NewGetBuiltinResourceRequest(server string, kind string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/builtin/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListModelsRequest generates requests for ListModels
+func NewListModelsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/models")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListArticlesRequest generates requests for ListArticles
@@ -1556,6 +1730,33 @@ func NewListSchedulerJobRunsRequest(server string, id string) (*http.Request, er
 	return req, nil
 }
 
+// NewListToolsRequest generates requests for ListTools
+func NewListToolsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tools")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1599,6 +1800,15 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// ListBuiltinResourcesWithResponse request
+	ListBuiltinResourcesWithResponse(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*ListBuiltinResourcesResponse, error)
+
+	// GetBuiltinResourceWithResponse request
+	GetBuiltinResourceWithResponse(ctx context.Context, kind string, id string, reqEditors ...RequestEditorFn) (*GetBuiltinResourceResponse, error)
+
+	// ListModelsWithResponse request
+	ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error)
+
 	// ListArticlesWithResponse request
 	ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error)
 
@@ -1672,6 +1882,104 @@ type ClientWithResponsesInterface interface {
 
 	// ListSchedulerJobRunsWithResponse request
 	ListSchedulerJobRunsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error)
+
+	// ListToolsWithResponse request
+	ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error)
+}
+
+type ListBuiltinResourcesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.BuiltinResource
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBuiltinResourcesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBuiltinResourcesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBuiltinResourcesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBuiltinResourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.BuiltinResourceDetail
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBuiltinResourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBuiltinResourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBuiltinResourceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.CachedModel
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListArticlesResponse struct {
@@ -2318,6 +2626,64 @@ func (r ListSchedulerJobRunsResponse) ContentType() string {
 	return ""
 }
 
+type ListToolsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.Tool
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListToolsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListToolsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListToolsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListBuiltinResourcesWithResponse request returning *ListBuiltinResourcesResponse
+func (c *ClientWithResponses) ListBuiltinResourcesWithResponse(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*ListBuiltinResourcesResponse, error) {
+	rsp, err := c.ListBuiltinResources(ctx, kind, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBuiltinResourcesResponse(rsp)
+}
+
+// GetBuiltinResourceWithResponse request returning *GetBuiltinResourceResponse
+func (c *ClientWithResponses) GetBuiltinResourceWithResponse(ctx context.Context, kind string, id string, reqEditors ...RequestEditorFn) (*GetBuiltinResourceResponse, error) {
+	rsp, err := c.GetBuiltinResource(ctx, kind, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBuiltinResourceResponse(rsp)
+}
+
+// ListModelsWithResponse request returning *ListModelsResponse
+func (c *ClientWithResponses) ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error) {
+	rsp, err := c.ListModels(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListModelsResponse(rsp)
+}
+
 // ListArticlesWithResponse request returning *ListArticlesResponse
 func (c *ClientWithResponses) ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error) {
 	rsp, err := c.ListArticles(ctx, params, reqEditors...)
@@ -2552,6 +2918,128 @@ func (c *ClientWithResponses) ListSchedulerJobRunsWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseListSchedulerJobRunsResponse(rsp)
+}
+
+// ListToolsWithResponse request returning *ListToolsResponse
+func (c *ClientWithResponses) ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error) {
+	rsp, err := c.ListTools(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListToolsResponse(rsp)
+}
+
+// ParseListBuiltinResourcesResponse parses an HTTP response from a ListBuiltinResourcesWithResponse call
+func ParseListBuiltinResourcesResponse(rsp *http.Response) (*ListBuiltinResourcesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBuiltinResourcesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.BuiltinResource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBuiltinResourceResponse parses an HTTP response from a GetBuiltinResourceWithResponse call
+func ParseGetBuiltinResourceResponse(rsp *http.Response) (*GetBuiltinResourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBuiltinResourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.BuiltinResourceDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListModelsResponse parses an HTTP response from a ListModelsWithResponse call
+func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.CachedModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListArticlesResponse parses an HTTP response from a ListArticlesWithResponse call
@@ -3376,6 +3864,39 @@ func ParseListSchedulerJobRunsResponse(rsp *http.Response) (*ListSchedulerJobRun
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListToolsResponse parses an HTTP response from a ListToolsWithResponse call
+func ParseListToolsResponse(rsp *http.Response) (*ListToolsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListToolsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.Tool
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
 
 	}
 

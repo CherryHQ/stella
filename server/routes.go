@@ -19,10 +19,7 @@ func (s *Server) registerRoutes() {
 	s.registerAuthUserRoutes()
 	s.registerSessionRoutes()
 	s.registerPluginRoutes()
-	s.registerModelRoutes()
-	s.registerToolRoutes()
 	s.registerSkillRoutes()
-	s.registerBuiltinRoutes()
 	s.registerManifestPluginRoutes()
 	s.registerAPIRoutes()
 }
@@ -193,14 +190,6 @@ func (s *Server) registerPluginRoutes() {
 	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
 }
 
-func (s *Server) registerModelRoutes() {
-	s.mux.HandleFunc("GET /api/models", s.listCachedModels)
-}
-
-func (s *Server) registerToolRoutes() {
-	s.mux.HandleFunc("GET /api/tools", s.listAgentTools)
-}
-
 func (s *Server) registerSkillRoutes() {
 	adminAPI := func(handler http.HandlerFunc) http.Handler {
 		return s.adminOnlyMiddleware(handler)
@@ -214,11 +203,6 @@ func (s *Server) registerSkillRoutes() {
 	s.mux.Handle("PUT /api/skills/{id}", adminAPI(s.updateSkill))
 	s.mux.Handle("DELETE /api/skills/{id}", adminAPI(s.deleteSkill))
 	s.mux.Handle("DELETE /api/skills/{id}/file", adminAPI(s.deleteSkillFile))
-}
-
-func (s *Server) registerBuiltinRoutes() {
-	s.mux.HandleFunc("GET /api/builtin/{kind}", s.listBuiltinResources)
-	s.mux.HandleFunc("GET /api/builtin/{kind}/{id}", s.getBuiltinResource)
 }
 
 func (s *Server) registerManifestPluginRoutes() {

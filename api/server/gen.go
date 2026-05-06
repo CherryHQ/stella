@@ -28,6 +28,15 @@ type ArticleList = externalRef0.ArticleList
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus = externalRef0.ArticleStatus
 
+// BuiltinResource defines model for BuiltinResource.
+type BuiltinResource = externalRef0.BuiltinResource
+
+// BuiltinResourceDetail defines model for BuiltinResourceDetail.
+type BuiltinResourceDetail = externalRef0.BuiltinResourceDetail
+
+// CachedModel defines model for CachedModel.
+type CachedModel = externalRef0.CachedModel
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest = externalRef0.CreateFeedRequest
 
@@ -75,6 +84,9 @@ type SourceType = externalRef0.SourceType
 
 // TagCount defines model for TagCount.
 type TagCount = externalRef0.TagCount
+
+// Tool defines model for Tool.
+type Tool = externalRef0.Tool
 
 // UpdateArticleRequest Only provided fields are updated.
 type UpdateArticleRequest = externalRef0.UpdateArticleRequest
@@ -148,6 +160,15 @@ type UpdateSchedulerJobJSONRequestBody = externalRef0.JobInput
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// List builtin resources of a given kind
+	// (GET /api/builtin/{kind})
+	ListBuiltinResources(w http.ResponseWriter, r *http.Request, kind string)
+	// Get a specific builtin resource
+	// (GET /api/builtin/{kind}/{id})
+	GetBuiltinResource(w http.ResponseWriter, r *http.Request, kind string, id string)
+	// List enabled models from provider config and cache
+	// (GET /api/models)
+	ListModels(w http.ResponseWriter, r *http.Request)
 	// List or search articles
 	// (GET /api/recally/articles)
 	ListArticles(w http.ResponseWriter, r *http.Request, params ListArticlesParams)
@@ -208,6 +229,9 @@ type ServerInterface interface {
 	// List scheduler job runs
 	// (GET /api/scheduler/jobs/{id}/runs)
 	ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id string)
+	// List available agent tools
+	// (GET /api/tools)
+	ListTools(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -218,6 +242,99 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListBuiltinResources operation middleware
+func (siw *ServerInterfaceWrapper) ListBuiltinResources(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBuiltinResources(w, r, kind)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBuiltinResource operation middleware
+func (siw *ServerInterfaceWrapper) GetBuiltinResource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBuiltinResource(w, r, kind, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModels operation middleware
+func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListArticles operation middleware
 func (siw *ServerInterfaceWrapper) ListArticles(w http.ResponseWriter, r *http.Request) {
@@ -948,6 +1065,26 @@ func (siw *ServerInterfaceWrapper) ListSchedulerJobRuns(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListTools operation middleware
+func (siw *ServerInterfaceWrapper) ListTools(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTools(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1068,6 +1205,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}", wrapper.ListBuiltinResources)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}/{id}", wrapper.GetBuiltinResource)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/models", wrapper.ListModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.DeleteArticle)
@@ -1088,6 +1228,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/scheduler/jobs/{id}", wrapper.UpdateSchedulerJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/scheduler/jobs/{id}/run", wrapper.TriggerSchedulerJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/scheduler/jobs/{id}/runs", wrapper.ListSchedulerJobRuns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 
 	return m
 }

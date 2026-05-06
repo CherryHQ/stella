@@ -1,0 +1,15 @@
+paths:
+  /api/tools:
+    get:
+      tags: [tools]
+      summary: List available agent tools
+      operationId: listTools
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/Tool" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }

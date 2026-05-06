@@ -70,7 +70,7 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
 	rec := httptest.NewRecorder()
 
-	server.listCachedModels(rec, req)
+	server.ListModels(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

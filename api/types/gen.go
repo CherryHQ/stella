@@ -115,6 +115,35 @@ type ArticleList struct {
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus string
 
+// BuiltinResource defines model for BuiltinResource.
+type BuiltinResource struct {
+	Description *string                 `json:"description,omitempty"`
+	Hash        *string                 `json:"hash,omitempty"`
+	Id          string                  `json:"id"`
+	Kind        string                  `json:"kind"`
+	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
+	Name        string                  `json:"name"`
+	Tags        *[]string               `json:"tags,omitempty"`
+}
+
+// BuiltinResourceDetail defines model for BuiltinResourceDetail.
+type BuiltinResourceDetail struct {
+	Content     string                  `json:"content"`
+	Description *string                 `json:"description,omitempty"`
+	Hash        *string                 `json:"hash,omitempty"`
+	Id          string                  `json:"id"`
+	Kind        string                  `json:"kind"`
+	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
+	Name        string                  `json:"name"`
+	Tags        *[]string               `json:"tags,omitempty"`
+}
+
+// CachedModel defines model for CachedModel.
+type CachedModel struct {
+	Model    string `json:"model"`
+	Provider string `json:"provider"`
+}
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -300,6 +329,14 @@ type SourceType string
 type TagCount struct {
 	Count int64  `json:"count"`
 	Tag   string `json:"tag"`
+}
+
+// Tool defines model for Tool.
+type Tool struct {
+	Category    string                  `json:"category"`
+	Description string                  `json:"description"`
+	InputSchema *map[string]interface{} `json:"input_schema,omitempty"`
+	Name        string                  `json:"name"`
 }
 
 // TriggerJobResult defines model for TriggerJobResult.

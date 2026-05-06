@@ -32,6 +32,9 @@ tags:
   - name: feed-entries
   - name: digest
   - name: jobs
+  - name: models
+  - name: tools
+  - name: builtin
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
@@ -50,6 +53,17 @@ paths:
     $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
   /api/recally/digest:
     $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1digest'
+  # ── Models ─────────────────────────────────────────────────────────────────
+  /api/models:
+    $ref: './domain/models/paths.yaml#/paths/~1api~1models'
+  # ── Tools ──────────────────────────────────────────────────────────────────
+  /api/tools:
+    $ref: './domain/tools/paths.yaml#/paths/~1api~1tools'
+  # ── Builtin ────────────────────────────────────────────────────────────────
+  /api/builtin/{kind}:
+    $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}'
+  /api/builtin/{kind}/{id}:
+    $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}~1{id}'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -87,3 +101,7 @@ components:
     JobList:      { $ref: './components.yaml#/components/schemas/JobList' }
     JobInput:     { $ref: './components.yaml#/components/schemas/JobInput' }
     DeleteResult: { $ref: './components.yaml#/components/schemas/DeleteResult' }
+    CachedModel:          { $ref: './components.yaml#/components/schemas/CachedModel' }
+    Tool:                 { $ref: './components.yaml#/components/schemas/Tool' }
+    BuiltinResource:      { $ref: './components.yaml#/components/schemas/BuiltinResource' }
+    BuiltinResourceDetail: { $ref: './components.yaml#/components/schemas/BuiltinResourceDetail' }

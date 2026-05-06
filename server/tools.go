@@ -32,7 +32,7 @@ func defToJSON(def pkgtools.Definition, category string) toolJSON {
 	}
 }
 
-func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolJSON
 
 	// Built-in tools (Read, Bash, Edit, Write).
