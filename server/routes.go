@@ -15,7 +15,6 @@ func (s *Server) registerRoutes() {
 	s.registerUserRoutes()
 	s.registerAuthUserRoutes()
 	s.registerPluginRoutes()
-	s.registerSkillRoutes()
 	s.registerManifestPluginRoutes()
 	s.registerAPIRoutes()
 }
@@ -61,16 +60,6 @@ func (s *Server) registerProfileRoutes() {
 	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/connected", s.getOAuthConnected)
 	s.mux.HandleFunc("DELETE /api/auth/profile/oauth/{provider}", s.disconnectOAuth)
 	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/callback", s.oauthCallback)
-
-	// Self-service user skills.
-	s.mux.HandleFunc("GET /api/auth/profile/skills", s.listProfileSkills)
-	s.mux.HandleFunc("POST /api/auth/profile/skills/install", s.installProfileSkill)
-	s.mux.HandleFunc("POST /api/auth/profile/skills/upload", s.uploadProfileSkill)
-	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}", s.getProfileSkill)
-	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}/file", s.getProfileSkillFile)
-	s.mux.HandleFunc("PUT /api/auth/profile/skills/{skillId}", s.updateProfileSkill)
-	s.mux.HandleFunc("DELETE /api/auth/profile/skills/{skillId}", s.deleteProfileSkill)
-	s.mux.HandleFunc("DELETE /api/auth/profile/skills/{skillId}/file", s.deleteProfileSkillFile)
 }
 
 func (s *Server) registerPageRoutes() {
@@ -121,21 +110,6 @@ func (s *Server) registerPluginRoutes() {
 	s.mux.Handle("GET /api/plugin-config-schema/{kind}/{name}", adminAPI(s.getPluginConfigSchema))
 	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
 	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
-}
-
-func (s *Server) registerSkillRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("GET /api/skills", adminAPI(s.listSkills))
-	s.mux.HandleFunc("GET /api/skills/search", s.searchSkills)
-	s.mux.Handle("GET /api/skills/{id}", adminAPI(s.getSkill))
-	s.mux.Handle("GET /api/skills/{id}/file", adminAPI(s.getSkillFile))
-	s.mux.Handle("POST /api/skills", adminAPI(s.createSkill))
-	s.mux.Handle("POST /api/skills/install", adminAPI(s.installSkill))
-	s.mux.Handle("PUT /api/skills/{id}", adminAPI(s.updateSkill))
-	s.mux.Handle("DELETE /api/skills/{id}", adminAPI(s.deleteSkill))
-	s.mux.Handle("DELETE /api/skills/{id}/file", adminAPI(s.deleteSkillFile))
 }
 
 func (s *Server) registerManifestPluginRoutes() {

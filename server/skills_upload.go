@@ -82,7 +82,7 @@ func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": up.name})
 }
 
-func (s *Server) uploadProfileSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UploadProfileSkill(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")

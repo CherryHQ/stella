@@ -238,6 +238,23 @@ type CreateSessionRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
 }
 
+// CreateSkillRequest defines model for CreateSkillRequest.
+type CreateSkillRequest struct {
+	AgentId                *string            `json:"agent_id,omitempty"`
+	Description            *string            `json:"description,omitempty"`
+	DisableModelInvocation *bool              `json:"disable_model_invocation,omitempty"`
+	Files                  *map[string]string `json:"files,omitempty"`
+	Name                   *string            `json:"name,omitempty"`
+	Scope                  *string            `json:"scope,omitempty"`
+	Status                 *string            `json:"status,omitempty"`
+	UserId                 *int64             `json:"user_id,omitempty"`
+}
+
+// DeleteFileResult defines model for DeleteFileResult.
+type DeleteFileResult struct {
+	Path *string `json:"path,omitempty"`
+}
+
 // DeleteResult defines model for DeleteResult.
 type DeleteResult struct {
 	Status string `json:"status"`
@@ -327,6 +344,14 @@ type FetchModelsRequest struct {
 	BaseUrl *string `json:"base_url,omitempty"`
 }
 
+// GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
+type GlobalInstallSkillRequest struct {
+	AgentId *string `json:"agent_id,omitempty"`
+	Scope   *string `json:"scope,omitempty"`
+	Source  string  `json:"source"`
+	UserId  *int64  `json:"user_id,omitempty"`
+}
+
 // InstallSkillRequest defines model for InstallSkillRequest.
 type InstallSkillRequest struct {
 	Source string `json:"source"`
@@ -406,6 +431,11 @@ type JobRun struct {
 
 // JobRunList defines model for JobRunList.
 type JobRunList = []JobRun
+
+// ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
+type ProfileInstallSkillRequest struct {
+	Source string `json:"source"`
+}
 
 // Provider defines model for Provider.
 type Provider struct {
@@ -545,9 +575,29 @@ type Skill struct {
 	UserId                 *int64    `json:"user_id,omitempty"`
 }
 
+// SkillFileResponse defines model for SkillFileResponse.
+type SkillFileResponse struct {
+	Content *string `json:"content,omitempty"`
+	Path    *string `json:"path,omitempty"`
+}
+
 // SkillList defines model for SkillList.
 type SkillList struct {
 	Items []Skill `json:"items"`
+}
+
+// SkillSearchResult defines model for SkillSearchResult.
+type SkillSearchResult struct {
+	Id       *string `json:"id,omitempty"`
+	Installs *int    `json:"installs,omitempty"`
+	Name     *string `json:"name,omitempty"`
+	SkillId  *string `json:"skillId,omitempty"`
+	Source   *string `json:"source,omitempty"`
+}
+
+// SkillSearchResultList defines model for SkillSearchResultList.
+type SkillSearchResultList struct {
+	Items []SkillSearchResult `json:"items"`
 }
 
 // SkillUploadResult defines model for SkillUploadResult.

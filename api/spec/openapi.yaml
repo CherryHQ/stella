@@ -40,6 +40,7 @@ tags:
   - name: providers
   - name: sessions
   - name: agents
+  - name: skills
 paths:
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
@@ -62,6 +63,27 @@ paths:
     $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}'
   /api/agents/{id}/skills/{skillId}/file:
     $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file'
+  # ── Skills ─────────────────────────────────────────────────────────────────
+  /api/skills:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills'
+  /api/skills/search:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1search'
+  /api/skills/install:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1install'
+  /api/skills/{id}:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1{id}'
+  /api/skills/{id}/file:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file'
+  /api/auth/profile/skills:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills'
+  /api/auth/profile/skills/install:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1install'
+  /api/auth/profile/skills/upload:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1upload'
+  /api/auth/profile/skills/{skillId}:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}'
+  /api/auth/profile/skills/{skillId}/file:
+    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}~1file'
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles'
@@ -192,3 +214,10 @@ components:
     UpdateSkillRequest:   { $ref: './components.yaml#/components/schemas/UpdateSkillRequest' }
     SkillUploadResult:    { $ref: './components.yaml#/components/schemas/SkillUploadResult' }
     DuplicateSkillResult: { $ref: './components.yaml#/components/schemas/DuplicateSkillResult' }
+    CreateSkillRequest:         { $ref: './components.yaml#/components/schemas/CreateSkillRequest' }
+    GlobalInstallSkillRequest:  { $ref: './components.yaml#/components/schemas/GlobalInstallSkillRequest' }
+    ProfileInstallSkillRequest: { $ref: './components.yaml#/components/schemas/ProfileInstallSkillRequest' }
+    SkillSearchResult:          { $ref: './components.yaml#/components/schemas/SkillSearchResult' }
+    SkillSearchResultList:      { $ref: './components.yaml#/components/schemas/SkillSearchResultList' }
+    SkillFileResponse:          { $ref: './components.yaml#/components/schemas/SkillFileResponse' }
+    DeleteFileResult:           { $ref: './components.yaml#/components/schemas/DeleteFileResult' }
