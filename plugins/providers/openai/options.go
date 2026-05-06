@@ -20,6 +20,8 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.Chat
 	}
 	if opts.MaxTokens != nil {
 		params.MaxCompletionTokens = sdk.Int(int64(*opts.MaxTokens))
+	} else if model.MaxTokens > 0 {
+		params.MaxCompletionTokens = sdk.Int(int64(model.MaxTokens))
 	}
 
 	if len(ctx.Tools) > 0 {
