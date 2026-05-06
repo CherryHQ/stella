@@ -75,7 +75,11 @@ func assistantContentBlocks(blocks []ai.ContentBlock) []sdk.ContentBlockParamUni
 		case ai.ThinkingContent:
 			out = append(out, sdk.NewThinkingBlock(b.Signature, b.Thinking))
 		case ai.ToolCall:
-			out = append(out, sdk.NewToolUseBlock(b.ID, b.Arguments, b.Name))
+			args := b.Arguments
+			if args == nil {
+				args = map[string]any{}
+			}
+			out = append(out, sdk.NewToolUseBlock(b.ID, args, b.Name))
 		}
 	}
 	return out
