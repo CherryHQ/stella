@@ -152,6 +152,22 @@ type AssignAgentUserRequest struct {
 	UserId int64 `json:"user_id"`
 }
 
+// AuthUser defines model for AuthUser.
+type AuthUser struct {
+	CreatedAt  string     `json:"created_at"`
+	Id         int64      `json:"id"`
+	Identities []Identity `json:"identities"`
+	IsActive   bool       `json:"is_active"`
+	Role       string     `json:"role"`
+	UpdatedAt  string     `json:"updated_at"`
+	Username   string     `json:"username"`
+}
+
+// AuthUserList defines model for AuthUserList.
+type AuthUserList struct {
+	Items []AuthUser `json:"items"`
+}
+
 // BuiltinResource defines model for BuiltinResource.
 type BuiltinResource struct {
 	Description *string                 `json:"description,omitempty"`
@@ -350,6 +366,16 @@ type GlobalInstallSkillRequest struct {
 	Scope   *string `json:"scope,omitempty"`
 	Source  string  `json:"source"`
 	UserId  *int64  `json:"user_id,omitempty"`
+}
+
+// Identity defines model for Identity.
+type Identity struct {
+	ExternalId string    `json:"external_id"`
+	Id         int64     `json:"id"`
+	LinkedAt   time.Time `json:"linked_at"`
+	Name       string    `json:"name"`
+	Platform   string    `json:"platform"`
+	UserId     int64     `json:"user_id"`
 }
 
 // InstallSkillRequest defines model for InstallSkillRequest.
@@ -560,6 +586,11 @@ type SessionDetail struct {
 	UserName   *string `json:"user_name,omitempty"`
 }
 
+// SetMemoryRequest defines model for SetMemoryRequest.
+type SetMemoryRequest struct {
+	Content string `json:"content"`
+}
+
 // Skill defines model for Skill.
 type Skill struct {
 	AgentId                *string   `json:"agent_id,omitempty"`
@@ -634,6 +665,16 @@ type TriggerJobResult struct {
 	Status string  `json:"status"`
 }
 
+// UpdateActiveRequest defines model for UpdateActiveRequest.
+type UpdateActiveRequest struct {
+	IsActive bool `json:"is_active"`
+}
+
+// UpdateAgentsRequest defines model for UpdateAgentsRequest.
+type UpdateAgentsRequest struct {
+	AgentIds []string `json:"agent_ids"`
+}
+
 // UpdateArticleRequest Only provided fields are updated.
 type UpdateArticleRequest struct {
 	Author *string `json:"author,omitempty"`
@@ -648,6 +689,11 @@ type UpdateArticleRequest struct {
 	Summary     *string            `json:"summary,omitempty"`
 	Tags        *[]string          `json:"tags,omitempty"`
 	Title       *string            `json:"title,omitempty"`
+}
+
+// UpdateDefaultAgentRequest defines model for UpdateDefaultAgentRequest.
+type UpdateDefaultAgentRequest struct {
+	DefaultAgentId string `json:"default_agent_id"`
 }
 
 // UpdateFeedEntryRequest defines model for UpdateFeedEntryRequest.
@@ -665,6 +711,16 @@ type UpdateFeedRequest struct {
 	Title         *string `json:"title,omitempty"`
 }
 
+// UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
+type UpdateNotifyIdentityRequest struct {
+	NotifyIdentityId *int64 `json:"notify_identity_id,omitempty"`
+}
+
+// UpdateRoleRequest defines model for UpdateRoleRequest.
+type UpdateRoleRequest struct {
+	Role string `json:"role"`
+}
+
 // UpdateSkillRequest defines model for UpdateSkillRequest.
 type UpdateSkillRequest struct {
 	Description            *string            `json:"description,omitempty"`
@@ -672,6 +728,9 @@ type UpdateSkillRequest struct {
 	Files                  *map[string]string `json:"files,omitempty"`
 	Status                 *string            `json:"status,omitempty"`
 }
+
+// UserMemory defines model for UserMemory.
+type UserMemory map[string]interface{}
 
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode struct {

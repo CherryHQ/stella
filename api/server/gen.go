@@ -44,6 +44,12 @@ type ArticleStatus = externalRef0.ArticleStatus
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest = externalRef0.AssignAgentUserRequest
 
+// AuthUser defines model for AuthUser.
+type AuthUser = externalRef0.AuthUser
+
+// AuthUserList defines model for AuthUserList.
+type AuthUserList = externalRef0.AuthUserList
+
 // BuiltinResource defines model for BuiltinResource.
 type BuiltinResource = externalRef0.BuiltinResource
 
@@ -113,6 +119,9 @@ type FetchModelsRequest = externalRef0.FetchModelsRequest
 // GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
 type GlobalInstallSkillRequest = externalRef0.GlobalInstallSkillRequest
 
+// Identity defines model for Identity.
+type Identity = externalRef0.Identity
+
 // InstallSkillRequest defines model for InstallSkillRequest.
 type InstallSkillRequest = externalRef0.InstallSkillRequest
 
@@ -167,6 +176,9 @@ type Session = externalRef0.Session
 // SessionDetail defines model for SessionDetail.
 type SessionDetail = externalRef0.SessionDetail
 
+// SetMemoryRequest defines model for SetMemoryRequest.
+type SetMemoryRequest = externalRef0.SetMemoryRequest
+
 // Skill defines model for Skill.
 type Skill = externalRef0.Skill
 
@@ -197,8 +209,17 @@ type TagCount = externalRef0.TagCount
 // Tool defines model for Tool.
 type Tool = externalRef0.Tool
 
+// UpdateActiveRequest defines model for UpdateActiveRequest.
+type UpdateActiveRequest = externalRef0.UpdateActiveRequest
+
+// UpdateAgentsRequest defines model for UpdateAgentsRequest.
+type UpdateAgentsRequest = externalRef0.UpdateAgentsRequest
+
 // UpdateArticleRequest Only provided fields are updated.
 type UpdateArticleRequest = externalRef0.UpdateArticleRequest
+
+// UpdateDefaultAgentRequest defines model for UpdateDefaultAgentRequest.
+type UpdateDefaultAgentRequest = externalRef0.UpdateDefaultAgentRequest
 
 // UpdateFeedEntryRequest defines model for UpdateFeedEntryRequest.
 type UpdateFeedEntryRequest = externalRef0.UpdateFeedEntryRequest
@@ -206,8 +227,17 @@ type UpdateFeedEntryRequest = externalRef0.UpdateFeedEntryRequest
 // UpdateFeedRequest defines model for UpdateFeedRequest.
 type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
+// UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
+type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
+
+// UpdateRoleRequest defines model for UpdateRoleRequest.
+type UpdateRoleRequest = externalRef0.UpdateRoleRequest
+
 // UpdateSkillRequest defines model for UpdateSkillRequest.
 type UpdateSkillRequest = externalRef0.UpdateSkillRequest
+
+// UserMemory defines model for UserMemory.
+type UserMemory = externalRef0.UserMemory
 
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode = externalRef0.WeixinQRCode
@@ -342,6 +372,15 @@ type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
 // UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
 type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
+// UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
+type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
+
+// UpdateAuthUserAgentsJSONRequestBody defines body for UpdateAuthUserAgents for application/json ContentType.
+type UpdateAuthUserAgentsJSONRequestBody = externalRef0.UpdateAgentsRequest
+
+// UpdateAuthUserRoleJSONRequestBody defines body for UpdateAuthUserRole for application/json ContentType.
+type UpdateAuthUserRoleJSONRequestBody = externalRef0.UpdateRoleRequest
+
 // CreateChannelJSONRequestBody defines body for CreateChannel for application/json ContentType.
 type CreateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
 
@@ -392,6 +431,15 @@ type InstallSkillJSONRequestBody = externalRef0.GlobalInstallSkillRequest
 
 // UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
 type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+
+// UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
+type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
+
+// SetUserMemoryJSONRequestBody defines body for SetUserMemory for application/json ContentType.
+type SetUserMemoryJSONRequestBody = externalRef0.SetMemoryRequest
+
+// UpdateUserNotifyIdentityJSONRequestBody defines body for UpdateUserNotifyIdentity for application/json ContentType.
+type UpdateUserNotifyIdentityJSONRequestBody = externalRef0.UpdateNotifyIdentityRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -470,6 +518,27 @@ type ServerInterface interface {
 	// Get a profile skill file
 	// (GET /api/auth/profile/skills/{skillId}/file)
 	GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params GetProfileSkillFileParams)
+	// List all auth users (admin only)
+	// (GET /api/auth/users)
+	ListAuthUsers(w http.ResponseWriter, r *http.Request)
+	// Get an auth user by ID (admin only)
+	// (GET /api/auth/users/{id})
+	GetAuthUser(w http.ResponseWriter, r *http.Request, id int64)
+	// Update the active status of an auth user (admin only)
+	// (PUT /api/auth/users/{id}/active)
+	UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id int64)
+	// List agents assigned to an auth user (admin only)
+	// (GET /api/auth/users/{id}/agents)
+	ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64)
+	// Update agents assigned to an auth user (admin only)
+	// (PUT /api/auth/users/{id}/agents)
+	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64)
+	// Delete an identity linked to an auth user (admin only)
+	// (DELETE /api/auth/users/{id}/identities/{identityId})
+	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId int64)
+	// Update the role of an auth user (admin only)
+	// (PUT /api/auth/users/{id}/role)
+	UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id int64)
 	// List builtin resources of a given kind
 	// (GET /api/builtin/{kind})
 	ListBuiltinResources(w http.ResponseWriter, r *http.Request, kind string)
@@ -635,6 +704,21 @@ type ServerInterface interface {
 	// List available agent tools
 	// (GET /api/tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
+	// Update the default agent for a user (admin only)
+	// (PUT /api/users/{id}/default-agent)
+	UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id int64)
+	// List memories for a user (admin only)
+	// (GET /api/users/{id}/memories)
+	ListUserMemories(w http.ResponseWriter, r *http.Request, id int64)
+	// Delete memory for a user and agent (admin only)
+	// (DELETE /api/users/{id}/memories/{agentId})
+	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string)
+	// Set memory for a user and agent (admin only)
+	// (PUT /api/users/{id}/memories/{agentId})
+	SetUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string)
+	// Update the notify identity for a user (admin only)
+	// (PUT /api/users/{id}/notify-identity)
+	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id int64)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1472,6 +1556,227 @@ func (siw *ServerInterfaceWrapper) GetProfileSkillFile(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetProfileSkillFile(w, r, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUsers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAuthUser operation middleware
+func (siw *ServerInterfaceWrapper) GetAuthUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAuthUser(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAuthUserActive operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAuthUserActive(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthUserAgents operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUserAgents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUserAgents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAuthUserAgents operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAuthUserAgents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAuthUserIdentity operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "identityId" -------------
+	var identityId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "identityId", r.PathValue("identityId"), &identityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "identityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAuthUserIdentity(w, r, id, identityId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAuthUserRole operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAuthUserRole(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3291,6 +3596,184 @@ func (siw *ServerInterfaceWrapper) ListTools(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateUserDefaultAgent operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateUserDefaultAgent(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUserMemories operation middleware
+func (siw *ServerInterfaceWrapper) ListUserMemories(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserMemories(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteUserMemory operation middleware
+func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteUserMemory(w, r, id, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetUserMemory operation middleware
+func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetUserMemory(w, r, id, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateUserNotifyIdentity operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateUserNotifyIdentity(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -3436,6 +3919,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.UpdateProfileSkill)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.DeleteProfileSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.GetProfileSkillFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.ListAuthUserAgents)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.UpdateAuthUserAgents)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/users/{id}/identities/{identityId}", wrapper.DeleteAuthUserIdentity)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/role", wrapper.UpdateAuthUserRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}", wrapper.ListBuiltinResources)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}/{id}", wrapper.GetBuiltinResource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels", wrapper.ListChannels)
@@ -3491,6 +3981,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.DeleteSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.GetSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.DeleteUserMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.SetUserMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/notify-identity", wrapper.UpdateUserNotifyIdentity)
 
 	return m
 }

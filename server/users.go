@@ -2,16 +2,13 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/vaayne/anna/internal/memorywrite"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
-func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
 	var body struct {
@@ -28,10 +25,8 @@ func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-func (s *Server) updateUserNotifyIdentity(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
 	var body struct {
@@ -48,10 +43,8 @@ func (s *Server) updateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-func (s *Server) listUserMemories(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
 	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), id)
@@ -62,13 +55,10 @@ func (s *Server) listUserMemories(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, memories)
 }
 
-func (s *Server) setUserMemory(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string) {
+	if !requireAdmin(w, r) {
 		return
 	}
-	agentID := r.PathValue("agentId")
 	var body struct {
 		Content string `json:"content"`
 	}
@@ -77,22 +67,19 @@ func (s *Server) setUserMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentID, body.Content); err != nil {
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentId, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
-func (s *Server) deleteUserMemory(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string) {
+	if !requireAdmin(w, r) {
 		return
 	}
-	agentID := r.PathValue("agentId")
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentID); err != nil {
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentId); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

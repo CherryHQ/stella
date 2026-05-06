@@ -1062,3 +1062,93 @@ components:
           additionalProperties: true
         category:
           type: string
+    Identity:
+      type: object
+      required: [id, user_id, platform, external_id, name, linked_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        platform:
+          type: string
+        external_id:
+          type: string
+        name:
+          type: string
+        linked_at:
+          type: string
+          format: date-time
+    AuthUser:
+      type: object
+      required: [id, username, role, is_active, identities, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        identities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identity"
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    AuthUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthUser"
+    UserMemory:
+      type: object
+      additionalProperties: {}
+    UpdateDefaultAgentRequest:
+      type: object
+      required: [default_agent_id]
+      properties:
+        default_agent_id:
+          type: string
+    UpdateNotifyIdentityRequest:
+      type: object
+      properties:
+        notify_identity_id:
+          type: integer
+          format: int64
+          nullable: true
+    SetMemoryRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+    UpdateAgentsRequest:
+      type: object
+      required: [agent_ids]
+      properties:
+        agent_ids:
+          type: array
+          items:
+            type: string
+    UpdateActiveRequest:
+      type: object
+      required: [is_active]
+      properties:
+        is_active:
+          type: boolean

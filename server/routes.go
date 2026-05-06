@@ -12,8 +12,6 @@ func (s *Server) registerRoutes() {
 	s.registerAuthRoutes()
 	s.registerProfileRoutes()
 	s.registerPageRoutes()
-	s.registerUserRoutes()
-	s.registerAuthUserRoutes()
 	s.registerPluginRoutes()
 	s.registerManifestPluginRoutes()
 	s.registerAPIRoutes()
@@ -74,30 +72,6 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 	s.mux.HandleFunc("GET /account", s.pageAccount)
 	s.mux.HandleFunc("GET /credentials", s.pageCredentials)
-}
-
-func (s *Server) registerUserRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("PUT /api/users/{id}/default-agent", adminAPI(s.updateUserDefaultAgent))
-	s.mux.Handle("PUT /api/users/{id}/notify-identity", adminAPI(s.updateUserNotifyIdentity))
-	s.mux.Handle("GET /api/users/{id}/memories", adminAPI(s.listUserMemories))
-	s.mux.Handle("PUT /api/users/{id}/memories/{agentId}", adminAPI(s.setUserMemory))
-	s.mux.Handle("DELETE /api/users/{id}/memories/{agentId}", adminAPI(s.deleteUserMemory))
-}
-
-func (s *Server) registerAuthUserRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("GET /api/auth/users", adminAPI(s.listAuthUsers))
-	s.mux.Handle("GET /api/auth/users/{id}", adminAPI(s.getAuthUser))
-	s.mux.Handle("PUT /api/auth/users/{id}/role", adminAPI(s.updateAuthUserRole))
-	s.mux.Handle("GET /api/auth/users/{id}/agents", adminAPI(s.listAuthUserAgents))
-	s.mux.Handle("PUT /api/auth/users/{id}/agents", adminAPI(s.updateAuthUserAgents))
-	s.mux.Handle("DELETE /api/auth/users/{id}/identities/{identityId}", adminAPI(s.deleteAuthUserIdentity))
-	s.mux.Handle("PUT /api/auth/users/{id}/active", adminAPI(s.updateAuthUserActive))
 }
 
 func (s *Server) registerPluginRoutes() {

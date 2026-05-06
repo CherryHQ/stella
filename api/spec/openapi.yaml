@@ -41,6 +41,8 @@ tags:
   - name: sessions
   - name: agents
   - name: skills
+  - name: users
+  - name: auth-users
 paths:
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
@@ -141,6 +143,28 @@ paths:
     $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages'
   /api/sessions/{sessionID}/system-prompt:
     $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt'
+  # ── Users ──────────────────────────────────────────────────────────────────
+  /api/users/{id}/default-agent:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent'
+  /api/users/{id}/notify-identity:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1notify-identity'
+  /api/users/{id}/memories:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories'
+  /api/users/{id}/memories/{agentId}:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentId}'
+  # ── Auth Users ─────────────────────────────────────────────────────────────
+  /api/auth/users:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users'
+  /api/auth/users/{id}:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}'
+  /api/auth/users/{id}/role:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role'
+  /api/auth/users/{id}/agents:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents'
+  /api/auth/users/{id}/identities/{identityId}:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}'
+  /api/auth/users/{id}/active:
+    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1active'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -221,3 +245,13 @@ components:
     SkillSearchResultList:      { $ref: './components.yaml#/components/schemas/SkillSearchResultList' }
     SkillFileResponse:          { $ref: './components.yaml#/components/schemas/SkillFileResponse' }
     DeleteFileResult:           { $ref: './components.yaml#/components/schemas/DeleteFileResult' }
+    Identity:                   { $ref: './components.yaml#/components/schemas/Identity' }
+    AuthUser:                   { $ref: './components.yaml#/components/schemas/AuthUser' }
+    AuthUserList:               { $ref: './components.yaml#/components/schemas/AuthUserList' }
+    UserMemory:                 { $ref: './components.yaml#/components/schemas/UserMemory' }
+    UpdateDefaultAgentRequest:  { $ref: './components.yaml#/components/schemas/UpdateDefaultAgentRequest' }
+    UpdateNotifyIdentityRequest: { $ref: './components.yaml#/components/schemas/UpdateNotifyIdentityRequest' }
+    SetMemoryRequest:           { $ref: './components.yaml#/components/schemas/SetMemoryRequest' }
+    UpdateRoleRequest:          { $ref: './components.yaml#/components/schemas/UpdateRoleRequest' }
+    UpdateAgentsRequest:        { $ref: './components.yaml#/components/schemas/UpdateAgentsRequest' }
+    UpdateActiveRequest:        { $ref: './components.yaml#/components/schemas/UpdateActiveRequest' }
