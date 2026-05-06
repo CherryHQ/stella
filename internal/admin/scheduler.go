@@ -363,13 +363,11 @@ type jobRunJSON struct {
 	Duration   string `json:"duration,omitempty"`
 }
 
-func (s *Server) triggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
 	if s.schedulerSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
 	}
-
-	id := r.PathValue("id")
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), id)
 	if err != nil {
@@ -402,9 +400,7 @@ func (s *Server) triggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusAccepted, resp)
 }
 
-func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
+func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id string) {
 	existing, err := s.q.GetSchedulerJob(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")

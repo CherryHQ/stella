@@ -260,6 +260,22 @@ type JobList struct {
 	Items []Job `json:"items"`
 }
 
+// JobRun defines model for JobRun.
+type JobRun struct {
+	Duration   *string `json:"duration,omitempty"`
+	Error      *string `json:"error,omitempty"`
+	FinishedAt *string `json:"finished_at,omitempty"`
+	Id         string  `json:"id"`
+	JobId      string  `json:"job_id"`
+	SessionId  string  `json:"session_id"`
+	StartedAt  string  `json:"started_at"`
+	Status     string  `json:"status"`
+	UserId     *int64  `json:"user_id,omitempty"`
+}
+
+// JobRunList defines model for JobRunList.
+type JobRunList = []JobRun
+
 // SaveArticleRequest defines model for SaveArticleRequest.
 type SaveArticleRequest struct {
 	AgentId      *string `json:"agent_id,omitempty"`
@@ -284,6 +300,12 @@ type SourceType string
 type TagCount struct {
 	Count int64  `json:"count"`
 	Tag   string `json:"tag"`
+}
+
+// TriggerJobResult defines model for TriggerJobResult.
+type TriggerJobResult struct {
+	RunId  *string `json:"run_id,omitempty"`
+	Status string  `json:"status"`
 }
 
 // UpdateArticleRequest Only provided fields are updated.
@@ -319,6 +341,11 @@ type UpdateFeedRequest struct {
 
 // BadRequest defines model for BadRequest.
 type BadRequest struct {
+	Error string `json:"error"`
+}
+
+// Conflict defines model for Conflict.
+type Conflict struct {
 	Error string `json:"error"`
 }
 

@@ -56,6 +56,10 @@ paths:
     $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
   /api/scheduler/jobs/{id}:
     $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+  /api/scheduler/jobs/{id}/run:
+    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
+  /api/scheduler/jobs/{id}/runs:
+    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
 components:
   securitySchemes:
     BearerAuth:

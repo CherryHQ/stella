@@ -51,6 +51,16 @@ components:
             properties:
               error:
                 type: string
+    Conflict:
+      description: request conflicts with current state
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
   schemas:
     # ── Shared ─────────────────────────────────────────────────────────────────
     Error:
@@ -478,6 +488,41 @@ components:
           type: integer
           format: int64
           description: "Admin-only: set 0 for system jobs"
+    JobRun:
+      type: object
+      required: [id, job_id, session_id, status, started_at]
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        session_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+        started_at:
+          type: string
+        finished_at:
+          type: string
+        error:
+          type: string
+        duration:
+          type: string
+    JobRunList:
+      type: array
+      items:
+        $ref: "#/components/schemas/JobRun"
+    TriggerJobResult:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        run_id:
+          type: string
     DeleteResult:
       type: object
       required: [status]

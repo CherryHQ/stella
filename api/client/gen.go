@@ -288,6 +288,12 @@ type ClientInterface interface {
 	UpdateSchedulerJobWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateSchedulerJob(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TriggerSchedulerJob request
+	TriggerSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSchedulerJobRuns request
+	ListSchedulerJobRuns(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -580,6 +586,30 @@ func (c *Client) UpdateSchedulerJobWithBody(ctx context.Context, id string, cont
 
 func (c *Client) UpdateSchedulerJob(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateSchedulerJobRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TriggerSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTriggerSchedulerJobRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListSchedulerJobRuns(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSchedulerJobRunsRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1458,6 +1488,74 @@ func NewUpdateSchedulerJobRequestWithBody(server string, id string, contentType 
 	return req, nil
 }
 
+// NewTriggerSchedulerJobRequest generates requests for TriggerSchedulerJob
+func NewTriggerSchedulerJobRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s/run", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListSchedulerJobRunsRequest generates requests for ListSchedulerJobRuns
+func NewListSchedulerJobRunsRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s/runs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1568,6 +1666,12 @@ type ClientWithResponsesInterface interface {
 	UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
 
 	UpdateSchedulerJobWithResponse(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
+
+	// TriggerSchedulerJobWithResponse request
+	TriggerSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error)
+
+	// ListSchedulerJobRunsWithResponse request
+	ListSchedulerJobRunsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error)
 }
 
 type ListArticlesResponse struct {
@@ -2147,6 +2251,73 @@ func (r UpdateSchedulerJobResponse) ContentType() string {
 	return ""
 }
 
+type TriggerSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON202      *externalRef0.TriggerJobResult
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+	JSON409      *externalRef0.Conflict
+}
+
+// Status returns HTTPResponse.Status
+func (r TriggerSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TriggerSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TriggerSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListSchedulerJobRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.JobRunList
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSchedulerJobRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSchedulerJobRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSchedulerJobRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListArticlesWithResponse request returning *ListArticlesResponse
 func (c *ClientWithResponses) ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error) {
 	rsp, err := c.ListArticles(ctx, params, reqEditors...)
@@ -2363,6 +2534,24 @@ func (c *ClientWithResponses) UpdateSchedulerJobWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseUpdateSchedulerJobResponse(rsp)
+}
+
+// TriggerSchedulerJobWithResponse request returning *TriggerSchedulerJobResponse
+func (c *ClientWithResponses) TriggerSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error) {
+	rsp, err := c.TriggerSchedulerJob(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTriggerSchedulerJobResponse(rsp)
+}
+
+// ListSchedulerJobRunsWithResponse request returning *ListSchedulerJobRunsResponse
+func (c *ClientWithResponses) ListSchedulerJobRunsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error) {
+	rsp, err := c.ListSchedulerJobRuns(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSchedulerJobRunsResponse(rsp)
 }
 
 // ParseListArticlesResponse parses an HTTP response from a ListArticlesWithResponse call
@@ -3065,6 +3254,107 @@ func ParseUpdateSchedulerJobResponse(rsp *http.Response) (*UpdateSchedulerJobRes
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTriggerSchedulerJobResponse parses an HTTP response from a TriggerSchedulerJobWithResponse call
+func ParseTriggerSchedulerJobResponse(rsp *http.Response) (*TriggerSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TriggerSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest externalRef0.TriggerJobResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest externalRef0.Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSchedulerJobRunsResponse parses an HTTP response from a ListSchedulerJobRunsWithResponse call
+func ParseListSchedulerJobRunsResponse(rsp *http.Response) (*ListSchedulerJobRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSchedulerJobRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.JobRunList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

@@ -47,3 +47,12 @@ components:
             required: [error]
             properties:
               error: { type: string }
+    Conflict:
+      description: request conflicts with current state
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
