@@ -49,6 +49,26 @@ func SetupUserWorkspace(agentID, basePath string, userID int64) (string, error) 
 	return userDir, nil
 }
 
+// SetupSystemWorkspace creates the shared system workspace for agent jobs that
+// run without a user context (e.g. builtin scheduled jobs).
+// Returns the path basePath/workspaces/{agentID}/system/.
+func SetupSystemWorkspace(agentID, basePath string) (string, error) {
+	if agentID == "" {
+		return "", fmt.Errorf("agent ID must not be empty")
+	}
+	dir := filepath.Join(basePath, "workspaces", agentID, "system")
+	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
+		return "", fmt.Errorf("create system workspace for agent %q: %w", agentID, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		return "", fmt.Errorf("create system data dir for agent %q: %w", agentID, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		return "", fmt.Errorf("create system assets dir for agent %q: %w", agentID, err)
+	}
+	return dir, nil
+}
+
 // UserAssetsDir returns the per-user assets directory within a user root.
 // Uploaded files from all channels are stored here.
 func UserAssetsDir(userRoot string) string {

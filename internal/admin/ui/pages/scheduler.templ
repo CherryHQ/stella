@@ -200,7 +200,7 @@ templ SchedulerPage() {
 										</template>
 										<template x-if="run.session_id">
 											<a
-												:href="'/sessions#' + run.session_id"
+												:href="'/sessions/' + encodeURIComponent(run.session_id)"
 												class="text-primary hover:underline"
 											>session</a>
 										</template>

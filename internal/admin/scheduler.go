@@ -11,6 +11,7 @@ import (
 
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // schedulerJobJSON is the JSON representation for scheduler jobs.
@@ -393,9 +394,16 @@ func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sm, _ := s.mem.(memory.SessionManager)
 	result := make([]jobRunJSON, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dbRowToJobRunJSON(row))
+		j := dbRowToJobRunJSON(row)
+		if j.SessionID != "" && sm != nil {
+			if _, err := sm.LoadInfo(r.Context(), j.SessionID); err != nil {
+				j.SessionID = ""
+			}
+		}
+		result = append(result, j)
 	}
 	writeData(w, http.StatusOK, result)
 }
