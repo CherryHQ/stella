@@ -27,7 +27,7 @@ When adding or editing UI: check `DESIGN.md` for the right token, component patt
 
 1. `web/pages/mypage.templ` — package `pages`, use `@web.PageHeader`, `@web.FormField`, etc.
 2. `web/static/js/pages/mypage.js` — ESM, `Alpine.data('mypagePage', () => ({ ... }))`
-3. Wire up handler + route in `internal/admin/` (see `internal/admin/CLAUDE.md`)
+3. Wire up handler + route in `server/` (see `server/CLAUDE.md`)
 4. Add nav link in `web/navbar.templ` → `navItems` slice
 5. `mise run generate`
 
