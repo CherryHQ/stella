@@ -1,11 +1,10 @@
 package pages
 
-import "github.com/vaayne/anna/internal/admin/ui"
+import "github.com/vaayne/anna/web"
 
-templ ProfilePage() {
-	<div x-data="profilePage()">
-		@ui.PageHeader("Profile", "Manage your account settings.")
-		<!-- Password Change -->
+templ AccountPage() {
+	<div x-data="accountPage()">
+		@ui.PageHeader("Account", "Manage your account settings.")
 		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Change Password</h2>
 			<div class="card bg-base-200">
