@@ -42,8 +42,8 @@ type uploadedSkillFrontmatter struct {
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
 
-func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
+func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
+	agentID := id
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")

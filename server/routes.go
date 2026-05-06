@@ -12,7 +12,6 @@ func (s *Server) registerRoutes() {
 	s.registerAuthRoutes()
 	s.registerProfileRoutes()
 	s.registerPageRoutes()
-	s.registerAgentRoutes()
 	s.registerUserRoutes()
 	s.registerAuthUserRoutes()
 	s.registerPluginRoutes()
@@ -86,32 +85,6 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 	s.mux.HandleFunc("GET /account", s.pageAccount)
 	s.mux.HandleFunc("GET /credentials", s.pageCredentials)
-}
-
-func (s *Server) registerAgentRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.HandleFunc("GET /api/agents", s.listAgents)
-	s.mux.HandleFunc("POST /api/agents", s.createAgent)
-	s.mux.HandleFunc("GET /api/agents/{id}", s.getAgent)
-	s.mux.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
-	s.mux.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)
-
-	s.mux.Handle("GET /api/agents/{id}/users", adminAPI(s.listAgentUsers))
-	s.mux.Handle("POST /api/agents/{id}/users", adminAPI(s.assignAgentUser))
-	s.mux.Handle("DELETE /api/agents/{id}/users/{userId}", adminAPI(s.removeAgentUser))
-
-	// Agent-scoped skills (creator or admin).
-	s.mux.HandleFunc("GET /api/agents/{id}/skills", s.listAgentSkills)
-	s.mux.HandleFunc("POST /api/agents/{id}/skills/install", s.installAgentSkill)
-	s.mux.HandleFunc("POST /api/agents/{id}/skills/upload", s.uploadAgentSkill)
-	s.mux.HandleFunc("POST /api/agents/{id}/skills/from-builtin/{skillId}", s.duplicateBuiltinSkillToAgent)
-	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}", s.getAgentSkill)
-	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}/file", s.getAgentSkillFile)
-	s.mux.HandleFunc("PUT /api/agents/{id}/skills/{skillId}", s.updateAgentSkill)
-	s.mux.HandleFunc("DELETE /api/agents/{id}/skills/{skillId}", s.deleteAgentSkill)
-	s.mux.HandleFunc("DELETE /api/agents/{id}/skills/{skillId}/file", s.deleteAgentSkillFile)
 }
 
 func (s *Server) registerUserRoutes() {

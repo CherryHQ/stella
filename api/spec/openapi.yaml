@@ -39,7 +39,29 @@ tags:
   - name: weixin
   - name: providers
   - name: sessions
+  - name: agents
 paths:
+  # ── Agents ─────────────────────────────────────────────────────────────────
+  /api/agents:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents'
+  /api/agents/{id}:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}'
+  /api/agents/{id}/users:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users'
+  /api/agents/{id}/users/{userId}:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}'
+  /api/agents/{id}/skills:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills'
+  /api/agents/{id}/skills/install:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1install'
+  /api/agents/{id}/skills/upload:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload'
+  /api/agents/{id}/skills/from-builtin/{skillId}:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1from-builtin~1{skillId}'
+  /api/agents/{id}/skills/{skillId}:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}'
+  /api/agents/{id}/skills/{skillId}/file:
+    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file'
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles'
@@ -156,3 +178,17 @@ components:
     CreateSessionRequest: { $ref: './components.yaml#/components/schemas/CreateSessionRequest' }
     SendMessageRequest:   { $ref: './components.yaml#/components/schemas/SendMessageRequest' }
     SystemPromptResponse: { $ref: './components.yaml#/components/schemas/SystemPromptResponse' }
+    SandboxNetworkConfig: { $ref: './components.yaml#/components/schemas/SandboxNetworkConfig' }
+    SandboxConfig:        { $ref: './components.yaml#/components/schemas/SandboxConfig' }
+    Agent:                { $ref: './components.yaml#/components/schemas/Agent' }
+    AgentList:            { $ref: './components.yaml#/components/schemas/AgentList' }
+    CreateAgentRequest:   { $ref: './components.yaml#/components/schemas/CreateAgentRequest' }
+    AgentUser:            { $ref: './components.yaml#/components/schemas/AgentUser' }
+    AgentUserList:        { $ref: './components.yaml#/components/schemas/AgentUserList' }
+    AssignAgentUserRequest: { $ref: './components.yaml#/components/schemas/AssignAgentUserRequest' }
+    Skill:                { $ref: './components.yaml#/components/schemas/Skill' }
+    SkillList:            { $ref: './components.yaml#/components/schemas/SkillList' }
+    InstallSkillRequest:  { $ref: './components.yaml#/components/schemas/InstallSkillRequest' }
+    UpdateSkillRequest:   { $ref: './components.yaml#/components/schemas/UpdateSkillRequest' }
+    SkillUploadResult:    { $ref: './components.yaml#/components/schemas/SkillUploadResult' }
+    DuplicateSkillResult: { $ref: './components.yaml#/components/schemas/DuplicateSkillResult' }

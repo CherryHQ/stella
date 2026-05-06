@@ -82,6 +82,38 @@ func (e SourceType) Valid() bool {
 	}
 }
 
+// Agent defines model for Agent.
+type Agent struct {
+	CreatorId    *int64         `json:"creator_id,omitempty"`
+	Enabled      *bool          `json:"enabled,omitempty"`
+	Id           *string        `json:"id,omitempty"`
+	Model        *string        `json:"model,omitempty"`
+	ModelFast    *string        `json:"model_fast,omitempty"`
+	ModelStrong  *string        `json:"model_strong,omitempty"`
+	Name         *string        `json:"name,omitempty"`
+	Sandbox      *SandboxConfig `json:"sandbox,omitempty"`
+	Scope        *string        `json:"scope,omitempty"`
+	Soul         *string        `json:"soul,omitempty"`
+	SystemPrompt *string        `json:"system_prompt,omitempty"`
+	Workspace    *string        `json:"workspace,omitempty"`
+}
+
+// AgentList defines model for AgentList.
+type AgentList struct {
+	Items []Agent `json:"items"`
+}
+
+// AgentUser defines model for AgentUser.
+type AgentUser struct {
+	Id       *int64  `json:"id,omitempty"`
+	Username *string `json:"username,omitempty"`
+}
+
+// AgentUserList defines model for AgentUserList.
+type AgentUserList struct {
+	Items []AgentUser `json:"items"`
+}
+
 // Article defines model for Article.
 type Article struct {
 	AgentId      *string `json:"agent_id,omitempty"`
@@ -114,6 +146,11 @@ type ArticleList struct {
 
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus string
+
+// AssignAgentUserRequest defines model for AssignAgentUserRequest.
+type AssignAgentUserRequest struct {
+	UserId int64 `json:"user_id"`
+}
 
 // BuiltinResource defines model for BuiltinResource.
 type BuiltinResource struct {
@@ -170,6 +207,23 @@ type ChannelWriteRequest struct {
 	Type   *string `json:"type,omitempty"`
 }
 
+// CreateAgentRequest defines model for CreateAgentRequest.
+type CreateAgentRequest struct {
+	CreatorId    *int64         `json:"creator_id,omitempty"`
+	Enabled      *bool          `json:"enabled,omitempty"`
+	Id           *string        `json:"id,omitempty"`
+	Model        *string        `json:"model,omitempty"`
+	ModelFast    *string        `json:"model_fast,omitempty"`
+	ModelStrong  *string        `json:"model_strong,omitempty"`
+	Name         *string        `json:"name,omitempty"`
+	Sandbox      *SandboxConfig `json:"sandbox,omitempty"`
+	Scope        *string        `json:"scope,omitempty"`
+	Soul         *string        `json:"soul,omitempty"`
+	SystemPrompt *string        `json:"system_prompt,omitempty"`
+	TemplateId   *string        `json:"template_id,omitempty"`
+	Workspace    *string        `json:"workspace,omitempty"`
+}
+
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -202,6 +256,12 @@ type Digest struct {
 	UnreadCount          int64      `json:"unread_count"`
 	WorthRevisiting      []Article  `json:"worth_revisiting"`
 	WorthRevisitingCount int        `json:"worth_revisiting_count"`
+}
+
+// DuplicateSkillResult defines model for DuplicateSkillResult.
+type DuplicateSkillResult struct {
+	Id   *string `json:"id,omitempty"`
+	Name *string `json:"name,omitempty"`
 }
 
 // Error defines model for Error.
@@ -265,6 +325,11 @@ type FeedPollResult struct {
 type FetchModelsRequest struct {
 	ApiKey  *string `json:"api_key,omitempty"`
 	BaseUrl *string `json:"base_url,omitempty"`
+}
+
+// InstallSkillRequest defines model for InstallSkillRequest.
+type InstallSkillRequest struct {
+	Source string `json:"source"`
 }
 
 // Job defines model for Job.
@@ -405,6 +470,17 @@ type PublicChannelList struct {
 	Items []PublicChannel `json:"items"`
 }
 
+// SandboxConfig defines model for SandboxConfig.
+type SandboxConfig struct {
+	Network *SandboxNetworkConfig `json:"network,omitempty"`
+}
+
+// SandboxNetworkConfig defines model for SandboxNetworkConfig.
+type SandboxNetworkConfig struct {
+	Allowlist *[]string `json:"allowlist,omitempty"`
+	Mode      *string   `json:"mode,omitempty"`
+}
+
 // SaveArticleRequest defines model for SaveArticleRequest.
 type SaveArticleRequest struct {
 	AgentId      *string `json:"agent_id,omitempty"`
@@ -452,6 +528,32 @@ type SessionDetail struct {
 	Title      string  `json:"title"`
 	UserId     int64   `json:"user_id"`
 	UserName   *string `json:"user_name,omitempty"`
+}
+
+// Skill defines model for Skill.
+type Skill struct {
+	AgentId                *string   `json:"agent_id,omitempty"`
+	CreatedAt              *string   `json:"created_at,omitempty"`
+	Description            *string   `json:"description,omitempty"`
+	DisableModelInvocation *bool     `json:"disable_model_invocation,omitempty"`
+	Files                  *[]string `json:"files,omitempty"`
+	Id                     *string   `json:"id,omitempty"`
+	Name                   *string   `json:"name,omitempty"`
+	Scope                  *string   `json:"scope,omitempty"`
+	Status                 *string   `json:"status,omitempty"`
+	UpdatedAt              *string   `json:"updated_at,omitempty"`
+	UserId                 *int64    `json:"user_id,omitempty"`
+}
+
+// SkillList defines model for SkillList.
+type SkillList struct {
+	Items []Skill `json:"items"`
+}
+
+// SkillUploadResult defines model for SkillUploadResult.
+type SkillUploadResult struct {
+	Id   *string `json:"id,omitempty"`
+	Name *string `json:"name,omitempty"`
 }
 
 // SourceType defines model for SourceType.
@@ -511,6 +613,14 @@ type UpdateFeedRequest struct {
 	Description   *string `json:"description,omitempty"`
 	Enabled       *bool   `json:"enabled,omitempty"`
 	Title         *string `json:"title,omitempty"`
+}
+
+// UpdateSkillRequest defines model for UpdateSkillRequest.
+type UpdateSkillRequest struct {
+	Description            *string            `json:"description,omitempty"`
+	DisableModelInvocation *bool              `json:"disable_model_invocation,omitempty"`
+	Files                  *map[string]string `json:"files,omitempty"`
+	Status                 *string            `json:"status,omitempty"`
 }
 
 // WeixinQRCode defines model for WeixinQRCode.
