@@ -9,37 +9,14 @@ import (
 	"net/http"
 	"time"
 
+	apiserver "github.com/vaayne/anna/api/server"
+	apitypes "github.com/vaayne/anna/api/types"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
 const adminDBTimeLayout = "2006-01-02 15:04:05"
-
-// schedulerJobJSON is the JSON representation for scheduler jobs.
-type schedulerJobJSON struct {
-	ID          string         `json:"id"`
-	OwnerKind   string         `json:"owner_kind,omitempty"`
-	ExecScope   string         `json:"exec_scope,omitempty"`
-	PluginID    string         `json:"plugin_id,omitempty"`
-	JobKey      string         `json:"job_key,omitempty"`
-	RuntimeName string         `json:"runtime_name,omitempty"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Cron        string         `json:"cron,omitempty"`
-	Every       string         `json:"every,omitempty"`
-	At          string         `json:"at,omitempty"`
-	Message     string         `json:"message,omitempty"`
-	Payload     map[string]any `json:"payload,omitempty"`
-	SessionMode string         `json:"session_mode"`
-	Enabled     bool           `json:"enabled"`
-	AgentID     string         `json:"agent_id,omitempty"`
-	UserID      int64          `json:"user_id,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
-	UpdatedAt   string         `json:"updated_at,omitempty"`
-	LastRunAt   string         `json:"last_run_at,omitempty"`
-	LastError   string         `json:"last_error,omitempty"`
-}
 
 func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
@@ -50,71 +27,77 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs := make([]schedulerJobJSON, 0, len(rows))
+	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		j := dbRowToJobJSON(row)
-		// Non-admin users only see their own user-owned jobs.
 		if info != nil && !info.IsAdmin {
-			if j.OwnerKind == scheduler.JobOwnerPlugin || j.UserID != info.UserID {
+			if row.OwnerKind == scheduler.JobOwnerPlugin {
+				continue
+			}
+			if !row.UserID.Valid || row.UserID.Int64 != info.UserID {
 				continue
 			}
 		}
-		jobs = append(jobs, j)
+		jobs = append(jobs, dbRowToAPIJob(row))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": jobs})
+	writeJSON(w, http.StatusOK, apiserver.JobList{Items: jobs})
 }
 
 func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 
-	var body schedulerJobJSON
+	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if body.Name == "" || body.Message == "" {
+	if body.Name == nil || *body.Name == "" || body.Message == nil || *body.Message == "" {
 		writeError(w, http.StatusBadRequest, "name and message are required")
 		return
 	}
-	if err := validateSchedule(body); err != nil {
+	if err := validateScheduleInput(body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.SessionMode == "" {
-		body.SessionMode = "reuse"
+	sessionMode := "reuse"
+	if body.SessionMode != nil && *body.SessionMode != "" {
+		sessionMode = *body.SessionMode
 	}
 
 	// Non-admin users always own their jobs; only admins can create system jobs (user_id=0).
+	var userID int64
+	if body.UserId != nil {
+		userID = *body.UserId
+	}
 	if info != nil && !info.IsAdmin {
-		body.UserID = info.UserID
+		userID = info.UserID
 	}
 
+	agentID := derefStr(body.AgentId)
+
 	if s.schedulerSvc != nil {
-		sched := scheduler.Schedule{Cron: body.Cron, Every: body.Every, At: body.At}
-		job, err := s.schedulerSvc.AddJobWithOwner(body.Name, body.Message, sched, body.SessionMode, body.AgentID, body.UserID)
+		sched := scheduler.Schedule{
+			Cron:  derefStr(body.Cron),
+			Every: derefStr(body.Every),
+			At:    derefStr(body.At),
+		}
+		job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		body.ID = job.ID
-		body.Enabled = job.Enabled
-		writeJSON(w, http.StatusCreated, body)
+		writeJSON(w, http.StatusCreated, schedulerJobToAPI(job))
 		return
 	}
 
 	// Infer exec_scope from user_id when not explicitly set.
-	execScope := body.ExecScope
-	if execScope == "" {
-		if body.UserID > 0 {
-			execScope = scheduler.ExecScopeUser
-		} else {
-			execScope = scheduler.ExecScopeSystem
-		}
+	execScope := scheduler.ExecScopeSystem
+	if userID > 0 {
+		execScope = scheduler.ExecScopeUser
 	}
 
 	id := generateShortID()
-	enabled := int64(0)
-	if body.Enabled {
+	var enabled int64
+	if body.Enabled != nil && *body.Enabled {
 		enabled = 1
 	}
 
@@ -126,17 +109,17 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		PluginID:      "",
 		JobKey:        "",
 		RuntimeName:   "",
-		Name:          body.Name,
-		Description:   body.Description,
-		ScheduleCron:  body.Cron,
-		ScheduleEvery: body.Every,
-		ScheduleAt:    body.At,
-		Message:       body.Message,
+		Name:          *body.Name,
+		Description:   derefStr(body.Description),
+		ScheduleCron:  derefStr(body.Cron),
+		ScheduleEvery: derefStr(body.Every),
+		ScheduleAt:    derefStr(body.At),
+		Message:       *body.Message,
 		Payload:       "{}",
-		SessionMode:   body.SessionMode,
+		SessionMode:   sessionMode,
 		Enabled:       enabled,
-		AgentID:       sql.NullString{String: body.AgentID, Valid: body.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: body.UserID, Valid: body.UserID != 0},
+		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:        sql.NullInt64{Int64: userID, Valid: userID != 0},
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		LastRunAt:     sql.NullString{},
@@ -147,8 +130,24 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body.ID = id
-	writeJSON(w, http.StatusCreated, body)
+	nowT := parseDBTime(now)
+	resp := apiserver.Job{
+		Id:          id,
+		OwnerKind:   ptrStr(scheduler.JobOwnerUser),
+		Name:        *body.Name,
+		Description: body.Description,
+		Cron:        body.Cron,
+		Every:       body.Every,
+		At:          body.At,
+		Message:     *body.Message,
+		SessionMode: sessionMode,
+		Enabled:     enabled != 0,
+		AgentId:     ptrStr(agentID),
+		UserId:      ptrInt64(userID),
+		CreatedAt:   nowT,
+		UpdatedAt:   nowT,
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -173,38 +172,61 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		}
 	}
 
-	var body schedulerJobJSON
+	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
-	// Merge: use existing values for empty fields.
-	if body.Name == "" {
-		body.Name = existing.Name
+	// Merge: use existing values for nil/empty fields.
+	name := existing.Name
+	if body.Name != nil && *body.Name != "" {
+		name = *body.Name
 	}
-	if body.Message == "" {
-		body.Message = existing.Message
+	message := existing.Message
+	if body.Message != nil && *body.Message != "" {
+		message = *body.Message
 	}
-	if body.Cron == "" && body.Every == "" && body.At == "" {
-		body.Cron = existing.ScheduleCron
-		body.Every = existing.ScheduleEvery
-		body.At = existing.ScheduleAt
+	cron := existing.ScheduleCron
+	every := existing.ScheduleEvery
+	at := existing.ScheduleAt
+	if body.Cron != nil || body.Every != nil || body.At != nil {
+		cron = derefStr(body.Cron)
+		every = derefStr(body.Every)
+		at = derefStr(body.At)
 	}
-	if body.SessionMode == "" {
-		body.SessionMode = existing.SessionMode
+	sessionMode := existing.SessionMode
+	if body.SessionMode != nil && *body.SessionMode != "" {
+		sessionMode = *body.SessionMode
 	}
 
 	// Non-admin users cannot change ownership.
+	var userID int64
 	if info != nil && !info.IsAdmin {
-		body.UserID = info.UserID
+		userID = info.UserID
+	} else if body.UserId != nil {
+		userID = *body.UserId
+	} else if existing.UserID.Valid {
+		userID = existing.UserID.Int64
 	}
 
-	enabled := int64(0)
-	if body.Enabled {
-		enabled = 1
+	agentID := ""
+	if body.AgentId != nil {
+		agentID = *body.AgentId
+	} else if existing.AgentID.Valid {
+		agentID = existing.AgentID.String
 	}
 
+	var enabled int64
+	if body.Enabled != nil {
+		if *body.Enabled {
+			enabled = 1
+		}
+	} else {
+		enabled = existing.Enabled
+	}
+
+	now := time.Now().UTC().Format(adminDBTimeLayout)
 	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     existing.OwnerKind,
@@ -212,18 +234,18 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		PluginID:      existing.PluginID,
 		JobKey:        existing.JobKey,
 		RuntimeName:   existing.RuntimeName,
-		Name:          body.Name,
+		Name:          name,
 		Description:   existing.Description,
-		ScheduleCron:  body.Cron,
-		ScheduleEvery: body.Every,
-		ScheduleAt:    body.At,
-		Message:       body.Message,
+		ScheduleCron:  cron,
+		ScheduleEvery: every,
+		ScheduleAt:    at,
+		Message:       message,
 		Payload:       existing.Payload,
-		SessionMode:   body.SessionMode,
+		SessionMode:   sessionMode,
 		Enabled:       enabled,
-		AgentID:       sql.NullString{String: body.AgentID, Valid: body.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: body.UserID, Valid: body.UserID != 0},
-		UpdatedAt:     time.Now().UTC().Format(adminDBTimeLayout),
+		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:        sql.NullInt64{Int64: userID, Valid: userID != 0},
+		UpdatedAt:     now,
 		LastRunAt:     existing.LastRunAt,
 		LastError:     existing.LastError,
 	})
@@ -232,8 +254,28 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	body.ID = id
-	writeJSON(w, http.StatusOK, body)
+	resp := apiserver.Job{
+		Id:          id,
+		OwnerKind:   ptrStr(existing.OwnerKind),
+		PluginId:    ptrStr(existing.PluginID),
+		JobKey:      ptrStr(existing.JobKey),
+		RuntimeName: ptrStr(existing.RuntimeName),
+		Name:        name,
+		Description: ptrStr(existing.Description),
+		Cron:        ptrStr(cron),
+		Every:       ptrStr(every),
+		At:          ptrStr(at),
+		Message:     message,
+		SessionMode: sessionMode,
+		Enabled:     enabled != 0,
+		AgentId:     ptrStr(agentID),
+		UserId:      ptrInt64(userID),
+		CreatedAt:   parseDBTime(existing.CreatedAt),
+		UpdatedAt:   parseDBTime(now),
+		LastRunAt:   parseDBTimeNullable(existing.LastRunAt),
+		LastError:   ptrStr(existing.LastError),
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -268,112 +310,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusInternalServerError, deleteErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
-func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
-	j := schedulerJobJSON{
-		ID:          row.ID,
-		OwnerKind:   row.OwnerKind,
-		ExecScope:   row.ExecScope,
-		PluginID:    row.PluginID,
-		JobKey:      row.JobKey,
-		RuntimeName: row.RuntimeName,
-		Name:        row.Name,
-		Description: row.Description,
-		Cron:        row.ScheduleCron,
-		Every:       row.ScheduleEvery,
-		At:          row.ScheduleAt,
-		Message:     row.Message,
-		SessionMode: row.SessionMode,
-		Enabled:     row.Enabled != 0,
-		CreatedAt:   apiTimeString(row.CreatedAt),
-		UpdatedAt:   apiTimeString(row.UpdatedAt),
-		LastError:   row.LastError,
-	}
-	if payload := decodeSchedulerPayload(row.Payload); len(payload) > 0 {
-		j.Payload = payload
-	}
-	if row.AgentID.Valid {
-		j.AgentID = row.AgentID.String
-	}
-	if row.UserID.Valid {
-		j.UserID = row.UserID.Int64
-	}
-	if row.LastRunAt.Valid {
-		j.LastRunAt = apiTimeString(row.LastRunAt.String)
-	}
-	return j
-}
-
-func apiTimeString(value string) string {
-	if value == "" {
-		return ""
-	}
-	if t, err := time.Parse(time.RFC3339, value); err == nil {
-		return t.Format(time.RFC3339)
-	}
-	if t, err := time.Parse(adminDBTimeLayout, value); err == nil {
-		return t.Format(time.RFC3339)
-	}
-	return value
-}
-
-func decodeSchedulerPayload(raw string) map[string]any {
-	if raw == "" || raw == "{}" {
-		return map[string]any{}
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return map[string]any{}
-	}
-	if payload == nil {
-		return map[string]any{}
-	}
-	return payload
-}
-
-func validateSchedule(body schedulerJobJSON) error {
-	count := 0
-	if body.Cron != "" {
-		count++
-	}
-	if body.Every != "" {
-		count++
-	}
-	if body.At != "" {
-		count++
-	}
-	if count == 0 {
-		return fmt.Errorf("schedule requires one of: cron, every, or at")
-	}
-	if count > 1 {
-		return fmt.Errorf("schedule must have exactly one of: cron, every, or at")
-	}
-	if body.Every != "" {
-		if _, err := time.ParseDuration(body.Every); err != nil {
-			return fmt.Errorf("invalid duration %q: %w", body.Every, err)
-		}
-	}
-	return nil
-}
-
-func generateShortID() string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-type jobRunJSON struct {
-	ID         string `json:"id"`
-	JobID      string `json:"job_id"`
-	SessionID  string `json:"session_id"`
-	UserID     int64  `json:"user_id,omitempty"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Duration   string `json:"duration,omitempty"`
+	writeJSON(w, http.StatusOK, apiserver.DeleteResult{Status: "deleted"})
 }
 
 func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -406,9 +343,9 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	resp := map[string]string{"status": "triggered"}
+	resp := apitypes.TriggerJobResult{Status: "triggered"}
 	if runID != "" {
-		resp["run_id"] = runID
+		resp.RunId = &runID
 	}
 	writeJSON(w, http.StatusAccepted, resp)
 }
@@ -442,12 +379,12 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	}
 
 	sm, _ := s.mem.(memory.SessionManager)
-	result := make([]jobRunJSON, 0, len(rows))
+	result := make(apitypes.JobRunList, 0, len(rows))
 	for _, row := range rows {
-		j := dbRowToJobRunJSON(row)
-		if j.SessionID != "" && sm != nil {
-			if _, err := sm.LoadInfo(r.Context(), j.SessionID); err != nil {
-				j.SessionID = ""
+		j := dbRowToAPIJobRun(row)
+		if j.SessionId != "" && sm != nil {
+			if _, err := sm.LoadInfo(r.Context(), j.SessionId); err != nil {
+				j.SessionId = ""
 			}
 		}
 		result = append(result, j)
@@ -455,25 +392,180 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	writeJSON(w, http.StatusOK, result)
 }
 
-func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
-	j := jobRunJSON{
-		ID:        row.ID,
-		JobID:     row.JobID,
-		SessionID: row.SessionID,
-		Status:    row.Status,
-		StartedAt: row.StartedAt,
-		Error:     row.Error,
+// --------------- converter functions ---------------
+
+func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
+	j := apiserver.Job{
+		Id:          row.ID,
+		OwnerKind:   ptrStr(row.OwnerKind),
+		PluginId:    ptrStr(row.PluginID),
+		JobKey:      ptrStr(row.JobKey),
+		RuntimeName: ptrStr(row.RuntimeName),
+		Name:        row.Name,
+		Description: ptrStr(row.Description),
+		Cron:        ptrStr(row.ScheduleCron),
+		Every:       ptrStr(row.ScheduleEvery),
+		At:          ptrStr(row.ScheduleAt),
+		Message:     row.Message,
+		SessionMode: row.SessionMode,
+		Enabled:     row.Enabled != 0,
+		CreatedAt:   parseDBTime(row.CreatedAt),
+		UpdatedAt:   parseDBTime(row.UpdatedAt),
+		LastError:   ptrStr(row.LastError),
+	}
+	if payload := decodeSchedulerPayload(row.Payload); len(payload) > 0 {
+		j.Payload = &payload
+	}
+	if row.AgentID.Valid {
+		j.AgentId = ptrStr(row.AgentID.String)
 	}
 	if row.UserID.Valid {
-		j.UserID = row.UserID.Int64
+		j.UserId = ptrInt64(row.UserID.Int64)
+	}
+	if row.LastRunAt.Valid {
+		j.LastRunAt = parseDBTime(row.LastRunAt.String)
+	}
+	return j
+}
+
+func schedulerJobToAPI(job scheduler.Job) apiserver.Job {
+	j := apiserver.Job{
+		Id:          job.ID,
+		OwnerKind:   ptrStr(job.OwnerKind),
+		PluginId:    ptrStr(job.PluginID),
+		JobKey:      ptrStr(job.JobKey),
+		RuntimeName: ptrStr(job.RuntimeName),
+		Name:        job.Name,
+		Description: ptrStr(job.Description),
+		Cron:        ptrStr(job.Schedule.Cron),
+		Every:       ptrStr(job.Schedule.Every),
+		At:          ptrStr(job.Schedule.At),
+		Message:     job.Message,
+		SessionMode: job.SessionMode,
+		Enabled:     job.Enabled,
+		AgentId:     ptrStr(job.AgentID),
+		UserId:      ptrInt64(job.UserID),
+		CreatedAt:   ptrTime(job.CreatedAt),
+		UpdatedAt:   ptrTime(job.UpdatedAt),
+		LastRunAt:   job.LastRunAt,
+		LastError:   ptrStr(job.LastError),
+	}
+	if len(job.Payload) > 0 {
+		j.Payload = &job.Payload
+	}
+	return j
+}
+
+func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
+	j := apitypes.JobRun{
+		Id:        row.ID,
+		JobId:     row.JobID,
+		SessionId: row.SessionID,
+		Status:    row.Status,
+		StartedAt: row.StartedAt,
+	}
+	if row.Error != "" {
+		j.Error = &row.Error
+	}
+	if row.UserID.Valid {
+		j.UserId = ptrInt64(row.UserID.Int64)
 	}
 	if row.FinishedAt.Valid {
-		j.FinishedAt = row.FinishedAt.String
+		j.FinishedAt = &row.FinishedAt.String
 		startedAt, err1 := time.Parse(adminDBTimeLayout, row.StartedAt)
 		finishedAt, err2 := time.Parse(adminDBTimeLayout, row.FinishedAt.String)
 		if err1 == nil && err2 == nil {
-			j.Duration = finishedAt.Sub(startedAt).Truncate(time.Second).String()
+			dur := finishedAt.Sub(startedAt).Truncate(time.Second).String()
+			j.Duration = &dur
 		}
 	}
 	return j
+}
+
+// --------------- helpers ---------------
+
+func parseDBTime(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return &t
+	}
+	if t, err := time.Parse(adminDBTimeLayout, value); err == nil {
+		return &t
+	}
+	return nil
+}
+
+func parseDBTimeNullable(ns sql.NullString) *time.Time {
+	if !ns.Valid {
+		return nil
+	}
+	return parseDBTime(ns.String)
+}
+
+func ptrInt64(i int64) *int64 {
+	if i == 0 {
+		return nil
+	}
+	return &i
+}
+
+func ptrTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func decodeSchedulerPayload(raw string) map[string]any {
+	if raw == "" || raw == "{}" {
+		return map[string]any{}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return map[string]any{}
+	}
+	if payload == nil {
+		return map[string]any{}
+	}
+	return payload
+}
+
+func validateScheduleInput(body apiserver.JobInput) error {
+	count := 0
+	if body.Cron != nil && *body.Cron != "" {
+		count++
+	}
+	if body.Every != nil && *body.Every != "" {
+		count++
+	}
+	if body.At != nil && *body.At != "" {
+		count++
+	}
+	if count == 0 {
+		return fmt.Errorf("schedule requires one of: cron, every, or at")
+	}
+	if count > 1 {
+		return fmt.Errorf("schedule must have exactly one of: cron, every, or at")
+	}
+	if body.Every != nil && *body.Every != "" {
+		if _, err := time.ParseDuration(*body.Every); err != nil {
+			return fmt.Errorf("invalid duration %q: %w", *body.Every, err)
+		}
+	}
+	return nil
+}
+
+func generateShortID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
