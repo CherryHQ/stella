@@ -1,5 +1,7 @@
 # api/
 
+API changes are spec-first: design schemas and paths in the OpenAPI domain files, regenerate code, then implement the generated server methods.
+
 ## Layout
 
 ```
@@ -40,11 +42,26 @@ The server/client codegen maps both `./components.yaml` and `../../components.ya
 to `api/types` via import-mapping, so generated code imports types from `api/types`
 instead of redeclaring them.
 
+## API change workflow
+
+Every new or changed HTTP API must follow this workflow:
+
+1. Add or update schemas in `api/spec/domain/<domain>/schemas.yaml`.
+2. Add or update paths in `api/spec/domain/<domain>/paths.yaml`.
+3. Add path `$ref`s in `api/spec/openapi.yaml`.
+4. Run `mise run generate:api` to regenerate:
+   - `api/spec/components.yaml` — assembled schema components; do not edit directly.
+   - `api/types/gen.go` — shared API types (`package types`).
+   - `api/server/gen.go` — server interface, routing helpers, and aliases to `types`.
+   - `api/client/gen.go` — HTTP client and aliases to `types`.
+5. Implement the generated server methods on `*Server` in `internal/admin/`.
+6. Verify `*Server` satisfies `apiserver.ServerInterface`.
+
 ## Adding a schema
 
 1. Edit `api/spec/domain/<domain>/schemas.yaml`.
 2. Run `mise run generate:api`.
-3. Implement the handler — no other files to touch.
+3. Implement the generated handler method if the schema change affects server behavior.
 
 ## Adding a domain
 
@@ -53,3 +70,10 @@ instead of redeclaring them.
 3. Add path `$ref`s to `api/spec/openapi.yaml`.
 4. Run `mise run generate:api` — the yq glob picks up the new schemas automatically.
 5. Implement the new `ServerInterface` methods in `internal/admin/`.
+
+## Rules
+
+- Edit domain files in `api/spec/domain/<domain>/`; never edit `api/spec/components.yaml` directly.
+- Domain path files reference schemas through `../../components.yaml`.
+- Never hand-write recally/scheduler server routing. Routing comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
+- Enum constants live in `api/types`, not `api/server` or `api/client`. Import `api/types` directly when constants are needed.

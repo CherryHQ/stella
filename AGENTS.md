@@ -1,93 +1,65 @@
 # anna
 
-## Core rules
+You are working on **anna**, a Go CLI/service project. Act as an engineering collaborator: make small, complete, reviewable changes; protect user data; and preserve unrelated work.
 
+## Working principles
+
+- Prefer boring, reversible solutions over clever ones.
 - Prefer small, single-purpose files and shared helpers over duplicated logic.
-- Make small, complete, reviewable changes.
-- Do not guess. If required intent is ambiguous, ask.
-- Always propagate errors and remove dead code or stale comments.
+- Do not guess. If intent, requirements, or ownership is ambiguous, ask before changing behavior.
+- Propagate errors; do not swallow failures silently.
+- Remove dead code and stale comments when touching nearby code.
+- Keep changes focused. Do not mix refactors with feature or bug-fix work unless required.
 
 ## Commands
 
-- Use `mise tasks` to discover available tasks.
-- Always run project workflows through `mise run <task>` instead of calling tools directly.
-
-## Plugins
-
-- Before changing plugins, read `docs/content/docs/plugins/`.
-- Treat plugin docs as the source of truth.
-- Verify plugin changes with `mise run test`.
+- Use `mise tasks` to discover available workflows.
+- Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
+- Before committing, always run:
+  - `mise run format`
+  - `mise run build`
+  - `mise run test`
+- Do not run Go tests with `-race` locally by default.
 
 ## Database migrations
 
 Schema source of truth: `internal/db/schemas/tables/*.sql`.
 
-Workflow:
-1. Edit schema files.
+Migration workflow:
+
+1. Edit schema files in `internal/db/schemas/tables/`.
 2. Run `mise run db:diff -- <name>`.
 3. Run `mise run generate`.
-4. Commit generated migrations with `internal/db/migrations/atlas.sum`.
+4. Commit the generated migration files and `internal/db/migrations/atlas.sum`.
+
+Rules:
 
 - Never hand-write migration SQL.
+- Do not edit generated migration checksums manually.
 
-## Testing and quality
+## API-first design
 
-- Do not run Go tests with `-race` locally by default.
-- Use `mise run test` and `mise run test:coverage` locally.
-- Reserve race-enabled runs for CI.
-- **Before committing, run `mise run format` and `mise run test`.**
-- Use emoji-prefixed conventional commits such as `✨ feat:` and `🐛 fix:`.
+For new or changed HTTP APIs, design from the OpenAPI spec first and follow `api/CLAUDE.md` for the full workflow, generated files, and API-specific rules.
 
 ## Documentation
 
 When behavior, APIs, config, commands, or architecture change:
 
-- Update `README.md` and/or `docs/content/docs/` as needed.
-- Keep `README.md` concise; put detailed content in `docs/content/docs/`.
-- Add new docs to the appropriate folder `meta.json` when needed.
-- Keep `internal/agent/runner/builtin/anna/` in sync with user-facing changes.
-- Docs are maintained in English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) only. Always update both when adding or changing doc content. No other locales.
+- Update `README.md` and/or `docs/content/docs/` as appropriate.
+- Keep `README.md` concise; put detailed explanations in `docs/content/docs/`.
+- Add new documentation pages to the relevant folder `meta.json`.
+- Keep `internal/agent/runner/builtin/anna/` synchronized with user-facing changes.
+- Documentation is maintained only in English and Chinese:
+  - English: `*.md`, `*.mdx`
+  - Chinese: `*.zh.md`, `*.zh.mdx`
+- Always update both English and Chinese docs when adding or changing documentation content.
 
-## API-first design
-
-Every new HTTP API must follow this workflow:
-
-1. Add or update the schema in `api/spec/domain/<domain>/schemas.yaml` (domain source of truth).
-2. Add endpoint paths in `api/spec/domain/<domain>/paths.yaml`.
-3. Add the path `$ref` to `api/spec/openapi.yaml`.
-4. Run `mise run generate:api` to regenerate:
-   - `api/spec/components.yaml` — assembled from domain files (DO NOT EDIT)
-   - `api/types/gen.go` — shared API types (`package types`)
-   - `api/server/gen.go` — server interface + routing (`package server`, types are aliases to `types`)
-   - `api/client/gen.go` — HTTP client (`package client`, types are aliases to `types`)
-5. Implement the new method on `*Server` in `internal/admin/` (it must satisfy `apiserver.ServerInterface`).
-6. Never hand-write server routing for recally/scheduler — it comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
-
-See `api/CLAUDE.md` for the full spec layout and domain file conventions.
-
-**Where generated code lives:**
-
-| File | Package | Purpose |
-|------|---------|---------|
-| `api/types/gen.go` | `types` | All API data types (single copy, no duplication) |
-| `api/server/gen.go` | `server` | `ServerInterface` + `HandlerFromMux` + type aliases to `types` |
-| `api/client/gen.go` | `client` | HTTP client methods + type aliases to `types` |
-
-**Codegen configs** live in `api/codegen/{types,server,client}.yaml`.
-
-**Key rules:**
-- Edit domain files in `api/spec/domain/<domain>/` — never edit `api/spec/components.yaml` directly.
-- Domain path files reference `../../components.yaml` for all schemas.
-- Enum constants (e.g. `FeedEntryStatusSaved`) live in `types`, not in `server`/`client`.
-  Import `api/types` directly when you need them.
+Codegen configs live in `api/codegen/{types,server,client}.yaml`.
 
 ## Releases
 
 Use `.agents/skills/release/SKILL.md` for the full release workflow.
 
-Quick reference:
-- `mise run release:check`
-- `mise run release:snapshot`
-- `mise run release`
+## Commit style
 
-Tag format: `vX.Y.Z`.
+Emoji-prefixed Conventional Commits, for example `✨ feat:` and `🐛 fix:`. Do not add `Signed-off-by` unless explicitly requested.
