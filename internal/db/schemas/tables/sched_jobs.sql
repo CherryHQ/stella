@@ -1,6 +1,7 @@
 CREATE TABLE sched_jobs (
     id TEXT PRIMARY KEY,
     owner_kind TEXT NOT NULL DEFAULT 'user',
+    exec_scope TEXT NOT NULL DEFAULT 'user',
     plugin_id TEXT NOT NULL DEFAULT '',
     job_key TEXT NOT NULL DEFAULT '',
     runtime_name TEXT NOT NULL DEFAULT '',
