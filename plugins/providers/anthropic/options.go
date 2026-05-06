@@ -6,8 +6,13 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 )
 
+const defaultMaxTokens = 16384
+
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.MessageNewParams {
-	maxTokens := int64(1024)
+	maxTokens := int64(defaultMaxTokens)
+	if model.MaxTokens > 0 {
+		maxTokens = int64(model.MaxTokens)
+	}
 	if opts.MaxTokens != nil {
 		maxTokens = int64(*opts.MaxTokens)
 	}
