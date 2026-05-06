@@ -92,6 +92,13 @@ type ActivityTracker interface {
 	LastActivity() time.Time
 }
 
+// BusyTracker is an optional interface for runners that report whether a Chat
+// call is currently in flight. The reaper skips idle-timeout eviction for busy
+// runners so long-running agent loops are not torn down mid-execution.
+type BusyTracker interface {
+	Busy() bool
+}
+
 // SystemPrompter is an optional interface for runners that expose their base system prompt.
 type SystemPrompter interface {
 	SystemPrompt() string

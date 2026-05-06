@@ -50,6 +50,9 @@ func (p *Pool) reap() {
 		}
 
 		if isTracker && now.Sub(tracker.LastActivity()) > p.idleTimeout {
+			if bt, ok := sess.Runner.(BusyTracker); ok && bt.Busy() {
+				continue
+			}
 			p.log.Info("reaping idle runner", "session_id", id, "idle_duration", now.Sub(tracker.LastActivity()).Round(time.Second))
 			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
 				_ = closer.Close()
