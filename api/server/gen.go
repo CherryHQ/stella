@@ -44,6 +44,9 @@ type ArticleStatus = externalRef0.ArticleStatus
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest = externalRef0.AssignAgentUserRequest
 
+// AuthResponse defines model for AuthResponse.
+type AuthResponse = externalRef0.AuthResponse
+
 // AuthUser defines model for AuthUser.
 type AuthUser = externalRef0.AuthUser
 
@@ -143,6 +146,12 @@ type JobList = externalRef0.JobList
 // LinkCodeResponse defines model for LinkCodeResponse.
 type LinkCodeResponse = externalRef0.LinkCodeResponse
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest = externalRef0.LoginRequest
+
+// MeResponse defines model for MeResponse.
+type MeResponse = externalRef0.MeResponse
+
 // OAuthConnectedResponse defines model for OAuthConnectedResponse.
 type OAuthConnectedResponse = externalRef0.OAuthConnectedResponse
 
@@ -175,6 +184,9 @@ type PublicChannel = externalRef0.PublicChannel
 
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList = externalRef0.PublicChannelList
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest = externalRef0.RegisterRequest
 
 // SandboxConfig defines model for SandboxConfig.
 type SandboxConfig = externalRef0.SandboxConfig
@@ -396,6 +408,9 @@ type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = externalRef0.LoginRequest
+
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
 
@@ -419,6 +434,9 @@ type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
 
 // SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
 type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
+
+// RegisterJSONRequestBody defines body for Register for application/json ContentType.
+type RegisterJSONRequestBody = externalRef0.RegisterRequest
 
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
@@ -542,6 +560,15 @@ type ServerInterface interface {
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
 	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId int64)
+	// Authenticate and start a session
+	// (POST /api/auth/login)
+	Login(w http.ResponseWriter, r *http.Request)
+	// End the current session
+	// (POST /api/auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request)
+	// Get the currently authenticated user
+	// (GET /api/auth/me)
+	GetMe(w http.ResponseWriter, r *http.Request)
 	// List linked identities for the current user
 	// (GET /api/auth/profile/identities)
 	ListProfileIdentities(w http.ResponseWriter, r *http.Request)
@@ -617,6 +644,9 @@ type ServerInterface interface {
 	// Create or update a vault entry
 	// (PUT /api/auth/profile/vault/{name})
 	SetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
+	// Register a new user account
+	// (POST /api/auth/register)
+	Register(w http.ResponseWriter, r *http.Request)
 	// List all auth users (admin only)
 	// (GET /api/auth/users)
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
@@ -1412,6 +1442,60 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Login(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProfileIdentities operation middleware
 func (siw *ServerInterfaceWrapper) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 
@@ -2159,6 +2243,20 @@ func (siw *ServerInterfaceWrapper) SetVaultEntry(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetVaultEntry(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Register operation middleware
+func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Register(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4514,6 +4612,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
@@ -4539,6 +4640,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)

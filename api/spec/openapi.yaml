@@ -44,7 +44,17 @@ tags:
   - name: users
   - name: auth-users
   - name: profile
+  - name: auth
 paths:
+  # ── Auth ───────────────────────────────────────────────────────────────────
+  /api/auth/register:
+    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1register'
+  /api/auth/login:
+    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1login'
+  /api/auth/logout:
+    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1logout'
+  /api/auth/me:
+    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1me'
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
     $ref: './domain/agents/paths.yaml#/paths/~1api~1agents'
@@ -296,3 +306,7 @@ components:
     OAuthProviderStatus:        { $ref: './components.yaml#/components/schemas/OAuthProviderStatus' }
     OAuthFlowStatus:            { $ref: './components.yaml#/components/schemas/OAuthFlowStatus' }
     OAuthConnectedResponse:     { $ref: './components.yaml#/components/schemas/OAuthConnectedResponse' }
+    LoginRequest:               { $ref: './components.yaml#/components/schemas/LoginRequest' }
+    RegisterRequest:            { $ref: './components.yaml#/components/schemas/RegisterRequest' }
+    AuthResponse:               { $ref: './components.yaml#/components/schemas/AuthResponse' }
+    MeResponse:                 { $ref: './components.yaml#/components/schemas/MeResponse' }

@@ -152,6 +152,12 @@ type AssignAgentUserRequest struct {
 	UserId int64 `json:"user_id"`
 }
 
+// AuthResponse defines model for AuthResponse.
+type AuthResponse struct {
+	Id       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
 // AuthUser defines model for AuthUser.
 type AuthUser struct {
 	CreatedAt  string     `json:"created_at"`
@@ -475,6 +481,20 @@ type LinkCodeResponse struct {
 	Platform string `json:"platform"`
 }
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
+// MeResponse defines model for MeResponse.
+type MeResponse struct {
+	Id       int64  `json:"id"`
+	IsAdmin  bool   `json:"is_admin"`
+	Role     string `json:"role"`
+	Username string `json:"username"`
+}
+
 // OAuthConnectedResponse defines model for OAuthConnectedResponse.
 type OAuthConnectedResponse struct {
 	Connected bool    `json:"connected"`
@@ -566,6 +586,12 @@ type PublicChannel struct {
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList struct {
 	Items []PublicChannel `json:"items"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	Password string `json:"password"`
+	Username string `json:"username"`
 }
 
 // SandboxConfig defines model for SandboxConfig.

@@ -9,7 +9,6 @@ import (
 
 func (s *Server) registerRoutes() {
 	s.registerStaticRoutes()
-	s.registerAuthRoutes()
 	s.registerPageRoutes()
 	s.registerPluginRoutes()
 	s.registerManifestPluginRoutes()
@@ -26,13 +25,6 @@ func (s *Server) registerStaticRoutes() {
 	s.mux.Handle("GET /static/", web.StaticHandler())
 	s.mux.HandleFunc("GET /login", s.pageLogin)
 	s.mux.HandleFunc("GET /{$}", s.redirectRoot)
-}
-
-func (s *Server) registerAuthRoutes() {
-	s.mux.HandleFunc("POST /api/auth/register", s.registerHandler)
-	s.mux.HandleFunc("POST /api/auth/login", s.loginHandler)
-	s.mux.HandleFunc("POST /api/auth/logout", s.logoutHandler)
-	s.mux.HandleFunc("GET /api/auth/me", s.meHandler)
 }
 
 func (s *Server) registerPageRoutes() {

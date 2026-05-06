@@ -9,8 +9,8 @@ import (
 	"github.com/vaayne/anna/internal/vault"
 )
 
-// registerHandler handles POST /api/auth/register.
-func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
+// Register handles POST /api/auth/register.
+func (s *Server) Register(w http.ResponseWriter, r *http.Request) {
 	// Rate limit registration by IP.
 	ip := clientIP(r)
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
@@ -114,8 +114,8 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// loginHandler handles POST /api/auth/login.
-func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
+// Login handles POST /api/auth/login.
+func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -188,8 +188,8 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// logoutHandler handles POST /api/auth/logout.
-func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
+// Logout handles POST /api/auth/logout.
+func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
 	sessionID, err := auth.GetSessionCookie(r)
 	if err == nil {
 		_ = s.authStore.DeleteSession(r.Context(), sessionID)
@@ -198,8 +198,8 @@ func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
-// meHandler handles GET /api/auth/me.
-func (s *Server) meHandler(w http.ResponseWriter, r *http.Request) {
+// GetMe handles GET /api/auth/me.
+func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
