@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -16,24 +16,22 @@ import (
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
-func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
 	authInfo := UserFromContext(r.Context())
 	if authInfo == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
-	var body struct {
-		AgentID string `json:"agent_id"`
-	}
+	var body apiserver.CreateSessionJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil && err.Error() != "EOF" {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var pool *agent.Pool
-	if body.AgentID != "" {
-		pool = s.poolManager.Get(body.AgentID)
+	if body.AgentId != nil && *body.AgentId != "" {
+		pool = s.poolManager.Get(*body.AgentId)
 	} else {
 		pool = s.poolManager.DefaultPool()
 	}
@@ -51,8 +49,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, toSessionResponse(info))
 }
 
-func (s *Server) sendSessionMessage(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
+func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -64,9 +61,7 @@ func (s *Server) sendSessionMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Content string `json:"content"`
-	}
+	var body apiserver.SendSessionMessageJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -216,7 +211,7 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 	}
 }
 
-func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params apiserver.ListSessionsParams) {
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
 		writeData(w, http.StatusOK, []any{})
@@ -225,16 +220,12 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 
 	limit := 10
-	if lStr := r.URL.Query().Get("limit"); lStr != "" {
-		if l, err := strconv.Atoi(lStr); err == nil && l >= 0 {
-			limit = l
-		}
+	if params.Limit != nil && *params.Limit >= 0 {
+		limit = *params.Limit
 	}
 	offset := 0
-	if oStr := r.URL.Query().Get("offset"); oStr != "" {
-		if o, err := strconv.Atoi(oStr); err == nil && o >= 0 {
-			offset = o
-		}
+	if params.Offset != nil && *params.Offset >= 0 {
+		offset = *params.Offset
 	}
 
 	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
@@ -255,8 +246,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
+func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -304,8 +294,7 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
+func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetSessionMessagesParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -317,18 +306,14 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := 20
-	if lStr := r.URL.Query().Get("limit"); lStr != "" {
-		if l, err := strconv.Atoi(lStr); err == nil && l >= 0 {
-			limit = l
-		}
+	if params.Limit != nil && *params.Limit >= 0 {
+		limit = *params.Limit
 	}
 	// skip counts serialized messages from the end, enabling backwards pagination.
 	// skip=0 → last 20 messages; skip=20 → messages 20–40 from the end, etc.
 	skip := 0
-	if sStr := r.URL.Query().Get("skip"); sStr != "" {
-		if s, err := strconv.Atoi(sStr); err == nil && s >= 0 {
-			skip = s
-		}
+	if params.Skip != nil && *params.Skip >= 0 {
+		skip = *params.Skip
 	}
 
 	// Load raw DB rows to preserve created_at timestamps.
@@ -383,8 +368,7 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 	return nil
 }
 
-func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
+func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return

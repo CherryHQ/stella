@@ -179,6 +179,11 @@ type CreateFeedRequest struct {
 	Url   string  `json:"url"`
 }
 
+// CreateSessionRequest defines model for CreateSessionRequest.
+type CreateSessionRequest struct {
+	AgentId *string `json:"agent_id,omitempty"`
+}
+
 // DeleteResult defines model for DeleteResult.
 type DeleteResult struct {
 	Status string `json:"status"`
@@ -417,8 +422,45 @@ type SaveArticleRequest struct {
 	Url         string             `json:"url"`
 }
 
+// SendMessageRequest defines model for SendMessageRequest.
+type SendMessageRequest struct {
+	// Content Message content (required)
+	Content string `json:"content"`
+}
+
+// Session defines model for Session.
+type Session struct {
+	AgentId    string `json:"agent_id"`
+	Archived   bool   `json:"archived"`
+	Channel    string `json:"channel"`
+	CreatedAt  string `json:"created_at"`
+	Id         string `json:"id"`
+	LastActive string `json:"last_active"`
+	Title      string `json:"title"`
+	UserId     int64  `json:"user_id"`
+}
+
+// SessionDetail defines model for SessionDetail.
+type SessionDetail struct {
+	AgentId    string  `json:"agent_id"`
+	AgentName  *string `json:"agent_name,omitempty"`
+	Archived   bool    `json:"archived"`
+	Channel    string  `json:"channel"`
+	CreatedAt  string  `json:"created_at"`
+	Id         string  `json:"id"`
+	LastActive string  `json:"last_active"`
+	Title      string  `json:"title"`
+	UserId     int64   `json:"user_id"`
+	UserName   *string `json:"user_name,omitempty"`
+}
+
 // SourceType defines model for SourceType.
 type SourceType string
+
+// SystemPromptResponse defines model for SystemPromptResponse.
+type SystemPromptResponse struct {
+	SystemPrompt string `json:"system_prompt"`
+}
 
 // TagCount defines model for TagCount.
 type TagCount struct {

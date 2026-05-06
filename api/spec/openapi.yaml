@@ -38,6 +38,7 @@ tags:
   - name: channels
   - name: weixin
   - name: providers
+  - name: sessions
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
@@ -87,6 +88,15 @@ paths:
     $ref: './domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models'
   /api/provider-types:
     $ref: './domain/providers/paths.yaml#/paths/~1api~1provider-types'
+  # ── Sessions ───────────────────────────────────────────────────────────────
+  /api/sessions:
+    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions'
+  /api/sessions/{sessionID}:
+    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}'
+  /api/sessions/{sessionID}/messages:
+    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages'
+  /api/sessions/{sessionID}/system-prompt:
+    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -141,3 +151,8 @@ components:
     ProviderModelItem:    { $ref: './components.yaml#/components/schemas/ProviderModelItem' }
     ProviderType:         { $ref: './components.yaml#/components/schemas/ProviderType' }
     FetchModelsRequest:   { $ref: './components.yaml#/components/schemas/FetchModelsRequest' }
+    Session:              { $ref: './components.yaml#/components/schemas/Session' }
+    SessionDetail:        { $ref: './components.yaml#/components/schemas/SessionDetail' }
+    CreateSessionRequest: { $ref: './components.yaml#/components/schemas/CreateSessionRequest' }
+    SendMessageRequest:   { $ref: './components.yaml#/components/schemas/SendMessageRequest' }
+    SystemPromptResponse: { $ref: './components.yaml#/components/schemas/SystemPromptResponse' }

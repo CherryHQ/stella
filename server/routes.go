@@ -15,7 +15,6 @@ func (s *Server) registerRoutes() {
 	s.registerAgentRoutes()
 	s.registerUserRoutes()
 	s.registerAuthUserRoutes()
-	s.registerSessionRoutes()
 	s.registerPluginRoutes()
 	s.registerSkillRoutes()
 	s.registerManifestPluginRoutes()
@@ -137,15 +136,6 @@ func (s *Server) registerAuthUserRoutes() {
 	s.mux.Handle("PUT /api/auth/users/{id}/agents", adminAPI(s.updateAuthUserAgents))
 	s.mux.Handle("DELETE /api/auth/users/{id}/identities/{identityId}", adminAPI(s.deleteAuthUserIdentity))
 	s.mux.Handle("PUT /api/auth/users/{id}/active", adminAPI(s.updateAuthUserActive))
-}
-
-func (s *Server) registerSessionRoutes() {
-	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
-	s.mux.HandleFunc("POST /api/sessions", s.createSession)
-	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.getSession)
-	s.mux.HandleFunc("GET /api/sessions/{sessionID}/messages", s.getSessionMessages)
-	s.mux.HandleFunc("GET /api/sessions/{sessionID}/system-prompt", s.getSessionSystemPrompt)
-	s.mux.HandleFunc("POST /api/sessions/{sessionID}/messages", s.sendSessionMessage)
 }
 
 func (s *Server) registerPluginRoutes() {
