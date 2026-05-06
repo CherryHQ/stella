@@ -4,13 +4,13 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/vaayne/anna/internal/admin/ui"
-	"github.com/vaayne/anna/internal/admin/ui/pages"
+	"github.com/vaayne/anna/web"
+	"github.com/vaayne/anna/web/pages"
 )
 
 func (s *Server) pageLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := ui.LoginLayout("/static/js/pages/login.js", pages.LoginPage()).Render(r.Context(), w); err != nil {
+	if err := web.LoginLayout("/static/js/pages/login.js", pages.LoginPage()).Render(r.Context(), w); err != nil {
 		s.log.Error("render page", "page", "login", "error", err)
 	}
 }
@@ -67,7 +67,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, 
 		isAdmin = info.IsAdmin
 	}
 
-	if err := ui.Layout(activePage, pageScript, username, isAdmin, content).Render(r.Context(), w); err != nil {
+	if err := web.Layout(activePage, pageScript, username, isAdmin, content).Render(r.Context(), w); err != nil {
 		s.log.Error("render page", "page", activePage, "error", err)
 	}
 }

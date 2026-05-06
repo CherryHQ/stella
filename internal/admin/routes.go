@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	apiserver "github.com/vaayne/anna/api/server"
+	"github.com/vaayne/anna/web"
 )
 
 func (s *Server) registerRoutes() {
@@ -33,7 +34,7 @@ func (s *Server) registerAPIRoutes() {
 }
 
 func (s *Server) registerStaticRoutes() {
-	s.mux.Handle("GET /static/", staticHandler())
+	s.mux.Handle("GET /static/", web.StaticHandler())
 	s.mux.HandleFunc("GET /login", s.pageLogin)
 	s.mux.HandleFunc("GET /{$}", s.redirectRoot)
 }
