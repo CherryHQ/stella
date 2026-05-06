@@ -93,7 +93,7 @@ func schedulerAddCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var job apiclient.Job
-			if err := decodeData(resp, &job); err != nil {
+			if err := decodeJSON(resp, &job); err != nil {
 				return err
 			}
 			return printJSON(job)
@@ -119,7 +119,7 @@ func schedulerListCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var list apiclient.JobList
-			if err := decodeData(resp, &list); err != nil {
+			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -169,7 +169,7 @@ func schedulerRemoveCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeData(resp, nil); err != nil {
+			if err := decodeJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Job %q removed.\n", id)

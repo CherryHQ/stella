@@ -61,7 +61,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		jobs = append(jobs, j)
 	}
-	writeData(w, http.StatusOK, jobs)
+	writeJSON(w, http.StatusOK, map[string]any{"items": jobs})
 }
 
 func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +98,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		}
 		body.ID = job.ID
 		body.Enabled = job.Enabled
-		writeData(w, http.StatusCreated, body)
+		writeJSON(w, http.StatusCreated, body)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body.ID = id
-	writeData(w, http.StatusCreated, body)
+	writeJSON(w, http.StatusCreated, body)
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -161,7 +161,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	if existing.OwnerKind == scheduler.JobOwnerPlugin {
-		writeError(w, http.StatusBadRequest, "plugin-owned jobs are read-only in admin")
+		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
 		return
 	}
 
@@ -233,7 +233,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	body.ID = id
-	writeData(w, http.StatusOK, body)
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -246,7 +246,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	if existing.OwnerKind == scheduler.JobOwnerPlugin {
-		writeError(w, http.StatusBadRequest, "plugin-owned jobs are read-only in admin")
+		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
 		return
 	}
 
@@ -268,7 +268,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusInternalServerError, deleteErr.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
@@ -287,8 +287,8 @@ func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
 		Message:     row.Message,
 		SessionMode: row.SessionMode,
 		Enabled:     row.Enabled != 0,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   apiTimeString(row.CreatedAt),
+		UpdatedAt:   apiTimeString(row.UpdatedAt),
 		LastError:   row.LastError,
 	}
 	if payload := decodeSchedulerPayload(row.Payload); len(payload) > 0 {
@@ -301,9 +301,22 @@ func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
 		j.UserID = row.UserID.Int64
 	}
 	if row.LastRunAt.Valid {
-		j.LastRunAt = row.LastRunAt.String
+		j.LastRunAt = apiTimeString(row.LastRunAt.String)
 	}
 	return j
+}
+
+func apiTimeString(value string) string {
+	if value == "" {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t.Format(time.RFC3339)
+	}
+	if t, err := time.Parse(adminDBTimeLayout, value); err == nil {
+		return t.Format(time.RFC3339)
+	}
+	return value
 }
 
 func decodeSchedulerPayload(raw string) map[string]any {
@@ -397,7 +410,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 	if runID != "" {
 		resp["run_id"] = runID
 	}
-	writeData(w, http.StatusAccepted, resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id string) {
@@ -439,7 +452,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 		}
 		result = append(result, j)
 	}
-	writeData(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
