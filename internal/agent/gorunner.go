@@ -78,6 +78,7 @@ type GoRunner struct {
 
 	mu           sync.Mutex
 	lastActivity time.Time
+	activeCalls  int
 	log          *slog.Logger
 }
 
@@ -358,10 +359,17 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 	r.mu.Lock()
 	r.lastActivity = time.Now()
+	r.activeCalls++
 	r.mu.Unlock()
 
 	go func() {
 		defer close(out)
+		defer func() {
+			r.mu.Lock()
+			r.activeCalls--
+			r.lastActivity = time.Now()
+			r.mu.Unlock()
+		}()
 
 		loopRunner := r.runner
 		effectiveSystem := r.system
@@ -441,6 +449,13 @@ func (r *GoRunner) LastActivity() time.Time {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.lastActivity
+}
+
+// Busy reports whether a Chat call is currently in flight.
+func (r *GoRunner) Busy() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.activeCalls > 0
 }
 
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
