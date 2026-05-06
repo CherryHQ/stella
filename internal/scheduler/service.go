@@ -28,6 +28,10 @@ type OnJobFunc func(ctx context.Context, job Job) error
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
+// ListActiveUsersFunc returns the IDs of all currently active users.
+// Used by the scheduler to fan out ExecScopeAllUsers jobs.
+type ListActiveUsersFunc func(ctx context.Context) ([]int64, error)
+
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
 	scheduler       gocron.Scheduler
@@ -43,6 +47,7 @@ type Service struct {
 	gids            map[string]uuid.UUID // job ID -> gocron job UUID
 	log             *slog.Logger
 	userJobsEnabled bool
+	listActiveUsers ListActiveUsersFunc
 
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
@@ -90,11 +95,19 @@ func (s *Service) SetLegacyDataPath(path string) {
 	s.dataPath = path
 }
 
-// SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.
+// SetUserJobsEnabled controls whether persisted user-owned and all_users scheduler jobs are loaded.
 func (s *Service) SetUserJobsEnabled(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.userJobsEnabled = enabled
+}
+
+// SetListActiveUsersFunc registers the function used to enumerate active users
+// when fanning out ExecScopeAllUsers jobs.
+func (s *Service) SetListActiveUsersFunc(fn ListActiveUsersFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listActiveUsers = fn
 }
 
 // SetOnJob sets the primary callback invoked when a job fires.
@@ -151,7 +164,8 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
-			if j.OwnerKind == JobOwnerUser && !s.userJobsEnabled {
+			// Skip user-scoped and all_users jobs when user jobs are disabled.
+			if !s.userJobsEnabled && j.ExecScope != ExecScopeSystem {
 				continue
 			}
 			if j.Enabled {
@@ -211,26 +225,25 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	return nil
 }
 
-// AddJob creates, persists, and schedules a new job.
+// AddJob creates, persists, and schedules a new system-scoped job (no user context).
 // sessionMode controls session reuse: "reuse" (default) or "new".
 func (s *Service) AddJob(name, message string, sched Schedule, sessionMode string) (Job, error) {
-	return s.addJobWithOwner(name, message, sched, sessionMode, "", 0)
+	return s.addJobInternal(name, message, sched, sessionMode, "", 0, JobOwnerUser, ExecScopeSystem)
 }
 
 // AddJobForContext creates a user-owned job bound to the current execution context.
 // When the caller context carries agent/user scope, scheduled executions inherit it.
 func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
-	return s.addJobWithOwner(
-		name,
-		message,
-		sched,
-		sessionMode,
-		memory.AgentIDFromContext(ctx),
-		memory.UserIDFromContext(ctx),
-	)
+	userID := memory.UserIDFromContext(ctx)
+	agentID := memory.AgentIDFromContext(ctx)
+	execScope := ExecScopeSystem
+	if userID > 0 {
+		execScope = ExecScopeUser
+	}
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
 }
 
-func (s *Service) addJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
+func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID int64, ownerKind, execScope string) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -251,7 +264,8 @@ func (s *Service) addJobWithOwner(name, message string, sched Schedule, sessionM
 	now := time.Now().UTC()
 	job := Job{
 		ID:          uuid.New().String()[:8],
-		OwnerKind:   JobOwnerUser,
+		OwnerKind:   ownerKind,
+		ExecScope:   normalizeExecScope(execScope),
 		Name:        name,
 		Schedule:    sched,
 		Message:     message,
@@ -281,7 +295,7 @@ func (s *Service) addJobWithOwner(name, message string, sched Schedule, sessionM
 
 	s.jobs[job.ID] = job
 
-	s.log.Info("job added", "id", job.ID, "name", name, "agent_id", agentID, "user_id", userID)
+	s.log.Info("job added", "id", job.ID, "name", name, "exec_scope", execScope, "agent_id", agentID, "user_id", userID)
 	return job, nil
 }
 
@@ -306,6 +320,7 @@ func (s *Service) AddPluginJob(pluginID, key, runtimeName, name, description str
 	job := Job{
 		ID:          uuid.New().String()[:8],
 		OwnerKind:   JobOwnerPlugin,
+		ExecScope:   ExecScopeSystem,
 		PluginID:    pluginID,
 		JobKey:      key,
 		RuntimeName: runtimeName,
@@ -398,11 +413,15 @@ func (s *Service) RemoveJob(id string) error {
 }
 
 // EnsureJob creates a job if no job with the same name exists, or updates
-// the existing job when the message, schedule, session mode, or agent ID has changed.
+// the existing job when any field has changed.
 // It is intended for builtin jobs that should be seeded on startup.
-func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, agentID string) (Job, error) {
+// Jobs created by EnsureJob are owned by the system (JobOwnerSystem).
+func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, agentID, execScope string) (Job, error) {
 	if sessionMode == "" {
 		sessionMode = SessionReuse
+	}
+	if execScope == "" {
+		execScope = ExecScopeSystem
 	}
 
 	s.mu.Lock()
@@ -410,7 +429,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		if j.Name != name {
 			continue
 		}
-		if j.Message == message && j.Schedule == sched && j.SessionMode == sessionMode && j.AgentID == agentID {
+		if j.Message == message && j.Schedule == sched && j.SessionMode == sessionMode && j.AgentID == agentID && j.ExecScope == execScope {
 			s.mu.Unlock()
 			return j, nil
 		}
@@ -418,6 +437,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		j.Schedule = sched
 		j.SessionMode = sessionMode
 		j.AgentID = agentID
+		j.ExecScope = normalizeExecScope(execScope)
 		j.UpdatedAt = time.Now().UTC()
 
 		if gid, ok := s.gids[j.ID]; ok {
@@ -438,49 +458,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobWithOwner(name, message, sched, sessionMode, agentID, 0)
-}
-
-// ensureJobForUser creates or updates a per-user job matching on name+userID.
-func (s *Service) ensureJobForUser(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
-	if sessionMode == "" {
-		sessionMode = SessionReuse
-	}
-
-	s.mu.Lock()
-	for _, j := range s.jobs {
-		if j.Name != name || j.UserID != userID {
-			continue
-		}
-		if j.Message == message && j.Schedule == sched && j.SessionMode == sessionMode && j.AgentID == agentID {
-			s.mu.Unlock()
-			return j, nil
-		}
-		j.Message = message
-		j.Schedule = sched
-		j.SessionMode = sessionMode
-		j.AgentID = agentID
-		j.UpdatedAt = time.Now().UTC()
-
-		if gid, ok := s.gids[j.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, j.ID)
-		}
-		if err := s.scheduleJob(s.ctx, j); err != nil {
-			s.mu.Unlock()
-			return Job{}, fmt.Errorf("reschedule job: %w", err)
-		}
-		s.jobs[j.ID] = j
-		s.mu.Unlock()
-
-		if err := s.updateJob(s.ctx, j); err != nil {
-			return Job{}, fmt.Errorf("persist job update: %w", err)
-		}
-		s.log.Info("per-user builtin job updated", "id", j.ID, "name", name, "user_id", userID)
-		return j, nil
-	}
-	s.mu.Unlock()
-	return s.addJobWithOwner(name, message, sched, sessionMode, agentID, userID)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, 0, JobOwnerSystem, execScope)
 }
 
 // ListJobs returns all jobs.
@@ -530,17 +508,62 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	return nil
 }
 
-// executeJob runs the job callback with run tracking.
+// executeJob dispatches on ExecScope and runs the job with run tracking.
 func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
-	sessionID := job.SessionID()
+	if job.ExecScope == ExecScopeAllUsers {
+		s.executeJobForAllUsers(ctx, job, isOneTime)
+		return
+	}
+	s.executeSingleRun(ctx, job, job.UserID, isOneTime)
+}
+
+// executeJobForAllUsers fans out a job to every active user.
+func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime bool) {
+	s.mu.Lock()
+	fn := s.listActiveUsers
+	s.mu.Unlock()
+
+	if fn == nil {
+		s.log.Warn("all_users job has no listActiveUsers configured, skipping", "job_id", job.ID)
+		return
+	}
+
+	userIDs, err := fn(ctx)
+	if err != nil {
+		s.log.Warn("failed to list active users for all_users job", "job_id", job.ID, "error", err)
+		return
+	}
+
+	for _, uid := range userIDs {
+		s.executeSingleRun(ctx, job, uid, false)
+	}
+
+	if isOneTime {
+		go s.removeOneTimeJob(job.ID)
+	}
+}
+
+// executeSingleRun runs one job execution for the given userID (0 = system context).
+func (s *Service) executeSingleRun(ctx context.Context, job Job, userID int64, isOneTime bool) {
+	var sessionID string
+	if userID > 0 {
+		sessionID = job.UserSessionID(userID)
+	} else {
+		sessionID = job.SessionID()
+	}
+
 	runID := uuid.New().String()[:8]
 	startedAt := time.Now().UTC()
 
-	if err := s.createJobRun(ctx, runID, job.ID, sessionID, startedAt); err != nil {
+	if err := s.createJobRun(ctx, runID, job.ID, sessionID, userID, startedAt); err != nil {
 		s.log.Warn("failed to create job run record", "job_id", job.ID, "error", err)
 	}
 
 	runCtx := WithRunSessionID(ctx, sessionID)
+
+	// Inject user into job copy so the callback can read job.UserID correctly.
+	jobRun := job
+	jobRun.UserID = userID
 
 	s.mu.Lock()
 	fn := s.onJob
@@ -549,12 +572,12 @@ func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
 
 	var runErr error
 	if fn != nil {
-		if err := fn(runCtx, job); err != nil {
+		if err := fn(runCtx, jobRun); err != nil {
 			runErr = err
 		}
 	}
 	for _, listener := range listeners {
-		if err := listener(runCtx, job); err != nil && runErr == nil {
+		if err := listener(runCtx, jobRun); err != nil && runErr == nil {
 			runErr = err
 		}
 	}
@@ -587,13 +610,15 @@ func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
 	if err := s.recordJobRun(ctx, job.ID, finishedAt, runErr); err != nil {
 		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
 	}
+
 	if isOneTime {
 		go s.removeOneTimeJob(job.ID)
 	}
 }
 
 // RunJobNow triggers an immediate execution of the given job.
-// It runs asynchronously and returns the run ID.
+// It runs asynchronously. For ExecScopeAllUsers jobs, all user sub-runs are launched.
+// Returns the first run ID created (empty for all_users fan-out).
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
@@ -612,11 +637,19 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		return "", fmt.Errorf("job %q already has a run in progress", jobID)
 	}
 
+	if job.ExecScope == ExecScopeAllUsers {
+		go s.executeJobForAllUsers(svcCtx, job, false)
+		return "", nil
+	}
+
 	sessionID := job.SessionID()
+	if job.UserID > 0 {
+		sessionID = job.UserSessionID(job.UserID)
+	}
 	runID := uuid.New().String()[:8]
 	startedAt := time.Now().UTC()
 
-	if err := s.createJobRun(ctx, runID, jobID, sessionID, startedAt); err != nil {
+	if err := s.createJobRun(ctx, runID, jobID, sessionID, job.UserID, startedAt); err != nil {
 		return "", fmt.Errorf("create run record: %w", err)
 	}
 

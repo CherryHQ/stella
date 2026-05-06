@@ -582,6 +582,9 @@ func TestSchedulerToolCapturesContextOwnership(t *testing.T) {
 	if jobs[0].AgentID != "agent-blue" {
 		t.Fatalf("AgentID = %q, want %q", jobs[0].AgentID, "agent-blue")
 	}
+	if jobs[0].ExecScope != ExecScopeUser {
+		t.Fatalf("ExecScope = %q, want %q", jobs[0].ExecScope, ExecScopeUser)
+	}
 }
 
 func TestSchedulerToolInvalidAction(t *testing.T) {
@@ -680,12 +683,12 @@ func TestMigrateJobsFile(t *testing.T) {
 func TestEnsureJobCreatesOnce(t *testing.T) {
 	svc := testService(t)
 
-	job1, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "")
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("first EnsureJob: %v", err)
 	}
 
-	job2, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "")
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("second EnsureJob: %v", err)
 	}
@@ -702,12 +705,12 @@ func TestEnsureJobCreatesOnce(t *testing.T) {
 func TestEnsureJobUpdatesExisting(t *testing.T) {
 	svc := testService(t)
 
-	job1, err := svc.EnsureJob("rss-poll", "poll feeds v1", Schedule{Every: "1h"}, SessionReuse, "")
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds v1", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("first EnsureJob: %v", err)
 	}
 
-	job2, err := svc.EnsureJob("rss-poll", "poll feeds v2", Schedule{Every: "30m"}, SessionNew, "")
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds v2", Schedule{Every: "30m"}, SessionNew, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("second EnsureJob: %v", err)
 	}
@@ -744,7 +747,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	job1, err := svc1.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "")
+	job1, err := svc1.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("EnsureJob: %v", err)
 	}
@@ -767,7 +770,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 		_ = db2.Close()
 	}()
 
-	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "")
+	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("EnsureJob after restart: %v", err)
 	}

@@ -9,9 +9,10 @@ type BuiltinJob struct {
 	Schedule    Schedule
 	SessionMode string
 	AgentID     string
-	// PerUser, when true, creates one job instance per active user rather than
-	// a single system-level job. Use for jobs that operate on user-specific data.
-	PerUser bool
+	// ExecScope controls how the job runs: ExecScopeSystem (once, no user context),
+	// ExecScopeUser (once for a specific user), or ExecScopeAllUsers (fan-out per active user).
+	// Defaults to ExecScopeSystem when empty.
+	ExecScope string
 }
 
 var (
@@ -23,42 +24,22 @@ var (
 func RegisterBuiltin(job BuiltinJob) {
 	builtinMu.Lock()
 	defer builtinMu.Unlock()
+	if job.ExecScope == "" {
+		job.ExecScope = ExecScopeSystem
+	}
 	builtinJobs = append(builtinJobs, job)
 }
 
-// EnsureBuiltinJobs creates or updates all system-level (non-PerUser) builtin jobs.
+// EnsureBuiltinJobs creates or updates all builtin jobs (one DB row per job regardless of ExecScope).
+// For ExecScopeAllUsers jobs the scheduler fans out to all active users at execution time.
 func (s *Service) EnsureBuiltinJobs() {
 	builtinMu.Lock()
 	jobs := append([]BuiltinJob(nil), builtinJobs...)
 	builtinMu.Unlock()
 
 	for _, j := range jobs {
-		if j.PerUser {
-			continue
-		}
-		if _, err := s.EnsureJob(j.Name, j.Message, j.Schedule, j.SessionMode, j.AgentID); err != nil {
+		if _, err := s.EnsureJob(j.Name, j.Message, j.Schedule, j.SessionMode, j.AgentID, j.ExecScope); err != nil {
 			s.log.Warn("failed to ensure builtin job", "name", j.Name, "error", err)
-		}
-	}
-}
-
-// EnsureUserBuiltinJobs creates or updates all PerUser builtin jobs for the given user.
-// Call this once per active user on startup and when a new user is provisioned.
-func (s *Service) EnsureUserBuiltinJobs(userID int64, agentID string) {
-	builtinMu.Lock()
-	jobs := append([]BuiltinJob(nil), builtinJobs...)
-	builtinMu.Unlock()
-
-	for _, j := range jobs {
-		if !j.PerUser {
-			continue
-		}
-		aid := j.AgentID
-		if aid == "" {
-			aid = agentID
-		}
-		if _, err := s.ensureJobForUser(j.Name, j.Message, j.Schedule, j.SessionMode, aid, userID); err != nil {
-			s.log.Warn("failed to ensure per-user builtin job", "name", j.Name, "user_id", userID, "error", err)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 -- name: CreateSchedJobRun :one
-INSERT INTO sched_job_runs (id, job_id, session_id, status, started_at, finished_at, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sched_job_runs (id, job_id, session_id, status, started_at, finished_at, error, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateSchedJobRun :exec

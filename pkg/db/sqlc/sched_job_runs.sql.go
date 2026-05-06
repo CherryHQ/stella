@@ -23,9 +23,9 @@ func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (i
 }
 
 const createSchedJobRun = `-- name: CreateSchedJobRun :one
-INSERT INTO sched_job_runs (id, job_id, session_id, status, started_at, finished_at, error)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, session_id, status, started_at, finished_at, error
+INSERT INTO sched_job_runs (id, job_id, session_id, status, started_at, finished_at, error, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, job_id, session_id, status, started_at, finished_at, error, user_id
 `
 
 type CreateSchedJobRunParams struct {
@@ -36,6 +36,7 @@ type CreateSchedJobRunParams struct {
 	StartedAt  string         `json:"started_at"`
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
+	UserID     sql.NullInt64  `json:"user_id"`
 }
 
 func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunParams) (SchedJobRun, error) {
@@ -47,6 +48,7 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 		arg.StartedAt,
 		arg.FinishedAt,
 		arg.Error,
+		arg.UserID,
 	)
 	var i SchedJobRun
 	err := row.Scan(
@@ -57,12 +59,13 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Error,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getSchedJobRun = `-- name: GetSchedJobRun :one
-SELECT id, job_id, session_id, status, started_at, finished_at, error FROM sched_job_runs WHERE id = ?
+SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_runs WHERE id = ?
 `
 
 func (q *Queries) GetSchedJobRun(ctx context.Context, id string) (SchedJobRun, error) {
@@ -76,12 +79,13 @@ func (q *Queries) GetSchedJobRun(ctx context.Context, id string) (SchedJobRun, e
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Error,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
-SELECT id, job_id, session_id, status, started_at, finished_at, error FROM sched_job_runs
+SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_runs
 WHERE job_id = ?
 ORDER BY started_at DESC
 LIMIT ?
@@ -109,6 +113,7 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.Error,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}

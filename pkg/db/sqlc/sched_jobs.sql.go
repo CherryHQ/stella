@@ -12,18 +12,19 @@ import (
 
 const createSchedulerJob = `-- name: CreateSchedulerJob :one
 INSERT INTO sched_jobs (
-    id, owner_kind, plugin_id, job_key, runtime_name,
+    id, owner_kind, exec_scope, plugin_id, job_key, runtime_name,
     name, description, schedule_cron, schedule_every, schedule_at,
     message, payload, session_mode, enabled, agent_id, user_id,
     created_at, updated_at, last_run_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, owner_kind, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error
 `
 
 type CreateSchedulerJobParams struct {
 	ID            string         `json:"id"`
 	OwnerKind     string         `json:"owner_kind"`
+	ExecScope     string         `json:"exec_scope"`
 	PluginID      string         `json:"plugin_id"`
 	JobKey        string         `json:"job_key"`
 	RuntimeName   string         `json:"runtime_name"`
@@ -48,6 +49,7 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 	row := q.db.QueryRowContext(ctx, createSchedulerJob,
 		arg.ID,
 		arg.OwnerKind,
+		arg.ExecScope,
 		arg.PluginID,
 		arg.JobKey,
 		arg.RuntimeName,
@@ -71,6 +73,7 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerKind,
+		&i.ExecScope,
 		&i.PluginID,
 		&i.JobKey,
 		&i.RuntimeName,
@@ -103,7 +106,7 @@ func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
 }
 
 const getSchedulerJob = `-- name: GetSchedulerJob :one
-SELECT id, owner_kind, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_jobs WHERE id = ?
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_jobs WHERE id = ?
 `
 
 func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, error) {
@@ -112,6 +115,7 @@ func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, err
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerKind,
+		&i.ExecScope,
 		&i.PluginID,
 		&i.JobKey,
 		&i.RuntimeName,
@@ -135,7 +139,7 @@ func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, err
 }
 
 const listSchedulerJobs = `-- name: ListSchedulerJobs :many
-SELECT id, owner_kind, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_jobs ORDER BY created_at
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_jobs ORDER BY created_at
 `
 
 func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
@@ -150,6 +154,7 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.OwnerKind,
+			&i.ExecScope,
 			&i.PluginID,
 			&i.JobKey,
 			&i.RuntimeName,
@@ -207,7 +212,7 @@ func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordScheduler
 
 const updateSchedulerJob = `-- name: UpdateSchedulerJob :exec
 UPDATE sched_jobs
-SET owner_kind = ?, plugin_id = ?, job_key = ?, runtime_name = ?,
+SET owner_kind = ?, exec_scope = ?, plugin_id = ?, job_key = ?, runtime_name = ?,
     name = ?, description = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
     message = ?, payload = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?,
     updated_at = ?, last_run_at = ?, last_error = ?
@@ -216,6 +221,7 @@ WHERE id = ?
 
 type UpdateSchedulerJobParams struct {
 	OwnerKind     string         `json:"owner_kind"`
+	ExecScope     string         `json:"exec_scope"`
 	PluginID      string         `json:"plugin_id"`
 	JobKey        string         `json:"job_key"`
 	RuntimeName   string         `json:"runtime_name"`
@@ -239,6 +245,7 @@ type UpdateSchedulerJobParams struct {
 func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJobParams) error {
 	_, err := q.db.ExecContext(ctx, updateSchedulerJob,
 		arg.OwnerKind,
+		arg.ExecScope,
 		arg.PluginID,
 		arg.JobKey,
 		arg.RuntimeName,
