@@ -4,6 +4,16 @@ Server-rendered pages using Go templ + Alpine.js 3 + daisyUI 5. CDN-only — no 
 
 **Stack:** templ (type-safe HTML) · daisyUI 5 + Tailwind 4 (CDN) · Alpine.js 3 ESM (CDN via esm.sh)
 
+### Design system
+
+`web/DESIGN.md` is the visual identity spec for this project. Read it before touching any UI. It defines:
+- **Colors** — use the named daisyUI semantic tokens (`primary`, `secondary`, `base-300`, etc.), never raw hex.
+- **Typography** — DM Serif for page titles/logo, DM Sans for UI body, JetBrains Mono for all technical/code surfaces.
+- **Components** — button variants, card styles, badge usage, elevation rules, and the layout shell.
+- **Do's and Don'ts** — what to avoid (bold display text, shadow on inline cards, hardcoded colors).
+
+When adding or editing UI: check `DESIGN.md` for the right token, component pattern, or elevation level first.
+
 ### Conventions
 
 - `package web` for layout/components (`web/*.templ`); `package pages` for pages (`web/pages/*.templ`)
