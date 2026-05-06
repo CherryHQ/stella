@@ -160,15 +160,15 @@ func TestSyncBuiltin(t *testing.T) {
 	t.Run("nested skill roots sync by leaf name and relative files", func(t *testing.T) {
 		store, _ := newTestStore(t)
 		fakeFS := fstest.MapFS{
-			"system/lark/SKILL.md":        {Data: []byte("---\nname: lark\ndescription: nested\nstatus: active\n---\n\n# Lark\n")},
-			"system/lark/references/a.md": {Data: []byte("nested ref")},
+			"system/lark-cli/SKILL.md":        {Data: []byte("---\nname: lark-cli\ndescription: nested\nstatus: active\n---\n\n# Lark\n")},
+			"system/lark-cli/references/a.md": {Data: []byte("nested ref")},
 		}
 
 		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
 			t.Fatalf("SyncBuiltin: %v", err)
 		}
 
-		sk, err := store.Resolve(ctx, "lark", ViewContext{})
+		sk, err := store.Resolve(ctx, "lark-cli", ViewContext{})
 		if err != nil || sk == nil {
 			t.Fatalf("Resolve: %v (sk=%v)", err, sk)
 		}

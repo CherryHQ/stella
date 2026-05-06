@@ -172,7 +172,7 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	}
 	if _, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "system",
-		Name:        "lark",
+		Name:        "lark-cli",
 		Description: "Lark skill",
 		Status:      "active",
 		Metadata:    meta,
