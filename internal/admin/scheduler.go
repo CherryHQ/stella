@@ -202,11 +202,12 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	// Non-admin users cannot change ownership.
 	var userID int64
-	if info != nil && !info.IsAdmin {
+	switch {
+	case info != nil && !info.IsAdmin:
 		userID = info.UserID
-	} else if body.UserId != nil {
+	case body.UserId != nil:
 		userID = *body.UserId
-	} else if existing.UserID.Valid {
+	case existing.UserID.Valid:
 		userID = existing.UserID.Int64
 	}
 
