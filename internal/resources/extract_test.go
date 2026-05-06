@@ -64,7 +64,7 @@ func TestExtractSkillsNestedRoots(t *testing.T) {
 	fakeFS := fstest.MapFS{
 		"system/lark-cli/SKILL.md":        {Data: []byte("---\nname: lark-cli\n---\n")},
 		"system/lark-cli/references/a.md": {Data: []byte("a")},
-		"tap-web/SKILL.md":            {Data: []byte("---\nname: tap-web\n---\n")},
+		"tap-web/SKILL.md":                {Data: []byte("---\nname: tap-web\n---\n")},
 	}
 	dir := t.TempDir()
 	if err := extractSkillsFS(fakeFS, dir); err != nil {

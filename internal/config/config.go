@@ -7,11 +7,11 @@ import (
 
 // RunnerConfig configures the agent runner.
 type RunnerConfig struct {
-	Type             string           `json:"type"`
-	System           string           `json:"system"`
-	IdleTimeout      int              `json:"idle_timeout"`
-	SubagentTimeout  int              `json:"subagent_timeout"` // minutes; 0 = use default (15m)
-	Compaction       CompactionConfig `json:"compaction"`
+	Type            string           `json:"type"`
+	System          string           `json:"system"`
+	IdleTimeout     int              `json:"idle_timeout"`
+	SubagentTimeout int              `json:"subagent_timeout"` // minutes; 0 = use default (15m)
+	Compaction      CompactionConfig `json:"compaction"`
 }
 
 // SubagentTimeoutDuration returns the configured subagent timeout as a
