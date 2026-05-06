@@ -13,7 +13,7 @@ metadata:
     owner_plugin: tool/lark-cli
     source_ref: 2e4cfb49219d
     source_repo: larksuite/cli
-name: lark
+name: lark-cli
 tags:
     - lark
     - feishu
