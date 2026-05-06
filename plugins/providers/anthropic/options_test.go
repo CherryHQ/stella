@@ -17,8 +17,8 @@ func TestBuildParamsBasic(t *testing.T) {
 	if string(params.Model) != "claude-sonnet-4-20250514" {
 		t.Errorf("model = %q, want claude-sonnet-4-20250514", params.Model)
 	}
-	if params.MaxTokens != 1024 {
-		t.Errorf("max_tokens = %d, want 1024 (default)", params.MaxTokens)
+	if params.MaxTokens != defaultMaxTokens {
+		t.Errorf("max_tokens = %d, want %d (default)", params.MaxTokens, defaultMaxTokens)
 	}
 }
 

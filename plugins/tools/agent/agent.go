@@ -45,8 +45,8 @@ type AgentConfig struct {
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
-	MaxConcurrency     int           // max parallel subagent goroutines
-	DefaultTimeout     time.Duration // default subagent wall-clock timeout (0 = 15m)
+	MaxConcurrency int           // max parallel subagent goroutines
+	DefaultTimeout time.Duration // default subagent wall-clock timeout (0 = 15m)
 }
 
 func (c AgentConfig) maxConcurrency() int {

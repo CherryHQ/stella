@@ -40,14 +40,13 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		},
 		{
 			name:    "with tools and model",
-			content: "---\nname: coder\ndescription: Code helper\nmodel: claude-haiku\ntools:\n  - read\n  - edit\nmax_turns: 5\n---\nYou are a coder.",
+			content: "---\nname: coder\ndescription: Code helper\nmodel: claude-haiku\ntools:\n  - read\n  - edit\n---\nYou are a coder.",
 			wantFM: agentFrontmatter{
 				Name:        "coder",
 				Description: "Code helper",
 				Model:       "claude-haiku",
 				Tools:       []string{"read", "edit"},
 				HasTools:    true,
-				MaxTurns:    5,
 			},
 			wantBody: "\nYou are a coder.",
 		},
@@ -114,9 +113,6 @@ func TestParseAgentFrontmatter(t *testing.T) {
 			if fm.Model != tt.wantFM.Model {
 				t.Errorf("Model = %q, want %q", fm.Model, tt.wantFM.Model)
 			}
-			if fm.MaxTurns != tt.wantFM.MaxTurns {
-				t.Errorf("MaxTurns = %d, want %d", fm.MaxTurns, tt.wantFM.MaxTurns)
-			}
 			if fm.HasTools != tt.wantFM.HasTools {
 				t.Errorf("HasTools = %v, want %v", fm.HasTools, tt.wantFM.HasTools)
 			}
@@ -137,7 +133,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		path := filepath.Join(dir, "test-agent.md")
-		content := "---\nname: test-agent\ndescription: A test agent\nmodel: claude-haiku\nmax_turns: 3\ntimeout: 2m\n---\nYou are a test agent."
+		content := "---\nname: test-agent\ndescription: A test agent\nmodel: claude-haiku\ntimeout: 2m\n---\nYou are a test agent."
 		writeTestFile(t, path, []byte(content), 0o644)
 
 		p, ok := loadPresetFromFile(context.Background(), path, "project")
@@ -152,9 +148,6 @@ func TestLoadPresetFromFile(t *testing.T) {
 		}
 		if p.Model != "claude-haiku" {
 			t.Errorf("Model = %q", p.Model)
-		}
-		if p.MaxTurns != 3 {
-			t.Errorf("MaxTurns = %d", p.MaxTurns)
 		}
 		if p.Timeout != 2*time.Minute {
 			t.Errorf("Timeout = %v", p.Timeout)

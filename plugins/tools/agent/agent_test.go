@@ -190,9 +190,8 @@ func TestAgentDefinition_WithPresets(t *testing.T) {
 func TestApplyPreset_FillsDefaults(t *testing.T) {
 	tc := agentTaskConfig{}
 	preset := AgentPreset{
-		Model:    "claude-haiku",
-		System:   "be helpful",
-		MaxTurns: 3,
+		Model:  "claude-haiku",
+		System: "be helpful",
 	}
 	tc.applyPreset(preset)
 	if tc.Model != "claude-haiku" {
@@ -200,9 +199,6 @@ func TestApplyPreset_FillsDefaults(t *testing.T) {
 	}
 	if tc.System != "be helpful" {
 		t.Errorf("expected system prompt, got %q", tc.System)
-	}
-	if tc.MaxTurns != 3 {
-		t.Errorf("expected MaxTurns=3, got %d", tc.MaxTurns)
 	}
 }
 

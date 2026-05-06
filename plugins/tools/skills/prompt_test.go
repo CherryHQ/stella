@@ -189,7 +189,7 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(section.Content, "<name>lark</name>") {
+	if strings.Contains(section.Content, "<name>lark-cli</name>") {
 		t.Fatalf("expected disabled plugin-owned skill to be hidden: %s", section.Content)
 	}
 
@@ -201,7 +201,7 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(section.Content, "<name>lark</name>") {
+	if !strings.Contains(section.Content, "<name>lark-cli</name>") {
 		t.Fatalf("expected enabled plugin-owned skill to be visible: %s", section.Content)
 	}
 }

@@ -30,7 +30,7 @@ type agentFrontmatter struct {
 	Description string   `yaml:"description"`
 	Model       string   `yaml:"model"`
 	Tools       []string `yaml:"tools"`
-	HasTools    bool     `yaml:"-"` // set during parsing, not from YAML
+	HasTools    bool     `yaml:"-"`       // set during parsing, not from YAML
 	Timeout     string   `yaml:"timeout"` // parsed as time.Duration, e.g. "30m"
 }
 
