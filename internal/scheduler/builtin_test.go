@@ -22,22 +22,28 @@ func TestBuiltinRSSJobRegistered(t *testing.T) {
 
 func TestEnsureBuiltinJobs(t *testing.T) {
 	svc := testService(t)
+	// recally-rss is PerUser — it must not appear from EnsureBuiltinJobs alone.
 	svc.EnsureBuiltinJobs()
-
-	jobs := svc.ListJobs()
-	found := false
-	for _, j := range jobs {
+	for _, j := range svc.ListJobs() {
 		if j.Name == "recally-rss" {
+			t.Error("EnsureBuiltinJobs should not create PerUser job recally-rss")
+		}
+	}
+
+	// EnsureUserBuiltinJobs creates it for a specific user.
+	svc.EnsureUserBuiltinJobs(1, "anna")
+	found := false
+	for _, j := range svc.ListJobs() {
+		if j.Name == "recally-rss" && j.UserID == 1 {
 			found = true
-			break
 		}
 	}
 	if !found {
-		t.Error("EnsureBuiltinJobs did not create recally-rss job")
+		t.Error("EnsureUserBuiltinJobs did not create recally-rss job for user 1")
 	}
 
-	// Idempotent: calling again should not duplicate.
-	svc.EnsureBuiltinJobs()
+	// Idempotent: second call for same user should not duplicate.
+	svc.EnsureUserBuiltinJobs(1, "anna")
 	count := 0
 	for _, j := range svc.ListJobs() {
 		if j.Name == "recally-rss" {
@@ -46,5 +52,17 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 recally-rss job, got %d", count)
+	}
+
+	// Different user gets its own instance.
+	svc.EnsureUserBuiltinJobs(2, "anna")
+	count = 0
+	for _, j := range svc.ListJobs() {
+		if j.Name == "recally-rss" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 recally-rss jobs (one per user), got %d", count)
 	}
 }

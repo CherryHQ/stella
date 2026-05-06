@@ -19,5 +19,6 @@ func init() {
 3. Use the notify tool to send the user a brief summary only if new articles were saved.`,
 		Schedule:    Schedule{Every: "1h"},
 		SessionMode: SessionReuse,
+		PerUser:     true,
 	})
 }

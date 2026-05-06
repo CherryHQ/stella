@@ -228,6 +228,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	if s.schedulerSvc != nil {
 		s.schedulerSvc.EnsureBuiltinJobs()
+		if users, err := as.ListUsers(ctx); err == nil {
+			agentID := s.pool.AgentID()
+			for _, u := range users {
+				if u.IsActive {
+					s.schedulerSvc.EnsureUserBuiltinJobs(u.ID, agentID)
+				}
+			}
+		}
 	}
 
 	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {

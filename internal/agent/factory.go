@@ -48,12 +48,17 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				apiName = provID
 			}
 
-			if params.UserID <= 0 {
-				return nil, fmt.Errorf("runner requires user scope")
+			var (
+				userDir string
+				err     error
+			)
+			if params.UserID > 0 {
+				userDir, err = SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
+			} else {
+				userDir, err = SetupSystemWorkspace(snap.AgentID, config.AnnaHome())
 			}
-			userDir, err := SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
 			if err != nil {
-				return nil, fmt.Errorf("setup user workspace: %w", err)
+				return nil, fmt.Errorf("setup workspace: %w", err)
 			}
 			userRoot := UserRoot(userDir)
 
