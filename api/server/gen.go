@@ -149,6 +149,9 @@ type LinkCodeResponse = externalRef0.LinkCodeResponse
 // LoginRequest defines model for LoginRequest.
 type LoginRequest = externalRef0.LoginRequest
 
+// ManifestPlugin defines model for ManifestPlugin.
+type ManifestPlugin = externalRef0.ManifestPlugin
+
 // MeResponse defines model for MeResponse.
 type MeResponse = externalRef0.MeResponse
 
@@ -160,6 +163,9 @@ type OAuthFlowStatus = externalRef0.OAuthFlowStatus
 
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
+
+// PluginView defines model for PluginView.
+type PluginView = externalRef0.PluginView
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
 type ProfileInstallSkillRequest = externalRef0.ProfileInstallSkillRequest
@@ -242,6 +248,9 @@ type SystemPromptResponse = externalRef0.SystemPromptResponse
 // TagCount defines model for TagCount.
 type TagCount = externalRef0.TagCount
 
+// TogglePluginRequest defines model for TogglePluginRequest.
+type TogglePluginRequest = externalRef0.TogglePluginRequest
+
 // Tool defines model for Tool.
 type Tool = externalRef0.Tool
 
@@ -265,6 +274,9 @@ type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
+
+// UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
+type UpdatePluginConfigRequest = externalRef0.UpdatePluginConfigRequest
 
 // UpdateRoleRequest defines model for UpdateRoleRequest.
 type UpdateRoleRequest = externalRef0.UpdateRoleRequest
@@ -317,6 +329,11 @@ type GetProfileSkillFileParams struct {
 type PollWeixinQRStatusParams struct {
 	// Qrcode QR code token from startWeixinQR
 	Qrcode string `form:"qrcode" json:"qrcode"`
+}
+
+// SaveManifestPluginsJSONBody defines parameters for SaveManifestPlugins.
+type SaveManifestPluginsJSONBody struct {
+	Plugins *[]externalRef0.ManifestPlugin `json:"plugins,omitempty"`
 }
 
 // ListArticlesParams defines parameters for ListArticles.
@@ -452,6 +469,15 @@ type CreateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
 
 // UpdateChannelJSONRequestBody defines body for UpdateChannel for application/json ContentType.
 type UpdateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
+
+// SaveManifestPluginsJSONRequestBody defines body for SaveManifestPlugins for application/json ContentType.
+type SaveManifestPluginsJSONRequestBody SaveManifestPluginsJSONBody
+
+// UpdatePluginConfigJSONRequestBody defines body for UpdatePluginConfig for application/json ContentType.
+type UpdatePluginConfigJSONRequestBody = externalRef0.UpdatePluginConfigRequest
+
+// TogglePluginJSONRequestBody defines body for TogglePlugin for application/json ContentType.
+type TogglePluginJSONRequestBody = externalRef0.TogglePluginRequest
 
 // CreateProviderJSONRequestBody defines body for CreateProvider for application/json ContentType.
 type CreateProviderJSONRequestBody = externalRef0.Provider
@@ -698,9 +724,36 @@ type ServerInterface interface {
 	// Update a channel (admin only)
 	// (PUT /api/channels/{id})
 	UpdateChannel(w http.ResponseWriter, r *http.Request, id string)
+	// List manifest plugins (admin only)
+	// (GET /api/manifest-plugins)
+	ListManifestPlugins(w http.ResponseWriter, r *http.Request)
+	// Save manifest plugins (admin only)
+	// (PUT /api/manifest-plugins)
+	SaveManifestPlugins(w http.ResponseWriter, r *http.Request)
+	// Sync manifest plugins (admin only)
+	// (POST /api/manifest-plugins/sync)
+	SyncManifestPlugins(w http.ResponseWriter, r *http.Request)
 	// List enabled models from provider config and cache
 	// (GET /api/models)
 	ListModels(w http.ResponseWriter, r *http.Request)
+	// Get plugin config schema (admin only)
+	// (GET /api/plugin-config-schema/{kind}/{name})
+	GetPluginConfigSchema(w http.ResponseWriter, r *http.Request, kind string, name string)
+	// Get plugin config (admin only)
+	// (GET /api/plugin-config/{kind}/{name})
+	GetPluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string)
+	// Update plugin config (admin only)
+	// (PUT /api/plugin-config/{kind}/{name})
+	UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string)
+	// Get plugin status (admin only)
+	// (GET /api/plugin-status/{kind}/{name})
+	GetPluginStatus(w http.ResponseWriter, r *http.Request, kind string, name string)
+	// List all plugins (admin only)
+	// (GET /api/plugins)
+	ListPlugins(w http.ResponseWriter, r *http.Request)
+	// Toggle plugin enabled state (admin only)
+	// (PATCH /api/plugins/{kind}/{name})
+	TogglePlugin(w http.ResponseWriter, r *http.Request, kind string, name string)
 	// List available provider types (admin only)
 	// (GET /api/provider-types)
 	ListProviderTypes(w http.ResponseWriter, r *http.Request)
@@ -2775,6 +2828,66 @@ func (siw *ServerInterfaceWrapper) UpdateChannel(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListManifestPlugins operation middleware
+func (siw *ServerInterfaceWrapper) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListManifestPlugins(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveManifestPlugins operation middleware
+func (siw *ServerInterfaceWrapper) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveManifestPlugins(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncManifestPlugins operation middleware
+func (siw *ServerInterfaceWrapper) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncManifestPlugins(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListModels operation middleware
 func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
 
@@ -2786,6 +2899,231 @@ func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListModels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPluginConfigSchema operation middleware
+func (siw *ServerInterfaceWrapper) GetPluginConfigSchema(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPluginConfigSchema(w, r, kind, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPluginConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetPluginConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPluginConfig(w, r, kind, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePluginConfig operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePluginConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePluginConfig(w, r, kind, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPluginStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetPluginStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPluginStatus(w, r, kind, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPlugins operation middleware
+func (siw *ServerInterfaceWrapper) ListPlugins(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlugins(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TogglePlugin operation middleware
+func (siw *ServerInterfaceWrapper) TogglePlugin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TogglePlugin(w, r, kind, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4658,7 +4996,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/channels/{id}", wrapper.DeleteChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/{id}", wrapper.GetChannel)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/channels/{id}", wrapper.UpdateChannel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/manifest-plugins", wrapper.ListManifestPlugins)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/manifest-plugins", wrapper.SaveManifestPlugins)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/manifest-plugins/sync", wrapper.SyncManifestPlugins)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/models", wrapper.ListModels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-config-schema/{kind}/{name}", wrapper.GetPluginConfigSchema)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-config/{kind}/{name}", wrapper.GetPluginConfig)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/plugin-config/{kind}/{name}", wrapper.UpdatePluginConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-status/{kind}/{name}", wrapper.GetPluginStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugins", wrapper.ListPlugins)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/plugins/{kind}/{name}", wrapper.TogglePlugin)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/provider-types", wrapper.ListProviderTypes)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers", wrapper.CreateProvider)

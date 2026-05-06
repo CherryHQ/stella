@@ -151,6 +151,9 @@ type LinkCodeResponse = externalRef0.LinkCodeResponse
 // LoginRequest defines model for LoginRequest.
 type LoginRequest = externalRef0.LoginRequest
 
+// ManifestPlugin defines model for ManifestPlugin.
+type ManifestPlugin = externalRef0.ManifestPlugin
+
 // MeResponse defines model for MeResponse.
 type MeResponse = externalRef0.MeResponse
 
@@ -162,6 +165,9 @@ type OAuthFlowStatus = externalRef0.OAuthFlowStatus
 
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
+
+// PluginView defines model for PluginView.
+type PluginView = externalRef0.PluginView
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
 type ProfileInstallSkillRequest = externalRef0.ProfileInstallSkillRequest
@@ -244,6 +250,9 @@ type SystemPromptResponse = externalRef0.SystemPromptResponse
 // TagCount defines model for TagCount.
 type TagCount = externalRef0.TagCount
 
+// TogglePluginRequest defines model for TogglePluginRequest.
+type TogglePluginRequest = externalRef0.TogglePluginRequest
+
 // Tool defines model for Tool.
 type Tool = externalRef0.Tool
 
@@ -267,6 +276,9 @@ type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
+
+// UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
+type UpdatePluginConfigRequest = externalRef0.UpdatePluginConfigRequest
 
 // UpdateRoleRequest defines model for UpdateRoleRequest.
 type UpdateRoleRequest = externalRef0.UpdateRoleRequest
@@ -319,6 +331,11 @@ type GetProfileSkillFileParams struct {
 type PollWeixinQRStatusParams struct {
 	// Qrcode QR code token from startWeixinQR
 	Qrcode string `form:"qrcode" json:"qrcode"`
+}
+
+// SaveManifestPluginsJSONBody defines parameters for SaveManifestPlugins.
+type SaveManifestPluginsJSONBody struct {
+	Plugins *[]externalRef0.ManifestPlugin `json:"plugins,omitempty"`
 }
 
 // ListArticlesParams defines parameters for ListArticles.
@@ -454,6 +471,15 @@ type CreateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
 
 // UpdateChannelJSONRequestBody defines body for UpdateChannel for application/json ContentType.
 type UpdateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
+
+// SaveManifestPluginsJSONRequestBody defines body for SaveManifestPlugins for application/json ContentType.
+type SaveManifestPluginsJSONRequestBody SaveManifestPluginsJSONBody
+
+// UpdatePluginConfigJSONRequestBody defines body for UpdatePluginConfig for application/json ContentType.
+type UpdatePluginConfigJSONRequestBody = externalRef0.UpdatePluginConfigRequest
+
+// TogglePluginJSONRequestBody defines body for TogglePlugin for application/json ContentType.
+type TogglePluginJSONRequestBody = externalRef0.TogglePluginRequest
 
 // CreateProviderJSONRequestBody defines body for CreateProvider for application/json ContentType.
 type CreateProviderJSONRequestBody = externalRef0.Provider
@@ -809,8 +835,41 @@ type ClientInterface interface {
 
 	UpdateChannel(ctx context.Context, id string, body UpdateChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListManifestPlugins request
+	ListManifestPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SaveManifestPluginsWithBody request with any body
+	SaveManifestPluginsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SaveManifestPlugins(ctx context.Context, body SaveManifestPluginsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SyncManifestPlugins request
+	SyncManifestPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListModels request
 	ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetPluginConfigSchema request
+	GetPluginConfigSchema(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetPluginConfig request
+	GetPluginConfig(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdatePluginConfigWithBody request with any body
+	UpdatePluginConfigWithBody(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdatePluginConfig(ctx context.Context, kind string, name string, body UpdatePluginConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetPluginStatus request
+	GetPluginStatus(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListPlugins request
+	ListPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TogglePluginWithBody request with any body
+	TogglePluginWithBody(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	TogglePlugin(ctx context.Context, kind string, name string, body TogglePluginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProviderTypes request
 	ListProviderTypes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1980,8 +2039,152 @@ func (c *Client) UpdateChannel(ctx context.Context, id string, body UpdateChanne
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListManifestPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListManifestPluginsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SaveManifestPluginsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSaveManifestPluginsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SaveManifestPlugins(ctx context.Context, body SaveManifestPluginsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSaveManifestPluginsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SyncManifestPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSyncManifestPluginsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListModelsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetPluginConfigSchema(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPluginConfigSchemaRequest(c.Server, kind, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetPluginConfig(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPluginConfigRequest(c.Server, kind, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdatePluginConfigWithBody(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdatePluginConfigRequestWithBody(c.Server, kind, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdatePluginConfig(ctx context.Context, kind string, name string, body UpdatePluginConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdatePluginConfigRequest(c.Server, kind, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetPluginStatus(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPluginStatusRequest(c.Server, kind, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListPluginsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TogglePluginWithBody(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTogglePluginRequestWithBody(c.Server, kind, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TogglePlugin(ctx context.Context, kind string, name string, body TogglePluginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTogglePluginRequest(c.Server, kind, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5212,6 +5415,100 @@ func NewUpdateChannelRequestWithBody(server string, id string, contentType strin
 	return req, nil
 }
 
+// NewListManifestPluginsRequest generates requests for ListManifestPlugins
+func NewListManifestPluginsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/manifest-plugins")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSaveManifestPluginsRequest calls the generic SaveManifestPlugins builder with application/json body
+func NewSaveManifestPluginsRequest(server string, body SaveManifestPluginsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSaveManifestPluginsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSaveManifestPluginsRequestWithBody generates requests for SaveManifestPlugins with any type of body
+func NewSaveManifestPluginsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/manifest-plugins")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSyncManifestPluginsRequest generates requests for SyncManifestPlugins
+func NewSyncManifestPluginsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/manifest-plugins/sync")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListModelsRequest generates requests for ListModels
 func NewListModelsRequest(server string) (*http.Request, error) {
 	var err error
@@ -5235,6 +5532,264 @@ func NewListModelsRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewGetPluginConfigSchemaRequest generates requests for GetPluginConfigSchema
+func NewGetPluginConfigSchemaRequest(server string, kind string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugin-config-schema/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetPluginConfigRequest generates requests for GetPluginConfig
+func NewGetPluginConfigRequest(server string, kind string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugin-config/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdatePluginConfigRequest calls the generic UpdatePluginConfig builder with application/json body
+func NewUpdatePluginConfigRequest(server string, kind string, name string, body UpdatePluginConfigJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdatePluginConfigRequestWithBody(server, kind, name, "application/json", bodyReader)
+}
+
+// NewUpdatePluginConfigRequestWithBody generates requests for UpdatePluginConfig with any type of body
+func NewUpdatePluginConfigRequestWithBody(server string, kind string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugin-config/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetPluginStatusRequest generates requests for GetPluginStatus
+func NewGetPluginStatusRequest(server string, kind string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugin-status/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListPluginsRequest generates requests for ListPlugins
+func NewListPluginsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugins")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewTogglePluginRequest calls the generic TogglePlugin builder with application/json body
+func NewTogglePluginRequest(server string, kind string, name string, body TogglePluginJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewTogglePluginRequestWithBody(server, kind, name, "application/json", bodyReader)
+}
+
+// NewTogglePluginRequestWithBody generates requests for TogglePlugin with any type of body
+func NewTogglePluginRequestWithBody(server string, kind string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/plugins/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -7677,8 +8232,41 @@ type ClientWithResponsesInterface interface {
 
 	UpdateChannelWithResponse(ctx context.Context, id string, body UpdateChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateChannelResponse, error)
 
+	// ListManifestPluginsWithResponse request
+	ListManifestPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListManifestPluginsResponse, error)
+
+	// SaveManifestPluginsWithBodyWithResponse request with any body
+	SaveManifestPluginsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SaveManifestPluginsResponse, error)
+
+	SaveManifestPluginsWithResponse(ctx context.Context, body SaveManifestPluginsJSONRequestBody, reqEditors ...RequestEditorFn) (*SaveManifestPluginsResponse, error)
+
+	// SyncManifestPluginsWithResponse request
+	SyncManifestPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncManifestPluginsResponse, error)
+
 	// ListModelsWithResponse request
 	ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error)
+
+	// GetPluginConfigSchemaWithResponse request
+	GetPluginConfigSchemaWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginConfigSchemaResponse, error)
+
+	// GetPluginConfigWithResponse request
+	GetPluginConfigWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginConfigResponse, error)
+
+	// UpdatePluginConfigWithBodyWithResponse request with any body
+	UpdatePluginConfigWithBodyWithResponse(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdatePluginConfigResponse, error)
+
+	UpdatePluginConfigWithResponse(ctx context.Context, kind string, name string, body UpdatePluginConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdatePluginConfigResponse, error)
+
+	// GetPluginStatusWithResponse request
+	GetPluginStatusWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginStatusResponse, error)
+
+	// ListPluginsWithResponse request
+	ListPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPluginsResponse, error)
+
+	// TogglePluginWithBodyWithResponse request with any body
+	TogglePluginWithBodyWithResponse(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TogglePluginResponse, error)
+
+	TogglePluginWithResponse(ctx context.Context, kind string, name string, body TogglePluginJSONRequestBody, reqEditors ...RequestEditorFn) (*TogglePluginResponse, error)
 
 	// ListProviderTypesWithResponse request
 	ListProviderTypesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProviderTypesResponse, error)
@@ -9902,6 +10490,103 @@ func (r UpdateChannelResponse) ContentType() string {
 	return ""
 }
 
+type ListManifestPluginsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.ManifestPlugin
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r ListManifestPluginsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListManifestPluginsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListManifestPluginsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SaveManifestPluginsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.ManifestPlugin
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r SaveManifestPluginsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SaveManifestPluginsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SaveManifestPluginsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SyncManifestPluginsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r SyncManifestPluginsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SyncManifestPluginsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SyncManifestPluginsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListModelsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9927,6 +10612,201 @@ func (r ListModelsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetPluginConfigSchemaResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPluginConfigSchemaResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPluginConfigSchemaResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetPluginConfigSchemaResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetPluginConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPluginConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPluginConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetPluginConfigResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdatePluginConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdatePluginConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdatePluginConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdatePluginConfigResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetPluginStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPluginStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPluginStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetPluginStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListPluginsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.PluginView
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r ListPluginsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListPluginsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListPluginsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TogglePluginResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r TogglePluginResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TogglePluginResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TogglePluginResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12255,6 +13135,41 @@ func (c *ClientWithResponses) UpdateChannelWithResponse(ctx context.Context, id 
 	return ParseUpdateChannelResponse(rsp)
 }
 
+// ListManifestPluginsWithResponse request returning *ListManifestPluginsResponse
+func (c *ClientWithResponses) ListManifestPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListManifestPluginsResponse, error) {
+	rsp, err := c.ListManifestPlugins(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListManifestPluginsResponse(rsp)
+}
+
+// SaveManifestPluginsWithBodyWithResponse request with arbitrary body returning *SaveManifestPluginsResponse
+func (c *ClientWithResponses) SaveManifestPluginsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SaveManifestPluginsResponse, error) {
+	rsp, err := c.SaveManifestPluginsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSaveManifestPluginsResponse(rsp)
+}
+
+func (c *ClientWithResponses) SaveManifestPluginsWithResponse(ctx context.Context, body SaveManifestPluginsJSONRequestBody, reqEditors ...RequestEditorFn) (*SaveManifestPluginsResponse, error) {
+	rsp, err := c.SaveManifestPlugins(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSaveManifestPluginsResponse(rsp)
+}
+
+// SyncManifestPluginsWithResponse request returning *SyncManifestPluginsResponse
+func (c *ClientWithResponses) SyncManifestPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncManifestPluginsResponse, error) {
+	rsp, err := c.SyncManifestPlugins(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSyncManifestPluginsResponse(rsp)
+}
+
 // ListModelsWithResponse request returning *ListModelsResponse
 func (c *ClientWithResponses) ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error) {
 	rsp, err := c.ListModels(ctx, reqEditors...)
@@ -12262,6 +13177,76 @@ func (c *ClientWithResponses) ListModelsWithResponse(ctx context.Context, reqEdi
 		return nil, err
 	}
 	return ParseListModelsResponse(rsp)
+}
+
+// GetPluginConfigSchemaWithResponse request returning *GetPluginConfigSchemaResponse
+func (c *ClientWithResponses) GetPluginConfigSchemaWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginConfigSchemaResponse, error) {
+	rsp, err := c.GetPluginConfigSchema(ctx, kind, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPluginConfigSchemaResponse(rsp)
+}
+
+// GetPluginConfigWithResponse request returning *GetPluginConfigResponse
+func (c *ClientWithResponses) GetPluginConfigWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginConfigResponse, error) {
+	rsp, err := c.GetPluginConfig(ctx, kind, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPluginConfigResponse(rsp)
+}
+
+// UpdatePluginConfigWithBodyWithResponse request with arbitrary body returning *UpdatePluginConfigResponse
+func (c *ClientWithResponses) UpdatePluginConfigWithBodyWithResponse(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdatePluginConfigResponse, error) {
+	rsp, err := c.UpdatePluginConfigWithBody(ctx, kind, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdatePluginConfigResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdatePluginConfigWithResponse(ctx context.Context, kind string, name string, body UpdatePluginConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdatePluginConfigResponse, error) {
+	rsp, err := c.UpdatePluginConfig(ctx, kind, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdatePluginConfigResponse(rsp)
+}
+
+// GetPluginStatusWithResponse request returning *GetPluginStatusResponse
+func (c *ClientWithResponses) GetPluginStatusWithResponse(ctx context.Context, kind string, name string, reqEditors ...RequestEditorFn) (*GetPluginStatusResponse, error) {
+	rsp, err := c.GetPluginStatus(ctx, kind, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPluginStatusResponse(rsp)
+}
+
+// ListPluginsWithResponse request returning *ListPluginsResponse
+func (c *ClientWithResponses) ListPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListPluginsResponse, error) {
+	rsp, err := c.ListPlugins(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListPluginsResponse(rsp)
+}
+
+// TogglePluginWithBodyWithResponse request with arbitrary body returning *TogglePluginResponse
+func (c *ClientWithResponses) TogglePluginWithBodyWithResponse(ctx context.Context, kind string, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TogglePluginResponse, error) {
+	rsp, err := c.TogglePluginWithBody(ctx, kind, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTogglePluginResponse(rsp)
+}
+
+func (c *ClientWithResponses) TogglePluginWithResponse(ctx context.Context, kind string, name string, body TogglePluginJSONRequestBody, reqEditors ...RequestEditorFn) (*TogglePluginResponse, error) {
+	rsp, err := c.TogglePlugin(ctx, kind, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTogglePluginResponse(rsp)
 }
 
 // ListProviderTypesWithResponse request returning *ListProviderTypesResponse
@@ -15472,6 +16457,133 @@ func ParseUpdateChannelResponse(rsp *http.Response) (*UpdateChannelResponse, err
 	return response, nil
 }
 
+// ParseListManifestPluginsResponse parses an HTTP response from a ListManifestPluginsWithResponse call
+func ParseListManifestPluginsResponse(rsp *http.Response) (*ListManifestPluginsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListManifestPluginsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.ManifestPlugin
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSaveManifestPluginsResponse parses an HTTP response from a SaveManifestPluginsWithResponse call
+func ParseSaveManifestPluginsResponse(rsp *http.Response) (*SaveManifestPluginsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SaveManifestPluginsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.ManifestPlugin
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSyncManifestPluginsResponse parses an HTTP response from a SyncManifestPluginsWithResponse call
+func ParseSyncManifestPluginsResponse(rsp *http.Response) (*SyncManifestPluginsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SyncManifestPluginsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListModelsResponse parses an HTTP response from a ListModelsWithResponse call
 func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -15499,6 +16611,267 @@ func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetPluginConfigSchemaResponse parses an HTTP response from a GetPluginConfigSchemaWithResponse call
+func ParseGetPluginConfigSchemaResponse(rsp *http.Response) (*GetPluginConfigSchemaResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPluginConfigSchemaResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetPluginConfigResponse parses an HTTP response from a GetPluginConfigWithResponse call
+func ParseGetPluginConfigResponse(rsp *http.Response) (*GetPluginConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPluginConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdatePluginConfigResponse parses an HTTP response from a UpdatePluginConfigWithResponse call
+func ParseUpdatePluginConfigResponse(rsp *http.Response) (*UpdatePluginConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdatePluginConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetPluginStatusResponse parses an HTTP response from a GetPluginStatusWithResponse call
+func ParseGetPluginStatusResponse(rsp *http.Response) (*GetPluginStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPluginStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListPluginsResponse parses an HTTP response from a ListPluginsWithResponse call
+func ParseListPluginsResponse(rsp *http.Response) (*ListPluginsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListPluginsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.PluginView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTogglePluginResponse parses an HTTP response from a TogglePluginWithResponse call
+func ParseTogglePluginResponse(rsp *http.Response) (*TogglePluginResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TogglePluginResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 

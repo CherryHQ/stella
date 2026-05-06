@@ -27,7 +27,10 @@ func loadMergedManifest() (*manifestplugins.Manifest, error) {
 	return manifestplugins.Merge(builtin, user), nil
 }
 
-func (s *Server) listManifestPlugins(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	merged, err := loadMergedManifest()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -36,7 +39,10 @@ func (s *Server) listManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, merged.Plugins)
 }
 
-func (s *Server) saveManifestPlugins(w http.ResponseWriter, r *http.Request) {
+func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	var req struct {
 		Plugins []manifestplugins.ManifestPlugin `json:"plugins"`
 	}
@@ -80,7 +86,10 @@ func (s *Server) saveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, merged.Plugins)
 }
 
-func (s *Server) syncManifestPlugins(w http.ResponseWriter, r *http.Request) {
+func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	merged, err := loadMergedManifest()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

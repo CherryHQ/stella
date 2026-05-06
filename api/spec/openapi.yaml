@@ -45,6 +45,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: auth
+  - name: plugins
 paths:
   # ── Auth ───────────────────────────────────────────────────────────────────
   /api/auth/register:
@@ -216,6 +217,21 @@ paths:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
   /api/scheduler/jobs/{id}/runs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
+  # ── Plugins ────────────────────────────────────────────────────────────────
+  /api/plugins:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugins'
+  /api/plugins/{kind}/{name}:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}'
+  /api/plugin-status/{kind}/{name}:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-status~1{kind}~1{name}'
+  /api/plugin-config/{kind}/{name}:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-config~1{kind}~1{name}'
+  /api/plugin-config-schema/{kind}/{name}:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-config-schema~1{kind}~1{name}'
+  /api/manifest-plugins:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins'
+  /api/manifest-plugins/sync:
+    $ref: './domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync'
 components:
   securitySchemes:
     BearerAuth:
@@ -310,3 +326,7 @@ components:
     RegisterRequest:            { $ref: './components.yaml#/components/schemas/RegisterRequest' }
     AuthResponse:               { $ref: './components.yaml#/components/schemas/AuthResponse' }
     MeResponse:                 { $ref: './components.yaml#/components/schemas/MeResponse' }
+    PluginView:                 { $ref: './components.yaml#/components/schemas/PluginView' }
+    TogglePluginRequest:        { $ref: './components.yaml#/components/schemas/TogglePluginRequest' }
+    UpdatePluginConfigRequest:  { $ref: './components.yaml#/components/schemas/UpdatePluginConfigRequest' }
+    ManifestPlugin:             { $ref: './components.yaml#/components/schemas/ManifestPlugin' }

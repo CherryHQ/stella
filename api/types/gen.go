@@ -487,6 +487,9 @@ type LoginRequest struct {
 	Username string `json:"username"`
 }
 
+// ManifestPlugin defines model for ManifestPlugin.
+type ManifestPlugin map[string]interface{}
+
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
 	Id       int64  `json:"id"`
@@ -518,6 +521,24 @@ type OAuthProviderStatus struct {
 	Provider    string  `json:"provider"`
 	Unavailable *string `json:"unavailable,omitempty"`
 	Username    *string `json:"username,omitempty"`
+}
+
+// PluginView defines model for PluginView.
+type PluginView struct {
+	AdminVisible *bool                   `json:"admin_visible,omitempty"`
+	Capabilities *[]string               `json:"capabilities,omitempty"`
+	Config       *map[string]interface{} `json:"config,omitempty"`
+	Description  *string                 `json:"description,omitempty"`
+	DisplayName  *string                 `json:"display_name,omitempty"`
+	Enabled      *bool                   `json:"enabled,omitempty"`
+	HasConfig    *bool                   `json:"has_config,omitempty"`
+	HasStatus    *bool                   `json:"has_status,omitempty"`
+	Id           *string                 `json:"id,omitempty"`
+	Kind         *string                 `json:"kind,omitempty"`
+	Managed      *bool                   `json:"managed,omitempty"`
+	Name         *string                 `json:"name,omitempty"`
+	Persisted    *bool                   `json:"persisted,omitempty"`
+	PersistedId  *string                 `json:"persisted_id,omitempty"`
 }
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
@@ -729,6 +750,11 @@ type TagCount struct {
 	Tag   string `json:"tag"`
 }
 
+// TogglePluginRequest defines model for TogglePluginRequest.
+type TogglePluginRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 // Tool defines model for Tool.
 type Tool struct {
 	Category    string                  `json:"category"`
@@ -792,6 +818,11 @@ type UpdateFeedRequest struct {
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest struct {
 	NotifyIdentityId *int64 `json:"notify_identity_id,omitempty"`
+}
+
+// UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
+type UpdatePluginConfigRequest struct {
+	Config *map[string]interface{} `json:"config,omitempty"`
 }
 
 // UpdateRoleRequest defines model for UpdateRoleRequest.

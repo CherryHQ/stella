@@ -10,13 +10,11 @@ import (
 func (s *Server) registerRoutes() {
 	s.registerStaticRoutes()
 	s.registerPageRoutes()
-	s.registerPluginRoutes()
-	s.registerManifestPluginRoutes()
 	s.registerAPIRoutes()
 }
 
-// registerAPIRoutes mounts the generated recally + scheduler REST API onto the
-// admin mux. Auth is enforced by the global authMiddleware (Bearer + session).
+// registerAPIRoutes mounts all REST API routes onto the admin mux.
+// Auth is enforced by the global authMiddleware (Bearer + session).
 func (s *Server) registerAPIRoutes() {
 	apiserver.HandlerFromMux(s, s.mux)
 }
@@ -39,25 +37,4 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 	s.mux.HandleFunc("GET /account", s.pageAccount)
 	s.mux.HandleFunc("GET /credentials", s.pageCredentials)
-}
-
-func (s *Server) registerPluginRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
-	s.mux.Handle("GET /api/plugin-status/{kind}/{name}", adminAPI(s.getPluginStatus))
-	s.mux.Handle("GET /api/plugin-config/{kind}/{name}", adminAPI(s.getPluginConfig))
-	s.mux.Handle("GET /api/plugin-config-schema/{kind}/{name}", adminAPI(s.getPluginConfigSchema))
-	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
-	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
-}
-
-func (s *Server) registerManifestPluginRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("GET /api/manifest-plugins", adminAPI(s.listManifestPlugins))
-	s.mux.Handle("PUT /api/manifest-plugins", adminAPI(s.saveManifestPlugins))
-	s.mux.Handle("POST /api/manifest-plugins/sync", adminAPI(s.syncManifestPlugins))
 }
