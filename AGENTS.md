@@ -35,7 +35,7 @@ Workflow:
 - Do not run Go tests with `-race` locally by default.
 - Use `mise run test` and `mise run test:coverage` locally.
 - Reserve race-enabled runs for CI.
-- Before committing, run `mise run format`.
+- **Before committing, run `mise run format` and `mise run test`.**
 - Use emoji-prefixed conventional commits such as `✨ feat:` and `🐛 fix:`.
 
 ## Documentation
