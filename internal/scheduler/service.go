@@ -22,6 +22,9 @@ import (
 // it as a hard failure.
 var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
+// errJobAlreadyRunning is returned by RunJobNow when the job has an active run.
+var errJobAlreadyRunning = errors.New("job already has a run in progress")
+
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
 
@@ -518,6 +521,9 @@ func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
 }
 
 // executeJobForAllUsers fans out a job to every active user.
+// Sub-runs execute sequentially so that removeOneTimeJob fires only after all
+// users have finished. Caller is typically a goroutine, so long fan-outs don't
+// block the scheduler.
 func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime bool) {
 	s.mu.Lock()
 	fn := s.listActiveUsers
@@ -616,9 +622,10 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID int64, i
 	}
 }
 
-// RunJobNow triggers an immediate execution of the given job.
-// It runs asynchronously. For ExecScopeAllUsers jobs, all user sub-runs are launched.
-// Returns the first run ID created (empty for all_users fan-out).
+// RunJobNow triggers an immediate execution of the given job asynchronously.
+// For ExecScopeAllUsers jobs all user sub-runs are launched; no run ID is returned.
+// For other scopes, returns the run ID of the newly created run record.
+// Returns errJobAlreadyRunning (wrapped) if a run is already active for the job.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Lock()
 	job, ok := s.jobs[jobID]
@@ -627,14 +634,6 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	if !ok {
 		return "", fmt.Errorf("job %q not found", jobID)
-	}
-
-	count, err := s.q.CountRunningSchedJobRuns(ctx, jobID)
-	if err != nil {
-		return "", fmt.Errorf("check running runs: %w", err)
-	}
-	if count > 0 {
-		return "", fmt.Errorf("job %q already has a run in progress", jobID)
 	}
 
 	if job.ExecScope == ExecScopeAllUsers {
@@ -649,7 +648,11 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	runID := uuid.New().String()[:8]
 	startedAt := time.Now().UTC()
 
-	if err := s.createJobRun(ctx, runID, jobID, sessionID, job.UserID, startedAt); err != nil {
+	// Atomically check for an existing active run and create the new record.
+	if err := s.tryStartJobRun(ctx, runID, jobID, sessionID, job.UserID, startedAt); err != nil {
+		if errors.Is(err, errJobAlreadyRunning) {
+			return "", fmt.Errorf("job %q already has a run in progress", jobID)
+		}
 		return "", fmt.Errorf("create run record: %w", err)
 	}
 

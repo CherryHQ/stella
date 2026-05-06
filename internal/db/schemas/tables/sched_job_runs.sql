@@ -1,5 +1,5 @@
 CREATE TABLE sched_job_runs (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL PRIMARY KEY,
     job_id TEXT NOT NULL REFERENCES sched_jobs(id) ON DELETE CASCADE,
     session_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'running',

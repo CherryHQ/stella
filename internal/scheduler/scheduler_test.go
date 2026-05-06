@@ -783,3 +783,172 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 		t.Errorf("ListJobs: got %d, want 1", len(jobs))
 	}
 }
+
+func TestRunJobNow_SingleRun(t *testing.T) {
+	svc := testService(t)
+
+	var fired []string
+	var mu sync.Mutex
+	svc.SetOnJob(func(_ context.Context, job Job) error {
+		mu.Lock()
+		fired = append(fired, job.ID)
+		mu.Unlock()
+		return nil
+	})
+
+	job, err := svc.AddJob("run-now-test", "hello", Schedule{Every: "24h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	runID, err := svc.RunJobNow(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("RunJobNow: %v", err)
+	}
+	if runID == "" {
+		t.Fatal("RunJobNow: expected non-empty run ID")
+	}
+
+	// Wait for the async goroutine to finish.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(fired)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(fired) != 1 || fired[0] != job.ID {
+		t.Errorf("callback fired for %v, want [%s]", fired, job.ID)
+	}
+
+	runs, err := svc.ListJobRuns(context.Background(), job.ID, 10)
+	if err != nil {
+		t.Fatalf("ListJobRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("ListJobRuns: got %d runs, want 1", len(runs))
+	}
+	if runs[0].Status != RunStatusSuccess {
+		t.Errorf("run status = %q, want %q", runs[0].Status, RunStatusSuccess)
+	}
+}
+
+func TestRunJobNow_PreventsConcurrentRun(t *testing.T) {
+	svc := testService(t)
+
+	// Slow job so we can attempt a second trigger while it's still running.
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	svc.SetOnJob(func(_ context.Context, _ Job) error {
+		close(started)
+		<-unblock
+		return nil
+	})
+
+	job, err := svc.AddJob("concurrent-test", "block", Schedule{Every: "24h"}, SessionReuse)
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+
+	runID, err := svc.RunJobNow(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("first RunJobNow: %v", err)
+	}
+	if runID == "" {
+		t.Fatal("first RunJobNow: expected non-empty run ID")
+	}
+
+	// Wait until the job has actually started (run record is in DB).
+	<-started
+
+	_, err = svc.RunJobNow(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("second RunJobNow: expected error, got nil")
+	}
+
+	close(unblock)
+}
+
+func TestRunJobNow_NotFound(t *testing.T) {
+	svc := testService(t)
+	_, err := svc.RunJobNow(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for unknown job ID")
+	}
+}
+
+func TestRunJobNow_AllUsers(t *testing.T) {
+	svc := testService(t)
+
+	var calledWith []int64
+	var mu sync.Mutex
+	svc.SetOnJob(func(_ context.Context, job Job) error {
+		mu.Lock()
+		calledWith = append(calledWith, job.UserID)
+		mu.Unlock()
+		return nil
+	})
+	svc.SetListActiveUsersFunc(func(_ context.Context) ([]int64, error) {
+		return []int64{1, 2}, nil
+	})
+
+	job, err := svc.EnsureJob("all-users-test", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers)
+	if err != nil {
+		t.Fatalf("EnsureJob: %v", err)
+	}
+
+	runID, err := svc.RunJobNow(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("RunJobNow: %v", err)
+	}
+	if runID != "" {
+		t.Errorf("RunJobNow all_users: expected empty run ID, got %q", runID)
+	}
+
+	// Wait for async fan-out.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(calledWith)
+		mu.Unlock()
+		if n >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calledWith) != 2 {
+		t.Fatalf("callback called %d times, want 2", len(calledWith))
+	}
+}
+
+func TestExecuteJobForAllUsers_NoListFunc(t *testing.T) {
+	svc := testService(t)
+
+	var called int
+	svc.SetOnJob(func(_ context.Context, _ Job) error {
+		called++
+		return nil
+	})
+	// Intentionally do NOT call SetListActiveUsersFunc.
+
+	job, err := svc.EnsureJob("no-list-func", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers)
+	if err != nil {
+		t.Fatalf("EnsureJob: %v", err)
+	}
+
+	// Should not panic; the missing func is logged and skipped.
+	svc.executeJobForAllUsers(context.Background(), job, false)
+
+	if called != 0 {
+		t.Errorf("onJob called %d times, want 0", called)
+	}
+}

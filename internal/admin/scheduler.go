@@ -14,6 +14,8 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 )
 
+const adminDBTimeLayout = "2006-01-02 15:04:05"
+
 // schedulerJobJSON is the JSON representation for scheduler jobs.
 type schedulerJobJSON struct {
 	ID          string         `json:"id"`
@@ -103,7 +105,7 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		enabled = 1
 	}
 
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC().Format(adminDBTimeLayout)
 	_, err := s.q.CreateSchedulerJob(r.Context(), sqlc.CreateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     scheduler.JobOwnerUser,
@@ -209,7 +211,7 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: body.AgentID, Valid: body.AgentID != ""},
 		UserID:        sql.NullInt64{Int64: body.UserID, Valid: body.UserID != 0},
-		UpdatedAt:     time.Now().UTC().Format("2006-01-02 15:04:05"),
+		UpdatedAt:     time.Now().UTC().Format(adminDBTimeLayout),
 		LastRunAt:     existing.LastRunAt,
 		LastError:     existing.LastError,
 	})
@@ -376,10 +378,11 @@ func (s *Server) triggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusAccepted, map[string]string{
-		"run_id": runID,
-		"status": "running",
-	})
+	resp := map[string]string{"status": "triggered"}
+	if runID != "" {
+		resp["run_id"] = runID
+	}
+	writeData(w, http.StatusAccepted, resp)
 }
 
 func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
@@ -393,8 +396,11 @@ func (s *Server) listSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	info := UserFromContext(r.Context())
 	if info != nil && !info.IsAdmin {
+		// Non-admin: block plugin jobs, system jobs (no user_id), and other users' jobs.
 		if existing.OwnerKind == scheduler.JobOwnerPlugin ||
-			(existing.UserID.Valid && existing.UserID.Int64 != info.UserID) {
+			existing.OwnerKind == scheduler.JobOwnerSystem ||
+			!existing.UserID.Valid ||
+			existing.UserID.Int64 != info.UserID {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -437,8 +443,8 @@ func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
 	}
 	if row.FinishedAt.Valid {
 		j.FinishedAt = row.FinishedAt.String
-		startedAt, err1 := time.Parse("2006-01-02 15:04:05", row.StartedAt)
-		finishedAt, err2 := time.Parse("2006-01-02 15:04:05", row.FinishedAt.String)
+		startedAt, err1 := time.Parse(adminDBTimeLayout, row.StartedAt)
+		finishedAt, err2 := time.Parse(adminDBTimeLayout, row.FinishedAt.String)
 		if err1 == nil && err2 == nil {
 			j.Duration = finishedAt.Sub(startedAt).Truncate(time.Second).String()
 		}
