@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: anna API Components
   version: "1"
-  description: Assembled from api/spec/components/common.yaml + api/domains/*/schemas.yaml — DO NOT EDIT
+  description: Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT
 paths: {}
 components:
   securitySchemes:

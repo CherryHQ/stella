@@ -52,16 +52,14 @@ When behavior, APIs, config, commands, or architecture change:
 
 Every new HTTP API must follow this workflow:
 
-1. Add or update the schema in `api/spec/components/<domain>.yaml` (domain source of truth).
-2. Add the endpoint paths in the appropriate sub-spec:
-   - `api/spec/recally.yaml` — recally articles/feeds/digest endpoints
-   - `api/spec/scheduler.yaml` — scheduler job endpoints
+1. Add or update the schema in `api/spec/domain/<domain>/schemas.yaml` (domain source of truth).
+2. Add endpoint paths in `api/spec/domain/<domain>/paths.yaml`.
 3. Add the path `$ref` to `api/spec/openapi.yaml`.
 4. Run `mise run generate:api` to regenerate:
    - `api/spec/components.yaml` — assembled from domain files (DO NOT EDIT)
-   - `api/types/types.gen.go` — shared API types (`package apitypes`)
-   - `api/server/gen.go` — server interface + routing (`package apiserver`, types are aliases to `apitypes`)
-   - `api/client/gen.go` — HTTP client (`package apiclient`, types are aliases to `apitypes`)
+   - `api/types/gen.go` — shared API types (`package types`)
+   - `api/server/gen.go` — server interface + routing (`package server`, types are aliases to `types`)
+   - `api/client/gen.go` — HTTP client (`package client`, types are aliases to `types`)
 5. Implement the new method on `*Server` in `internal/admin/` (it must satisfy `apiserver.ServerInterface`).
 6. Never hand-write server routing for recally/scheduler — it comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
 
@@ -71,17 +69,17 @@ See `api/CLAUDE.md` for the full spec layout and domain file conventions.
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `api/types/types.gen.go` | `apitypes` | All API data types (single copy, no duplication) |
-| `api/server/gen.go` | `apiserver` | `ServerInterface` + `HandlerFromMux` + type aliases to `apitypes` |
-| `api/client/gen.go` | `apiclient` | HTTP client methods + type aliases to `apitypes` |
+| `api/types/gen.go` | `types` | All API data types (single copy, no duplication) |
+| `api/server/gen.go` | `server` | `ServerInterface` + `HandlerFromMux` + type aliases to `types` |
+| `api/client/gen.go` | `client` | HTTP client methods + type aliases to `types` |
 
 **Codegen configs** live in `api/codegen/{types,server,client}.yaml`.
 
 **Key rules:**
-- Edit domain files in `api/spec/components/` — never edit `api/spec/components.yaml` directly.
-- Sub-specs (`recally.yaml`, `scheduler.yaml`) reference `./components.yaml` for all schemas.
-- Enum constants (e.g. `FeedEntryStatusSaved`) live in `apitypes`, not in `apiserver`/`apiclient`.
-  Import `apitypes` directly when you need them.
+- Edit domain files in `api/spec/domain/<domain>/` — never edit `api/spec/components.yaml` directly.
+- Domain path files reference `../../components.yaml` for all schemas.
+- Enum constants (e.g. `FeedEntryStatusSaved`) live in `types`, not in `server`/`client`.
+  Import `api/types` directly when you need them.
 
 ## Releases
 

@@ -5,19 +5,18 @@ info:
     Full REST API for anna. This is the aggregated entry point; individual
     feature specs live in sub-files:
 
-    - Recally (reading assistant): api/recally.yaml  (paths → ./components.yaml)
-    - Scheduler (job scheduling):  api/scheduler.yaml (paths → ./components.yaml)
+    - Recally (reading assistant): api/spec/domain/recally/paths.yaml
+    - Scheduler (job scheduling):  api/spec/domain/scheduler/paths.yaml
 
     Schema source of truth (human-edited, domain-organized):
-      api/components/common.yaml    — security schemes, shared responses
-      api/components/recally.yaml   — Article, Feed, Digest, FeedEntry schemas
-      api/components/scheduler.yaml — Job, JobInput, DeleteResult schemas
+      api/spec/components/common.yaml    — security schemes, shared responses
+      api/spec/domain/<domain>/schemas.yaml — domain schemas
 
-    api/components.yaml is ASSEMBLED from the above by `mise run generate:api`.
-    Do not hand-edit api/components.yaml.
+    api/spec/components.yaml is ASSEMBLED from the above by `mise run generate:api`.
+    Do not hand-edit api/spec/components.yaml.
 
     Go code is generated via configs in api/codegen/:
-      - api/types/types.gen.go  — from api/components.yaml
+      - api/types/gen.go  — from api/spec/components.yaml
       - api/server/gen.go       — from this file
       - api/client/gen.go       — from this file
     See the `generate:api` task in mise.toml.
@@ -36,30 +35,30 @@ tags:
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1articles'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles'
   /api/recally/articles/{id}:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}'
   /api/recally/feeds:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds'
   /api/recally/feeds/{id}:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}'
   /api/recally/feeds/{id}/poll:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
   /api/recally/feeds/{feedId}/entries:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
   /api/recally/feeds/{feedId}/entries/{id}:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
   /api/recally/digest:
-    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1digest'
+    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1digest'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
-    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
   /api/scheduler/jobs/{id}:
-    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
   /api/scheduler/jobs/{id}/run:
-    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
   /api/scheduler/jobs/{id}/runs:
-    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
+    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
 components:
   securitySchemes:
     BearerAuth:
