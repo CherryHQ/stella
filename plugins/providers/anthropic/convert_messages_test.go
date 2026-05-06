@@ -285,6 +285,25 @@ func TestToolResultBlockBasic(t *testing.T) {
 	}
 }
 
+func TestAssistantContentBlocksToolCallNilArgs(t *testing.T) {
+	// A tool call with nil Arguments must produce an empty-object input, not null,
+	// or the Anthropic API returns 400 on the next turn.
+	content := []ai.ContentBlock{
+		ai.ToolCall{ID: "t1", Name: "bash", Arguments: nil},
+	}
+	blocks := assistantContentBlocks(content)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	tu := blocks[0].OfToolUse
+	if tu == nil {
+		t.Fatal("expected OfToolUse block")
+	}
+	if tu.Input == nil {
+		t.Error("input must not be nil (would serialize as JSON null and trigger 400)")
+	}
+}
+
 func TestToolResultBlockEmpty(t *testing.T) {
 	m := ai.ToolResultMessage{
 		ToolCallID: "t1",
