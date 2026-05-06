@@ -13,6 +13,16 @@ const (
 	SessionNew = "new"
 )
 
+// ExecScope constants define how a job runs at execution time.
+const (
+	// ExecScopeSystem runs once with no user context (system workspace).
+	ExecScopeSystem = "system"
+	// ExecScopeUser runs once with a specific user's context (UserID must be set).
+	ExecScopeUser = "user"
+	// ExecScopeAllUsers fans out: runs once per active user, each with that user's context.
+	ExecScopeAllUsers = "all_users"
+)
+
 // Schedule defines when a job runs. Exactly one field must be set.
 type Schedule struct {
 	Cron  string `json:"cron,omitempty"`  // "0 9 * * 1-5"
@@ -24,11 +34,13 @@ type Schedule struct {
 const (
 	JobOwnerUser   = "user"
 	JobOwnerPlugin = "plugin"
+	JobOwnerSystem = "system"
 )
 
 type Job struct {
 	ID          string         `json:"id"`
 	OwnerKind   string         `json:"owner_kind,omitempty"`
+	ExecScope   string         `json:"exec_scope,omitempty"`
 	PluginID    string         `json:"plugin_id,omitempty"`
 	JobKey      string         `json:"job_key,omitempty"`
 	RuntimeName string         `json:"runtime_name,omitempty"`
@@ -57,6 +69,7 @@ type JobRun struct {
 	ID         string     `json:"id"`
 	JobID      string     `json:"job_id"`
 	SessionID  string     `json:"session_id"`
+	UserID     int64      `json:"user_id,omitempty"`
 	Status     string     `json:"status"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
@@ -76,16 +89,28 @@ func RunSessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// SessionID returns the session identifier for this job execution.
-// Includes agent_id prefix when set for proper scoping.
-// In "reuse" mode, the ID is stable across executions. In "new" mode,
-// a timestamp suffix ensures each execution gets a fresh session.
+// SessionID returns the stable session identifier for system or single-user job executions.
+// For all_users fan-out runs, use UserSessionID instead.
 func (j Job) SessionID() string {
 	prefix := "scheduler"
 	if j.AgentID != "" {
 		prefix = j.AgentID + ":" + prefix
 	}
 	base := prefix + ":" + j.ID
+	if j.SessionMode == SessionNew {
+		return fmt.Sprintf("%s:%d", base, time.Now().UnixNano())
+	}
+	return base
+}
+
+// UserSessionID returns a user-scoped session ID for all_users fan-out sub-runs.
+// In reuse mode the ID is stable per user; in new mode a timestamp suffix ensures freshness.
+func (j Job) UserSessionID(userID int64) string {
+	prefix := "scheduler"
+	if j.AgentID != "" {
+		prefix = j.AgentID + ":" + prefix
+	}
+	base := fmt.Sprintf("%s:%s:u%d", prefix, j.ID, userID)
 	if j.SessionMode == SessionNew {
 		return fmt.Sprintf("%s:%d", base, time.Now().UnixNano())
 	}

@@ -227,15 +227,20 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	if s.schedulerSvc != nil {
-		s.schedulerSvc.EnsureBuiltinJobs()
-		if users, err := as.ListUsers(ctx); err == nil {
-			agentID := s.pool.AgentID()
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]int64, error) {
+			users, err := as.ListUsers(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]int64, 0, len(users))
 			for _, u := range users {
 				if u.IsActive {
-					s.schedulerSvc.EnsureUserBuiltinJobs(u.ID, agentID)
+					ids = append(ids, u.ID)
 				}
 			}
-		}
+			return ids, nil
+		})
+		s.schedulerSvc.EnsureBuiltinJobs()
 	}
 
 	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {

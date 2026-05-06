@@ -148,6 +148,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 	return sqlc.CreateSchedulerJobParams{
 		ID:            job.ID,
 		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		ExecScope:     normalizeExecScope(job.ExecScope),
 		PluginID:      job.PluginID,
 		JobKey:        job.JobKey,
 		RuntimeName:   job.RuntimeName,
@@ -180,6 +181,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 	}
 	return sqlc.UpdateSchedulerJobParams{
 		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		ExecScope:     normalizeExecScope(job.ExecScope),
 		PluginID:      job.PluginID,
 		JobKey:        job.JobKey,
 		RuntimeName:   job.RuntimeName,
@@ -207,6 +209,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 	j := Job{
 		ID:          r.ID,
 		OwnerKind:   normalizeOwnerKind(r.OwnerKind),
+		ExecScope:   normalizeExecScope(r.ExecScope),
 		PluginID:    r.PluginID,
 		JobKey:      r.JobKey,
 		RuntimeName: r.RuntimeName,
@@ -240,10 +243,25 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 }
 
 func normalizeOwnerKind(kind string) string {
-	if kind == JobOwnerPlugin {
+	switch kind {
+	case JobOwnerPlugin:
 		return JobOwnerPlugin
+	case JobOwnerSystem:
+		return JobOwnerSystem
+	default:
+		return JobOwnerUser
 	}
-	return JobOwnerUser
+}
+
+func normalizeExecScope(scope string) string {
+	switch scope {
+	case ExecScopeSystem:
+		return ExecScopeSystem
+	case ExecScopeAllUsers:
+		return ExecScopeAllUsers
+	default:
+		return ExecScopeUser
+	}
 }
 
 func encodePayload(payload map[string]any) string {
@@ -278,13 +296,14 @@ func nullableTime(t *time.Time) sql.NullString {
 	return sql.NullString{String: t.UTC().Format("2006-01-02 15:04:05"), Valid: true}
 }
 
-func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, startedAt time.Time) error {
+func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, userID int64, startedAt time.Time) error {
 	_, err := s.q.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
 		ID:        id,
 		JobID:     jobID,
 		SessionID: sessionID,
 		Status:    RunStatusRunning,
 		StartedAt: startedAt.UTC().Format("2006-01-02 15:04:05"),
+		UserID:    sql.NullInt64{Int64: userID, Valid: userID != 0},
 	})
 	return err
 }
@@ -307,6 +326,9 @@ func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
 		Status:    r.Status,
 		StartedAt: startedAt,
 		Error:     r.Error,
+	}
+	if r.UserID.Valid {
+		run.UserID = r.UserID.Int64
 	}
 	if r.FinishedAt.Valid {
 		if parsed, err := time.Parse("2006-01-02 15:04:05", r.FinishedAt.String); err == nil {

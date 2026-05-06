@@ -18,6 +18,7 @@ import (
 type schedulerJobJSON struct {
 	ID          string         `json:"id"`
 	OwnerKind   string         `json:"owner_kind,omitempty"`
+	ExecScope   string         `json:"exec_scope,omitempty"`
 	PluginID    string         `json:"plugin_id,omitempty"`
 	JobKey      string         `json:"job_key,omitempty"`
 	RuntimeName string         `json:"runtime_name,omitempty"`
@@ -86,6 +87,16 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		body.UserID = info.UserID
 	}
 
+	// Infer exec_scope from user_id when not explicitly set.
+	execScope := body.ExecScope
+	if execScope == "" {
+		if body.UserID > 0 {
+			execScope = scheduler.ExecScopeUser
+		} else {
+			execScope = scheduler.ExecScopeSystem
+		}
+	}
+
 	id := generateShortID()
 	enabled := int64(0)
 	if body.Enabled {
@@ -96,6 +107,7 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	_, err := s.q.CreateSchedulerJob(r.Context(), sqlc.CreateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     scheduler.JobOwnerUser,
+		ExecScope:     execScope,
 		PluginID:      "",
 		JobKey:        "",
 		RuntimeName:   "",
@@ -182,6 +194,7 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
 		ID:            id,
 		OwnerKind:     existing.OwnerKind,
+		ExecScope:     existing.ExecScope,
 		PluginID:      existing.PluginID,
 		JobKey:        existing.JobKey,
 		RuntimeName:   existing.RuntimeName,
@@ -243,6 +256,7 @@ func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
 	j := schedulerJobJSON{
 		ID:          row.ID,
 		OwnerKind:   row.OwnerKind,
+		ExecScope:   row.ExecScope,
 		PluginID:    row.PluginID,
 		JobKey:      row.JobKey,
 		RuntimeName: row.RuntimeName,
@@ -322,6 +336,7 @@ type jobRunJSON struct {
 	ID         string `json:"id"`
 	JobID      string `json:"job_id"`
 	SessionID  string `json:"session_id"`
+	UserID     int64  `json:"user_id,omitempty"`
 	Status     string `json:"status"`
 	StartedAt  string `json:"started_at"`
 	FinishedAt string `json:"finished_at,omitempty"`
@@ -416,6 +431,9 @@ func dbRowToJobRunJSON(row sqlc.SchedJobRun) jobRunJSON {
 		Status:    row.Status,
 		StartedAt: row.StartedAt,
 		Error:     row.Error,
+	}
+	if row.UserID.Valid {
+		j.UserID = row.UserID.Int64
 	}
 	if row.FinishedAt.Valid {
 		j.FinishedAt = row.FinishedAt.String

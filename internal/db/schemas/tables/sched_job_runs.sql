@@ -5,7 +5,8 @@ CREATE TABLE sched_job_runs (
     status TEXT NOT NULL DEFAULT 'running',
     started_at TEXT NOT NULL DEFAULT (datetime('now')),
     finished_at TEXT,
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    user_id INTEGER
 );
 
 CREATE INDEX idx_sched_job_runs_job_id ON sched_job_runs(job_id, started_at DESC);
