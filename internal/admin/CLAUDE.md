@@ -27,7 +27,6 @@ Each page is a **server-rendered route** (not SPA). Alpine.js handles client-sid
 internal/admin/
 ├── server.go           # Route registration, middleware (CORS, JSON content-type)
 ├── render.go           # Page handlers — thin wrappers calling templ Layout().Render()
-├── embed.go            # //go:embed ui/static — serves JS files at GET /static/*
 ├── models.go           # GET /api/models — reads from models cache (no live API calls)
 ├── agents.go           # API handlers (unchanged CRUD)
 ├── channels.go         # ...
@@ -36,43 +35,47 @@ internal/admin/
 ├── sessions.go         # ...
 ├── tools.go            # ...
 ├── users.go            # ...
-├── server_test.go      # API + page route tests
-└── ui/
-    ├── layout.templ        # HTML shell: CDN links, terra theme, Alpine ESM init, content slot
-    ├── navbar.templ        # Nav links, theme switcher, status indicator
-    ├── components.templ    # Shared: PageHeader, EmptyState, Badge, FormField
-    ├── pages/
-    │   ├── providers.templ # One templ file per page
-    │   ├── agents.templ
-    │   ├── channels.templ
-    │   ├── users.templ
-    │   ├── sessions.templ
-    │   └── scheduler.templ
-    └── static/js/
-        ├── api.js              # ESM: fetch wrapper — api(method, path, body)
-        ├── utils.js            # ESM: formatTime() helper
-        ├── stores/
-        │   ├── toast.js        # Alpine.store('toast') — global notifications
-        │   └── theme.js        # Alpine.store('theme') — theme persistence
-        └── pages/
-            ├── providers.js    # Alpine.data('providersPage') — one JS module per page
-            ├── agents.js
-            ├── channels.js
-            ├── users.js
-            ├── sessions.js
-            └── scheduler.js
+└── server_test.go      # API + page route tests
+
+web/                        # Top-level web UI package (github.com/vaayne/anna/web)
+├── embed.go                # //go:embed static — serves JS files at GET /static/*
+├── layout.templ            # HTML shell: CDN links, terra theme, Alpine ESM init, content slot
+├── navbar.templ            # Nav links, theme switcher, status indicator
+├── components.templ        # Shared: PageHeader, EmptyState, Badge, FormField
+├── loginlayout.templ       # Login-page layout (no navbar)
+├── skills_drawer.templ     # Skills drawer component
+├── pages/
+│   ├── providers.templ     # One templ file per page
+│   ├── agents.templ
+│   ├── channels.templ
+│   ├── users.templ
+│   ├── sessions.templ
+│   └── scheduler.templ
+└── static/js/
+    ├── api.js              # ESM: fetch wrapper — api(method, path, body)
+    ├── utils.js            # ESM: formatTime() helper
+    ├── stores/
+    │   ├── toast.js        # Alpine.store('toast') — global notifications
+    │   └── theme.js        # Alpine.store('theme') — theme persistence
+    └── pages/
+        ├── providers.js    # Alpine.data('providersPage') — one JS module per page
+        ├── agents.js
+        ├── channels.js
+        ├── users.js
+        ├── sessions.js
+        └── scheduler.js
 ```
 
 ### Key Patterns
 
 **Adding a new page:**
 
-1. Create `ui/pages/mypage.templ` (package `pages`, use `ui.PageHeader`, `ui.FormField`, etc.)
-2. Create `ui/static/js/pages/mypage.js` (ESM, export `register(Alpine)` → `Alpine.data('mypagePage', ...)`)
+1. Create `web/pages/mypage.templ` (package `pages`, use `@web.PageHeader`, `@web.FormField`, etc.)
+2. Create `web/static/js/pages/mypage.js` (ESM, export `register(Alpine)` → `Alpine.data('mypagePage', ...)`)
 3. Add handler in `render.go`: `func (s *Server) pageMypage(...) { renderPage(w, r, "mypage", "/static/js/pages/mypage.js", pages.MypagePage()) }`
 4. Add route in `server.go`: `s.mux.HandleFunc("GET /mypage", s.pageMypage)`
-5. Add nav link in `navbar.templ`: append to `navItems` slice
-6. Run `templ generate` (or `mise run generate`)
+5. Add nav link in `web/navbar.templ`: append to `navItems` slice
+6. Run `mise run generate`
 
 **templ + Alpine.js conventions:**
 
@@ -82,7 +85,7 @@ internal/admin/
 - Toast: `this.$store.toast.show('Saved')` or `this.$store.toast.show(err.message, 'error')`
 - Theme: `$store.theme.set('terra')` — persists to localStorage, sets `data-theme` on `<html>`
 
-**Alpine ESM loading (layout.templ):**
+**Alpine ESM loading (web/layout.templ):**
 
 ```
 import Alpine from esm.sh → register stores → dynamic import page module → Alpine.start()
@@ -102,7 +105,7 @@ Page script path injected via `<meta name="page-script">` tag, read by the init 
 
 **Custom terra theme:**
 
-Defined via CSS custom properties `[data-theme="terra"]` in `layout.templ`. Colors mapped from the terra/warm palette. Switchable to any of 32+ built-in daisyUI themes via the navbar theme picker.
+Defined via CSS custom properties `[data-theme="terra"]` in `web/layout.templ`. Colors mapped from the terra/warm palette. Switchable to any of 32+ built-in daisyUI themes via the navbar theme picker.
 
 ### API Conventions
 
@@ -122,7 +125,7 @@ anna --open                 # Start admin panel at localhost:8080
 ### Rules
 
 - All frontend deps via CDN — never add package.json or npm
-- templ files: `package ui` for layout/components, `package pages` for page templates
+- templ files: `package web` for layout/components (in `web/`), `package pages` for page templates (in `web/pages/`)
 - JS files: ESM modules with `import`/`export`, no bundler
 - Each page JS exports `register(Alpine)` function
 - Keep templ files under 300 lines — split into sub-components if needed
