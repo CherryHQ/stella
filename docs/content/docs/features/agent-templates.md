@@ -45,6 +45,20 @@ Sub-agent presets describe tool-restricted workers for the `agent` delegation to
 
 Shipped sub-agents: `coder`, `researcher`, `reviewer`, `writer`.
 
+### Preset front-matter fields
+
+| Field         | Type     | Description                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `name`        | string   | Required. Unique preset identifier used in `agent` tool calls.                              |
+| `description` | string   | Required. Human-readable description shown in the preset list.                              |
+| `model`       | string   | Optional model override (e.g. `claude-haiku-4-5-20251001`). Defaults to parent model.       |
+| `tools`       | string[] | Optional explicit tool allowlist. Omit to inherit all parent tools; use `[]` for no tools.  |
+| `timeout`     | duration | Wall-clock deadline for this preset's runs (e.g. `30m`, `1h`). Overrides the global `runner.subagent_timeout`. |
+
+The markdown body below the front-matter becomes the subagent's additional system prompt.
+
+Each subagent run is also bounded by a fixed internal turn limit (50 turns) that is not configurable. Use `timeout` to cap long-running tasks by wall-clock time instead.
+
 ## Skills
 
 Every skill synced into the database with `scope='system'` is available to every agent automatically.

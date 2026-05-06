@@ -45,6 +45,20 @@ Sub-agent 预设定义了 `agent` 委派工具使用的受限工作者（调研�
 
 附带的 sub-agent：`coder`、`researcher`、`reviewer`、`writer`。
 
+### 预设 front-matter 字段
+
+| 字段          | 类型     | 描述                                                                                                   |
+| ------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `name`        | string   | 必填。唯一预设标识符，在 `agent` 工具调用中使用。                                                      |
+| `description` | string   | 必填。显示在预设列表中的可读描述。                                                                     |
+| `model`       | string   | 可选的模型覆盖（如 `claude-haiku-4-5-20251001`），默认继承父 agent 模型。                              |
+| `tools`       | string[] | 可选的工具白名单。省略则继承所有父工具；填写 `[]` 表示无工具。                                         |
+| `timeout`     | duration | 该预设每次运行的挂钟超时（如 `30m`、`1h`），覆盖全局 `runner.subagent_timeout` 设置。                  |
+
+front-matter 下方的 Markdown 正文将作为子 agent 的附加系统提示。
+
+每次子 agent 运行还受到一个固定的内部轮次上限（50 轮）约束，该限制不可配置。如需限制长时间运行的任务，请使用 `timeout` 字段按挂钟时间设置上限。
+
 ## Skill
 
 所有同步到数据库且 `scope='system'` 的技能，都会自动对所有 agent 可用。
