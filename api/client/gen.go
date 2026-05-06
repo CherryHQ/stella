@@ -61,6 +61,9 @@ type BuiltinResourceDetail = externalRef0.BuiltinResourceDetail
 // CachedModel defines model for CachedModel.
 type CachedModel = externalRef0.CachedModel
 
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest = externalRef0.ChangePasswordRequest
+
 // Channel defines model for Channel.
 type Channel = externalRef0.Channel
 
@@ -118,6 +121,9 @@ type FeedPollResult = externalRef0.FeedPollResult
 // FetchModelsRequest defines model for FetchModelsRequest.
 type FetchModelsRequest = externalRef0.FetchModelsRequest
 
+// GenerateLinkCodeRequest defines model for GenerateLinkCodeRequest.
+type GenerateLinkCodeRequest = externalRef0.GenerateLinkCodeRequest
+
 // GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
 type GlobalInstallSkillRequest = externalRef0.GlobalInstallSkillRequest
 
@@ -135,6 +141,18 @@ type JobInput = externalRef0.JobInput
 
 // JobList defines model for JobList.
 type JobList = externalRef0.JobList
+
+// LinkCodeResponse defines model for LinkCodeResponse.
+type LinkCodeResponse = externalRef0.LinkCodeResponse
+
+// OAuthConnectedResponse defines model for OAuthConnectedResponse.
+type OAuthConnectedResponse = externalRef0.OAuthConnectedResponse
+
+// OAuthFlowStatus defines model for OAuthFlowStatus.
+type OAuthFlowStatus = externalRef0.OAuthFlowStatus
+
+// OAuthProviderStatus defines model for OAuthProviderStatus.
+type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
 type ProfileInstallSkillRequest = externalRef0.ProfileInstallSkillRequest
@@ -180,6 +198,12 @@ type SessionDetail = externalRef0.SessionDetail
 
 // SetMemoryRequest defines model for SetMemoryRequest.
 type SetMemoryRequest = externalRef0.SetMemoryRequest
+
+// SetSoulRequest defines model for SetSoulRequest.
+type SetSoulRequest = externalRef0.SetSoulRequest
+
+// SetVaultEntryRequest defines model for SetVaultEntryRequest.
+type SetVaultEntryRequest = externalRef0.SetVaultEntryRequest
 
 // Skill defines model for Skill.
 type Skill = externalRef0.Skill
@@ -241,6 +265,9 @@ type UpdateSkillRequest = externalRef0.UpdateSkillRequest
 // UserMemory defines model for UserMemory.
 type UserMemory = externalRef0.UserMemory
 
+// VaultEntry defines model for VaultEntry.
+type VaultEntry = externalRef0.VaultEntry
+
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode = externalRef0.WeixinQRCode
 
@@ -253,6 +280,12 @@ type bearerAuthContextKey string
 // UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
 type UploadAgentSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
+}
+
+// OauthCallbackParams defines parameters for OauthCallback.
+type OauthCallbackParams struct {
+	Code  string `form:"code" json:"code"`
+	State string `form:"state" json:"state"`
 }
 
 // UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
@@ -365,6 +398,15 @@ type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
+// GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
+type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
+
+// SetProfileMemoryJSONRequestBody defines body for SetProfileMemory for application/json ContentType.
+type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
+
 // InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
 type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
 
@@ -373,6 +415,12 @@ type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
 
 // UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
 type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+
+// SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
+type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
+
+// SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
+type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
 
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
@@ -577,6 +625,51 @@ type ClientInterface interface {
 	// RemoveAgentUser request
 	RemoveAgentUser(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListProfileIdentities request
+	ListProfileIdentities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UnlinkProfileIdentity request
+	UnlinkProfileIdentity(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GenerateLinkCodeWithBody request with any body
+	GenerateLinkCodeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	GenerateLinkCode(ctx context.Context, body GenerateLinkCodeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProfileMemories request
+	ListProfileMemories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteProfileMemory request
+	DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetProfileMemoryWithBody request with any body
+	SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListOAuthProviders request
+	ListOAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DisconnectOAuth request
+	DisconnectOAuth(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OauthCallback request
+	OauthCallback(ctx context.Context, provider string, params *OauthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetOAuthConnected request
+	GetOAuthConnected(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartOAuthFlow request
+	StartOAuthFlow(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PollOAuthFlow request
+	PollOAuthFlow(ctx context.Context, provider string, flowID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangePasswordWithBody request with any body
+	ChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListProfileSkills request
 	ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -604,6 +697,22 @@ type ClientInterface interface {
 
 	// GetProfileSkillFile request
 	GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetProfileSoulWithBody request with any body
+	SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVaultEntries request
+	ListVaultEntries(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteVaultEntry request
+	DeleteVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetVaultEntryWithBody request with any body
+	SetVaultEntryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetVaultEntry(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAuthUsers request
 	ListAuthUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1117,6 +1226,198 @@ func (c *Client) RemoveAgentUser(ctx context.Context, id string, userId int64, r
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListProfileIdentities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProfileIdentitiesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UnlinkProfileIdentity(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUnlinkProfileIdentityRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GenerateLinkCodeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGenerateLinkCodeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GenerateLinkCode(ctx context.Context, body GenerateLinkCodeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGenerateLinkCodeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListProfileMemories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProfileMemoriesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProfileMemoryRequest(c.Server, agentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequestWithBody(c.Server, agentId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequest(c.Server, agentId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListOAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListOAuthProvidersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DisconnectOAuth(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDisconnectOAuthRequest(c.Server, provider)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OauthCallback(ctx context.Context, provider string, params *OauthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOauthCallbackRequest(c.Server, provider, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetOAuthConnected(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOAuthConnectedRequest(c.Server, provider)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartOAuthFlow(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOAuthFlowRequest(c.Server, provider)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PollOAuthFlow(ctx context.Context, provider string, flowID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPollOAuthFlowRequest(c.Server, provider, flowID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangePasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangePasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProfileSkillsRequest(c.Server)
 	if err != nil {
@@ -1227,6 +1528,78 @@ func (c *Client) DeleteProfileSkillFile(ctx context.Context, skillId string, par
 
 func (c *Client) GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetProfileSkillFileRequest(c.Server, skillId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequestWithBody(c.Server, agentId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequest(c.Server, agentId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListVaultEntries(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVaultEntriesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteVaultEntryRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetVaultEntryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetVaultEntryRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetVaultEntry(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetVaultEntryRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2997,6 +3370,490 @@ func NewRemoveAgentUserRequest(server string, id string, userId int64) (*http.Re
 	return req, nil
 }
 
+// NewListProfileIdentitiesRequest generates requests for ListProfileIdentities
+func NewListProfileIdentitiesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/identities")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUnlinkProfileIdentityRequest generates requests for UnlinkProfileIdentity
+func NewUnlinkProfileIdentityRequest(server string, id int64) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/identities/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGenerateLinkCodeRequest calls the generic GenerateLinkCode builder with application/json body
+func NewGenerateLinkCodeRequest(server string, body GenerateLinkCodeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewGenerateLinkCodeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewGenerateLinkCodeRequestWithBody generates requests for GenerateLinkCode with any type of body
+func NewGenerateLinkCodeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/link-code")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListProfileMemoriesRequest generates requests for ListProfileMemories
+func NewListProfileMemoriesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/memories")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteProfileMemoryRequest generates requests for DeleteProfileMemory
+func NewDeleteProfileMemoryRequest(server string, agentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/memories/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetProfileMemoryRequest calls the generic SetProfileMemory builder with application/json body
+func NewSetProfileMemoryRequest(server string, agentId string, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetProfileMemoryRequestWithBody(server, agentId, "application/json", bodyReader)
+}
+
+// NewSetProfileMemoryRequestWithBody generates requests for SetProfileMemory with any type of body
+func NewSetProfileMemoryRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/memories/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListOAuthProvidersRequest generates requests for ListOAuthProviders
+func NewListOAuthProvidersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/providers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDisconnectOAuthRequest generates requests for DisconnectOAuth
+func NewDisconnectOAuthRequest(server string, provider string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewOauthCallbackRequest generates requests for OauthCallback
+func NewOauthCallbackRequest(server string, provider string, params *OauthCallbackParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/%s/callback", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "code", params.Code, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetOAuthConnectedRequest generates requests for GetOAuthConnected
+func NewGetOAuthConnectedRequest(server string, provider string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/%s/connected", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStartOAuthFlowRequest generates requests for StartOAuthFlow
+func NewStartOAuthFlowRequest(server string, provider string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/%s/start", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPollOAuthFlowRequest generates requests for PollOAuthFlow
+func NewPollOAuthFlowRequest(server string, provider string, flowID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "flowID", flowID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/oauth/%s/status/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewChangePasswordRequest calls the generic ChangePassword builder with application/json body
+func NewChangePasswordRequest(server string, body ChangePasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangePasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewChangePasswordRequestWithBody generates requests for ChangePassword with any type of body
+func NewChangePasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListProfileSkillsRequest generates requests for ListProfileSkills
 func NewListProfileSkillsRequest(server string) (*http.Request, error) {
 	var err error
@@ -3318,6 +4175,161 @@ func NewGetProfileSkillFileRequest(server string, skillId string, params *GetPro
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewSetProfileSoulRequest calls the generic SetProfileSoul builder with application/json body
+func NewSetProfileSoulRequest(server string, agentId string, body SetProfileSoulJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetProfileSoulRequestWithBody(server, agentId, "application/json", bodyReader)
+}
+
+// NewSetProfileSoulRequestWithBody generates requests for SetProfileSoul with any type of body
+func NewSetProfileSoulRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/soul/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListVaultEntriesRequest generates requests for ListVaultEntries
+func NewListVaultEntriesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/vault")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteVaultEntryRequest generates requests for DeleteVaultEntry
+func NewDeleteVaultEntryRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/vault/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetVaultEntryRequest calls the generic SetVaultEntry builder with application/json body
+func NewSetVaultEntryRequest(server string, name string, body SetVaultEntryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetVaultEntryRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewSetVaultEntryRequestWithBody generates requests for SetVaultEntry with any type of body
+func NewSetVaultEntryRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/vault/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -6259,6 +7271,51 @@ type ClientWithResponsesInterface interface {
 	// RemoveAgentUserWithResponse request
 	RemoveAgentUserWithResponse(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error)
 
+	// ListProfileIdentitiesWithResponse request
+	ListProfileIdentitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileIdentitiesResponse, error)
+
+	// UnlinkProfileIdentityWithResponse request
+	UnlinkProfileIdentityWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error)
+
+	// GenerateLinkCodeWithBodyWithResponse request with any body
+	GenerateLinkCodeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GenerateLinkCodeResponse, error)
+
+	GenerateLinkCodeWithResponse(ctx context.Context, body GenerateLinkCodeJSONRequestBody, reqEditors ...RequestEditorFn) (*GenerateLinkCodeResponse, error)
+
+	// ListProfileMemoriesWithResponse request
+	ListProfileMemoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileMemoriesResponse, error)
+
+	// DeleteProfileMemoryWithResponse request
+	DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error)
+
+	// SetProfileMemoryWithBodyWithResponse request with any body
+	SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+
+	SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+
+	// ListOAuthProvidersWithResponse request
+	ListOAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOAuthProvidersResponse, error)
+
+	// DisconnectOAuthWithResponse request
+	DisconnectOAuthWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*DisconnectOAuthResponse, error)
+
+	// OauthCallbackWithResponse request
+	OauthCallbackWithResponse(ctx context.Context, provider string, params *OauthCallbackParams, reqEditors ...RequestEditorFn) (*OauthCallbackResponse, error)
+
+	// GetOAuthConnectedWithResponse request
+	GetOAuthConnectedWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*GetOAuthConnectedResponse, error)
+
+	// StartOAuthFlowWithResponse request
+	StartOAuthFlowWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*StartOAuthFlowResponse, error)
+
+	// PollOAuthFlowWithResponse request
+	PollOAuthFlowWithResponse(ctx context.Context, provider string, flowID string, reqEditors ...RequestEditorFn) (*PollOAuthFlowResponse, error)
+
+	// ChangePasswordWithBodyWithResponse request with any body
+	ChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
+
+	ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
+
 	// ListProfileSkillsWithResponse request
 	ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error)
 
@@ -6286,6 +7343,22 @@ type ClientWithResponsesInterface interface {
 
 	// GetProfileSkillFileWithResponse request
 	GetProfileSkillFileWithResponse(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*GetProfileSkillFileResponse, error)
+
+	// SetProfileSoulWithBodyWithResponse request with any body
+	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+
+	SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+
+	// ListVaultEntriesWithResponse request
+	ListVaultEntriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVaultEntriesResponse, error)
+
+	// DeleteVaultEntryWithResponse request
+	DeleteVaultEntryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteVaultEntryResponse, error)
+
+	// SetVaultEntryWithBodyWithResponse request with any body
+	SetVaultEntryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error)
+
+	SetVaultEntryWithResponse(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error)
 
 	// ListAuthUsersWithResponse request
 	ListAuthUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthUsersResponse, error)
@@ -7092,6 +8165,416 @@ func (r RemoveAgentUserResponse) ContentType() string {
 	return ""
 }
 
+type ListProfileIdentitiesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.Identity
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProfileIdentitiesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProfileIdentitiesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProfileIdentitiesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UnlinkProfileIdentityResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UnlinkProfileIdentityResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UnlinkProfileIdentityResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UnlinkProfileIdentityResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GenerateLinkCodeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.LinkCodeResponse
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r GenerateLinkCodeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GenerateLinkCodeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GenerateLinkCodeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProfileMemoriesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.UserMemory
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProfileMemoriesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProfileMemoriesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProfileMemoriesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteProfileMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteProfileMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteProfileMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteProfileMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetProfileMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r SetProfileMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetProfileMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetProfileMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListOAuthProvidersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.OAuthProviderStatus
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListOAuthProvidersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListOAuthProvidersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListOAuthProvidersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DisconnectOAuthResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r DisconnectOAuthResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DisconnectOAuthResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DisconnectOAuthResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OauthCallbackResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r OauthCallbackResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OauthCallbackResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OauthCallbackResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetOAuthConnectedResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OAuthConnectedResponse
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r GetOAuthConnectedResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetOAuthConnectedResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetOAuthConnectedResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartOAuthFlowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OAuthFlowStatus
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r StartOAuthFlowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartOAuthFlowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartOAuthFlowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PollOAuthFlowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OAuthFlowStatus
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r PollOAuthFlowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PollOAuthFlowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PollOAuthFlowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangePasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangePasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangePasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangePasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListProfileSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7350,6 +8833,130 @@ func (r GetProfileSkillFileResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetProfileSkillFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetProfileSoulResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *map[string]interface{}
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r SetProfileSoulResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetProfileSoulResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetProfileSoulResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListVaultEntriesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.VaultEntry
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVaultEntriesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVaultEntriesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVaultEntriesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteVaultEntryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteVaultEntryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteVaultEntryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteVaultEntryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetVaultEntryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r SetVaultEntryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetVaultEntryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetVaultEntryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -9738,6 +11345,147 @@ func (c *ClientWithResponses) RemoveAgentUserWithResponse(ctx context.Context, i
 	return ParseRemoveAgentUserResponse(rsp)
 }
 
+// ListProfileIdentitiesWithResponse request returning *ListProfileIdentitiesResponse
+func (c *ClientWithResponses) ListProfileIdentitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileIdentitiesResponse, error) {
+	rsp, err := c.ListProfileIdentities(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProfileIdentitiesResponse(rsp)
+}
+
+// UnlinkProfileIdentityWithResponse request returning *UnlinkProfileIdentityResponse
+func (c *ClientWithResponses) UnlinkProfileIdentityWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error) {
+	rsp, err := c.UnlinkProfileIdentity(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnlinkProfileIdentityResponse(rsp)
+}
+
+// GenerateLinkCodeWithBodyWithResponse request with arbitrary body returning *GenerateLinkCodeResponse
+func (c *ClientWithResponses) GenerateLinkCodeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GenerateLinkCodeResponse, error) {
+	rsp, err := c.GenerateLinkCodeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGenerateLinkCodeResponse(rsp)
+}
+
+func (c *ClientWithResponses) GenerateLinkCodeWithResponse(ctx context.Context, body GenerateLinkCodeJSONRequestBody, reqEditors ...RequestEditorFn) (*GenerateLinkCodeResponse, error) {
+	rsp, err := c.GenerateLinkCode(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGenerateLinkCodeResponse(rsp)
+}
+
+// ListProfileMemoriesWithResponse request returning *ListProfileMemoriesResponse
+func (c *ClientWithResponses) ListProfileMemoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileMemoriesResponse, error) {
+	rsp, err := c.ListProfileMemories(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProfileMemoriesResponse(rsp)
+}
+
+// DeleteProfileMemoryWithResponse request returning *DeleteProfileMemoryResponse
+func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error) {
+	rsp, err := c.DeleteProfileMemory(ctx, agentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteProfileMemoryResponse(rsp)
+}
+
+// SetProfileMemoryWithBodyWithResponse request with arbitrary body returning *SetProfileMemoryResponse
+func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemoryWithBody(ctx, agentId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProfileMemoryResponse(rsp)
+}
+
+func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemory(ctx, agentId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProfileMemoryResponse(rsp)
+}
+
+// ListOAuthProvidersWithResponse request returning *ListOAuthProvidersResponse
+func (c *ClientWithResponses) ListOAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOAuthProvidersResponse, error) {
+	rsp, err := c.ListOAuthProviders(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListOAuthProvidersResponse(rsp)
+}
+
+// DisconnectOAuthWithResponse request returning *DisconnectOAuthResponse
+func (c *ClientWithResponses) DisconnectOAuthWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*DisconnectOAuthResponse, error) {
+	rsp, err := c.DisconnectOAuth(ctx, provider, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDisconnectOAuthResponse(rsp)
+}
+
+// OauthCallbackWithResponse request returning *OauthCallbackResponse
+func (c *ClientWithResponses) OauthCallbackWithResponse(ctx context.Context, provider string, params *OauthCallbackParams, reqEditors ...RequestEditorFn) (*OauthCallbackResponse, error) {
+	rsp, err := c.OauthCallback(ctx, provider, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOauthCallbackResponse(rsp)
+}
+
+// GetOAuthConnectedWithResponse request returning *GetOAuthConnectedResponse
+func (c *ClientWithResponses) GetOAuthConnectedWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*GetOAuthConnectedResponse, error) {
+	rsp, err := c.GetOAuthConnected(ctx, provider, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetOAuthConnectedResponse(rsp)
+}
+
+// StartOAuthFlowWithResponse request returning *StartOAuthFlowResponse
+func (c *ClientWithResponses) StartOAuthFlowWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*StartOAuthFlowResponse, error) {
+	rsp, err := c.StartOAuthFlow(ctx, provider, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOAuthFlowResponse(rsp)
+}
+
+// PollOAuthFlowWithResponse request returning *PollOAuthFlowResponse
+func (c *ClientWithResponses) PollOAuthFlowWithResponse(ctx context.Context, provider string, flowID string, reqEditors ...RequestEditorFn) (*PollOAuthFlowResponse, error) {
+	rsp, err := c.PollOAuthFlow(ctx, provider, flowID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePollOAuthFlowResponse(rsp)
+}
+
+// ChangePasswordWithBodyWithResponse request with arbitrary body returning *ChangePasswordResponse
+func (c *ClientWithResponses) ChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error) {
+	rsp, err := c.ChangePasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangePasswordResponse(rsp)
+}
+
+func (c *ClientWithResponses) ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error) {
+	rsp, err := c.ChangePassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangePasswordResponse(rsp)
+}
+
 // ListProfileSkillsWithResponse request returning *ListProfileSkillsResponse
 func (c *ClientWithResponses) ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error) {
 	rsp, err := c.ListProfileSkills(ctx, reqEditors...)
@@ -9824,6 +11572,58 @@ func (c *ClientWithResponses) GetProfileSkillFileWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseGetProfileSkillFileResponse(rsp)
+}
+
+// SetProfileSoulWithBodyWithResponse request with arbitrary body returning *SetProfileSoulResponse
+func (c *ClientWithResponses) SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoulWithBody(ctx, agentId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProfileSoulResponse(rsp)
+}
+
+func (c *ClientWithResponses) SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoul(ctx, agentId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProfileSoulResponse(rsp)
+}
+
+// ListVaultEntriesWithResponse request returning *ListVaultEntriesResponse
+func (c *ClientWithResponses) ListVaultEntriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVaultEntriesResponse, error) {
+	rsp, err := c.ListVaultEntries(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVaultEntriesResponse(rsp)
+}
+
+// DeleteVaultEntryWithResponse request returning *DeleteVaultEntryResponse
+func (c *ClientWithResponses) DeleteVaultEntryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteVaultEntryResponse, error) {
+	rsp, err := c.DeleteVaultEntry(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteVaultEntryResponse(rsp)
+}
+
+// SetVaultEntryWithBodyWithResponse request with arbitrary body returning *SetVaultEntryResponse
+func (c *ClientWithResponses) SetVaultEntryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error) {
+	rsp, err := c.SetVaultEntryWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetVaultEntryResponse(rsp)
+}
+
+func (c *ClientWithResponses) SetVaultEntryWithResponse(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error) {
+	rsp, err := c.SetVaultEntry(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetVaultEntryResponse(rsp)
 }
 
 // ListAuthUsersWithResponse request returning *ListAuthUsersResponse
@@ -11384,6 +13184,481 @@ func ParseRemoveAgentUserResponse(rsp *http.Response) (*RemoveAgentUserResponse,
 	return response, nil
 }
 
+// ParseListProfileIdentitiesResponse parses an HTTP response from a ListProfileIdentitiesWithResponse call
+func ParseListProfileIdentitiesResponse(rsp *http.Response) (*ListProfileIdentitiesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProfileIdentitiesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.Identity
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUnlinkProfileIdentityResponse parses an HTTP response from a UnlinkProfileIdentityWithResponse call
+func ParseUnlinkProfileIdentityResponse(rsp *http.Response) (*UnlinkProfileIdentityResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UnlinkProfileIdentityResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGenerateLinkCodeResponse parses an HTTP response from a GenerateLinkCodeWithResponse call
+func ParseGenerateLinkCodeResponse(rsp *http.Response) (*GenerateLinkCodeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GenerateLinkCodeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.LinkCodeResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListProfileMemoriesResponse parses an HTTP response from a ListProfileMemoriesWithResponse call
+func ParseListProfileMemoriesResponse(rsp *http.Response) (*ListProfileMemoriesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProfileMemoriesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.UserMemory
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteProfileMemoryResponse parses an HTTP response from a DeleteProfileMemoryWithResponse call
+func ParseDeleteProfileMemoryResponse(rsp *http.Response) (*DeleteProfileMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteProfileMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetProfileMemoryResponse parses an HTTP response from a SetProfileMemoryWithResponse call
+func ParseSetProfileMemoryResponse(rsp *http.Response) (*SetProfileMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetProfileMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListOAuthProvidersResponse parses an HTTP response from a ListOAuthProvidersWithResponse call
+func ParseListOAuthProvidersResponse(rsp *http.Response) (*ListOAuthProvidersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListOAuthProvidersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.OAuthProviderStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDisconnectOAuthResponse parses an HTTP response from a DisconnectOAuthWithResponse call
+func ParseDisconnectOAuthResponse(rsp *http.Response) (*DisconnectOAuthResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DisconnectOAuthResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOauthCallbackResponse parses an HTTP response from a OauthCallbackWithResponse call
+func ParseOauthCallbackResponse(rsp *http.Response) (*OauthCallbackResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OauthCallbackResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetOAuthConnectedResponse parses an HTTP response from a GetOAuthConnectedWithResponse call
+func ParseGetOAuthConnectedResponse(rsp *http.Response) (*GetOAuthConnectedResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetOAuthConnectedResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OAuthConnectedResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartOAuthFlowResponse parses an HTTP response from a StartOAuthFlowWithResponse call
+func ParseStartOAuthFlowResponse(rsp *http.Response) (*StartOAuthFlowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartOAuthFlowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OAuthFlowStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePollOAuthFlowResponse parses an HTTP response from a PollOAuthFlowWithResponse call
+func ParsePollOAuthFlowResponse(rsp *http.Response) (*PollOAuthFlowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PollOAuthFlowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OAuthFlowStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangePasswordResponse parses an HTTP response from a ChangePasswordWithResponse call
+func ParseChangePasswordResponse(rsp *http.Response) (*ChangePasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangePasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProfileSkillsResponse parses an HTTP response from a ListProfileSkillsWithResponse call
 func ParseListProfileSkillsResponse(rsp *http.Response) (*ListProfileSkillsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11718,6 +13993,138 @@ func ParseGetProfileSkillFileResponse(rsp *http.Response) (*GetProfileSkillFileR
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetProfileSoulResponse parses an HTTP response from a SetProfileSoulWithResponse call
+func ParseSetProfileSoulResponse(rsp *http.Response) (*SetProfileSoulResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetProfileSoulResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListVaultEntriesResponse parses an HTTP response from a ListVaultEntriesWithResponse call
+func ParseListVaultEntriesResponse(rsp *http.Response) (*ListVaultEntriesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVaultEntriesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.VaultEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteVaultEntryResponse parses an HTTP response from a DeleteVaultEntryWithResponse call
+func ParseDeleteVaultEntryResponse(rsp *http.Response) (*DeleteVaultEntryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteVaultEntryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetVaultEntryResponse parses an HTTP response from a SetVaultEntryWithResponse call
+func ParseSetVaultEntryResponse(rsp *http.Response) (*SetVaultEntryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetVaultEntryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
 
 	}
 

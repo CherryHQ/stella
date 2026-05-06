@@ -1,0 +1,281 @@
+paths:
+  # ── Identities ──────────────────────────────────────────────────────────────
+  /api/auth/profile/identities:
+    get:
+      tags: [profile]
+      summary: List linked identities for the current user
+      operationId: listProfileIdentities
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/Identity" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/identities/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    delete:
+      tags: [profile]
+      summary: Unlink an identity from the current user
+      operationId: unlinkProfileIdentity
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/auth/profile/password:
+    put:
+      tags: [profile]
+      summary: Change the current user's password
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/link-code:
+    post:
+      tags: [profile]
+      summary: Generate a short-lived link code for a platform
+      operationId: generateLinkCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/GenerateLinkCodeRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/LinkCodeResponse" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  # ── Memories ────────────────────────────────────────────────────────────────
+  /api/auth/profile/memories:
+    get:
+      tags: [profile]
+      summary: List per-agent memories for the current user
+      operationId: listProfileMemories
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/UserMemory" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/memories/{agentId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [profile]
+      summary: Set the memory for a specific agent
+      operationId: setProfileMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/SetMemoryRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    delete:
+      tags: [profile]
+      summary: Delete the memory for a specific agent
+      operationId: deleteProfileMemory
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  # ── Soul ────────────────────────────────────────────────────────────────────
+  /api/auth/profile/soul/{agentId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [profile]
+      summary: Set the soul for a specific agent
+      operationId: setProfileSoul
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/SetSoulRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  # ── Vault ───────────────────────────────────────────────────────────────────
+  /api/auth/profile/vault:
+    get:
+      tags: [profile]
+      summary: List vault entries for the current user
+      operationId: listVaultEntries
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/VaultEntry" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/vault/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [profile]
+      summary: Create or update a vault entry
+      operationId: setVaultEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest" }
+      responses:
+        "204":
+          description: no content
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    delete:
+      tags: [profile]
+      summary: Delete a vault entry
+      operationId: deleteVaultEntry
+      responses:
+        "204":
+          description: no content
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  # ── OAuth ───────────────────────────────────────────────────────────────────
+  /api/auth/profile/oauth/providers:
+    get:
+      tags: [profile]
+      summary: List OAuth provider statuses for the current user
+      operationId: listOAuthProviders
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/OAuthProviderStatus" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/oauth/{provider}/start:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [profile]
+      summary: Start an OAuth device flow for a provider
+      operationId: startOAuthFlow
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/oauth/{provider}/status/{flowID}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+      - { name: flowID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Poll the status of an OAuth flow
+      operationId: pollOAuthFlow
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/oauth/{provider}/connected:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Check if the current user is connected to an OAuth provider
+      operationId: getOAuthConnected
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/OAuthConnectedResponse" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/oauth/{provider}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [profile]
+      summary: Disconnect an OAuth provider
+      operationId: disconnectOAuth
+      responses:
+        "204":
+          description: no content
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/auth/profile/oauth/{provider}/callback:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: OAuth callback (browser redirect, unauthenticated)
+      operationId: oauthCallback
+      security: []
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        "302":
+          description: redirect on success
+        "400":
+          description: bad request
+        "500":
+          description: internal server error

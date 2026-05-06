@@ -59,6 +59,9 @@ type BuiltinResourceDetail = externalRef0.BuiltinResourceDetail
 // CachedModel defines model for CachedModel.
 type CachedModel = externalRef0.CachedModel
 
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest = externalRef0.ChangePasswordRequest
+
 // Channel defines model for Channel.
 type Channel = externalRef0.Channel
 
@@ -116,6 +119,9 @@ type FeedPollResult = externalRef0.FeedPollResult
 // FetchModelsRequest defines model for FetchModelsRequest.
 type FetchModelsRequest = externalRef0.FetchModelsRequest
 
+// GenerateLinkCodeRequest defines model for GenerateLinkCodeRequest.
+type GenerateLinkCodeRequest = externalRef0.GenerateLinkCodeRequest
+
 // GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
 type GlobalInstallSkillRequest = externalRef0.GlobalInstallSkillRequest
 
@@ -133,6 +139,18 @@ type JobInput = externalRef0.JobInput
 
 // JobList defines model for JobList.
 type JobList = externalRef0.JobList
+
+// LinkCodeResponse defines model for LinkCodeResponse.
+type LinkCodeResponse = externalRef0.LinkCodeResponse
+
+// OAuthConnectedResponse defines model for OAuthConnectedResponse.
+type OAuthConnectedResponse = externalRef0.OAuthConnectedResponse
+
+// OAuthFlowStatus defines model for OAuthFlowStatus.
+type OAuthFlowStatus = externalRef0.OAuthFlowStatus
+
+// OAuthProviderStatus defines model for OAuthProviderStatus.
+type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
 type ProfileInstallSkillRequest = externalRef0.ProfileInstallSkillRequest
@@ -178,6 +196,12 @@ type SessionDetail = externalRef0.SessionDetail
 
 // SetMemoryRequest defines model for SetMemoryRequest.
 type SetMemoryRequest = externalRef0.SetMemoryRequest
+
+// SetSoulRequest defines model for SetSoulRequest.
+type SetSoulRequest = externalRef0.SetSoulRequest
+
+// SetVaultEntryRequest defines model for SetVaultEntryRequest.
+type SetVaultEntryRequest = externalRef0.SetVaultEntryRequest
 
 // Skill defines model for Skill.
 type Skill = externalRef0.Skill
@@ -239,6 +263,9 @@ type UpdateSkillRequest = externalRef0.UpdateSkillRequest
 // UserMemory defines model for UserMemory.
 type UserMemory = externalRef0.UserMemory
 
+// VaultEntry defines model for VaultEntry.
+type VaultEntry = externalRef0.VaultEntry
+
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode = externalRef0.WeixinQRCode
 
@@ -251,6 +278,12 @@ type bearerAuthContextKey string
 // UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
 type UploadAgentSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
+}
+
+// OauthCallbackParams defines parameters for OauthCallback.
+type OauthCallbackParams struct {
+	Code  string `form:"code" json:"code"`
+	State string `form:"state" json:"state"`
 }
 
 // UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
@@ -363,6 +396,15 @@ type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
+// GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
+type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
+
+// SetProfileMemoryJSONRequestBody defines body for SetProfileMemory for application/json ContentType.
+type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
+
 // InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
 type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
 
@@ -371,6 +413,12 @@ type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
 
 // UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
 type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+
+// SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
+type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
+
+// SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
+type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
 
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
@@ -494,6 +542,45 @@ type ServerInterface interface {
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
 	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId int64)
+	// List linked identities for the current user
+	// (GET /api/auth/profile/identities)
+	ListProfileIdentities(w http.ResponseWriter, r *http.Request)
+	// Unlink an identity from the current user
+	// (DELETE /api/auth/profile/identities/{id})
+	UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id int64)
+	// Generate a short-lived link code for a platform
+	// (POST /api/auth/profile/link-code)
+	GenerateLinkCode(w http.ResponseWriter, r *http.Request)
+	// List per-agent memories for the current user
+	// (GET /api/auth/profile/memories)
+	ListProfileMemories(w http.ResponseWriter, r *http.Request)
+	// Delete the memory for a specific agent
+	// (DELETE /api/auth/profile/memories/{agentId})
+	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// Set the memory for a specific agent
+	// (PUT /api/auth/profile/memories/{agentId})
+	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// List OAuth provider statuses for the current user
+	// (GET /api/auth/profile/oauth/providers)
+	ListOAuthProviders(w http.ResponseWriter, r *http.Request)
+	// Disconnect an OAuth provider
+	// (DELETE /api/auth/profile/oauth/{provider})
+	DisconnectOAuth(w http.ResponseWriter, r *http.Request, provider string)
+	// OAuth callback (browser redirect, unauthenticated)
+	// (GET /api/auth/profile/oauth/{provider}/callback)
+	OauthCallback(w http.ResponseWriter, r *http.Request, provider string, params OauthCallbackParams)
+	// Check if the current user is connected to an OAuth provider
+	// (GET /api/auth/profile/oauth/{provider}/connected)
+	GetOAuthConnected(w http.ResponseWriter, r *http.Request, provider string)
+	// Start an OAuth device flow for a provider
+	// (POST /api/auth/profile/oauth/{provider}/start)
+	StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider string)
+	// Poll the status of an OAuth flow
+	// (GET /api/auth/profile/oauth/{provider}/status/{flowID})
+	PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider string, flowID string)
+	// Change the current user's password
+	// (PUT /api/auth/profile/password)
+	ChangePassword(w http.ResponseWriter, r *http.Request)
 	// List profile skills (current user)
 	// (GET /api/auth/profile/skills)
 	ListProfileSkills(w http.ResponseWriter, r *http.Request)
@@ -518,6 +605,18 @@ type ServerInterface interface {
 	// Get a profile skill file
 	// (GET /api/auth/profile/skills/{skillId}/file)
 	GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params GetProfileSkillFileParams)
+	// Set the soul for a specific agent
+	// (PUT /api/auth/profile/soul/{agentId})
+	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId string)
+	// List vault entries for the current user
+	// (GET /api/auth/profile/vault)
+	ListVaultEntries(w http.ResponseWriter, r *http.Request)
+	// Delete a vault entry
+	// (DELETE /api/auth/profile/vault/{name})
+	DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name string)
+	// Create or update a vault entry
+	// (PUT /api/auth/profile/vault/{name})
+	SetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
 	// List all auth users (admin only)
 	// (GET /api/auth/users)
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
@@ -1313,6 +1412,394 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ListProfileIdentities operation middleware
+func (siw *ServerInterfaceWrapper) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfileIdentities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnlinkProfileIdentity operation middleware
+func (siw *ServerInterfaceWrapper) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlinkProfileIdentity(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateLinkCode operation middleware
+func (siw *ServerInterfaceWrapper) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateLinkCode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProfileMemories operation middleware
+func (siw *ServerInterfaceWrapper) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfileMemories(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProfileMemory operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProfileMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProfileMemory(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetProfileMemory operation middleware
+func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetProfileMemory(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOAuthProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectOAuth operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectOAuth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectOAuth(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OauthCallback operation middleware
+func (siw *ServerInterfaceWrapper) OauthCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params OauthCallbackParams
+
+	// ------------- Required query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OauthCallback(w, r, provider, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOAuthConnected operation middleware
+func (siw *ServerInterfaceWrapper) GetOAuthConnected(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOAuthConnected(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOAuthFlow operation middleware
+func (siw *ServerInterfaceWrapper) StartOAuthFlow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOAuthFlow(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PollOAuthFlow operation middleware
+func (siw *ServerInterfaceWrapper) PollOAuthFlow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "flowID" -------------
+	var flowID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "flowID", r.PathValue("flowID"), &flowID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "flowID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PollOAuthFlow(w, r, provider, flowID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangePassword(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProfileSkills operation middleware
 func (siw *ServerInterfaceWrapper) ListProfileSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -1556,6 +2043,122 @@ func (siw *ServerInterfaceWrapper) GetProfileSkillFile(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetProfileSkillFile(w, r, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetProfileSoul operation middleware
+func (siw *ServerInterfaceWrapper) SetProfileSoul(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentId" -------------
+	var agentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetProfileSoul(w, r, agentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVaultEntries operation middleware
+func (siw *ServerInterfaceWrapper) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVaultEntries(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteVaultEntry operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVaultEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteVaultEntry(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetVaultEntry operation middleware
+func (siw *ServerInterfaceWrapper) SetVaultEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetVaultEntry(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3911,6 +4514,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/memories", wrapper.ListProfileMemories)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.DeleteProfileMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.SetProfileMemory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/providers", wrapper.ListOAuthProviders)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}", wrapper.DisconnectOAuth)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/callback", wrapper.OauthCallback)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/connected", wrapper.GetOAuthConnected)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/start", wrapper.StartOAuthFlow)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/status/{flowID}", wrapper.PollOAuthFlow)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills", wrapper.ListProfileSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/install", wrapper.InstallProfileSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/upload", wrapper.UploadProfileSkill)
@@ -3919,6 +4535,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.UpdateProfileSkill)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.DeleteProfileSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.GetProfileSkillFile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentId}", wrapper.SetProfileSoul)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)

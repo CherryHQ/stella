@@ -4,15 +4,15 @@ import (
 	"net/http"
 )
 
-// vaultEntryResponse is the JSON shape returned by listVaultEntries.
+// vaultEntryResponse is the JSON shape returned by ListVaultEntries.
 type vaultEntryResponse struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
-// listVaultEntries handles GET /api/auth/profile/vault.
-func (s *Server) listVaultEntries(w http.ResponseWriter, r *http.Request) {
+// ListVaultEntries handles GET /api/auth/profile/vault.
+func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -42,8 +42,8 @@ func (s *Server) listVaultEntries(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-// setVaultEntry handles PUT /api/auth/profile/vault/{name}.
-func (s *Server) setVaultEntry(w http.ResponseWriter, r *http.Request) {
+// SetVaultEntry handles PUT /api/auth/profile/vault/{name}.
+func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -55,7 +55,6 @@ func (s *Server) setVaultEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
@@ -82,8 +81,8 @@ func (s *Server) setVaultEntry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteVaultEntry handles DELETE /api/auth/profile/vault/{name}.
-func (s *Server) deleteVaultEntry(w http.ResponseWriter, r *http.Request) {
+// DeleteVaultEntry handles DELETE /api/auth/profile/vault/{name}.
+func (s *Server) DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -95,7 +94,6 @@ func (s *Server) deleteVaultEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return

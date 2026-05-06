@@ -197,6 +197,12 @@ type CachedModel struct {
 	Provider string `json:"provider"`
 }
 
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 // Channel defines model for Channel.
 type Channel struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -360,6 +366,11 @@ type FetchModelsRequest struct {
 	BaseUrl *string `json:"base_url,omitempty"`
 }
 
+// GenerateLinkCodeRequest defines model for GenerateLinkCodeRequest.
+type GenerateLinkCodeRequest struct {
+	Platform string `json:"platform"`
+}
+
 // GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
 type GlobalInstallSkillRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -457,6 +468,37 @@ type JobRun struct {
 
 // JobRunList defines model for JobRunList.
 type JobRunList = []JobRun
+
+// LinkCodeResponse defines model for LinkCodeResponse.
+type LinkCodeResponse struct {
+	Code     string `json:"code"`
+	Platform string `json:"platform"`
+}
+
+// OAuthConnectedResponse defines model for OAuthConnectedResponse.
+type OAuthConnectedResponse struct {
+	Connected bool    `json:"connected"`
+	Username  *string `json:"username,omitempty"`
+}
+
+// OAuthFlowStatus defines model for OAuthFlowStatus.
+type OAuthFlowStatus struct {
+	ExpiresAt       string  `json:"expires_at"`
+	FlowId          string  `json:"flow_id"`
+	Provider        string  `json:"provider"`
+	State           string  `json:"state"`
+	UserCode        *string `json:"user_code,omitempty"`
+	VerificationUri string  `json:"verification_uri"`
+}
+
+// OAuthProviderStatus defines model for OAuthProviderStatus.
+type OAuthProviderStatus struct {
+	Available   bool    `json:"available"`
+	Connected   bool    `json:"connected"`
+	Provider    string  `json:"provider"`
+	Unavailable *string `json:"unavailable,omitempty"`
+	Username    *string `json:"username,omitempty"`
+}
 
 // ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
 type ProfileInstallSkillRequest struct {
@@ -589,6 +631,16 @@ type SessionDetail struct {
 // SetMemoryRequest defines model for SetMemoryRequest.
 type SetMemoryRequest struct {
 	Content string `json:"content"`
+}
+
+// SetSoulRequest defines model for SetSoulRequest.
+type SetSoulRequest struct {
+	Soul string `json:"soul"`
+}
+
+// SetVaultEntryRequest defines model for SetVaultEntryRequest.
+type SetVaultEntryRequest struct {
+	Value string `json:"value"`
 }
 
 // Skill defines model for Skill.
@@ -731,6 +783,13 @@ type UpdateSkillRequest struct {
 
 // UserMemory defines model for UserMemory.
 type UserMemory map[string]interface{}
+
+// VaultEntry defines model for VaultEntry.
+type VaultEntry struct {
+	CreatedAt string `json:"created_at"`
+	Name      string `json:"name"`
+	UpdatedAt string `json:"updated_at"`
+}
 
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode struct {

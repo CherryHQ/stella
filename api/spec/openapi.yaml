@@ -43,6 +43,7 @@ tags:
   - name: skills
   - name: users
   - name: auth-users
+  - name: profile
 paths:
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
@@ -165,6 +166,37 @@ paths:
     $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}'
   /api/auth/users/{id}/active:
     $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1active'
+  # ── Profile ────────────────────────────────────────────────────────────────
+  /api/auth/profile/identities:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities'
+  /api/auth/profile/identities/{id}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities~1{id}'
+  /api/auth/profile/password:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1password'
+  /api/auth/profile/link-code:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1link-code'
+  /api/auth/profile/memories:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories'
+  /api/auth/profile/memories/{agentId}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentId}'
+  /api/auth/profile/soul/{agentId}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentId}'
+  /api/auth/profile/vault:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault'
+  /api/auth/profile/vault/{name}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault~1{name}'
+  /api/auth/profile/oauth/providers:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1providers'
+  /api/auth/profile/oauth/{provider}/start:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1start'
+  /api/auth/profile/oauth/{provider}/status/{flowID}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1status~1{flowID}'
+  /api/auth/profile/oauth/{provider}/connected:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1connected'
+  /api/auth/profile/oauth/{provider}:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}'
+  /api/auth/profile/oauth/{provider}/callback:
+    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -255,3 +287,12 @@ components:
     UpdateRoleRequest:          { $ref: './components.yaml#/components/schemas/UpdateRoleRequest' }
     UpdateAgentsRequest:        { $ref: './components.yaml#/components/schemas/UpdateAgentsRequest' }
     UpdateActiveRequest:        { $ref: './components.yaml#/components/schemas/UpdateActiveRequest' }
+    ChangePasswordRequest:      { $ref: './components.yaml#/components/schemas/ChangePasswordRequest' }
+    GenerateLinkCodeRequest:    { $ref: './components.yaml#/components/schemas/GenerateLinkCodeRequest' }
+    LinkCodeResponse:           { $ref: './components.yaml#/components/schemas/LinkCodeResponse' }
+    SetSoulRequest:             { $ref: './components.yaml#/components/schemas/SetSoulRequest' }
+    VaultEntry:                 { $ref: './components.yaml#/components/schemas/VaultEntry' }
+    SetVaultEntryRequest:       { $ref: './components.yaml#/components/schemas/SetVaultEntryRequest' }
+    OAuthProviderStatus:        { $ref: './components.yaml#/components/schemas/OAuthProviderStatus' }
+    OAuthFlowStatus:            { $ref: './components.yaml#/components/schemas/OAuthFlowStatus' }
+    OAuthConnectedResponse:     { $ref: './components.yaml#/components/schemas/OAuthConnectedResponse' }

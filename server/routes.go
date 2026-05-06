@@ -10,7 +10,6 @@ import (
 func (s *Server) registerRoutes() {
 	s.registerStaticRoutes()
 	s.registerAuthRoutes()
-	s.registerProfileRoutes()
 	s.registerPageRoutes()
 	s.registerPluginRoutes()
 	s.registerManifestPluginRoutes()
@@ -34,30 +33,6 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.loginHandler)
 	s.mux.HandleFunc("POST /api/auth/logout", s.logoutHandler)
 	s.mux.HandleFunc("GET /api/auth/me", s.meHandler)
-}
-
-func (s *Server) registerProfileRoutes() {
-	s.mux.HandleFunc("GET /api/auth/profile/identities", s.listProfileIdentities)
-	s.mux.HandleFunc("PUT /api/auth/profile/password", s.changePassword)
-	s.mux.HandleFunc("POST /api/auth/profile/link-code", s.generateLinkCode)
-	s.mux.HandleFunc("DELETE /api/auth/profile/identities/{id}", s.unlinkIdentity)
-	s.mux.HandleFunc("GET /api/auth/profile/memories", s.listProfileMemories)
-	s.mux.HandleFunc("PUT /api/auth/profile/memories/{agentId}", s.setProfileMemory)
-	s.mux.HandleFunc("DELETE /api/auth/profile/memories/{agentId}", s.deleteProfileMemory)
-	s.mux.HandleFunc("PUT /api/auth/profile/soul/{agentId}", s.setProfileSoul)
-
-	// Vault (per-user encrypted secrets).
-	s.mux.HandleFunc("GET /api/auth/profile/vault", s.listVaultEntries)
-	s.mux.HandleFunc("PUT /api/auth/profile/vault/{name}", s.setVaultEntry)
-	s.mux.HandleFunc("DELETE /api/auth/profile/vault/{name}", s.deleteVaultEntry)
-
-	// OAuth CLI device-flow (connect/disconnect GitHub and Lark credentials).
-	s.mux.HandleFunc("GET /api/auth/profile/oauth/providers", s.listOAuthProviders)
-	s.mux.HandleFunc("POST /api/auth/profile/oauth/{provider}/start", s.startOAuthFlow)
-	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/status/{flowID}", s.pollOAuthFlow)
-	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/connected", s.getOAuthConnected)
-	s.mux.HandleFunc("DELETE /api/auth/profile/oauth/{provider}", s.disconnectOAuth)
-	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/callback", s.oauthCallback)
 }
 
 func (s *Server) registerPageRoutes() {

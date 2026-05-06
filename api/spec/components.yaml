@@ -370,6 +370,88 @@ components:
           type: string
         model:
           type: string
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+    GenerateLinkCodeRequest:
+      type: object
+      required: [platform]
+      properties:
+        platform:
+          type: string
+    LinkCodeResponse:
+      type: object
+      required: [code, platform]
+      properties:
+        code:
+          type: string
+        platform:
+          type: string
+    SetSoulRequest:
+      type: object
+      required: [soul]
+      properties:
+        soul:
+          type: string
+    VaultEntry:
+      type: object
+      required: [name, created_at, updated_at]
+      properties:
+        name:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    SetVaultEntryRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+    OAuthProviderStatus:
+      type: object
+      required: [provider, available, connected]
+      properties:
+        provider:
+          type: string
+        available:
+          type: boolean
+        connected:
+          type: boolean
+        username:
+          type: string
+        unavailable:
+          type: string
+    OAuthFlowStatus:
+      type: object
+      required: [provider, flow_id, verification_uri, expires_at, state]
+      properties:
+        provider:
+          type: string
+        flow_id:
+          type: string
+        verification_uri:
+          type: string
+        user_code:
+          type: string
+        expires_at:
+          type: string
+        state:
+          type: string
+    OAuthConnectedResponse:
+      type: object
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+        username:
+          type: string
     ProviderModelCost:
       type: object
       properties:
