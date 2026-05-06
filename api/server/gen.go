@@ -76,6 +76,9 @@ type FeedList = externalRef0.FeedList
 // FeedPollResult defines model for FeedPollResult.
 type FeedPollResult = externalRef0.FeedPollResult
 
+// FetchModelsRequest defines model for FetchModelsRequest.
+type FetchModelsRequest = externalRef0.FetchModelsRequest
+
 // Job defines model for Job.
 type Job = externalRef0.Job
 
@@ -84,6 +87,21 @@ type JobInput = externalRef0.JobInput
 
 // JobList defines model for JobList.
 type JobList = externalRef0.JobList
+
+// Provider defines model for Provider.
+type Provider = externalRef0.Provider
+
+// ProviderModel defines model for ProviderModel.
+type ProviderModel = externalRef0.ProviderModel
+
+// ProviderModelCost defines model for ProviderModelCost.
+type ProviderModelCost = externalRef0.ProviderModelCost
+
+// ProviderModelItem defines model for ProviderModelItem.
+type ProviderModelItem = externalRef0.ProviderModelItem
+
+// ProviderType defines model for ProviderType.
+type ProviderType = externalRef0.ProviderType
 
 // PublicChannel defines model for PublicChannel.
 type PublicChannel = externalRef0.PublicChannel
@@ -170,6 +188,15 @@ type CreateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
 // UpdateChannelJSONRequestBody defines body for UpdateChannel for application/json ContentType.
 type UpdateChannelJSONRequestBody = externalRef0.ChannelWriteRequest
 
+// CreateProviderJSONRequestBody defines body for CreateProvider for application/json ContentType.
+type CreateProviderJSONRequestBody = externalRef0.Provider
+
+// UpdateProviderJSONRequestBody defines body for UpdateProvider for application/json ContentType.
+type UpdateProviderJSONRequestBody = externalRef0.Provider
+
+// FetchProviderModelsJSONRequestBody defines body for FetchProviderModels for application/json ContentType.
+type FetchProviderModelsJSONRequestBody = externalRef0.FetchModelsRequest
+
 // SaveArticleJSONRequestBody defines body for SaveArticle for application/json ContentType.
 type SaveArticleJSONRequestBody = externalRef0.SaveArticleRequest
 
@@ -226,6 +253,30 @@ type ServerInterface interface {
 	// List enabled models from provider config and cache
 	// (GET /api/models)
 	ListModels(w http.ResponseWriter, r *http.Request)
+	// List available provider types (admin only)
+	// (GET /api/provider-types)
+	ListProviderTypes(w http.ResponseWriter, r *http.Request)
+	// List all providers (admin only)
+	// (GET /api/providers)
+	ListProviders(w http.ResponseWriter, r *http.Request)
+	// Create a provider (admin only)
+	// (POST /api/providers)
+	CreateProvider(w http.ResponseWriter, r *http.Request)
+	// Delete a provider (admin only)
+	// (DELETE /api/providers/{id})
+	DeleteProvider(w http.ResponseWriter, r *http.Request, id string)
+	// Get a provider (admin only)
+	// (GET /api/providers/{id})
+	GetProvider(w http.ResponseWriter, r *http.Request, id string)
+	// Update a provider (admin only)
+	// (PUT /api/providers/{id})
+	UpdateProvider(w http.ResponseWriter, r *http.Request, id string)
+	// List models for a provider (admin only)
+	// (GET /api/providers/{id}/models)
+	ListProviderModels(w http.ResponseWriter, r *http.Request, id string)
+	// Fetch and cache models from upstream provider (admin only)
+	// (POST /api/providers/{id}/models)
+	FetchProviderModels(w http.ResponseWriter, r *http.Request, id string)
 	// List or search articles
 	// (GET /api/recally/articles)
 	ListArticles(w http.ResponseWriter, r *http.Request, params ListArticlesParams)
@@ -599,6 +650,226 @@ func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListModels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProviderTypes operation middleware
+func (siw *ServerInterfaceWrapper) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviderTypes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProvider operation middleware
+func (siw *ServerInterfaceWrapper) CreateProvider(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProvider(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProvider operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProvider(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProvider operation middleware
+func (siw *ServerInterfaceWrapper) GetProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProvider(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProvider operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProvider(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProviderModels operation middleware
+func (siw *ServerInterfaceWrapper) ListProviderModels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviderModels(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FetchProviderModels operation middleware
+func (siw *ServerInterfaceWrapper) FetchProviderModels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FetchProviderModels(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1488,6 +1759,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/{id}", wrapper.GetChannel)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/channels/{id}", wrapper.UpdateChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/models", wrapper.ListModels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/provider-types", wrapper.ListProviderTypes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers", wrapper.ListProviders)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers", wrapper.CreateProvider)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/providers/{id}", wrapper.DeleteProvider)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}", wrapper.GetProvider)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/providers/{id}", wrapper.UpdateProvider)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.ListProviderModels)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.FetchProviderModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.DeleteArticle)

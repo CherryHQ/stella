@@ -12,7 +12,6 @@ func (s *Server) registerRoutes() {
 	s.registerAuthRoutes()
 	s.registerProfileRoutes()
 	s.registerPageRoutes()
-	s.registerProviderRoutes()
 	s.registerAgentRoutes()
 	s.registerUserRoutes()
 	s.registerAuthUserRoutes()
@@ -88,20 +87,6 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 	s.mux.HandleFunc("GET /account", s.pageAccount)
 	s.mux.HandleFunc("GET /credentials", s.pageCredentials)
-}
-
-func (s *Server) registerProviderRoutes() {
-	adminAPI := func(handler http.HandlerFunc) http.Handler {
-		return s.adminOnlyMiddleware(handler)
-	}
-	s.mux.Handle("GET /api/providers", adminAPI(s.listProviders))
-	s.mux.Handle("POST /api/providers", adminAPI(s.createProvider))
-	s.mux.Handle("GET /api/providers/{id}", adminAPI(s.getProvider))
-	s.mux.Handle("PUT /api/providers/{id}", adminAPI(s.updateProvider))
-	s.mux.Handle("DELETE /api/providers/{id}", adminAPI(s.deleteProvider))
-	s.mux.Handle("GET /api/providers/{id}/models", adminAPI(s.listProviderModels))
-	s.mux.Handle("POST /api/providers/{id}/models", adminAPI(s.fetchProviderModels))
-	s.mux.Handle("GET /api/provider-types", adminAPI(s.listProviderTypes))
 }
 
 func (s *Server) registerAgentRoutes() {

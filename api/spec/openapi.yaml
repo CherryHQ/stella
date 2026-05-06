@@ -37,6 +37,7 @@ tags:
   - name: builtin
   - name: channels
   - name: weixin
+  - name: providers
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
@@ -77,6 +78,15 @@ paths:
     $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr'
   /api/channels/weixin/qr/status:
     $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr~1status'
+  # ── Providers ──────────────────────────────────────────────────────────────
+  /api/providers:
+    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers'
+  /api/providers/{id}:
+    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers~1{id}'
+  /api/providers/{id}/models:
+    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models'
+  /api/provider-types:
+    $ref: './domain/providers/paths.yaml#/paths/~1api~1provider-types'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
@@ -125,3 +135,9 @@ components:
     ChannelWriteRequest:  { $ref: './components.yaml#/components/schemas/ChannelWriteRequest' }
     WeixinQRCode:         { $ref: './components.yaml#/components/schemas/WeixinQRCode' }
     WeixinQRStatus:       { $ref: './components.yaml#/components/schemas/WeixinQRStatus' }
+    ProviderModelCost:    { $ref: './components.yaml#/components/schemas/ProviderModelCost' }
+    ProviderModel:        { $ref: './components.yaml#/components/schemas/ProviderModel' }
+    Provider:             { $ref: './components.yaml#/components/schemas/Provider' }
+    ProviderModelItem:    { $ref: './components.yaml#/components/schemas/ProviderModelItem' }
+    ProviderType:         { $ref: './components.yaml#/components/schemas/ProviderType' }
+    FetchModelsRequest:   { $ref: './components.yaml#/components/schemas/FetchModelsRequest' }

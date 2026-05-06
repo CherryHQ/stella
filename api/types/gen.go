@@ -256,6 +256,12 @@ type FeedPollResult struct {
 	NewEntries []FeedEntry `json:"new_entries"`
 }
 
+// FetchModelsRequest defines model for FetchModelsRequest.
+type FetchModelsRequest struct {
+	ApiKey  *string `json:"api_key,omitempty"`
+	BaseUrl *string `json:"base_url,omitempty"`
+}
+
 // Job defines model for Job.
 type Job struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -330,6 +336,54 @@ type JobRun struct {
 
 // JobRunList defines model for JobRunList.
 type JobRunList = []JobRun
+
+// Provider defines model for Provider.
+type Provider struct {
+	ApiKey  string                    `json:"api_key"`
+	BaseUrl string                    `json:"base_url"`
+	Enabled bool                      `json:"enabled"`
+	Id      string                    `json:"id"`
+	Models  *map[string]ProviderModel `json:"models,omitempty"`
+	Name    string                    `json:"name"`
+	Type    string                    `json:"type"`
+}
+
+// ProviderModel defines model for ProviderModel.
+type ProviderModel struct {
+	ContextWindow *int               `json:"contextWindow,omitempty"`
+	Cost          *ProviderModelCost `json:"cost,omitempty"`
+	Enabled       bool               `json:"enabled"`
+	Id            *string            `json:"id,omitempty"`
+	Input         *[]string          `json:"input,omitempty"`
+	MaxTokens     *int               `json:"maxTokens,omitempty"`
+	Name          *string            `json:"name,omitempty"`
+	Output        *[]string          `json:"output,omitempty"`
+	Reasoning     *bool              `json:"reasoning,omitempty"`
+}
+
+// ProviderModelCost defines model for ProviderModelCost.
+type ProviderModelCost struct {
+	CacheRead  *float64 `json:"cacheRead,omitempty"`
+	CacheWrite *float64 `json:"cacheWrite,omitempty"`
+	Input      *float64 `json:"input,omitempty"`
+	Output     *float64 `json:"output,omitempty"`
+}
+
+// ProviderModelItem defines model for ProviderModelItem.
+type ProviderModelItem struct {
+	Config  *ProviderModel `json:"config,omitempty"`
+	Enabled bool           `json:"enabled"`
+	Id      string         `json:"id"`
+	Name    *string        `json:"name,omitempty"`
+	Source  string         `json:"source"`
+}
+
+// ProviderType defines model for ProviderType.
+type ProviderType struct {
+	DefaultUrl string `json:"default_url"`
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+}
 
 // PublicChannel defines model for PublicChannel.
 type PublicChannel struct {

@@ -195,6 +195,98 @@ components:
           type: string
         model:
           type: string
+    ProviderModelCost:
+      type: object
+      properties:
+        input:
+          type: number
+          format: double
+        output:
+          type: number
+          format: double
+        cacheRead:
+          type: number
+          format: double
+        cacheWrite:
+          type: number
+          format: double
+    ProviderModel:
+      type: object
+      required: [enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        reasoning:
+          type: boolean
+        input:
+          type: array
+          items:
+            type: string
+        output:
+          type: array
+          items:
+            type: string
+        contextWindow:
+          type: integer
+        maxTokens:
+          type: integer
+        cost:
+          $ref: "#/components/schemas/ProviderModelCost"
+    Provider:
+      type: object
+      required: [id, type, name, enabled, api_key, base_url]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        api_key:
+          type: string
+        base_url:
+          type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ProviderModel"
+    ProviderModelItem:
+      type: object
+      required: [id, source, enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          $ref: "#/components/schemas/ProviderModel"
+    ProviderType:
+      type: object
+      required: [id, name, default_url]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        default_url:
+          type: string
+    FetchModelsRequest:
+      type: object
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
     # ── Shared ─────────────────────────────────────────────────────────────────
     Error:
       type: object
