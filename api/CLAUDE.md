@@ -6,13 +6,9 @@
 api/
   spec/                         ← OpenAPI source (human-edited)
     openapi.yaml                  root aggregator — paths + security
-    recally.yaml                  recally paths (refs → ./components.yaml)
-    scheduler.yaml                scheduler paths (refs → ./components.yaml)
     components.yaml               ASSEMBLED — do not hand-edit
     components/
       common.yaml                 security schemes + shared responses
-      recally.yaml                recally domain schemas
-      scheduler.yaml              scheduler domain schemas
   codegen/                      ← oapi-codegen configs
     types.yaml                    → api/types/types.gen.go
     server.yaml                   → api/server/gen.go  (import-mapping → apitypes)

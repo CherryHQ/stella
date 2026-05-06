@@ -2,7 +2,7 @@ package main
 
 import (
 	ucli "github.com/urfave/cli/v2"
-	client "github.com/vaayne/anna/api/client"
+	apiclient "github.com/vaayne/anna/api/client"
 )
 
 func recallyDigestCommand() *ucli.Command {
@@ -27,8 +27,8 @@ func recallyDigestCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var digest client.Digest
-			if err := client.DecodeJSON(resp, &digest); err != nil {
+			var digest apiclient.Digest
+			if err := decodeJSON(resp, &digest); err != nil {
 				return err
 			}
 			return printJSON(digest)

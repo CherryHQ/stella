@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	ucli "github.com/urfave/cli/v2"
-	client "github.com/vaayne/anna/api/client"
+	apiclient "github.com/vaayne/anna/api/client"
 	apitypes "github.com/vaayne/anna/api/types"
 )
 
@@ -36,13 +36,13 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := api.CreateFeed(c.Context, client.CreateFeedJSONRequestBody{Url: feedURL})
+			resp, err := api.CreateFeed(c.Context, apiclient.CreateFeedJSONRequestBody{Url: feedURL})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var feed client.Feed
-			if err := client.DecodeJSON(resp, &feed); err != nil {
+			var feed apiclient.Feed
+			if err := decodeJSON(resp, &feed); err != nil {
 				return err
 			}
 			fmt.Printf("Subscribed to feed: %s\n", feed.Id)
@@ -65,13 +65,13 @@ func recallyFeedListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := api.ListFeeds(c.Context, &client.ListFeedsParams{})
+			resp, err := api.ListFeeds(c.Context, &apiclient.ListFeedsParams{})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var list client.FeedList
-			if err := client.DecodeJSON(resp, &list); err != nil {
+			var list apiclient.FeedList
+			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -119,7 +119,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := client.DecodeJSON(resp, nil); err != nil {
+			if err := decodeJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Feed %s removed.\n", shortID(feedID))
@@ -146,13 +146,13 @@ func recallyFeedPollCommand() *ucli.Command {
 			if id := c.Args().First(); id != "" {
 				feedIDs = append(feedIDs, id)
 			} else {
-				resp, err := api.ListFeeds(c.Context, &client.ListFeedsParams{})
+				resp, err := api.ListFeeds(c.Context, &apiclient.ListFeedsParams{})
 				if err != nil {
 					return wrapServerErr(err)
 				}
 				defer resp.Body.Close() //nolint:errcheck
-				var list client.FeedList
-				if err := client.DecodeJSON(resp, &list); err != nil {
+				var list apiclient.FeedList
+				if err := decodeJSON(resp, &list); err != nil {
 					return err
 				}
 				for _, f := range list.Items {
@@ -162,14 +162,14 @@ func recallyFeedPollCommand() *ucli.Command {
 				}
 			}
 
-			results := make([]client.FeedPollResult, 0, len(feedIDs))
+			results := make([]apiclient.FeedPollResult, 0, len(feedIDs))
 			for _, id := range feedIDs {
-				resp, err := api.PollFeed(c.Context, id, &client.PollFeedParams{Limit: client.Ptr(c.Int("limit"))})
+				resp, err := api.PollFeed(c.Context, id, &apiclient.PollFeedParams{Limit: ptr(c.Int("limit"))})
 				if err != nil {
 					return wrapServerErr(err)
 				}
-				var pr client.FeedPollResult
-				decodeErr := client.DecodeJSON(resp, &pr)
+				var pr apiclient.FeedPollResult
+				decodeErr := decodeJSON(resp, &pr)
 				_ = resp.Body.Close()
 				if decodeErr != nil {
 					return decodeErr
@@ -209,7 +209,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 			}
 			feedID, entryID := args[0], args[1]
 
-			status := client.FeedEntryStatus(c.String("status"))
+			status := apiclient.FeedEntryStatus(c.String("status"))
 			switch status {
 			case apitypes.FeedEntryStatusSaved, apitypes.FeedEntryStatusSkipped, apitypes.FeedEntryStatusError:
 			default:
@@ -218,7 +218,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 			if status == apitypes.FeedEntryStatusSaved && c.String("article-id") == "" {
 				return fmt.Errorf("--article-id required when marking as saved")
 			}
-			body := client.UpdateFeedEntryJSONRequestBody{Status: status}
+			body := apiclient.UpdateFeedEntryJSONRequestBody{Status: status}
 			if v := c.String("article-id"); v != "" {
 				body.ArticleId = &v
 			}
@@ -234,8 +234,8 @@ func recallyFeedMarkCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var entry client.FeedEntry
-			if err := client.DecodeJSON(resp, &entry); err != nil {
+			var entry apiclient.FeedEntry
+			if err := decodeJSON(resp, &entry); err != nil {
 				return err
 			}
 			fmt.Printf("Entry %s marked as %s (attempts: %d)\n", shortID(entryID), status, entry.Attempts)

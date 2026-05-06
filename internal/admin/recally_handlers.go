@@ -15,7 +15,7 @@ import (
 
 	"github.com/mmcdole/gofeed"
 
-	"github.com/vaayne/anna/api/server"
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/recally"
 )

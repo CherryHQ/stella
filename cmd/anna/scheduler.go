@@ -5,7 +5,7 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	client "github.com/vaayne/anna/api/client"
+	apiclient "github.com/vaayne/anna/api/client"
 )
 
 func schedulerCommand() *ucli.Command {
@@ -20,8 +20,8 @@ func schedulerCommand() *ucli.Command {
 	}
 }
 
-func schedulerAPI() (*client.Client, error) {
-	return client.NewFromEnv()
+func schedulerAPI() (*apiclient.Client, error) {
+	return newAPIClient()
 }
 
 func schedulerAddCommand() *ucli.Command {
@@ -68,7 +68,7 @@ func schedulerAddCommand() *ucli.Command {
 			mode := c.String("session-mode")
 			agentID := c.String("agent-id")
 			enabled := true
-			body := client.CreateSchedulerJobJSONRequestBody{
+			body := apiclient.CreateSchedulerJobJSONRequestBody{
 				Name:        &name,
 				Message:     &msg,
 				SessionMode: &mode,
@@ -92,8 +92,8 @@ func schedulerAddCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var job client.Job
-			if err := client.DecodeData(resp, &job); err != nil {
+			var job apiclient.Job
+			if err := decodeData(resp, &job); err != nil {
 				return err
 			}
 			return printJSON(job)
@@ -118,8 +118,8 @@ func schedulerListCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var list client.JobList
-			if err := client.DecodeData(resp, &list); err != nil {
+			var list apiclient.JobList
+			if err := decodeData(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -169,7 +169,7 @@ func schedulerRemoveCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := client.DecodeData(resp, nil); err != nil {
+			if err := decodeData(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Job %q removed.\n", id)

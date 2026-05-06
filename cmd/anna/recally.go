@@ -2,7 +2,7 @@ package main
 
 import (
 	ucli "github.com/urfave/cli/v2"
-	client "github.com/vaayne/anna/api/client"
+	apiclient "github.com/vaayne/anna/api/client"
 )
 
 func recallyCommand() *ucli.Command {
@@ -25,6 +25,6 @@ func recallyCommand() *ucli.Command {
 // recallyAPI returns an API client authenticated via ANNA_TOKEN. The CLI is
 // purely an HTTP client; the running anna server owns the database and the
 // markdown library on disk.
-func recallyAPI() (*client.Client, error) {
-	return client.NewFromEnv()
+func recallyAPI() (*apiclient.Client, error) {
+	return newAPIClient()
 }

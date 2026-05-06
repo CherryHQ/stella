@@ -8,7 +8,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/api/server"
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"

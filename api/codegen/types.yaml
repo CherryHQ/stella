@@ -1,6 +1,6 @@
-package: apitypes
+package: types
 generate:
   models: true
-output: api/types/types.gen.go
+output: api/types/gen.go
 output-options:
   skip-prune: true
