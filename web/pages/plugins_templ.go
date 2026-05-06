@@ -35,7 +35,7 @@ func PluginsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.PageHeader("Plugins", "Manage built-in tools, hooks, channels, memory backends, and standalone services.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.PageHeader("Plugins", "Manage built-in tools, hooks, channels, memory backends, and standalone services.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

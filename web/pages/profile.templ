@@ -4,14 +4,14 @@ import "github.com/vaayne/anna/web"
 
 templ ProfilePage() {
 	<div x-data="profilePage()">
-		@ui.PageHeader("Profile", "Manage your account settings.")
+		@web.PageHeader("Profile", "Manage your account settings.")
 		<!-- Password Change -->
 		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Change Password</h2>
 			<div class="card bg-base-200">
 				<div class="card-body">
 					<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-						@ui.FormField("Current Password") {
+						@web.FormField("Current Password") {
 							<input
 								type="password"
 								x-model="currentPassword"
@@ -20,7 +20,7 @@ templ ProfilePage() {
 								autocomplete="current-password"
 							/>
 						}
-						@ui.FormField("New Password") {
+						@web.FormField("New Password") {
 							<input
 								type="password"
 								x-model="newPassword"
@@ -30,7 +30,7 @@ templ ProfilePage() {
 								autocomplete="new-password"
 							/>
 						}
-						@ui.FormField("Confirm New Password") {
+						@web.FormField("Confirm New Password") {
 							<input
 								type="password"
 								x-model="confirmPassword"

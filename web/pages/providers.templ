@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/web"
 
 templ ProvidersPage() {
 	<div x-data="providersPage()">
-		@ui.PageHeader("LLM connections", "API keys and endpoints for each model provider Anna can use.")
+		@web.PageHeader("LLM connections", "API keys and endpoints for each model provider Anna can use.")
 		<div class="border-t border-base-300 pt-8">
 			<!-- Add provider bar -->
 			<div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 mb-8">
@@ -20,7 +20,7 @@ templ ProvidersPage() {
 			</div>
 			<!-- Empty state -->
 			<div x-show="providers.length === 0" x-cloak>
-				@ui.EmptyState("No providers yet. Add one above to connect Anna to an LLM API.")
+				@web.EmptyState("No providers yet. Add one above to connect Anna to an LLM API.")
 			</div>
 			<!-- Provider list -->
 			<div class="space-y-8">
@@ -58,12 +58,12 @@ templ ProvidersPage() {
 										<!-- Fields: id + type + name + API key + base URL -->
 										<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-x-8 gap-y-4 mb-4">
 											<div>
-												@ui.FormField("ID") {
+												@web.FormField("ID") {
 													<input type="text" :value="p.id" disabled class="input input-bordered w-full text-sm font-mono opacity-70"/>
 												}
 											</div>
 											<div>
-												@ui.FormField("Type") {
+												@web.FormField("Type") {
 													<select x-model="p.type" class="select select-bordered w-full text-sm">
 														<template x-for="providerType in providerTypes" :key="providerType.id">
 															<option :value="providerType.id" x-text="providerType.label + ' (' + providerType.id + ')' "></option>
@@ -72,17 +72,17 @@ templ ProvidersPage() {
 												}
 											</div>
 											<div>
-												@ui.FormField("Name") {
+												@web.FormField("Name") {
 													<input type="text" x-model="p.name" :placeholder="p.id" class="input input-bordered w-full text-sm"/>
 												}
 											</div>
 											<div>
-												@ui.FormField("API Key") {
+												@web.FormField("API Key") {
 													<input type="password" x-model="p.api_key" placeholder="sk-..." class="input input-bordered w-full text-sm font-mono"/>
 												}
 											</div>
 											<div>
-												@ui.FormField("Base URL") {
+												@web.FormField("Base URL") {
 													<input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.type]?.base_url || ''" class="input input-bordered w-full text-sm font-mono"/>
 												}
 											</div>
@@ -101,32 +101,32 @@ templ ProvidersPage() {
 												<div x-show="p._showCustomModelForm" x-cloak class="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-4">
 													<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 														<div>
-															@ui.FormField("Model ID") {
+															@web.FormField("Model ID") {
 																<input type="text" x-model="p._customModelForm.id" placeholder="llama3.1:8b" class="input input-bordered w-full text-sm font-mono"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Display name") {
+															@web.FormField("Display name") {
 																<input type="text" x-model="p._customModelForm.name" placeholder="Llama 3.1 8B (Local)" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Input") {
+															@web.FormField("Input") {
 																<input type="text" x-model="p._customModelForm.input" placeholder="text, image" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Output") {
+															@web.FormField("Output") {
 																<input type="text" x-model="p._customModelForm.output" placeholder="text" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Context window") {
+															@web.FormField("Context window") {
 																<input type="number" min="0" x-model="p._customModelForm.context_window" placeholder="128000" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Max tokens") {
+															@web.FormField("Max tokens") {
 																<input type="number" min="0" x-model="p._customModelForm.max_tokens" placeholder="32000" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
@@ -151,22 +151,22 @@ templ ProvidersPage() {
 
 													<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
 														<div>
-															@ui.FormField("Cost input") {
+															@web.FormField("Cost input") {
 																<input type="number" step="any" x-model="p._customModelForm.cost_input" placeholder="0" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Cost output") {
+															@web.FormField("Cost output") {
 																<input type="number" step="any" x-model="p._customModelForm.cost_output" placeholder="0" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Cost cacheRead") {
+															@web.FormField("Cost cacheRead") {
 																<input type="number" step="any" x-model="p._customModelForm.cost_cache_read" placeholder="0" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
 														<div>
-															@ui.FormField("Cost cacheWrite") {
+															@web.FormField("Cost cacheWrite") {
 																<input type="number" step="any" x-model="p._customModelForm.cost_cache_write" placeholder="0" class="input input-bordered w-full text-sm"/>
 															}
 														</div>
@@ -183,7 +183,7 @@ templ ProvidersPage() {
 														<span x-text="p._showAdvancedJSON ? 'Hide advanced JSON editor' : 'Show advanced JSON editor'"></span>
 													</button>
 													<div x-show="p._showAdvancedJSON" x-cloak class="space-y-2">
-														@ui.FormField("Provider JSON") {
+														@web.FormField("Provider JSON") {
 															<textarea
 																x-model="p._providerJSON"
 																rows="16"

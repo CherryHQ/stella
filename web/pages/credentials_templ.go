@@ -35,7 +35,7 @@ func CredentialsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.PageHeader("Credentials", "Manage OAuth connections and vault secrets.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.PageHeader("Credentials", "Manage OAuth connections and vault secrets.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -61,7 +61,7 @@ func CredentialsPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -83,7 +83,7 @@ func CredentialsPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Value").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Value").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

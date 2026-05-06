@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/web"
 
 templ PluginsPage() {
 	<div x-data="pluginsPage()">
-		@ui.PageHeader("Plugins", "Manage built-in tools, hooks, channels, memory backends, and standalone services.")
+		@web.PageHeader("Plugins", "Manage built-in tools, hooks, channels, memory backends, and standalone services.")
 		<!-- Tabs -->
 		<div class="flex gap-4 border-b border-base-300 mb-6 overflow-x-auto">
 			<button

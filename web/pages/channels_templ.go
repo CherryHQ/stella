@@ -35,7 +35,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.PageHeader("Channels", "Link the platforms you use. The Plugins page controls which platforms appear here.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.PageHeader("Channels", "Link the platforms you use. The Plugins page controls which platforms appear here.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -69,7 +69,7 @@ func ChannelsPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Instance ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Instance ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -166,7 +166,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Bot Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Bot Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -205,7 +205,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Channel ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Channel ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -244,7 +244,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -296,7 +296,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -335,7 +335,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -374,7 +374,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -426,7 +426,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -465,7 +465,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -504,7 +504,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Encrypt Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Encrypt Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -543,7 +543,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Verification Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Verification Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -582,7 +582,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -621,7 +621,7 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Tenant Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Tenant Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

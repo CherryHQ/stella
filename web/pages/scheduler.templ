@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/web"
 
 templ SchedulerPage() {
 	<div x-data="schedulerPage()">
-		@ui.PageHeader("Scheduled tasks", "Recurring jobs that Anna executes on a schedule.")
+		@web.PageHeader("Scheduled tasks", "Recurring jobs that Anna executes on a schedule.")
 		<div class="border-t border-base-300 pt-8">
 			<!-- Job form -->
 			<div class="mb-8 pb-8 border-b border-base-300">
@@ -14,7 +14,7 @@ templ SchedulerPage() {
 				</div>
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
 					<div>
-						@ui.FormField("Name") {
+						@web.FormField("Name") {
 							<input
 								type="text"
 								x-model="jobForm.name"
@@ -24,7 +24,7 @@ templ SchedulerPage() {
 						}
 					</div>
 					<div>
-						@ui.FormField("Session Mode") {
+						@web.FormField("Session Mode") {
 							<select x-model="jobForm.session_mode" class="select select-bordered w-full text-sm">
 								<option value="reuse">Reuse session</option>
 								<option value="new">New session each run</option>
@@ -34,7 +34,7 @@ templ SchedulerPage() {
 				</div>
 				<!-- Schedule type -->
 				<div class="mb-4">
-					@ui.FormField("Schedule") {
+					@web.FormField("Schedule") {
 						<div class="flex items-center gap-4 mb-2">
 							<label class="flex items-center gap-2 text-sm cursor-pointer">
 								<input type="radio" x-model="jobForm.schedule_type" value="cron" class="radio radio-primary radio-sm"/>
@@ -63,7 +63,7 @@ templ SchedulerPage() {
 				</div>
 				<!-- Agent -->
 				<div class="mb-4">
-					@ui.FormField("Agent") {
+					@web.FormField("Agent") {
 						<select x-model="jobForm.agent_id" class="select select-bordered w-full text-sm">
 							<option value="">Default agent</option>
 							<template x-for="a in agents" :key="a.id">
@@ -84,7 +84,7 @@ templ SchedulerPage() {
 				</template>
 				<!-- Message -->
 				<div class="mb-4">
-					@ui.FormField("Message") {
+					@web.FormField("Message") {
 						<textarea
 							x-model="jobForm.message"
 							rows="2"
@@ -216,7 +216,7 @@ templ SchedulerPage() {
 			</div>
 			<!-- Empty state -->
 			<template x-if="jobs.length === 0">
-				@ui.EmptyState("No jobs yet. Create one above to schedule recurring tasks.")
+				@web.EmptyState("No jobs yet. Create one above to schedule recurring tasks.")
 			</template>
 			<!-- Confirm dialog -->
 			<div x-show="confirmMsg" x-transition x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/30">

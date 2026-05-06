@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/web"
 
 templ UsersPage() {
 	<div x-data="usersPage()">
-		@ui.PageHeader("User management", "Manage auth users, roles, agent assignments, and linked identities.")
+		@web.PageHeader("User management", "Manage auth users, roles, agent assignments, and linked identities.")
 		<!-- Tabs: Auth Users / Legacy Memory -->
 		<div class="flex gap-4 border-b border-base-300 mb-6">
 			<button
@@ -59,7 +59,7 @@ templ UsersPage() {
 			</div>
 			<!-- Empty state -->
 			<div x-show="authUsers.length === 0" x-cloak>
-				@ui.EmptyState("No users registered yet.")
+				@web.EmptyState("No users registered yet.")
 			</div>
 		</div>
 		<!-- User Detail Panel -->
@@ -302,7 +302,7 @@ templ UsersPage() {
 			</div>
 			<!-- Empty state -->
 			<div x-show="legacyUsers.length === 0" x-cloak>
-				@ui.EmptyState("No channel users yet — they appear after someone messages Anna.")
+				@web.EmptyState("No channel users yet — they appear after someone messages Anna.")
 			</div>
 		</div>
 		<!-- Confirm dialog -->
@@ -317,6 +317,6 @@ templ UsersPage() {
 				</div>
 			</div>
 		</div>
-		@ui.SkillsDrawer()
+		@web.SkillsDrawer()
 	</div>
 }

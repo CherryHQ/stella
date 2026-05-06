@@ -21,7 +21,7 @@ templ agentListPanel() {
 			<button @click="startCreate()" class="btn btn-ghost btn-xs text-primary font-medium">+ New</button>
 		</div>
 		<div x-show="agents.length === 0" x-cloak class="py-8 text-center">
-			@ui.EmptyState("No agents configured yet.")
+			@web.EmptyState("No agents configured yet.")
 		</div>
 		<div class="space-y-0.5">
 			<template x-for="a in agents" :key="a.id">

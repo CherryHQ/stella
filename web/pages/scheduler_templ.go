@@ -35,7 +35,7 @@ func SchedulerPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.PageHeader("Scheduled tasks", "Recurring jobs that Anna executes on a schedule.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.PageHeader("Scheduled tasks", "Recurring jobs that Anna executes on a schedule.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -61,7 +61,7 @@ func SchedulerPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -87,7 +87,7 @@ func SchedulerPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Session Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Session Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -113,7 +113,7 @@ func SchedulerPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Schedule").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Schedule").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -139,7 +139,7 @@ func SchedulerPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Agent").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Agent").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -165,7 +165,7 @@ func SchedulerPage() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Message").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.FormField("Message").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -173,7 +173,7 @@ func SchedulerPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.EmptyState("No jobs yet. Create one above to schedule recurring tasks.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.EmptyState("No jobs yet. Create one above to schedule recurring tasks.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

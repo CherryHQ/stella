@@ -35,7 +35,7 @@ func UsersPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.PageHeader("User management", "Manage auth users, roles, agent assignments, and linked identities.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.PageHeader("User management", "Manage auth users, roles, agent assignments, and linked identities.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -43,7 +43,7 @@ func UsersPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.EmptyState("No users registered yet.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.EmptyState("No users registered yet.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -51,7 +51,7 @@ func UsersPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.EmptyState("No channel users yet — they appear after someone messages Anna.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.EmptyState("No channel users yet — they appear after someone messages Anna.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -59,7 +59,7 @@ func UsersPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = ui.SkillsDrawer().Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = web.SkillsDrawer().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
