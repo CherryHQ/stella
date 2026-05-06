@@ -7,3 +7,4 @@ output-options:
   skip-prune: true
 import-mapping:
   ./components.yaml: github.com/vaayne/anna/api/types
+  ../../spec/components.yaml: github.com/vaayne/anna/api/types

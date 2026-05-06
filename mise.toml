@@ -31,8 +31,8 @@ run = "templ generate && sqlc generate"
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
 run = """
-yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "anna API Components" | .info.description = "Assembled from api/spec/components/*.yaml — DO NOT EDIT"' \
-  api/spec/components/common.yaml api/spec/components/recally.yaml api/spec/components/scheduler.yaml \
+yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "anna API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/domains/*/schemas.yaml — DO NOT EDIT"' \
+  api/spec/components/common.yaml api/domains/*/schemas.yaml \
   > /tmp/anna-components.yaml && mv /tmp/anna-components.yaml api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml

@@ -36,26 +36,26 @@ tags:
 paths:
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
-    $ref: './recally.yaml#/paths/~1api~1recally~1articles'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1articles'
   /api/recally/articles/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1articles~1{id}'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}'
   /api/recally/feeds:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds'
   /api/recally/feeds/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{id}'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}'
   /api/recally/feeds/{id}/poll:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
   /api/recally/feeds/{feedId}/entries:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
   /api/recally/feeds/{feedId}/entries/{id}:
-    $ref: './recally.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
   /api/recally/digest:
-    $ref: './recally.yaml#/paths/~1api~1recally~1digest'
+    $ref: '../domains/recally/paths.yaml#/paths/~1api~1recally~1digest'
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
-    $ref: './scheduler.yaml#/paths/~1api~1scheduler~1jobs'
+    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
   /api/scheduler/jobs/{id}:
-    $ref: './scheduler.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+    $ref: '../domains/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
 components:
   securitySchemes:
     BearerAuth:
