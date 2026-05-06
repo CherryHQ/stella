@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	recallyclient "github.com/vaayne/anna/pkg/recally/client"
+	apiclient "github.com/vaayne/anna/api/client"
 )
 
 func recallySaveCommand() *ucli.Command {
@@ -55,7 +55,7 @@ func recallySaveCommand() *ucli.Command {
 				publishedAt = &t
 			}
 
-			body := recallyclient.SaveArticleJSONRequestBody{
+			body := apiclient.SaveArticleJSONRequestBody{
 				Url:          c.String("url"),
 				CanonicalUrl: optionalString(c.String("canonical-url")),
 				SourceType:   sourceTypePtr(c.String("source-type")),
@@ -75,8 +75,8 @@ func recallySaveCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var article recallyclient.Article
-			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
+			var article apiclient.Article
+			if err := decodeJSON(resp, &article); err != nil {
 				return err
 			}
 			created := resp.StatusCode == http.StatusCreated
@@ -111,27 +111,27 @@ func recallyListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			params := &recallyclient.ListArticlesParams{
-				Limit: recallyclient.Ptr(c.Int("limit")),
+			params := &apiclient.ListArticlesParams{
+				Limit: ptr(c.Int("limit")),
 			}
 			if v := c.String("status"); v != "" {
-				st := recallyclient.ArticleStatus(v)
+				st := apiclient.ArticleStatus(v)
 				params.Status = &st
 			}
 			if v := c.String("source-type"); v != "" {
-				st := recallyclient.SourceType(v)
+				st := apiclient.SourceType(v)
 				params.SourceType = &st
 			}
 			if c.IsSet("starred") {
-				params.Starred = recallyclient.Ptr(c.Bool("starred"))
+				params.Starred = ptr(c.Bool("starred"))
 			}
 			resp, err := api.ListArticles(c.Context, params)
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var list recallyclient.ArticleList
-			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+			var list apiclient.ArticleList
+			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -168,16 +168,16 @@ func recallySearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := api.ListArticles(c.Context, &recallyclient.ListArticlesParams{
+			resp, err := api.ListArticles(c.Context, &apiclient.ListArticlesParams{
 				Q:     &query,
-				Limit: recallyclient.Ptr(c.Int("limit")),
+				Limit: ptr(c.Int("limit")),
 			})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var list recallyclient.ArticleList
-			if err := recallyclient.DecodeJSON(resp, &list); err != nil {
+			var list apiclient.ArticleList
+			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -211,13 +211,13 @@ func recallyReadCommand() *ucli.Command {
 				return err
 			}
 			include := "content"
-			resp, err := api.GetArticle(c.Context, articleID, &recallyclient.GetArticleParams{Include: &include})
+			resp, err := api.GetArticle(c.Context, articleID, &apiclient.GetArticleParams{Include: &include})
 			if err != nil {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var article recallyclient.Article
-			if err := recallyclient.DecodeJSON(resp, &article); err != nil {
+			var article apiclient.Article
+			if err := decodeJSON(resp, &article); err != nil {
 				return err
 			}
 			if article.Content != nil && *article.Content != "" {
@@ -252,16 +252,16 @@ func recallyUpdateCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			body := recallyclient.UpdateArticleJSONRequestBody{}
+			body := apiclient.UpdateArticleJSONRequestBody{}
 			if c.IsSet("status") {
-				st := recallyclient.ArticleStatus(c.String("status"))
+				st := apiclient.ArticleStatus(c.String("status"))
 				body.Status = &st
 			}
 			if c.IsSet("starred") {
-				body.Starred = recallyclient.Ptr(c.Bool("starred"))
+				body.Starred = ptr(c.Bool("starred"))
 			}
 			if c.IsSet("summary") {
-				body.Summary = recallyclient.Ptr(c.String("summary"))
+				body.Summary = ptr(c.String("summary"))
 			}
 			if c.IsSet("tags") {
 				tags := c.StringSlice("tags")
@@ -275,8 +275,8 @@ func recallyUpdateCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			var updated recallyclient.Article
-			if err := recallyclient.DecodeJSON(resp, &updated); err != nil {
+			var updated apiclient.Article
+			if err := decodeJSON(resp, &updated); err != nil {
 				return err
 			}
 			fmt.Printf("Article %s updated successfully.\n", shortID(updated.Id))
@@ -304,7 +304,7 @@ func recallyDeleteCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := recallyclient.DecodeJSON(resp, nil); err != nil {
+			if err := decodeJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Article %s deleted.\n", shortID(articleID))
@@ -337,7 +337,7 @@ func readContentArg(contentFile string) (string, error) {
 	return "", nil
 }
 
-func printArticleSummary(a recallyclient.Article, summaryWidth int) {
+func printArticleSummary(a apiclient.Article, summaryWidth int) {
 	starMark := " "
 	if a.Starred {
 		starMark = "★"
@@ -386,11 +386,11 @@ func optionalStringSlice(v []string) *[]string {
 	return &v
 }
 
-func sourceTypePtr(v string) *recallyclient.SourceType {
+func sourceTypePtr(v string) *apiclient.SourceType {
 	if v == "" {
 		return nil
 	}
-	st := recallyclient.SourceType(v)
+	st := apiclient.SourceType(v)
 	return &st
 }
 

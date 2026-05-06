@@ -1,6 +1,15 @@
 import { api } from '/static/js/api.js'
 import { formatTime } from '/static/js/utils.js'
 
+async function schedulerAPI(method, path, body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } }
+  if (body) opts.body = JSON.stringify(body)
+  const res = await fetch(path, opts)
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || `request failed: ${res.status}`)
+  return json
+}
+
 /**
  * Registers the schedulerPage Alpine.data component.
  *
@@ -48,7 +57,8 @@ export function register(Alpine) {
 
     async loadJobs() {
       try {
-        this.jobs = await api('GET', '/api/scheduler/jobs') || []
+        const list = await schedulerAPI('GET', '/api/scheduler/jobs')
+        this.jobs = list.items || []
       } catch (e) {
         console.error(e)
       }
@@ -115,9 +125,9 @@ export function register(Alpine) {
       }
       try {
         if (this.editingJobId) {
-          await api('PUT', '/api/scheduler/jobs/' + this.editingJobId, payload)
+          await schedulerAPI('PUT', '/api/scheduler/jobs/' + this.editingJobId, payload)
         } else {
-          await api('POST', '/api/scheduler/jobs', payload)
+          await schedulerAPI('POST', '/api/scheduler/jobs', payload)
         }
         this.resetJobForm()
         await this.loadJobs()
@@ -130,7 +140,7 @@ export function register(Alpine) {
     async toggleJob(j) {
       if (j.owner_kind === 'plugin') return
       try {
-        await api('PUT', '/api/scheduler/jobs/' + j.id, {
+        await schedulerAPI('PUT', '/api/scheduler/jobs/' + j.id, {
           name: j.name,
           message: j.message,
           cron: j.cron || '',
@@ -149,7 +159,7 @@ export function register(Alpine) {
       const job = this.jobs.find((item) => item.id === id)
       if (job?.owner_kind === 'plugin') return
       try {
-        await api('DELETE', '/api/scheduler/jobs/' + id)
+        await schedulerAPI('DELETE', '/api/scheduler/jobs/' + id)
         await this.loadJobs()
         this.$store.toast.show('Deleted')
       } catch (e) {
@@ -165,7 +175,7 @@ export function register(Alpine) {
     async triggerJob(j) {
       this.triggeringJobId = j.id
       try {
-        await api('POST', '/api/scheduler/jobs/' + j.id + '/run')
+        await schedulerAPI('POST', '/api/scheduler/jobs/' + j.id + '/run')
         this.$store.toast.show('Job triggered')
         if (this.expandedJobId === j.id) {
           await this.loadRuns(j.id)
@@ -180,7 +190,7 @@ export function register(Alpine) {
 
     async loadRuns(jobId) {
       try {
-        this.runHistories[jobId] = await api('GET', '/api/scheduler/jobs/' + jobId + '/runs') || []
+        this.runHistories[jobId] = await schedulerAPI('GET', '/api/scheduler/jobs/' + jobId + '/runs') || []
       } catch (e) {
         console.error(e)
       }

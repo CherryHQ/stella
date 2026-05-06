@@ -4,7 +4,7 @@ title: Scheduler System
 
 ## Status
 
-Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, admin panel CRUD, and agent tool.
+Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, admin panel CRUD, and a builtin skill backed by `anna scheduler` CLI commands.
 
 ## Overview
 
@@ -13,36 +13,37 @@ Anna supports scheduled task execution so the agent can set reminders, run perio
 ## Architecture
 
 ```
-Agent (via tool call)
+Agent (via skill + anna scheduler CLI)
     |
     |  add / list / remove
     v
-+----------+       +-------------+
-| SchedulerTool | ----> |   Service   |
-+----------+       +------+------+
-                          |
-              +-----------+-----------+
-              |                       |
-     gocron/v2 Scheduler     sched_jobs (SQLite)
-              |
-              v
-        OnJobFunc callback
-              |
-              v
-      PoolManager.Chat(ctx, agentID, userID, sessionID, message)
+anna scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
+                                    |
+                                    v
+                              Scheduler Service
+                                    |
+                        +-----------+-----------+
+                        |                       |
+               gocron/v2 Scheduler     sched_jobs (SQLite)
+                        |
+                        v
+                  OnJobFunc callback
+                        |
+                        v
+          PoolManager.Chat(ctx, agentID, userID, sessionID, message)
 ```
 
 ### Package: `internal/scheduler/`
 
 Top-level package (under `internal/`). Five files:
 
-| File                                | Purpose                                                |
-| ----------------------------------- | ------------------------------------------------------ |
-| `internal/scheduler/job.go`         | `Job` and `Schedule` types                             |
-| `internal/scheduler/service.go`     | `Service` -- gocron wrapper, scheduling, job CRUD      |
-| `internal/scheduler/heartbeat.go`   | Heartbeat polling -- decide/execute/notify via LLM     |
-| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs)          |
-| `internal/scheduler/tool.go`        | `SchedulerTool` -- agent tool implementing `tool.Tool` |
+| File                                                  | Purpose                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| `internal/scheduler/job.go`                           | `Job` and `Schedule` types                               |
+| `internal/scheduler/service.go`                       | `Service` -- gocron wrapper, scheduling, job CRUD        |
+| `internal/scheduler/heartbeat.go`                     | Heartbeat polling -- decide/execute/notify via LLM       |
+| `internal/scheduler/persistence.go`                   | Database persistence (load/save/migrate jobs)            |
+| `internal/resources/skills/system/scheduler/SKILL.md` | Builtin skill -- documents `anna scheduler` CLI commands |
 
 ### Key Types
 
@@ -149,52 +150,46 @@ This gives plugins declarative enable/disable semantics:
 
 `plugins/reflect/` is the first built-in runtime using this path.
 
-## Agent Tool
+## Agent Skill
 
-The `scheduler` tool is automatically registered with the Go runner when scheduler is enabled. It only exposes user-owned jobs; plugin-owned jobs are hidden from `list` and are managed by the plugin host instead. The agent uses it via tool calls with three actions:
+The `scheduler` builtin skill is loaded automatically. It documents `anna scheduler` CLI commands that the agent calls via Bash. Only user-owned jobs are exposed; plugin-owned jobs are hidden from `list`.
 
-### `add` -- Create a job
+### `anna scheduler add` -- Create a job
 
-Parameters:
+Flags:
 
-- `name` (required) -- human-readable name
-- `message` (required) -- the instruction to execute on each run
-- `cron` -- cron expression (use this OR `every` OR `at`)
-- `every` -- Go duration (use this OR `cron` OR `at`)
-- `at` -- RFC3339 timestamp for a one-time job (use this OR `cron` OR `every`)
-- `session_mode` -- `"reuse"` (default) keeps conversation history; `"new"` starts fresh each execution
+- `--name` (required) -- human-readable name
+- `--message` (required) -- the instruction to execute on each run
+- `--cron` -- cron expression (use one of `--cron`, `--every`, or `--at`)
+- `--every` -- Go duration (use one of `--cron`, `--every`, or `--at`)
+- `--at` -- RFC3339 timestamp for a one-time job (use one of `--cron`, `--every`, or `--at`)
+- `--session-mode` -- `reuse` (default) keeps conversation history; `new` starts fresh each execution
+- `--agent-id` -- optional, defaults to the default agent
 
-Example (recurring): _"Set a reminder every 30 minutes to check my email"_ triggers:
+Example (recurring):
 
-```json
-{
-  "action": "add",
-  "name": "email check",
-  "message": "Check my email and summarize new messages",
-  "every": "30m"
-}
+```bash
+anna scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
 ```
 
-Example (one-time): _"Remind me at 2:40 PM to check Beijing weather"_ triggers:
+Example (one-time):
 
-```json
-{
-  "action": "add",
-  "name": "weather reminder",
-  "message": "Check Beijing weather and send me a summary",
-  "at": "2024-01-15T14:40:00+08:00"
-}
+```bash
+anna scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
 ```
 
-### `list` -- List all jobs
+### `anna scheduler list` -- List all jobs
 
-No parameters. Returns all scheduled jobs as JSON.
+```bash
+anna scheduler list --json   # JSON output for scripting
+anna scheduler list          # human-readable table
+```
 
-### `remove` -- Delete a job
+### `anna scheduler remove` -- Delete a job
 
-Parameters:
-
-- `id` (required) -- job ID from `add` or `list`
+```bash
+anna scheduler remove <job-id>
+```
 
 ## Heartbeat
 
@@ -222,10 +217,10 @@ Heartbeat only runs in server mode (`anna`). The fast model is used for the gate
 
 ## Wiring
 
-The scheduler system resolves a circular dependency (service needs pool for the callback, runner needs the tool) via deferred wiring in `main.go`:
+Wiring in `gateway.go` and `commands.go`:
 
 1. Create `scheduler.Service` with no callback
-2. Create `scheduler.NewTool(service)` and pass to runner via `ExtraTools`
+2. Inject the service into the admin server via `adminSrv.SetSchedulerService(svc)` so HTTP create/delete go through the live scheduler
 3. Create PoolManager with the runner factory
 4. Call `service.SetOnJob(...)` with a callback that routes via PoolManager using the job's `agent_id` and `user_id`
 5. If heartbeat is enabled, call `service.SetHeartbeat(...)` with the chat function and notifier

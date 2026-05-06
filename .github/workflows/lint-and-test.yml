@@ -58,7 +58,7 @@ jobs:
         run: |
           THRESHOLD=50
           # Exclude generated files from coverage calculation
-          grep -v '_templ\.go' coverage.out | grep -v '_gen\.go' | grep -v 'pkg/db/sqlc' > coverage-filtered.out || true
+          grep -v '_templ\.go' coverage.out | grep -v '_gen\.go' | grep -v '/gen\.go' | grep -v 'pkg/db/sqlc' > coverage-filtered.out || true
           COVERAGE=$(go tool cover -func=coverage-filtered.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
           echo "Total coverage: ${COVERAGE}%"
           if [ "$(echo "${COVERAGE} < ${THRESHOLD}" | bc -l)" -eq 1 ]; then

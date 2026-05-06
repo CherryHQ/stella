@@ -29,15 +29,14 @@ depends = ["generate:api"]
 run = "templ generate && sqlc generate"
 
 [tasks."generate:api"]
-description = "Generate Go server interface and client from OpenAPI specs"
-sources = ["api/recally.openapi.yaml"]
-outputs = [
-    "internal/admin/recally_gen.go",
-    "pkg/recally/client/client_gen.go",
-]
+description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
 run = """
-go tool oapi-codegen -package admin         -generate std-http,types -o internal/admin/recally_gen.go        api/recally.openapi.yaml
-go tool oapi-codegen -package recallyclient -generate client,types   -o pkg/recally/client/client_gen.go     api/recally.openapi.yaml
+yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "anna API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
+  api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
+  > /tmp/anna-components.yaml && mv /tmp/anna-components.yaml api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
+go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
+go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 """
 
 # ============================================================================
