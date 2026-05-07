@@ -99,19 +99,11 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
 
-	var opCtx context.Context
 	if chatType == "group" {
-		groupCtx := b.groupLog(chatID).FormatContext(50, b.cachedName)
-		opCtx = context.Background()
-		opCtx = agent.WithGroupContext(opCtx, groupCtx)
-		opCtx = WithGroupReplyFn(opCtx, func(text string) {
-			replyCtx, cancel := b.apiContext()
-			defer cancel()
-			b.replyInThread(replyCtx, messageID, rootID, text)
-		})
-		go b.handleIncoming(opCtx, msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+		go b.handleIncoming(b.decorateGroupCtx(chatID, messageID, rootID, ""), msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
 	} else {
-		go b.handleIncoming(context.Background(), msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+		dmCtx := agent.WithExcludedTools(context.Background(), "group_reply")
+		go b.handleIncoming(dmCtx, msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
 	}
 	return nil
 }
@@ -151,27 +143,34 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
+	var triggerGroupCtx string
 	if chatType == "group" {
 		// Disabled groups: ignore entirely.
 		if b.groupMode(chatID) == "disabled" {
 			return nil
 		}
 
-		// Always append to group log for context (even if not a trigger).
 		plainText := parseTextContent(derefStr(msg.Content))
 		plainText = stripMentions(plainText, mentions)
-		b.groupLog(chatID).Append(GroupEntry{
+		entry := GroupEntry{
 			Timestamp: time.Now(),
 			SenderID:  openID,
 			Name:      b.cachedName(openID),
 			Text:      plainText,
 			MessageID: messageID,
-		})
+		}
 
-		// Only invoke the agent on explicit triggers (@mention).
+		// Non-trigger messages: append to log for context and return.
 		if !b.isGroupTrigger(chatID, mentions) {
+			b.groupLog(chatID).Append(entry)
 			return nil
 		}
+
+		// Trigger message: capture context before appending so the trigger
+		// message doesn't appear in both the system prompt and user message.
+		gl := b.groupLog(chatID)
+		triggerGroupCtx = gl.FormatContext(50, b.cachedName)
+		gl.Append(entry)
 	}
 
 	// Extract text once for commands.
@@ -224,16 +223,8 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// carrying the group log and reply callback.
 	var opCtx context.Context
 	if chatType == "group" {
+		opCtx = b.decorateGroupCtx(chatID, messageID, rootID, triggerGroupCtx)
 		content = b.attributeGroupContent(openID, content)
-
-		groupCtx := b.groupLog(chatID).FormatContext(50, b.cachedName)
-		opCtx = context.Background()
-		opCtx = agent.WithGroupContext(opCtx, groupCtx)
-		opCtx = WithGroupReplyFn(opCtx, func(text string) {
-			replyCtx, cancel := b.apiContext()
-			defer cancel()
-			b.replyInThread(replyCtx, messageID, rootID, text)
-		})
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
@@ -249,7 +240,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			}
 			authContent := channel.TextContent(fmt.Sprintf("Please connect my %s OAuth credentials using the oauth tool with action=connect and provider=%s. Show me the verification URL so I can authorize in my browser.", provider, provider))
 			authMsg := b.incomingMsg(senderIDs, chatID, chatType, authContent)
-			go b.handleIncoming(context.Background(), authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
+			if chatType == "group" {
+				go b.handleIncoming(opCtx, authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
+			} else {
+				go b.handleIncoming(agent.WithExcludedTools(context.Background(), "group_reply"), authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
+			}
 			return nil
 		case "/model":
 			b.handleModelCommand(args, replyFn)
@@ -265,7 +260,8 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if chatType == "group" {
 		go b.handleIncoming(opCtx, incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	} else {
-		go b.handleIncoming(context.Background(), incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+		dmCtx := agent.WithExcludedTools(context.Background(), "group_reply")
+		go b.handleIncoming(dmCtx, incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	}
 	return nil
 }

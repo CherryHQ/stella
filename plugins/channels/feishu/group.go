@@ -1,9 +1,11 @@
 package feishu
 
 import (
+	"context"
 	"fmt"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/pkg/ai"
 )
 
@@ -27,19 +29,6 @@ func (b *Bot) groupMode(chatID string) string {
 	return b.cfg.GroupMode
 }
 
-// shouldRespondInGroup checks whether the bot should respond based on group_mode
-// and whether it was mentioned. Uses per-group config when available.
-func (b *Bot) shouldRespondInGroup(chatID string, mentions []*larkim.MentionEvent) bool {
-	switch b.groupMode(chatID) {
-	case "disabled":
-		return false
-	case "always":
-		return true
-	default: // "mention"
-		return b.isBotMentioned(mentions)
-	}
-}
-
 // groupSystemPrompt returns the system prompt override for the given chat, if any.
 func (b *Bot) groupSystemPrompt(chatID string) string {
 	if gc, ok := b.cfg.Groups[chatID]; ok {
@@ -49,8 +38,8 @@ func (b *Bot) groupSystemPrompt(chatID string) string {
 }
 
 // isGroupTrigger checks if a group message should trigger agent invocation.
-// Unlike shouldRespondInGroup, "always" mode is treated as "mention" —
-// the agent is only invoked on explicit @mentions, not every message.
+// "always" mode is treated as "mention" — the agent is only invoked on
+// explicit @mentions, not every message.
 func (b *Bot) isGroupTrigger(chatID string, mentions []*larkim.MentionEvent) bool {
 	mode := b.groupMode(chatID)
 	if mode == "disabled" {
@@ -68,6 +57,35 @@ func (b *Bot) warnAlwaysModeOnce(chatID string) {
 		logger().Warn("group_mode=always now behaves as mention — agent only invoked on @mention",
 			"chat_id", chatID)
 	}
+}
+
+// decorateGroupCtx builds a context carrying the group log, system prompt,
+// group_reply callback, and excluded-tool adjustments for a group invocation.
+// If groupLogText is non-empty it is used directly; otherwise the ring buffer
+// is formatted on the fly.
+func (b *Bot) decorateGroupCtx(chatID, messageID, rootID, groupLogText string) context.Context {
+	ctx := context.Background()
+
+	if groupLogText == "" {
+		groupLogText = b.groupLog(chatID).FormatContext(50, b.cachedName)
+	}
+
+	// Prepend per-group system prompt if configured.
+	if sp := b.groupSystemPrompt(chatID); sp != "" {
+		if groupLogText != "" {
+			groupLogText = sp + "\n\n" + groupLogText
+		} else {
+			groupLogText = sp
+		}
+	}
+
+	ctx = agent.WithGroupContext(ctx, groupLogText)
+	ctx = WithGroupReplyFn(ctx, func(text string) {
+		replyCtx, cancel := b.apiContext()
+		defer cancel()
+		b.replyInThread(replyCtx, messageID, rootID, text)
+	})
+	return ctx
 }
 
 // isBotMentioned checks if the bot was @mentioned by comparing each mention's
