@@ -88,46 +88,17 @@ func TestIsGroupTriggerAlwaysMode(t *testing.T) {
 	bot := &Bot{cfg: Config{GroupMode: "always"}}
 	bot.botOpenID.Store("ou_bot123")
 
-	// "always" mode now behaves as "mention" — only triggers on @mention.
-	if bot.isGroupTrigger("oc_test", nil) {
-		t.Error("always mode without mention should return false (treated as mention)")
+	// "always" mode triggers on every message, even without mentions.
+	if !bot.isGroupTrigger("oc_test", nil) {
+		t.Error("always mode without mention should return true")
 	}
 
-	// With bot mention → true.
+	// With mention → still true.
 	openID := "ou_bot123"
 	mentions := []*larkim.MentionEvent{{
 		Id: &larkim.UserId{OpenId: &openID},
 	}}
 	if !bot.isGroupTrigger("oc_test", mentions) {
 		t.Error("always mode with bot mention should return true")
-	}
-}
-
-func TestIsGroupTriggerAlwaysModeWarnsOnce(t *testing.T) {
-	bot := &Bot{cfg: Config{GroupMode: "always"}}
-	bot.botOpenID.Store("ou_bot123")
-
-	chatID := "oc_warn_test"
-
-	// Before any call, chatID should not be in the warned map.
-	if _, ok := bot.alwaysModeWarned.Load(chatID); ok {
-		t.Fatal("chatID should not be in alwaysModeWarned before first call")
-	}
-
-	// First call populates the warned map.
-	bot.isGroupTrigger(chatID, nil)
-	if _, ok := bot.alwaysModeWarned.Load(chatID); !ok {
-		t.Error("chatID should be in alwaysModeWarned after first call")
-	}
-
-	// Second call should not panic and the entry remains.
-	bot.isGroupTrigger(chatID, nil)
-	if _, ok := bot.alwaysModeWarned.Load(chatID); !ok {
-		t.Error("chatID should still be in alwaysModeWarned after second call")
-	}
-
-	// A different chatID should not be present.
-	if _, ok := bot.alwaysModeWarned.Load("oc_other"); ok {
-		t.Error("unrelated chatID should not be in alwaysModeWarned")
 	}
 }

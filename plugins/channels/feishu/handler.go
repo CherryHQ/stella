@@ -401,10 +401,16 @@ func (b *Bot) handleIncoming(ctx context.Context, msg channel.IncomingMessage, c
 	}
 
 	if strings.TrimSpace(response) == "" {
-		response = "(empty response)"
+		if msg.IsGroup {
+			// In group mode the agent may choose not to respond; stay silent.
+		} else {
+			response = "(empty response)"
+		}
 	}
-	finalResponse := response + elapsedFooter(elapsed)
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
+	if strings.TrimSpace(response) != "" {
+		finalResponse := response + elapsedFooter(elapsed)
+		b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
+	}
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)

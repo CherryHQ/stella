@@ -39,24 +39,17 @@ func (b *Bot) groupSystemPrompt(chatID string) string {
 }
 
 // isGroupTrigger checks if a group message should trigger agent invocation.
-// "always" mode is treated as "mention" — the agent is only invoked on
-// explicit @mentions, not every message.
+//   - "always"  — every message triggers the agent
+//   - "mention" — only @bot mentions trigger
+//   - "disabled" — never triggers
 func (b *Bot) isGroupTrigger(chatID string, mentions []*larkim.MentionEvent) bool {
-	mode := b.groupMode(chatID)
-	if mode == "disabled" {
+	switch b.groupMode(chatID) {
+	case "disabled":
 		return false
-	}
-	if mode == "always" {
-		b.warnAlwaysModeOnce(chatID)
-	}
-	return b.isBotMentioned(mentions)
-}
-
-// warnAlwaysModeOnce logs a one-time warning that "always" mode now behaves as "mention".
-func (b *Bot) warnAlwaysModeOnce(chatID string) {
-	if _, loaded := b.alwaysModeWarned.LoadOrStore(chatID, true); !loaded {
-		logger().Warn("group_mode=always now behaves as mention — agent only invoked on @mention",
-			"chat_id", chatID)
+	case "always":
+		return true
+	default:
+		return b.isBotMentioned(mentions)
 	}
 }
 

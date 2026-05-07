@@ -69,9 +69,8 @@ type Bot struct {
 	provisionedMu sync.Mutex
 	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
 
-	nameCache        sync.Map // openID -> display name; populated during auto-provision
-	groupLogs        sync.Map // chatID -> *GroupLog
-	alwaysModeWarned sync.Map // chatID -> true; one-time "always" mode deprecation warning
+	nameCache sync.Map // openID -> display name; populated during auto-provision
+	groupLogs sync.Map // chatID -> *GroupLog
 
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
