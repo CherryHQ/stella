@@ -145,15 +145,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		provCancel()
 	}
 
-	// For file messages: send an immediate ack and resolve the per-user assets
-	// directory before building content, so the downloaded file lands in the
-	// user's persistent workspace rather than a throwaway temp directory.
+	// For file messages: resolve the per-user assets directory before building
+	// content so the downloaded file lands in the user's persistent workspace
+	// rather than a throwaway temp directory.
 	var assetsDir string
 	if derefStr(msg.MessageType) == "file" {
-		ackCtx, ackCancel := b.apiContext()
-		b.replyInThread(ackCtx, messageID, rootID, "📎 Received file, processing...")
-		ackCancel()
-
 		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
 			resolveCtx, resolveCancel := b.apiContext()
@@ -498,6 +494,9 @@ func parseTextContent(raw string) string {
 // Shared commands are handled by the coordinator (including /abort);
 // otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
+	// Ack immediately: user sees 🤔 while the bot processes.
+	ackReactionID := b.reactToMessage(messageID, reactionAck)
+
 	// Use an operation-scoped context so in-flight work survives bot restarts
 	// with bounded execution time. Keep it alive for the full streamed turn;
 	// cancelling immediately after HandleIncoming returns would abort the agent
@@ -507,6 +506,8 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
 		cancel()
+		b.removeReaction(messageID, ackReactionID)
+		b.reactToMessage(messageID, reactionError)
 		logger().Error("chat failed", "sender_id", senderID, "error", err)
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
@@ -515,6 +516,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	}
 	if handled {
 		defer cancel()
+		b.removeReaction(messageID, ackReactionID)
 		replyFn(resp)
 		return
 	}
@@ -524,8 +526,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
+	b.removeReaction(messageID, ackReactionID)
+
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
+		b.reactToMessage(messageID, reactionError)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {
