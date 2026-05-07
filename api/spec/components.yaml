@@ -1164,6 +1164,36 @@ components:
           items:
             type: string
           description: Relative file paths within the workspace
+    WorkspaceCreateRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Relative path for the new file or directory
+        is_dir:
+          type: boolean
+          description: Create a directory when true; a file when false or omitted
+        content:
+          type: string
+          description: Initial file content (ignored when is_dir is true)
+    WorkspaceDeleteRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Relative path of the file or directory to delete
+    WorkspaceMoveRequest:
+      type: object
+      required: [path, new_path]
+      properties:
+        path:
+          type: string
+          description: Current relative path
+        new_path:
+          type: string
+          description: New relative path (rename or move destination)
     CreateSkillRequest:
       type: object
       properties:

@@ -878,6 +878,33 @@ type WeixinQRStatus struct {
 	Status      *string `json:"status,omitempty"`
 }
 
+// WorkspaceCreateRequest defines model for WorkspaceCreateRequest.
+type WorkspaceCreateRequest struct {
+	// Content Initial file content (ignored when is_dir is true)
+	Content *string `json:"content,omitempty"`
+
+	// IsDir Create a directory when true; a file when false or omitted
+	IsDir *bool `json:"is_dir,omitempty"`
+
+	// Path Relative path for the new file or directory
+	Path string `json:"path"`
+}
+
+// WorkspaceDeleteRequest defines model for WorkspaceDeleteRequest.
+type WorkspaceDeleteRequest struct {
+	// Path Relative path of the file or directory to delete
+	Path string `json:"path"`
+}
+
+// WorkspaceMoveRequest defines model for WorkspaceMoveRequest.
+type WorkspaceMoveRequest struct {
+	// NewPath New relative path (rename or move destination)
+	NewPath string `json:"new_path"`
+
+	// Path Current relative path
+	Path string `json:"path"`
+}
+
 // BadRequest defines model for BadRequest.
 type BadRequest struct {
 	Error string `json:"error"`

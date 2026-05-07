@@ -3,6 +3,10 @@ import { formatTime } from '/static/js/utils.js'
 import { marked } from 'https://esm.sh/marked@14'
 
 let _treesModule = null
+// Stored outside Alpine reactive state: Alpine wraps state in Proxy, which
+// breaks private-field access on FileTree class instances (#field syntax).
+let _sessionFileTree = null
+
 async function getTreesModule() {
   if (!_treesModule) {
     const [trees] = await Promise.all([
@@ -38,7 +42,11 @@ export function register(Alpine) {
     sessionSystemPrompt: '',
     sessionWorkspace: null,
     workspaceLoading: false,
-    _fileTree: null,
+    selectedWorkspacePath: null,
+    workspaceNewItemType: null,
+    workspaceNewItemName: '',
+    workspaceCtxMenu: { show: false, x: 0, y: 0, path: null },
+    _ctxDir: null,
 
     tools: [],
     toolsLoading: false,
@@ -264,6 +272,9 @@ export function register(Alpine) {
       this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
       this.sessionWorkspace = null
+      this.selectedWorkspacePath = null
+      this.workspaceNewItemType = null
+      this.workspaceNewItemName = ''
       this._destroyFileTree()
       this.activePanel = null
       try {
@@ -362,9 +373,9 @@ export function register(Alpine) {
     },
 
     _destroyFileTree() {
-      if (this._fileTree) {
-        this._fileTree.cleanUp()
-        this._fileTree = null
+      if (_sessionFileTree) {
+        _sessionFileTree.cleanUp()
+        _sessionFileTree = null
       }
     },
 
@@ -375,51 +386,186 @@ export function register(Alpine) {
         const enc = encodeURIComponent(this.sessionDetail.id)
         const data = await api('GET', `/api/sessions/${enc}/workspace`)
         this.sessionWorkspace = data
-        if (data && data.paths && data.paths.length > 0) {
-          this.$nextTick(async () => {
-            const container = this.$refs.fileTreeContainer
-            if (!container) return
-            container.innerHTML = ''
-            const host = document.createElement('file-tree-container')
-            host.style.cssText = 'display: block; width: 100%;'
-            container.appendChild(host)
-            const { FileTree } = await getTreesModule()
-            this._destroyFileTree()
-            // Resolve actual computed colour values from daisyUI tokens so the
-            // @pierre/trees shadow-DOM theme receives real hex/oklch strings.
-            const style = getComputedStyle(document.documentElement)
-            const resolve = v => style.getPropertyValue(v).trim() || undefined
-            const isDark = document.documentElement.dataset.theme === 'dark' ||
-              window.matchMedia('(prefers-color-scheme: dark)').matches
-            const theme = {
-              type: isDark ? 'dark' : 'light',
-              bg: resolve('--color-base-100'),
-              fg: resolve('--color-base-content'),
-              colors: {
-                'input.background': resolve('--color-base-200'),
-                'input.border': resolve('--color-base-300'),
-                'sideBar.background': resolve('--color-base-100'),
-                'sideBar.foreground': resolve('--color-base-content'),
-                'sideBar.border': resolve('--color-base-300'),
-                'list.hoverBackground': resolve('--color-base-200'),
-                'list.activeSelectionBackground': resolve('--color-base-200'),
-                'list.activeSelectionForeground': resolve('--color-primary'),
+        this.selectedWorkspacePath = null
+        this.$nextTick(async () => {
+          const container = this.$refs.fileTreeContainer
+          if (!container) return
+          container.innerHTML = ''
+          if (!data || !data.paths || data.paths.length === 0) return
+          const host = document.createElement('file-tree-container')
+          host.style.cssText = 'display: block; width: 100%; height: 100%;'
+          container.appendChild(host)
+          const { FileTree } = await getTreesModule()
+          this._destroyFileTree()
+          // Resolve actual computed colour values from daisyUI tokens so the
+          // @pierre/trees shadow-DOM theme receives real hex/oklch strings.
+          const style = getComputedStyle(document.documentElement)
+          const resolve = v => style.getPropertyValue(v).trim() || undefined
+          const isDark = document.documentElement.dataset.theme === 'dark' ||
+            window.matchMedia('(prefers-color-scheme: dark)').matches
+          const theme = {
+            type: isDark ? 'dark' : 'light',
+            bg: resolve('--color-base-100'),
+            fg: resolve('--color-base-content'),
+            colors: {
+              'input.background': resolve('--color-base-200'),
+              'input.border': resolve('--color-base-300'),
+              'sideBar.background': resolve('--color-base-100'),
+              'sideBar.foreground': resolve('--color-base-content'),
+              'sideBar.border': resolve('--color-base-300'),
+              'list.hoverBackground': resolve('--color-base-200'),
+              'list.activeSelectionBackground': resolve('--color-base-200'),
+              'list.activeSelectionForeground': resolve('--color-primary'),
+            },
+          }
+          const self = this
+          const tree = new FileTree({
+            paths: data.paths,
+            initialExpansion: 'first',
+            search: true,
+            renaming: {
+              onRename: async ({ sourcePath, destinationPath }) => {
+                try {
+                  await api('PATCH', `/api/sessions/${enc}/workspace/files`, {
+                    path: sourcePath,
+                    new_path: destinationPath,
+                  })
+                } catch (e) {
+                  self.$store.toast.show(e.message || 'Rename failed', 'error')
+                  // Revert the tree model
+                  tree.move(destinationPath, sourcePath)
+                }
               },
-            }
-            const tree = new FileTree({
-              paths: data.paths,
-              initialExpansion: 'first',
-              search: false,
-            })
-            tree.render({ fileTreeContainer: host, theme })
-            this._fileTree = tree
+              onError: (message) => {
+                self.$store.toast.show(message, 'error')
+              },
+            },
+            dragAndDrop: {
+              onDropComplete: async ({ draggedPaths, target }) => {
+                try {
+                  for (const src of draggedPaths) {
+                    const filename = src.split('/').pop()
+                    const destDir = target.directoryPath || ''
+                    const newPath = destDir ? `${destDir}/${filename}` : filename
+                    await api('PATCH', `/api/sessions/${enc}/workspace/files`, {
+                      path: src,
+                      new_path: newPath,
+                    })
+                  }
+                } catch (e) {
+                  self.$store.toast.show(e.message || 'Move failed', 'error')
+                  await self.loadWorkspace()
+                }
+              },
+              onDropError: (message) => {
+                self.$store.toast.show(message, 'error')
+              },
+            },
           })
-        }
+          // Track selected path for action buttons
+          tree.subscribe(() => {
+            const paths = tree.getSelectedPaths()
+            self.selectedWorkspacePath = paths.length > 0 ? paths[0] : null
+          })
+          tree.render({ fileTreeContainer: host, theme })
+          _sessionFileTree = tree
+
+          // Right-click context menu: contextmenu bubbles through shadow DOM.
+          host.addEventListener('contextmenu', (e) => {
+            e.preventDefault()
+            // Use the focused path as the target (tree focuses on mousedown).
+            const focusedPath = tree.getFocusedPath() || (tree.getSelectedPaths()[0] ?? null)
+            self.workspaceCtxMenu = { show: true, x: e.clientX, y: e.clientY, path: focusedPath }
+          })
+        })
       } catch (e) {
         console.error('loadWorkspace:', e)
       } finally {
         this.workspaceLoading = false
       }
+    },
+
+    startCreateWorkspaceItem(type) {
+      this.workspaceNewItemType = type
+      this.workspaceNewItemName = ''
+      this.$nextTick(() => {
+        if (this.$refs.newItemInput) this.$refs.newItemInput.focus()
+      })
+    },
+
+    async createWorkspaceItem() {
+      const name = this.workspaceNewItemName.trim()
+      if (!name || !this.sessionDetail) return
+      // Use ctx-menu directory if set, else derive from selected path, else root.
+      let dir = this._ctxDir != null ? this._ctxDir : ''
+      if (!dir && this.selectedWorkspacePath) {
+        const parts = this.selectedWorkspacePath.split('/')
+        parts.pop()
+        dir = parts.join('/')
+      }
+      this._ctxDir = null
+      const path = dir ? `${dir}/${name}` : name
+      try {
+        const enc = encodeURIComponent(this.sessionDetail.id)
+        const isDir = this.workspaceNewItemType === 'dir'
+        const data = await api('POST', `/api/sessions/${enc}/workspace/files`, {
+          path,
+          is_dir: isDir,
+        })
+        this.sessionWorkspace = data
+        this.workspaceNewItemType = null
+        this.workspaceNewItemName = ''
+        if (_sessionFileTree && !isDir) {
+          _sessionFileTree.add(path)
+        } else {
+          // Directories don't appear in paths list; reload to sync state.
+          await this.loadWorkspace()
+        }
+        this.$store.toast.show(`Created ${path}`, 'success')
+      } catch (e) {
+        this.$store.toast.show(e.message || 'Create failed', 'error')
+      }
+    },
+
+    async deleteWorkspaceItem(pathOverride) {
+      const path = pathOverride || this.selectedWorkspacePath
+      if (!path || !this.sessionDetail) return
+      if (!confirm(`Delete "${path}"?`)) return
+      try {
+        const enc = encodeURIComponent(this.sessionDetail.id)
+        const data = await api('DELETE', `/api/sessions/${enc}/workspace/files`, { path })
+        this.sessionWorkspace = data
+        if (_sessionFileTree) {
+          _sessionFileTree.remove(path)
+        }
+        if (this.selectedWorkspacePath === path) this.selectedWorkspacePath = null
+        this.$store.toast.show(`Deleted ${path}`, 'success')
+      } catch (e) {
+        this.$store.toast.show(e.message || 'Delete failed', 'error')
+      }
+    },
+
+    ctxRename() {
+      const path = this.workspaceCtxMenu.path
+      this.workspaceCtxMenu.show = false
+      if (path && _sessionFileTree) _sessionFileTree.startRenaming(path)
+    },
+
+    ctxNewFile(inDir) {
+      this.workspaceCtxMenu.show = false
+      this.workspaceNewItemType = 'file'
+      this.workspaceNewItemName = ''
+      // Pre-seed the directory prefix so createWorkspaceItem uses the right location.
+      this._ctxDir = inDir || ''
+      this.$nextTick(() => { if (this.$refs.newItemInput) this.$refs.newItemInput.focus() })
+    },
+
+    ctxNewFolder(inDir) {
+      this.workspaceCtxMenu.show = false
+      this.workspaceNewItemType = 'dir'
+      this.workspaceNewItemName = ''
+      this._ctxDir = inDir || ''
+      this.$nextTick(() => { if (this.$refs.newItemInput) this.$refs.newItemInput.focus() })
     },
 
     backToList() {
@@ -429,6 +575,9 @@ export function register(Alpine) {
       this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
       this.sessionWorkspace = null
+      this.selectedWorkspacePath = null
+      this.workspaceNewItemType = null
+      this.workspaceNewItemName = ''
       this._destroyFileTree()
       this.activePanel = null
       history.pushState(null, '', '/sessions')

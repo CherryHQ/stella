@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	apiserver "github.com/vaayne/anna/api/server"
@@ -435,6 +436,166 @@ func collectWorkspacePaths(root string) ([]string, error) {
 		return nil, err
 	}
 	return paths, nil
+}
+
+// sessionWorkspaceRoot resolves the workspace root for a session, checking
+// access and returning (root, nil) or writing an error and returning ("", err).
+func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, sessionID string) (string, error) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return "", fmt.Errorf("missing session ID")
+	}
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+		return "", err
+	}
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return "", fmt.Errorf("unsupported")
+	}
+	info, err := sm.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return "", err
+	}
+	if info.UserID <= 0 || info.AgentID == "" {
+		writeError(w, http.StatusNotFound, "session has no workspace")
+		return "", fmt.Errorf("no workspace")
+	}
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	return agent.UserRoot(userDir), nil
+}
+
+// safePath resolves a caller-supplied relative path to an absolute path that
+// is guaranteed to stay within root. Returns an error if the result would
+// escape root (directory traversal).
+func safePath(root, rel string) (string, error) {
+	abs := filepath.Join(root, filepath.Clean("/"+rel))
+	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes workspace root")
+	}
+	return abs, nil
+}
+
+func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.CreateWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.IsDir != nil && *body.IsDir {
+		if err := os.MkdirAll(abs, 0o755); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		content := ""
+		if body.Content != nil {
+			content = *body.Content
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	paths, err := collectWorkspacePaths(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.DeleteWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.RemoveAll(abs); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	paths, err := collectWorkspacePaths(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.MoveWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" || body.NewPath == "" {
+		writeError(w, http.StatusBadRequest, "path and new_path are required")
+		return
+	}
+	src, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	dst, err := safePath(root, body.NewPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.Rename(src, dst); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	paths, err := collectWorkspacePaths(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {
