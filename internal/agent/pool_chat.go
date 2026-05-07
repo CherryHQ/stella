@@ -180,6 +180,16 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 		ctx = WithSystemOverride(ctx, snapshotPrompt)
 	}
 
+	// Append ephemeral group context to the system prompt (not stored in memory).
+	if gc := GroupContextFromCtx(ctx); gc != "" {
+		base, _ := SystemOverrideFromContext(ctx)
+		if base != "" {
+			ctx = WithSystemOverride(ctx, base+"\n\n"+gc)
+		} else {
+			ctx = WithSystemOverride(ctx, gc)
+		}
+	}
+
 	// Store user message via memory provider (after assembly to avoid duplication).
 	userMsg := ai.UserMessage{Content: message, Timestamp: time.Now()}
 	if err := p.mem.Append(ctx, memSession, userMsg); err != nil {

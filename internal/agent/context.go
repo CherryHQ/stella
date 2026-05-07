@@ -6,6 +6,7 @@ type (
 	systemOverrideKey struct{}
 	channelKey        struct{}
 	excludedToolsKey  struct{}
+	groupContextKey   struct{}
 )
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.
@@ -60,6 +61,24 @@ func WithExcludedTools(ctx context.Context, names ...string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, excludedToolsKey{}, filtered)
+}
+
+// WithGroupContext returns a child context carrying ephemeral group chat context
+// to be appended to the system prompt. Not stored in memory.
+func WithGroupContext(ctx context.Context, text string) context.Context {
+	if text == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, groupContextKey{}, text)
+}
+
+// GroupContextFromCtx returns the group chat context when present.
+func GroupContextFromCtx(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	s, _ := ctx.Value(groupContextKey{}).(string)
+	return s
 }
 
 // ExcludedToolsFromContext returns the per-run excluded tool names when present.
