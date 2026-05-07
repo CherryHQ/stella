@@ -74,8 +74,15 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	}
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
+	reactionContent := channel.TextContent(reactionText)
 
-	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))
+	if chatType == "group" {
+		reactionContent = b.attributeGroupContent(openID, reactionContent)
+		sp := groupBasePrompt(b.groupSystemPrompt(chatID))
+		reactionContent = prependSystemPrompt(reactionContent, sp)
+	}
+
+	msg := b.incomingMsg(senderIDs, chatID, chatType, reactionContent)
 	replyFn := func(reply string) {
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
@@ -170,11 +177,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
 
-	// Prepend per-group system prompt to content if configured.
 	if chatType == "group" {
-		if sp := b.groupSystemPrompt(chatID); sp != "" {
-			content = prependSystemPrompt(content, sp)
-		}
+		content = b.attributeGroupContent(openID, content)
+		sp := groupBasePrompt(b.groupSystemPrompt(chatID))
+		content = prependSystemPrompt(content, sp)
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
@@ -300,8 +306,12 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 // Shared commands are handled by the coordinator (including /abort);
 // otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Ack immediately: user sees 🤔 while the bot processes.
-	ackReactionID := b.reactToMessage(messageID, reactionAck)
+	// Ack with 🤔 for DMs; skip for group messages — every group message would
+	// get 🤔 then removed, which is noisy given most messages are skipped.
+	var ackReactionID string
+	if !msg.IsGroup {
+		ackReactionID = b.reactToMessage(messageID, reactionAck)
+	}
 
 	// Use an operation-scoped context so in-flight work survives bot restarts
 	// with bounded execution time. Keep it alive for the full streamed turn;
@@ -312,7 +322,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
 		cancel()
-		b.removeReaction(messageID, ackReactionID)
+		if ackReactionID != "" {
+			b.removeReaction(messageID, ackReactionID)
+		}
 		b.reactToMessage(messageID, reactionError)
 		logger().Error("chat failed", "sender_id", senderID, "error", err)
 		replyCtx, cancel := b.apiContext()
@@ -322,7 +334,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	}
 	if handled {
 		defer cancel()
-		b.removeReaction(messageID, ackReactionID)
+		if ackReactionID != "" {
+			b.removeReaction(messageID, ackReactionID)
+		}
 		replyFn(resp)
 		return
 	}
@@ -332,7 +346,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID, msg.IsGroup)
 
-	b.removeReaction(messageID, ackReactionID)
+	if ackReactionID != "" {
+		b.removeReaction(messageID, ackReactionID)
+	}
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
@@ -342,6 +358,12 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		} else {
 			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
 		}
+	}
+
+	// For group messages: silently discard [SKIP] responses.
+	if msg.IsGroup && isSkipResponse(response) {
+		logger().Debug("group message skipped", "sender_id", senderID)
+		return
 	}
 
 	if strings.TrimSpace(response) == "" {
