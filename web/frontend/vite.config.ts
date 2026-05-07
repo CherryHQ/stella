@@ -15,6 +15,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sessions: path.resolve(import.meta.dirname, "src/entries/sessions.tsx"),
+        channels: path.resolve(import.meta.dirname, "src/entries/channels.tsx"),
+        scheduler: path.resolve(import.meta.dirname, "src/entries/scheduler.tsx"),
+        credentials: path.resolve(import.meta.dirname, "src/entries/credentials.tsx"),
+        providers: path.resolve(import.meta.dirname, "src/entries/providers.tsx"),
       },
     },
   },

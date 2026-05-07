@@ -16,7 +16,7 @@ func (s *Server) pageLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageProviders(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "providers", "/static/js/pages/providers.js", pages.ProvidersPage())
+	s.renderPageWithVite(w, r, "providers", "", pages.ProvidersPage(), "providers")
 }
 
 func (s *Server) pageAgents(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +24,7 @@ func (s *Server) pageAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageChannels(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "channels", "/static/js/pages/channels.js", pages.ChannelsPage())
+	s.renderPageWithVite(w, r, "channels", "", pages.ChannelsPage(), "channels")
 }
 
 func (s *Server) pageUsers(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "scheduler", "/static/js/pages/scheduler.js", pages.SchedulerPage())
+	s.renderPageWithVite(w, r, "scheduler", "", pages.SchedulerPage(), "scheduler")
 }
 
 func (s *Server) pagePlugins(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func (s *Server) pageAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageCredentials(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "credentials", "/static/js/pages/credentials.js", pages.CredentialsPage())
+	s.renderPageWithVite(w, r, "credentials", "", pages.CredentialsPage(), "credentials")
 }
 
 // renderPage sets the HTML content type and renders the layout with the
