@@ -5,6 +5,7 @@ import (
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 const (
@@ -48,6 +49,16 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.AddTool(pkgplugins.ToolSpec{
+			PluginID:    PluginID,
+			Name:        "group_reply",
+			Description: "Send a message to a group chat",
+			Required:    true,
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				return &GroupReplyTool{}, nil
+			},
+		})
+
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
@@ -62,6 +73,7 @@ func init() {
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,
 					pkgplugins.CapabilityStatus,
+					pkgplugins.CapabilityTool,
 				},
 			},
 			DefaultConfig: func() map[string]any { return map[string]any{} },
