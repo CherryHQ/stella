@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-05-07
+
+### ✨ Features
+
+- **Scheduler**: Add worth-reading tier to RSS notification
+- **API**: OpenAPI spec as single source of truth for all /api/* routes ([#148](https://github.com/vaayne/anna/pull/148))
+
+### 🐛 Bug Fixes
+
+- **Scheduler**: Prevent RSS job from notifying when no articles were saved
+- **Server**: Allow secure cookie for private network addresses
+
+### ♻️ Refactoring
+
+- **Web**: Move UI layer from internal/admin/ui/ to top-level web/ ([#147](https://github.com/vaayne/anna/pull/147))
+- **Server**: Move internal/admin/ to top-level server/ package
+- **Scheduler**: Soften worth-reading tier labels
+- **Recally**: Restructure skill into focused reference files
+
+**Full Changelog**: [v0.22.0...v0.23.0](https://github.com/vaayne/anna/compare/v0.22.0...v0.23.0)
+
 ## [0.22.0] - 2026-05-06
 
 ### ✨ Features
