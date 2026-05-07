@@ -19,6 +19,7 @@ export default defineConfig({
         scheduler: path.resolve(import.meta.dirname, "src/entries/scheduler.tsx"),
         credentials: path.resolve(import.meta.dirname, "src/entries/credentials.tsx"),
         providers: path.resolve(import.meta.dirname, "src/entries/providers.tsx"),
+        users: path.resolve(import.meta.dirname, "src/entries/users.tsx"),
       },
     },
   },
