@@ -43,6 +43,13 @@ func BuildUserSessionKey(agentID string, authUserID int64, channelContext string
 	return agentID + ":user:" + fmt.Sprintf("%d", authUserID) + ":" + channelContext
 }
 
+// BuildGroupSessionKey constructs a session key for a shared group chat.
+// All members of the same group share a single history under this key.
+// Format: {agentID}:group:{channelID}:{chatID}
+func BuildGroupSessionKey(agentID, channelID, chatID string) string {
+	return agentID + ":group:" + channelID + ":" + chatID
+}
+
 // SessionInfo is an alias for memory.SessionInfo.
 type SessionInfo = memory.SessionInfo
 

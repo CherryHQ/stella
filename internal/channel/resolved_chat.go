@@ -15,6 +15,7 @@ type ResolvedChat struct {
 	AgentID    string
 	SessionKey string
 	ChatCtx    ChatContext
+	IsGroup    bool
 }
 
 func (rc *ResolvedChat) UserID() int64 { return rc.User.ID }
@@ -84,9 +85,13 @@ func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config
 	}
 
 	var sessionKey string
-	if resolved.User.ID != 0 && !isGroup {
+	switch {
+	case isGroup && chatID != "":
+		// All group members share one session keyed by chat, not by sender.
+		sessionKey = agent.BuildGroupSessionKey(agentID, channelID, chatID)
+	case resolved.User.ID != 0:
 		sessionKey = agent.BuildUserSessionKey(agentID, resolved.User.ID, channelCtx)
-	} else {
+	default:
 		sessionKey = agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
 	}
 
@@ -96,5 +101,6 @@ func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config
 		AgentID:    agentID,
 		SessionKey: sessionKey,
 		ChatCtx:    chatCtx,
+		IsGroup:    isGroup,
 	}, nil
 }
