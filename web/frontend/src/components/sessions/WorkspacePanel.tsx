@@ -1,4 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileTree as FileTreeComponent } from "@pierre/trees/react";
+import { useFileTree } from "@pierre/trees/react";
+import { useFileTreeSelection } from "@pierre/trees/react";
+import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
 import { api } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -10,6 +14,127 @@ interface Props {
   workspaceLoading: boolean;
   onWorkspaceChange: (w: Workspace) => void;
   onOpenFile: (path: string) => void;
+}
+
+function buildTheme(): TreeThemeInput {
+  const style = getComputedStyle(document.documentElement);
+  const resolve = (v: string): string | undefined => {
+    const val = style.getPropertyValue(v).trim();
+    return val || undefined;
+  };
+  const isDark =
+    document.documentElement.dataset.theme === "dark" ||
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  const colorEntries: Array<[string, string | undefined]> = [
+    ["input.background", resolve("--color-base-200")],
+    ["input.border", resolve("--color-base-300")],
+    ["sideBar.background", resolve("--color-base-100")],
+    ["sideBar.foreground", resolve("--color-base-content")],
+    ["sideBar.border", resolve("--color-base-300")],
+    ["list.hoverBackground", resolve("--color-base-200")],
+    ["list.activeSelectionBackground", resolve("--color-base-200")],
+    ["list.activeSelectionForeground", resolve("--color-primary")],
+  ];
+  const colors: Record<string, string> = {};
+  for (const [k, v] of colorEntries) {
+    if (v) colors[k] = v;
+  }
+
+  return {
+    type: isDark ? "dark" : "light",
+    bg: resolve("--color-base-100"),
+    fg: resolve("--color-base-content"),
+    colors,
+  };
+}
+
+interface FileTreePanelProps {
+  sessionID: string;
+  workspace: Workspace;
+  onWorkspaceChange: (w: Workspace) => void;
+  onOpenFile: (path: string) => void;
+  onSelectedPath: (path: string | null) => void;
+  onContextMenu: (e: React.MouseEvent, path: string | null) => void;
+}
+
+function FileTreePanel({ sessionID, workspace, onWorkspaceChange, onOpenFile, onSelectedPath, onContextMenu }: FileTreePanelProps) {
+  const enc = encodeURIComponent(sessionID);
+  const theme = useMemo(() => buildTheme(), []);
+  const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
+
+  const { model } = useFileTree({
+    paths: workspace.paths,
+    initialExpansion: 1,
+    search: true,
+    renaming: {
+      onRename: async ({ sourcePath, destinationPath }) => {
+        try {
+          await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
+            path: sourcePath,
+            new_path: destinationPath,
+          });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Rename failed";
+          console.error("rename:", msg);
+          model.move(destinationPath, sourcePath);
+        }
+      },
+      onError: (message: string) => {
+        console.error("rename error:", message);
+      },
+    },
+    dragAndDrop: {
+      onDropComplete: async ({ draggedPaths, target }) => {
+        try {
+          for (const src of draggedPaths) {
+            const filename = src.split("/").pop()!;
+            const destDir = target.directoryPath ?? "";
+            const newPath = destDir ? `${destDir}/${filename}` : filename;
+            await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
+              path: src,
+              new_path: newPath,
+            });
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Move failed";
+          console.error("drop:", msg);
+          // Reload workspace to revert the optimistic tree update
+          const data = await api<Workspace>("GET", `/api/sessions/${enc}/workspace`);
+          onWorkspaceChange(data);
+        }
+      },
+      onDropError: (message: string) => {
+        console.error("drop error:", message);
+      },
+    },
+  });
+
+  const selectedPaths = useFileTreeSelection(model);
+
+  // Propagate selection to parent for delete button enable/disable
+  const firstSelected = selectedPaths[0] ?? null;
+  useEffect(() => {
+    onSelectedPath(firstSelected);
+  }, [firstSelected, onSelectedPath]);
+
+  return (
+    <FileTreeComponent
+      model={model}
+      style={{ ...themeStyles, width: "100%", height: "100%" }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const path = model.getFocusedPath() ?? (selectedPaths[0] ?? null);
+        onContextMenu(e as unknown as React.MouseEvent, path);
+      }}
+      onDoubleClick={() => {
+        const path = model.getFocusedPath() ?? (selectedPaths[0] ?? null);
+        if (path && workspace.paths.includes(path)) {
+          onOpenFile(path);
+        }
+      }}
+    />
+  );
 }
 
 export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onWorkspaceChange, onOpenFile }: Props) {
@@ -36,6 +161,10 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onWorks
     onWorkspaceChange(data);
     if (selectedPath === path) setSelectedPath(null);
   }, [enc, selectedPath, onWorkspaceChange]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, path: string | null) => {
+    setCtxMenu({ show: true, x: e.clientX, y: e.clientY, path });
+  }, []);
 
   const fileCount = workspace?.paths?.length ?? 0;
 
@@ -95,7 +224,7 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onWorks
         </div>
       )}
 
-      {/* File list */}
+      {/* File tree / empty state */}
       {!workspaceLoading && workspace && workspace.paths.length === 0 && !newItemType && (
         <div className="px-4 py-3 text-[10px] font-mono text-muted-foreground/40">
           Workspace is empty. Use the buttons above to create files.
@@ -103,21 +232,15 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onWorks
       )}
 
       {!workspaceLoading && workspace && workspace.paths.length > 0 && (
-        <div className="flex-1 overflow-y-auto">
-          {workspace.paths.map((path) => (
-            <div
-              key={path}
-              onClick={() => setSelectedPath(path === selectedPath ? null : path)}
-              onDoubleClick={() => onOpenFile(path)}
-              onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ show: true, x: e.clientX, y: e.clientY, path }); }}
-              className={cn(
-                "px-3 py-1.5 cursor-pointer text-[11px] font-mono truncate hover:bg-muted transition-colors",
-                selectedPath === path ? "bg-muted text-primary" : "text-foreground/70",
-              )}
-            >
-              {path}
-            </div>
-          ))}
+        <div className="flex-1 overflow-hidden">
+          <FileTreePanel
+            sessionID={sessionID}
+            workspace={workspace}
+            onWorkspaceChange={onWorkspaceChange}
+            onOpenFile={onOpenFile}
+            onSelectedPath={setSelectedPath}
+            onContextMenu={handleContextMenu}
+          />
         </div>
       )}
 
