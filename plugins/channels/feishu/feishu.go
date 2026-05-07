@@ -222,6 +222,7 @@ func (b *Bot) Platform() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Channel.
 // Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
+// When ReplyToMessageID is set, the message is sent as a thread reply.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
@@ -231,9 +232,27 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	// Strip channel prefix if present.
 	chatID = strings.TrimPrefix(chatID, "feishu:")
 
-	receiveIDType := receiveIDTypeForChatID(chatID)
-
 	content := textContent(n.Text)
+
+	if n.ReplyToMessageID != "" {
+		resp, err := b.client.Im.Message.Reply(ctx,
+			larkim.NewReplyMessageReqBuilder().
+				MessageId(n.ReplyToMessageID).
+				Body(larkim.NewReplyMessageReqBodyBuilder().
+					MsgType(larkim.MsgTypeText).
+					Content(content).
+					Build()).
+				Build())
+		if err != nil {
+			return fmt.Errorf("feishu: notify reply: %w", err)
+		}
+		if !resp.Success() {
+			return fmt.Errorf("feishu: notify reply: code=%d msg=%s", resp.Code, resp.Msg)
+		}
+		return nil
+	}
+
+	receiveIDType := receiveIDTypeForChatID(chatID)
 	resp, err := b.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().
 			ReceiveIdType(receiveIDType).

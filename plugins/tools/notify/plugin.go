@@ -94,6 +94,16 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		Silent:  silent,
 	}
 
+	// Auto-fill reply targeting from context when not explicitly provided.
+	if rc, ok := pkgchannel.NotificationReplyFromContext(ctx); ok {
+		if notification.ChatID == "" {
+			notification.ChatID = rc.ChatID
+		}
+		if notification.ReplyToMessageID == "" {
+			notification.ReplyToMessageID = rc.MessageID
+		}
+	}
+
 	var err error
 	if ch == "" && chatID == "" {
 		if userID := memory.UserIDFromContext(ctx); userID != 0 {

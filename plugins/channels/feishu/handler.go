@@ -102,8 +102,7 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	if chatType == "group" {
 		go b.handleIncoming(b.decorateGroupCtx(chatID, messageID, rootID, ""), msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
 	} else {
-		dmCtx := agent.WithExcludedTools(context.Background(), "group_reply")
-		go b.handleIncoming(dmCtx, msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+		go b.handleIncoming(context.Background(), msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
 	}
 	return nil
 }
@@ -243,7 +242,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			if chatType == "group" {
 				go b.handleIncoming(opCtx, authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			} else {
-				go b.handleIncoming(agent.WithExcludedTools(context.Background(), "group_reply"), authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
+				go b.handleIncoming(context.Background(), authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			}
 			return nil
 		case "/model":
@@ -260,8 +259,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if chatType == "group" {
 		go b.handleIncoming(opCtx, incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	} else {
-		dmCtx := agent.WithExcludedTools(context.Background(), "group_reply")
-		go b.handleIncoming(dmCtx, incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+		go b.handleIncoming(context.Background(), incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	}
 	return nil
 }
@@ -402,15 +400,11 @@ func (b *Bot) handleIncoming(ctx context.Context, msg channel.IncomingMessage, c
 		}
 	}
 
-	// For group messages the agent replies via the group_reply tool;
-	// only send the buffered final response for DMs.
-	if !msg.IsGroup {
-		if strings.TrimSpace(response) == "" {
-			response = "(empty response)"
-		}
-		finalResponse := response + elapsedFooter(elapsed)
-		b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
 	}
+	finalResponse := response + elapsedFooter(elapsed)
+	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)

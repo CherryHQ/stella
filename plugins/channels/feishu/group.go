@@ -7,6 +7,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // attributeGroupContent prepends a "[Name]: " prefix to text content blocks
@@ -60,7 +61,7 @@ func (b *Bot) warnAlwaysModeOnce(chatID string) {
 }
 
 // decorateGroupCtx builds a context carrying the group log, system prompt,
-// group_reply callback, and excluded-tool adjustments for a group invocation.
+// and notification reply targeting for a group invocation.
 // If groupLogText is non-empty it is used directly; otherwise the ring buffer
 // is formatted on the fly.
 func (b *Bot) decorateGroupCtx(chatID, messageID, rootID, groupLogText string) context.Context {
@@ -79,11 +80,12 @@ func (b *Bot) decorateGroupCtx(chatID, messageID, rootID, groupLogText string) c
 		}
 	}
 
+	groupLogText += "\n\nTo reply in this group conversation, use the notify tool."
+
 	ctx = agent.WithGroupContext(ctx, groupLogText)
-	ctx = WithGroupReplyFn(ctx, func(text string) {
-		replyCtx, cancel := b.apiContext()
-		defer cancel()
-		b.replyInThread(replyCtx, messageID, rootID, text)
+	ctx = channel.WithNotificationReply(ctx, channel.NotificationReplyContext{
+		ChatID:    chatID,
+		MessageID: threadReplyTarget(messageID, rootID),
 	})
 	return ctx
 }

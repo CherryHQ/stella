@@ -125,11 +125,12 @@ type ToolUseEvent struct {
 
 // Notification is a push message to send to a chat.
 type Notification struct {
-	Channel string // optional: route to a specific backend
-	ChatID  string // target chat/channel within the backend
-	AgentID string // optional: agent that produced the notification
-	Text    string // markdown content
-	Silent  bool   // send without notification sound
+	Channel          string // optional: route to a specific backend
+	ChatID           string // target chat/channel within the backend
+	AgentID          string // optional: agent that produced the notification
+	Text             string // markdown content
+	Silent           bool   // send without notification sound
+	ReplyToMessageID string // optional: reply in-thread to this message
 }
 
 // AgentInfo is agent metadata for display in channel UIs.
