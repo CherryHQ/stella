@@ -406,6 +406,12 @@ type GetSessionMessagesParams struct {
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
 }
 
+// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
+type GetWorkspaceFileContentParams struct {
+	// Path Relative path of the file within the workspace
+	Path string `form:"path" json:"path"`
+}
+
 // SearchSkillsParams defines parameters for SearchSkills.
 type SearchSkillsParams struct {
 	Q     string `form:"q" json:"q"`
@@ -529,6 +535,9 @@ type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
 
 // SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
 type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
+
+// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
+type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
 
 // DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
 type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
@@ -1024,6 +1033,14 @@ type ClientInterface interface {
 
 	// GetSessionWorkspace request
 	GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetWorkspaceFileContent request
+	GetWorkspaceFileContent(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkspaceFileContentWithBody request with any body
+	UpdateWorkspaceFileContentWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateWorkspaceFileContent(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteWorkspaceFileWithBody request with any body
 	DeleteWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2804,6 +2821,42 @@ func (c *Client) GetSessionSystemPrompt(ctx context.Context, sessionID string, r
 
 func (c *Client) GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionWorkspaceRequest(c.Server, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetWorkspaceFileContent(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetWorkspaceFileContentRequest(c.Server, sessionID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateWorkspaceFileContentWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkspaceFileContentRequestWithBody(c.Server, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateWorkspaceFileContent(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkspaceFileContentRequest(c.Server, sessionID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -7567,6 +7620,110 @@ func NewGetSessionWorkspaceRequest(server string, sessionID string) (*http.Reque
 	return req, nil
 }
 
+// NewGetWorkspaceFileContentRequest generates requests for GetWorkspaceFileContent
+func NewGetWorkspaceFileContentRequest(server string, sessionID string, params *GetWorkspaceFileContentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/file-content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateWorkspaceFileContentRequest calls the generic UpdateWorkspaceFileContent builder with application/json body
+func NewUpdateWorkspaceFileContentRequest(server string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateWorkspaceFileContentRequestWithBody(server, sessionID, "application/json", bodyReader)
+}
+
+// NewUpdateWorkspaceFileContentRequestWithBody generates requests for UpdateWorkspaceFileContent with any type of body
+func NewUpdateWorkspaceFileContentRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/file-content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteWorkspaceFileRequest calls the generic DeleteWorkspaceFile builder with application/json body
 func NewDeleteWorkspaceFileRequest(server string, sessionID string, body DeleteWorkspaceFileJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -8793,6 +8950,14 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionWorkspaceWithResponse request
 	GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
+
+	// GetWorkspaceFileContentWithResponse request
+	GetWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error)
+
+	// UpdateWorkspaceFileContentWithBodyWithResponse request with any body
+	UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
+
+	UpdateWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
 
 	// DeleteWorkspaceFileWithBodyWithResponse request with any body
 	DeleteWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
@@ -12395,6 +12560,74 @@ func (r GetSessionWorkspaceResponse) ContentType() string {
 	return ""
 }
 
+type GetWorkspaceFileContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.WorkspaceFileContent
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetWorkspaceFileContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetWorkspaceFileContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetWorkspaceFileContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateWorkspaceFileContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.WorkspaceFileContent
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateWorkspaceFileContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateWorkspaceFileContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateWorkspaceFileContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteWorkspaceFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -14249,6 +14482,32 @@ func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseGetSessionWorkspaceResponse(rsp)
+}
+
+// GetWorkspaceFileContentWithResponse request returning *GetWorkspaceFileContentResponse
+func (c *ClientWithResponses) GetWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error) {
+	rsp, err := c.GetWorkspaceFileContent(ctx, sessionID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetWorkspaceFileContentResponse(rsp)
+}
+
+// UpdateWorkspaceFileContentWithBodyWithResponse request with arbitrary body returning *UpdateWorkspaceFileContentResponse
+func (c *ClientWithResponses) UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
+	rsp, err := c.UpdateWorkspaceFileContentWithBody(ctx, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkspaceFileContentResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
+	rsp, err := c.UpdateWorkspaceFileContent(ctx, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkspaceFileContentResponse(rsp)
 }
 
 // DeleteWorkspaceFileWithBodyWithResponse request with arbitrary body returning *DeleteWorkspaceFileResponse
@@ -19047,6 +19306,114 @@ func ParseGetSessionWorkspaceResponse(rsp *http.Response) (*GetSessionWorkspaceR
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetWorkspaceFileContentResponse parses an HTTP response from a GetWorkspaceFileContentWithResponse call
+func ParseGetWorkspaceFileContentResponse(rsp *http.Response) (*GetWorkspaceFileContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetWorkspaceFileContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.WorkspaceFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateWorkspaceFileContentResponse parses an HTTP response from a UpdateWorkspaceFileContentWithResponse call
+func ParseUpdateWorkspaceFileContentResponse(rsp *http.Response) (*UpdateWorkspaceFileContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateWorkspaceFileContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.WorkspaceFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

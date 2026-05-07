@@ -606,6 +606,73 @@ templ sessionDetailPanel() {
 		</div>
 		</div>
 	</div>
+	<!-- File editor modal -->
+	<div
+		x-show="fileEditor.open"
+		x-cloak
+		@keydown.escape.window="closeFileEditor()"
+		class="fixed inset-0 flex items-center justify-center bg-black/50 z-[10000]"
+	>
+		<div class="bg-base-100 rounded-xl shadow-2xl border border-base-300 flex flex-col overflow-hidden" style="width:90vw;height:85vh;max-width:72rem;">
+			<!-- Modal header -->
+			<div class="flex items-center justify-between px-4 py-2.5 border-b border-base-300 flex-shrink-0">
+				<div class="flex items-center gap-2 min-w-0">
+					<svg class="w-3.5 h-3.5 shrink-0 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"></path>
+					</svg>
+					<span class="text-xs font-mono text-base-content/70 truncate" x-text="fileEditor.path"></span>
+					<span x-show="fileEditor.language" class="badge badge-ghost badge-xs font-mono text-[9px]" x-text="fileEditor.language"></span>
+				</div>
+				<div class="flex items-center gap-1 shrink-0">
+					<!-- Markdown preview toggle -->
+					<template x-if="fileEditor.language === 'markdown'">
+						<button
+							@click="toggleEditorPreview()"
+							class="btn btn-ghost btn-xs text-xs"
+							:class="fileEditor.previewMd ? 'btn-active text-primary' : 'text-secondary'"
+						>Preview</button>
+					</template>
+					<span class="text-[10px] font-mono text-base-content/25 select-none hidden sm:block">⌘S</span>
+					<button
+						@click="saveFileEditor()"
+						:disabled="fileEditor.saving || fileEditor.loading"
+						class="btn btn-primary btn-xs gap-1"
+					>
+						<span x-show="fileEditor.saving" class="loading loading-spinner loading-xs"></span>
+						Save
+					</button>
+					<button @click="closeFileEditor()" class="btn btn-ghost btn-xs px-2 text-base-content/50 hover:text-base-content">✕</button>
+				</div>
+			</div>
+			<!-- Editor / Preview area -->
+			<div class="flex-1 overflow-hidden relative">
+				<!-- Loading -->
+				<div x-show="fileEditor.loading" class="absolute inset-0 flex items-center justify-center bg-base-100/80 z-10">
+					<span class="loading loading-spinner loading-md text-secondary"></span>
+				</div>
+				<!-- Markdown preview -->
+				<div
+					x-show="fileEditor.previewMd && !fileEditor.loading"
+					class="absolute inset-0 overflow-y-auto px-8 py-6 md-prose"
+					x-html="renderMd(fileEditor.content)"
+				></div>
+				<!-- Textarea editor -->
+				<textarea
+					x-ref="editorTextarea"
+					x-show="!fileEditor.previewMd && !fileEditor.loading"
+					x-model="fileEditor.content"
+					@keydown.meta.s.prevent="saveFileEditor()"
+					@keydown.ctrl.s.prevent="saveFileEditor()"
+					class="absolute inset-0 w-full h-full resize-none border-0 outline-none bg-base-100 text-base-content p-4"
+					style="font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; tab-size: 2;"
+					spellcheck="false"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+				></textarea>
+			</div>
+		</div>
+	</div>
 	<!-- Workspace right-click context menu (fixed, dismisses on outside click) -->
 	<div
 		x-show="workspaceCtxMenu.show"
@@ -618,6 +685,18 @@ templ sessionDetailPanel() {
 		<!-- File/folder specific actions -->
 		<template x-if="workspaceCtxMenu.path">
 			<div>
+				<!-- Open (files only) -->
+				<template x-if="sessionWorkspace?.paths?.includes(workspaceCtxMenu.path)">
+					<button
+						@click="openFileEditor(workspaceCtxMenu.path)"
+						class="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-base-200 text-xs font-mono"
+					>
+						<svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776"></path>
+						</svg>
+						Open
+					</button>
+				</template>
 				<button
 					@click="ctxRename()"
 					class="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-base-200 text-xs font-mono"

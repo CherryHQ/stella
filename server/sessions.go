@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -596,6 +597,135 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessi
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetWorkspaceFileContentParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	if params.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, params.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if info.IsDir() {
+		writeError(w, http.StatusBadRequest, "path is a directory")
+		return
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Refuse binary files: check first 512 bytes for null byte.
+	probe := data
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	if slices.Contains(probe, 0) {
+		writeError(w, http.StatusBadRequest, "file appears to be binary")
+		return
+	}
+	lang := detectLanguage(params.Path)
+	writeData(w, http.StatusOK, map[string]any{
+		"path":     params.Path,
+		"content":  string(data),
+		"language": lang,
+	})
+}
+
+func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.UpdateWorkspaceFileContentJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.WriteFile(abs, []byte(body.Content), 0o644); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	lang := detectLanguage(body.Path)
+	writeData(w, http.StatusOK, map[string]any{
+		"path":     body.Path,
+		"content":  body.Content,
+		"language": lang,
+	})
+}
+
+// detectLanguage returns a simple language hint based on file extension.
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".py":
+		return "python"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md", ".mdx":
+		return "markdown"
+	case ".html", ".templ":
+		return "html"
+	case ".css":
+		return "css"
+	case ".sh", ".bash":
+		return "shell"
+	case ".sql":
+		return "sql"
+	case ".toml":
+		return "toml"
+	case ".xml":
+		return "xml"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".txt":
+		return "text"
+	default:
+		return ""
+	}
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {

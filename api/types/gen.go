@@ -896,12 +896,33 @@ type WorkspaceDeleteRequest struct {
 	Path string `json:"path"`
 }
 
+// WorkspaceFileContent defines model for WorkspaceFileContent.
+type WorkspaceFileContent struct {
+	// Content File text content
+	Content string `json:"content"`
+
+	// Language Detected language hint for syntax highlighting
+	Language *string `json:"language,omitempty"`
+
+	// Path Relative path of the file within the workspace
+	Path string `json:"path"`
+}
+
 // WorkspaceMoveRequest defines model for WorkspaceMoveRequest.
 type WorkspaceMoveRequest struct {
 	// NewPath New relative path (rename or move destination)
 	NewPath string `json:"new_path"`
 
 	// Path Current relative path
+	Path string `json:"path"`
+}
+
+// WorkspaceUpdateContentRequest defines model for WorkspaceUpdateContentRequest.
+type WorkspaceUpdateContentRequest struct {
+	// Content New file content to write
+	Content string `json:"content"`
+
+	// Path Relative path of the file within the workspace
 	Path string `json:"path"`
 }
 

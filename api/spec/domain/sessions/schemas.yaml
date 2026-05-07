@@ -89,3 +89,28 @@ components:
         new_path:
           type: string
           description: New relative path (rename or move destination)
+
+    WorkspaceFileContent:
+      type: object
+      required: [path, content]
+      properties:
+        path:
+          type: string
+          description: Relative path of the file within the workspace
+        content:
+          type: string
+          description: File text content
+        language:
+          type: string
+          description: Detected language hint for syntax highlighting
+
+    WorkspaceUpdateContentRequest:
+      type: object
+      required: [path, content]
+      properties:
+        path:
+          type: string
+          description: Relative path of the file within the workspace
+        content:
+          type: string
+          description: New file content to write

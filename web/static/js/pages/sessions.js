@@ -48,6 +48,16 @@ export function register(Alpine) {
     workspaceCtxMenu: { show: false, x: 0, y: 0, path: null },
     _ctxDir: null,
 
+    fileEditor: {
+      open: false,
+      path: '',
+      content: '',
+      language: '',
+      saving: false,
+      loading: false,
+      previewMd: false,
+    },
+
     tools: [],
     toolsLoading: false,
     activePanel: null,
@@ -266,6 +276,7 @@ export function register(Alpine) {
 
     async openSession(sessionID, pushState = true) {
       const prevPanel = this.activePanel
+      this.closeFileEditor()
       this.sessionMessagesLoading = true
       this.sessionMessages = []
       this.sessionMessagesSkip = 0
@@ -477,6 +488,13 @@ export function register(Alpine) {
             const focusedPath = tree.getFocusedPath() || (tree.getSelectedPaths()[0] ?? null)
             self.workspaceCtxMenu = { show: true, x: e.clientX, y: e.clientY, path: focusedPath }
           })
+          // Double-click opens file in editor. Only for files (paths in workspace list).
+          host.addEventListener('dblclick', () => {
+            const path = tree.getFocusedPath() || (tree.getSelectedPaths()[0] ?? null)
+            if (path && self.sessionWorkspace?.paths?.includes(path)) {
+              self.openFileEditor(path)
+            }
+          })
         })
       } catch (e) {
         console.error('loadWorkspace:', e)
@@ -568,7 +586,49 @@ export function register(Alpine) {
       this.$nextTick(() => { if (this.$refs.newItemInput) this.$refs.newItemInput.focus() })
     },
 
+    async openFileEditor(path) {
+      if (!path || !this.sessionDetail) return
+      this.workspaceCtxMenu.show = false
+      this.fileEditor = { open: true, path, content: '', language: '', saving: false, loading: true, previewMd: false }
+      try {
+        const enc = encodeURIComponent(this.sessionDetail.id)
+        const data = await api('GET', `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`)
+        this.fileEditor.content = data.content || ''
+        this.fileEditor.language = data.language || ''
+        this.fileEditor.loading = false
+        this.$nextTick(() => {
+          if (this.$refs.editorTextarea) this.$refs.editorTextarea.focus()
+        })
+      } catch (e) {
+        this.$store.toast.show(e.message || 'Cannot open file', 'error')
+        this.fileEditor.open = false
+      }
+    },
+
+    async saveFileEditor() {
+      if (!this.sessionDetail || this.fileEditor.saving) return
+      this.fileEditor.saving = true
+      try {
+        const enc = encodeURIComponent(this.sessionDetail.id)
+        await api('PUT', `/api/sessions/${enc}/workspace/file-content`, { path: this.fileEditor.path, content: this.fileEditor.content })
+        this.$store.toast.show('Saved', 'success')
+      } catch (e) {
+        this.$store.toast.show(e.message || 'Save failed', 'error')
+      } finally {
+        this.fileEditor.saving = false
+      }
+    },
+
+    closeFileEditor() {
+      this.fileEditor.open = false
+    },
+
+    toggleEditorPreview() {
+      this.fileEditor.previewMd = !this.fileEditor.previewMd
+    },
+
     backToList() {
+      this.closeFileEditor()
       this.sessionDetail = null
       this.sessionMessages = []
       this.sessionMessagesSkip = 0

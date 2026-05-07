@@ -183,6 +183,49 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/sessions/{sessionID}/workspace/file-content:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get the content of a file in the session workspace
+      operationId: getWorkspaceFileContent
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          description: Relative path of the file within the workspace
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [sessions]
+      summary: Write content to a file in the session workspace
+      operationId: updateWorkspaceFileContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUpdateContentRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/sessions/{sessionID}/system-prompt:
     parameters:
       - { name: sessionID, in: path, required: true, schema: { type: string } }
