@@ -271,6 +271,8 @@ paths:
       tags: [agents]
       summary: Download a skill file (creator or admin)
       operationId: getAgentSkillFile
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -284,6 +286,8 @@ paths:
       tags: [agents]
       summary: Delete a skill file (creator or admin)
       operationId: deleteAgentSkillFile
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
       responses:
         "200":
           description: deleted

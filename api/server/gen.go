@@ -304,6 +304,16 @@ type UploadAgentSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
+// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
+type DeleteAgentSkillFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
+// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
+type GetAgentSkillFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
@@ -573,10 +583,10 @@ type ServerInterface interface {
 	UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
 	// Delete a skill file (creator or admin)
 	// (DELETE /api/agents/{id}/skills/{skillId}/file)
-	DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string)
+	DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillFileParams)
 	// Download a skill file (creator or admin)
 	// (GET /api/agents/{id}/skills/{skillId}/file)
-	GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string)
+	GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillFileParams)
 	// List users assigned to an agent (admin only)
 	// (GET /api/agents/{id}/users)
 	ListAgentUsers(w http.ResponseWriter, r *http.Request, id string)
@@ -1338,8 +1348,24 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteAgentSkillFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentSkillFile(w, r, id, skillId)
+		siw.Handler.DeleteAgentSkillFile(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1379,8 +1405,24 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAgentSkillFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSkillFile(w, r, id, skillId)
+		siw.Handler.GetAgentSkillFile(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

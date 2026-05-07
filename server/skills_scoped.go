@@ -167,7 +167,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	writeData(w, http.StatusOK, skillToView(*sk, paths))
 }
 
-func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
 	agentID := id
 	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
@@ -178,7 +178,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, code, msg)
 		return
 	}
-	s.serveSkillFile(w, r, skillID)
+	s.serveSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
@@ -209,7 +209,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	s.doDeleteSkill(w, r, skillID)
 }
 
-func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
 	agentID := id
 	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
@@ -220,7 +220,7 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, skillID)
+	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -366,7 +366,7 @@ func (s *Server) GetProfileSkillFile(w http.ResponseWriter, r *http.Request, ski
 		writeError(w, code, msg)
 		return
 	}
-	s.serveSkillFile(w, r, skillID)
+	s.serveSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
@@ -408,7 +408,7 @@ func (s *Server) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, 
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, skillID)
+	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) InstallProfileSkill(w http.ResponseWriter, r *http.Request) {

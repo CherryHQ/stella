@@ -91,18 +91,17 @@ func (s *Server) GetSkillFile(w http.ResponseWriter, r *http.Request, id string,
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.serveSkillFile(w, r, id)
+	s.serveSkillFile(w, r, id, params.Path)
 }
 
 // serveSkillFile is the shared body of GET .../skills/{id}/file?path=...
 // (reused by scoped handlers after their ownership checks).
-func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return
@@ -124,17 +123,16 @@ func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id stri
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.doDeleteSkillFile(w, r, id)
+	s.doDeleteSkillFile(w, r, id, params.Path)
 }
 
 // doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
-func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return

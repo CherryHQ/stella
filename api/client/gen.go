@@ -306,6 +306,16 @@ type UploadAgentSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
+// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
+type DeleteAgentSkillFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
+// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
+type GetAgentSkillFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
@@ -653,10 +663,10 @@ type ClientInterface interface {
 	UpdateAgentSkill(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAgentSkillFile request
-	DeleteAgentSkillFile(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetAgentSkillFile request
-	GetAgentSkillFile(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentUsers request
 	ListAgentUsers(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1247,8 +1257,8 @@ func (c *Client) UpdateAgentSkill(ctx context.Context, id string, skillId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentSkillFileRequest(c.Server, id, skillId)
+func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentSkillFileRequest(c.Server, id, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1259,8 +1269,8 @@ func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId st
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAgentSkillFile(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentSkillFileRequest(c.Server, id, skillId)
+func (c *Client) GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentSkillFileRequest(c.Server, id, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3476,7 +3486,7 @@ func NewUpdateAgentSkillRequestWithBody(server string, id string, skillId string
 }
 
 // NewDeleteAgentSkillFileRequest generates requests for DeleteAgentSkillFile
-func NewDeleteAgentSkillFileRequest(server string, id string, skillId string) (*http.Request, error) {
+func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, params *DeleteAgentSkillFileParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3506,6 +3516,29 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string) (*
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
@@ -3517,7 +3550,7 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string) (*
 }
 
 // NewGetAgentSkillFileRequest generates requests for GetAgentSkillFile
-func NewGetAgentSkillFileRequest(server string, id string, skillId string) (*http.Request, error) {
+func NewGetAgentSkillFileRequest(server string, id string, skillId string, params *GetAgentSkillFileParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3547,6 +3580,29 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string) (*htt
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -8050,10 +8106,10 @@ type ClientWithResponsesInterface interface {
 	UpdateAgentSkillWithResponse(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error)
 
 	// DeleteAgentSkillFileWithResponse request
-	DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error)
+	DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error)
 
 	// GetAgentSkillFileWithResponse request
-	GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error)
+	GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error)
 
 	// ListAgentUsersWithResponse request
 	ListAgentUsersWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentUsersResponse, error)
@@ -12557,8 +12613,8 @@ func (c *ClientWithResponses) UpdateAgentSkillWithResponse(ctx context.Context, 
 }
 
 // DeleteAgentSkillFileWithResponse request returning *DeleteAgentSkillFileResponse
-func (c *ClientWithResponses) DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error) {
-	rsp, err := c.DeleteAgentSkillFile(ctx, id, skillId, reqEditors...)
+func (c *ClientWithResponses) DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error) {
+	rsp, err := c.DeleteAgentSkillFile(ctx, id, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -12566,8 +12622,8 @@ func (c *ClientWithResponses) DeleteAgentSkillFileWithResponse(ctx context.Conte
 }
 
 // GetAgentSkillFileWithResponse request returning *GetAgentSkillFileResponse
-func (c *ClientWithResponses) GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error) {
-	rsp, err := c.GetAgentSkillFile(ctx, id, skillId, reqEditors...)
+func (c *ClientWithResponses) GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error) {
+	rsp, err := c.GetAgentSkillFile(ctx, id, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
