@@ -28,7 +28,7 @@ func (s *Server) pageChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageUsers(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "users", "/static/js/pages/users.js", pages.UsersPage())
+	s.renderPageWithVite(w, r, "users", "", pages.UsersPage(), "users")
 }
 
 func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
