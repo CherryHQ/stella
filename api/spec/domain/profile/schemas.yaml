@@ -45,6 +45,13 @@ components:
       properties:
         value: { type: string }
 
+    VaultEntryValue:
+      type: object
+      required: [name, value]
+      properties:
+        name:  { type: string }
+        value: { type: string }
+
     OAuthProviderStatus:
       type: object
       required: [provider, available, connected]

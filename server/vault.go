@@ -1,6 +1,8 @@
 package server
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 )
 
@@ -40,6 +42,38 @@ func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeData(w, http.StatusOK, resp)
+}
+
+// GetVaultEntry handles GET /api/auth/profile/vault/{name}.
+func (s *Server) GetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
+	if s.vaultSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	value, err := s.vaultSvc.Get(r.Context(), info.UserID, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "vault entry not found")
+			return
+		}
+		s.log.Error("get vault entry", "user_id", info.UserID, "name", name, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
 }
 
 // SetVaultEntry handles PUT /api/auth/profile/vault/{name}.

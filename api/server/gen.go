@@ -290,6 +290,9 @@ type UserMemory = externalRef0.UserMemory
 // VaultEntry defines model for VaultEntry.
 type VaultEntry = externalRef0.VaultEntry
 
+// VaultEntryValue defines model for VaultEntryValue.
+type VaultEntryValue = externalRef0.VaultEntryValue
+
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode = externalRef0.WeixinQRCode
 
@@ -677,6 +680,9 @@ type ServerInterface interface {
 	// Delete a vault entry
 	// (DELETE /api/auth/profile/vault/{name})
 	DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name string)
+	// Get a vault entry value
+	// (GET /api/auth/profile/vault/{name})
+	GetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
 	// Create or update a vault entry
 	// (PUT /api/auth/profile/vault/{name})
 	SetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
@@ -2306,6 +2312,38 @@ func (siw *ServerInterfaceWrapper) DeleteVaultEntry(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteVaultEntry(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVaultEntry operation middleware
+func (siw *ServerInterfaceWrapper) GetVaultEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVaultEntry(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5019,6 +5057,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentId}", wrapper.SetProfileSoul)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
