@@ -11,6 +11,27 @@ icon: History
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-05-07
+
+### ✨ 功能
+
+- **调度器**: RSS 通知新增"值得阅读"层级
+- **API**: OpenAPI 规范作为所有 /api/* 路由的唯一真相来源 ([#148](https://github.com/vaayne/anna/pull/148))
+
+### 🐛 修复
+
+- **调度器**: 修复无新文章时仍发送 RSS 通知的问题
+- **服务器**: 允许私有网络地址使用安全 Cookie
+
+### ♻️ 重构
+
+- **Web**: 将 UI 层从 internal/admin/ui/ 迁移至顶层 web/ 目录 ([#147](https://github.com/vaayne/anna/pull/147))
+- **服务器**: 将 internal/admin/ 迁移至顶层 server/ 包
+- **调度器**: 软化"值得阅读"层级标签
+- **Recally**: 将技能重构为专注的参考文件
+
+**完整变更日志**：[v0.22.0...v0.23.0](https://github.com/vaayne/anna/compare/v0.22.0...v0.23.0)
+
 ## [0.22.0] - 2026-05-06
 
 ### ✨ 功能
