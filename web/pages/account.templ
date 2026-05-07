@@ -1,52 +1,5 @@
 package pages
 
-import "github.com/vaayne/anna/web"
-
 templ AccountPage() {
-	<div x-data="accountPage()">
-		@web.PageHeader("Account", "Manage your account settings.")
-		<div class="mb-10">
-			<h2 class="font-serif text-xl mb-4">Change Password</h2>
-			<div class="card bg-base-200">
-				<div class="card-body">
-					<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-						@web.FormField("Current Password") {
-							<input
-								type="password"
-								x-model="currentPassword"
-								class="input input-bordered w-full text-sm"
-								placeholder="current password"
-								autocomplete="current-password"
-							/>
-						}
-						@web.FormField("New Password") {
-							<input
-								type="password"
-								x-model="newPassword"
-								class="input input-bordered w-full text-sm"
-								placeholder="min 8 characters"
-								minlength="8"
-								autocomplete="new-password"
-							/>
-						}
-						@web.FormField("Confirm New Password") {
-							<input
-								type="password"
-								x-model="confirmPassword"
-								class="input input-bordered w-full text-sm"
-								placeholder="confirm new password"
-								autocomplete="new-password"
-							/>
-						}
-					</div>
-					<div class="mt-4">
-						<button @click="changePassword()" :disabled="changingPassword" class="btn btn-primary btn-sm">
-							<span x-show="changingPassword" class="loading loading-spinner loading-xs"></span>
-							Change Password
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
-	</div>
+	<div id="account-root" class="py-6"></div>
 }

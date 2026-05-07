@@ -48,7 +48,7 @@ func (s *Server) pageProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageAccount(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "account", "/static/js/pages/account.js", pages.AccountPage())
+	s.renderPageWithVite(w, r, "account", "", pages.AccountPage(), "account")
 }
 
 func (s *Server) pageCredentials(w http.ResponseWriter, r *http.Request) {
