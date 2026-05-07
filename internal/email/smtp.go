@@ -1,0 +1,141 @@
+package email
+
+import (
+	"fmt"
+	"strings"
+
+	mail "github.com/wneessen/go-mail"
+)
+
+// SendOptions holds the parameters for composing and sending an email.
+type SendOptions struct {
+	To          []string
+	Cc          []string
+	Bcc         []string
+	Subject     string
+	Body        string
+	HTML        bool
+	Attachments []string // file paths
+	From        string   // override sender
+	ReplyTo     string
+}
+
+// Send composes and sends an email via SMTP using the provided account configuration.
+func Send(acct EmailAccount, opts SendOptions) error {
+	if len(opts.To) == 0 && len(opts.Cc) == 0 && len(opts.Bcc) == 0 {
+		return fmt.Errorf("at least one recipient is required (--to, --cc, or --bcc)")
+	}
+
+	msg := mail.NewMsg()
+
+	from := opts.From
+	if from == "" {
+		from = acct.From
+	}
+	if err := msg.From(from); err != nil {
+		return fmt.Errorf("set From header: %w", err)
+	}
+
+	if len(opts.To) > 0 {
+		if err := msg.To(opts.To...); err != nil {
+			return fmt.Errorf("set To header: %w", err)
+		}
+	}
+	if len(opts.Cc) > 0 {
+		if err := msg.Cc(opts.Cc...); err != nil {
+			return fmt.Errorf("set Cc header: %w", err)
+		}
+	}
+	if len(opts.Bcc) > 0 {
+		if err := msg.Bcc(opts.Bcc...); err != nil {
+			return fmt.Errorf("set Bcc header: %w", err)
+		}
+	}
+
+	msg.Subject(opts.Subject)
+
+	if opts.HTML {
+		msg.SetBodyString(mail.TypeTextHTML, opts.Body)
+	} else {
+		msg.SetBodyString(mail.TypeTextPlain, opts.Body)
+	}
+
+	if opts.ReplyTo != "" {
+		if err := msg.ReplyTo(opts.ReplyTo); err != nil {
+			return fmt.Errorf("set Reply-To header: %w", err)
+		}
+	}
+
+	for _, path := range opts.Attachments {
+		msg.AttachFile(path)
+	}
+
+	client, err := newSMTPClient(acct)
+	if err != nil {
+		return fmt.Errorf("create SMTP client: %w", err)
+	}
+
+	if err := client.DialAndSend(msg); err != nil {
+		return fmt.Errorf("send email: %w", err)
+	}
+	return nil
+}
+
+// newSMTPClient builds a go-mail Client from the account's SMTP configuration.
+func newSMTPClient(acct EmailAccount) (*mail.Client, error) {
+	baseOpts := []mail.Option{
+		mail.WithPort(acct.SMTPPort),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithUsername(acct.Username),
+		mail.WithPassword(acct.Password),
+	}
+
+	var tlsOpts []mail.Option
+	switch acct.SMTPTLS {
+	case "ssl":
+		tlsOpts = []mail.Option{mail.WithSSL()}
+	case "none":
+		tlsOpts = []mail.Option{mail.WithTLSPortPolicy(mail.NoTLS)}
+	default: // "starttls" or ""
+		tlsOpts = []mail.Option{mail.WithTLSPortPolicy(mail.TLSMandatory)}
+	}
+
+	return mail.NewClient(acct.SMTPHost, append(baseOpts, tlsOpts...)...)
+}
+
+// FormatDryRun returns a human-readable representation of the email that would
+// be sent, for use with --dry-run.
+func FormatDryRun(acct EmailAccount, opts SendOptions) string {
+	var sb strings.Builder
+
+	from := opts.From
+	if from == "" {
+		from = acct.From
+	}
+
+	contentType := "text/plain"
+	if opts.HTML {
+		contentType = "text/html"
+	}
+
+	fmt.Fprintf(&sb, "From: %s\n", from)
+	fmt.Fprintf(&sb, "To: %s\n", strings.Join(opts.To, ", "))
+	if len(opts.Cc) > 0 {
+		fmt.Fprintf(&sb, "Cc: %s\n", strings.Join(opts.Cc, ", "))
+	}
+	if len(opts.Bcc) > 0 {
+		fmt.Fprintf(&sb, "Bcc: %s\n", strings.Join(opts.Bcc, ", "))
+	}
+	if opts.ReplyTo != "" {
+		fmt.Fprintf(&sb, "Reply-To: %s\n", opts.ReplyTo)
+	}
+	fmt.Fprintf(&sb, "Subject: %s\n", opts.Subject)
+	fmt.Fprintf(&sb, "Content-Type: %s\n", contentType)
+	if len(opts.Attachments) > 0 {
+		fmt.Fprintf(&sb, "Attachments: %s\n", strings.Join(opts.Attachments, ", "))
+	}
+	sb.WriteString("\n---\n")
+	sb.WriteString(opts.Body)
+
+	return sb.String()
+}

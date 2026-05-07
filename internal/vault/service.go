@@ -12,6 +12,7 @@ import (
 // DB is the minimal database interface the vault Service requires.
 type DB interface {
 	GetAuthUser(ctx context.Context, id int64) (sqlc.AuthUser, error)
+	GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error)
 	ListVaultEntriesByUser(ctx context.Context, userID int64) ([]sqlc.VaultEntry, error)
 	UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error
 	DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error
@@ -91,6 +92,31 @@ func (s *Service) Delete(ctx context.Context, userID int64, name string) error {
 		return fmt.Errorf("vault: delete %q: %w", name, err)
 	}
 	return nil
+}
+
+// Get decrypts and returns the plaintext value of a single vault entry by name.
+func (s *Service) Get(ctx context.Context, userID int64, name string) (string, error) {
+	user, err := s.db.GetAuthUser(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("vault: get %q: get user: %w", name, err)
+	}
+	if user.AgePrivateKey == "" {
+		return "", fmt.Errorf("vault: get %q: user %d has no age private key provisioned", name, userID)
+	}
+
+	entry, err := s.db.GetVaultEntry(ctx, sqlc.GetVaultEntryParams{
+		UserID: userID,
+		Name:   name,
+	})
+	if err != nil {
+		return "", fmt.Errorf("vault: get %q: %w", name, err)
+	}
+
+	plaintext, err := Decrypt(s.masterIdentity, user.AgePrivateKey, entry.Ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("vault: get %q: decrypt: %w", name, err)
+	}
+	return plaintext, nil
 }
 
 // List returns metadata for all vault entries owned by userID. Ciphertext is

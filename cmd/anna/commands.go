@@ -54,6 +54,7 @@ func newApp() *ucli.App {
 			upgradeCommand(),
 			recallyCommand(),
 			schedulerCommand(),
+			emailCommand(),
 		},
 	}
 }

@@ -1,0 +1,139 @@
+package email
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"os"
+	"regexp"
+	"slices"
+)
+
+var accountNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+type EmailAccount struct {
+	IMAPHost string `json:"imap_host,omitempty"`
+	IMAPPort int    `json:"imap_port,omitempty"`
+	IMAPTLS  string `json:"imap_tls,omitempty"`
+	SMTPHost string `json:"smtp_host,omitempty"`
+	SMTPPort int    `json:"smtp_port,omitempty"`
+	SMTPTLS  string `json:"smtp_tls,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	From     string `json:"from,omitempty"`
+}
+
+type Config struct {
+	Default  string                  `json:"default"`
+	Accounts map[string]EmailAccount `json:"accounts"`
+}
+
+func ValidateAccountName(name string) error {
+	if !accountNameRe.MatchString(name) {
+		return fmt.Errorf("account name %q must match ^[a-z][a-z0-9_]{0,31}$", name)
+	}
+	return nil
+}
+
+func LoadFromEnv() (*Config, error) {
+	val, ok := os.LookupEnv("EMAIL_CONFIG")
+	if !ok {
+		return nil, errors.New("EMAIL_CONFIG environment variable is not set")
+	}
+	cfg := &Config{Accounts: make(map[string]EmailAccount)}
+	if val == "" || val == "{}" {
+		return cfg, nil
+	}
+	if err := json.Unmarshal([]byte(val), cfg); err != nil {
+		return nil, fmt.Errorf("parse EMAIL_CONFIG: %w", err)
+	}
+	if cfg.Accounts == nil {
+		cfg.Accounts = make(map[string]EmailAccount)
+	}
+	return cfg, nil
+}
+
+func (c *Config) Resolve(name string) (EmailAccount, error) {
+	if name == "" {
+		if c.Default == "" {
+			return EmailAccount{}, errors.New("no default account set")
+		}
+		name = c.Default
+	}
+	acct, ok := c.Accounts[name]
+	if !ok {
+		return EmailAccount{}, fmt.Errorf("account %q not found", name)
+	}
+	if acct.IMAPPort == 0 {
+		acct.IMAPPort = 993
+	}
+	if acct.SMTPPort == 0 {
+		acct.SMTPPort = 587
+	}
+	if acct.IMAPTLS == "" {
+		acct.IMAPTLS = "ssl"
+	}
+	if acct.SMTPTLS == "" {
+		acct.SMTPTLS = "starttls"
+	}
+	return acct, nil
+}
+
+func (c *Config) Upsert(name string, partial EmailAccount) {
+	if c.Accounts == nil {
+		c.Accounts = make(map[string]EmailAccount)
+	}
+	existing := c.Accounts[name]
+	if partial.IMAPHost != "" {
+		existing.IMAPHost = partial.IMAPHost
+	}
+	if partial.IMAPPort != 0 {
+		existing.IMAPPort = partial.IMAPPort
+	}
+	if partial.IMAPTLS != "" {
+		existing.IMAPTLS = partial.IMAPTLS
+	}
+	if partial.SMTPHost != "" {
+		existing.SMTPHost = partial.SMTPHost
+	}
+	if partial.SMTPPort != 0 {
+		existing.SMTPPort = partial.SMTPPort
+	}
+	if partial.SMTPTLS != "" {
+		existing.SMTPTLS = partial.SMTPTLS
+	}
+	if partial.Username != "" {
+		existing.Username = partial.Username
+	}
+	if partial.Password != "" {
+		existing.Password = partial.Password
+	}
+	if partial.From != "" {
+		existing.From = partial.From
+	}
+	c.Accounts[name] = existing
+}
+
+func (c *Config) Remove(name string) error {
+	if _, ok := c.Accounts[name]; !ok {
+		return fmt.Errorf("account %q not found", name)
+	}
+	delete(c.Accounts, name)
+	if c.Default == name {
+		c.Default = ""
+	}
+	return nil
+}
+
+func (c *Config) SetDefault(name string) error {
+	if _, ok := c.Accounts[name]; !ok {
+		return fmt.Errorf("account %q not found", name)
+	}
+	c.Default = name
+	return nil
+}
+
+func (c *Config) AccountNames() []string {
+	return slices.Sorted(maps.Keys(c.Accounts))
+}
