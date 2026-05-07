@@ -12,6 +12,30 @@ import (
 	"github.com/vaayne/anna/pkg/channel"
 )
 
+// textContent builds the JSON content string for a Feishu text message.
+func textContent(text string) string {
+	data, _ := json.Marshal(map[string]string{"text": text})
+	return string(data)
+}
+
+// cardContent builds a Feishu Interactive Card JSON 2.0 string with markdown content.
+// Cards support the Patch API for in-place editing (plain text messages do not).
+func cardContent(text string) string {
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{
+					"tag":     "markdown",
+					"content": text,
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(card)
+	return string(data)
+}
+
 // feishuFileType maps common file extensions to Feishu's file_type field.
 // Unrecognised extensions fall back to "stream" (generic binary).
 func feishuFileType(name string) string {
