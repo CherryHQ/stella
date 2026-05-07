@@ -10,16 +10,16 @@ func init() {
       tap fetch <entry.url> > $f
       If fetch fails, try "tap fetch --lp", then "curl -s https://r.jina.ai/<entry.url>", then "tap fetch -b".
    b. Read the file and generate: Title, Author, Summary (2-4 sentences), Tags (3-7 lowercase), Source Type = rss, and a Worth-Reading tier — pick exactly one full label:
-      "🔥 Must read" (high novelty or insight density), "👍 Worth it" (solid and informative), "📖 Skim" (low depth or mostly known).
+      "⭐ Top pick" (high novelty or insight density), "👍 Good read" (solid and informative), "📖 Skim" (low depth or mostly known).
    c. Save the article:
       anna recally save --content-file $f --url "<entry.url>" --title "..." --author "..." --summary "..." --tags "tag1" --tags "tag2" --source-type rss --metadata '{"worth_reading":"<tier-text-only>"}'
-      (tier-text-only is "Must read", "Worth it", or "Skim" — no emoji)
+      (tier-text-only is "Top pick", "Good read", or "Skim" — no emoji)
    d. Mark the entry as saved (positional args, not flags):
       anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
    e. On failure, mark as error and continue the batch — do not abort:
       anna recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
 3. Notify only when at least one article was saved: count the articles saved in step 2. If the count is zero, do NOT call the notify tool — stop here. If one or more, call notify once with a structured summary:
-   - For each article (up to 5): the full Worth-Reading label (emoji + text, e.g. "🔥 Must read") from step 2b, title, author, and one sentence distilled from the summary (the single most useful insight).
+   - For each article (up to 5): the full Worth-Reading label (emoji + text, e.g. "⭐ Top pick") from step 2b, title, author, and one sentence distilled from the summary (the single most useful insight).
    - If more than 5 articles were saved, list the remaining as title + author only.`,
 		Schedule:    Schedule{Every: "1h"},
 		SessionMode: SessionNew,
