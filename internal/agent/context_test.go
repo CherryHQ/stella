@@ -82,6 +82,43 @@ func TestWithExcludedTools(t *testing.T) {
 	}
 }
 
+// --- WithGroupContext / GroupContextFromCtx ---
+
+func TestWithGroupContextRoundTrip(t *testing.T) {
+	ctx := WithGroupContext(context.Background(), "Recent messages:\n[Alice]: hi")
+	got := GroupContextFromCtx(ctx)
+	if got != "Recent messages:\n[Alice]: hi" {
+		t.Errorf("GroupContextFromCtx = %q, want round-trip match", got)
+	}
+}
+
+func TestGroupContextFromCtxEmpty(t *testing.T) {
+	got := GroupContextFromCtx(context.Background())
+	if got != "" {
+		t.Errorf("GroupContextFromCtx on empty ctx = %q, want empty", got)
+	}
+}
+
+func TestWithGroupContextEmptyStringNoOp(t *testing.T) {
+	ctx := context.Background()
+	ctx2 := WithGroupContext(ctx, "")
+	// Empty string should be a no-op — ctx2 should be the same pointer.
+	if ctx2 != ctx {
+		t.Error("WithGroupContext with empty string should return same context")
+	}
+	if got := GroupContextFromCtx(ctx2); got != "" {
+		t.Errorf("GroupContextFromCtx after no-op = %q, want empty", got)
+	}
+}
+
+func TestGroupContextFromCtxNilCtx(t *testing.T) {
+	//nolint:staticcheck // deliberately testing nil context
+	got := GroupContextFromCtx(nil)
+	if got != "" {
+		t.Errorf("GroupContextFromCtx(nil) = %q, want empty", got)
+	}
+}
+
 func TestSummarizeToolInput(t *testing.T) {
 	tests := []struct {
 		tool string
