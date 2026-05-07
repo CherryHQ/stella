@@ -1,8 +1,45 @@
 package feishu
 
 import (
+	"fmt"
+	"strings"
+
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/pkg/ai"
 )
+
+// groupSKIPInstruction is injected into every group message so the agent can
+// signal "do not reply" without sending a visible response.
+const groupSKIPInstruction = `You are in a group chat. Most messages are between users and not directed at you.
+Respond ONLY when the message is clearly directed at you, asks a question you can answer, or requests your help.
+If the message does not warrant a reply, respond with exactly: [SKIP]
+Do not add any other text when skipping.`
+
+// groupBasePrompt builds the effective system prompt for a group message.
+// It always includes the SKIP instruction; any per-group custom prompt is appended.
+func groupBasePrompt(customPrompt string) string {
+	if customPrompt == "" {
+		return groupSKIPInstruction
+	}
+	return groupSKIPInstruction + "\n\n" + customPrompt
+}
+
+// isSkipResponse reports whether the agent's response is a SKIP signal.
+// Exact match only: trimmed text must equal "[SKIP]".
+func isSkipResponse(text string) bool {
+	return strings.TrimSpace(text) == "[SKIP]"
+}
+
+// attributeGroupContent prepends a "[Name]: " prefix to text content blocks
+// so the agent knows who is speaking. Falls back to openID if no name is cached.
+func (b *Bot) attributeGroupContent(openID string, content []ai.ContentBlock) []ai.ContentBlock {
+	name := b.cachedName(openID)
+	if name == "" {
+		name = openID
+	}
+	prefix := ai.TextContent{Text: fmt.Sprintf("[%s]: ", name)}
+	return append([]ai.ContentBlock{prefix}, content...)
+}
 
 // groupMode returns the effective group mode for the given chat.
 // Per-group config overrides the global setting.
