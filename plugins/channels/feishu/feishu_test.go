@@ -1146,7 +1146,6 @@ func TestStreamResponseSilentModeNoAPICallsAndEmptySentMsgID(t *testing.T) {
 
 	bot := &Bot{} // nil client — any API call would panic
 	sentMsgID, response, _, _, _, err := bot.streamResponseInThread(events, "", "msg1", "", true)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
