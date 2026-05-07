@@ -91,6 +91,22 @@ func saveVaultEmailConfig(ctx context.Context, api *apiclient.Client, cfg *email
 	return decodeJSON(resp, nil)
 }
 
+// loadEmailConfig tries EMAIL_CONFIG env var first (fast, no server needed).
+// If the env var is not set but ANNA_TOKEN is available, falls back to the
+// vault HTTP API so that freshly-added accounts work in the same session
+// without a sandbox restart.
+func loadEmailConfig(ctx context.Context) (*email.Config, error) {
+	cfg, err := email.LoadFromEnv()
+	if err == nil {
+		return cfg, nil
+	}
+	api, apiErr := newAPIClient()
+	if apiErr != nil {
+		return nil, fmt.Errorf("EMAIL_CONFIG env var not set (vault API fallback also unavailable: %v)", apiErr) //nolint:errorlint
+	}
+	return loadVaultEmailConfig(ctx, api)
+}
+
 // ---------------------------------------------------------------------------
 // email config
 // ---------------------------------------------------------------------------
@@ -398,7 +414,7 @@ func emailFoldersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := email.LoadFromEnv()
+			cfg, err := loadEmailConfig(c.Context)
 			if err != nil {
 				return err
 			}
@@ -439,7 +455,7 @@ func emailListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := email.LoadFromEnv()
+			cfg, err := loadEmailConfig(c.Context)
 			if err != nil {
 				return err
 			}
@@ -522,7 +538,7 @@ func emailReadCommand() *ucli.Command {
 				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
 			}
 
-			cfg, err := email.LoadFromEnv()
+			cfg, err := loadEmailConfig(c.Context)
 			if err != nil {
 				return err
 			}
@@ -604,7 +620,7 @@ func emailSendCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "dry-run", Usage: "Print composed message without sending"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := email.LoadFromEnv()
+			cfg, err := loadEmailConfig(c.Context)
 			if err != nil {
 				return err
 			}
