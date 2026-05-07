@@ -16,7 +16,7 @@ func init() {
       anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
    e. On failure, mark as error and continue the batch — do not abort:
       anna recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
-3. Use the notify tool to send the user a brief summary only if new articles were saved.`,
+3. Notify only when at least one article was saved: count the articles saved in step 2. If the count is zero, do NOT call the notify tool — stop here. If the count is one or more, call notify once with a brief summary (titles and sources).`,
 		Schedule:    Schedule{Every: "1h"},
 		SessionMode: SessionNew,
 		ExecScope:   ExecScopeAllUsers,
