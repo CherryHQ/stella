@@ -20,6 +20,7 @@ export default defineConfig({
         credentials: path.resolve(import.meta.dirname, "src/entries/credentials.tsx"),
         providers: path.resolve(import.meta.dirname, "src/entries/providers.tsx"),
         users: path.resolve(import.meta.dirname, "src/entries/users.tsx"),
+        plugins: path.resolve(import.meta.dirname, "src/entries/plugins.tsx"),
       },
     },
   },

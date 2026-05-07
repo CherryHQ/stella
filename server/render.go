@@ -20,7 +20,7 @@ func (s *Server) pageProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageAgents(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "agents", "/static/js/pages/agents.js", pages.AgentsPage())
+	s.renderPageWithVite(w, r, "agents", "", pages.AgentsPage(), "agents")
 }
 
 func (s *Server) pageChannels(w http.ResponseWriter, r *http.Request) {
