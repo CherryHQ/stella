@@ -32,7 +32,7 @@ func (s *Server) pageUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "sessions", "/static/js/pages/sessions.js", pages.SessionsPage())
+	s.renderPageWithVite(w, r, "sessions", "", pages.SessionsPage(), "sessions")
 }
 
 func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +58,10 @@ func (s *Server) pageCredentials(w http.ResponseWriter, r *http.Request) {
 // renderPage sets the HTML content type and renders the layout with the
 // given page content. Auth info is extracted from context for the navbar.
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, pageScript string, content templ.Component) {
+	s.renderPageWithVite(w, r, activePage, pageScript, content)
+}
+
+func (s *Server) renderPageWithVite(w http.ResponseWriter, r *http.Request, activePage, pageScript string, content templ.Component, viteEntries ...string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	username := ""
@@ -67,7 +71,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, 
 		isAdmin = info.IsAdmin
 	}
 
-	if err := web.Layout(activePage, pageScript, username, isAdmin, content).Render(r.Context(), w); err != nil {
+	if err := web.Layout(activePage, pageScript, username, isAdmin, content, viteEntries...).Render(r.Context(), w); err != nil {
 		s.log.Error("render page", "page", activePage, "error", err)
 	}
 }

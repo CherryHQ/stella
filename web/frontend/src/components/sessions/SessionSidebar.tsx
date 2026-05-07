@@ -1,0 +1,241 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { Agent, Session } from "@/lib/types";
+import { formatTime } from "@/lib/time";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+
+function channelLabel(ch: string | null | undefined): string {
+  if (!ch) return "";
+  const m = ch.match(/:channel:([^:]+)/);
+  return m ? m[1] : ch;
+}
+
+interface Props {
+  sessions: Session[];
+  sessionsLoading: boolean;
+  sessionsHasMore: boolean;
+  selectedID: string | undefined;
+  agents: Agent[];
+  hidden: boolean;
+  onSelect: (id: string) => void;
+  onLoadMore: () => void;
+  onCreateSession: (agentID: string) => Promise<void>;
+  onDeleteSession: (id: string) => Promise<void>;
+}
+
+export function SessionSidebar({
+  sessions,
+  sessionsLoading,
+  sessionsHasMore,
+  selectedID,
+  agents,
+  hidden,
+  onSelect,
+  onLoadMore,
+  onCreateSession,
+}: Props) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [filterChannel, setFilterChannel] = useState("");
+  const [filterAgent, setFilterAgent] = useState("");
+  const [filterUser, setFilterUser] = useState("");
+  const [showNew, setShowNew] = useState(false);
+  const [newSessionAgentID, setNewSessionAgentID] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const filteredSessions = useMemo(
+    () =>
+      sessions.filter((s) => {
+        if (!showArchived && s.archived) return false;
+        if (!showScheduler && s.id && (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:"))) return false;
+        if (filterChannel && s.channel !== filterChannel) return false;
+        if (filterAgent && s.agent_id !== filterAgent) return false;
+        if (filterUser && String(s.user_id) !== filterUser) return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          return (
+            (s.title || "").toLowerCase().includes(q) ||
+            (s.channel || "").toLowerCase().includes(q) ||
+            (s.agent_id || "").toLowerCase().includes(q)
+          );
+        }
+        return true;
+      }),
+    [sessions, showArchived, showScheduler, filterChannel, filterAgent, filterUser, searchQuery],
+  );
+
+  const uniqueChannels = useMemo(
+    () => [...new Set(sessions.map((s) => s.channel).filter(Boolean))].sort(),
+    [sessions],
+  );
+  const uniqueAgents = useMemo(
+    () => [...new Set(sessions.map((s) => s.agent_id).filter(Boolean))].sort(),
+    [sessions],
+  );
+  const uniqueUsers = useMemo(
+    () => [...new Set(sessions.map((s) => s.user_id).filter((v) => v != null && v !== 0))].sort(),
+    [sessions],
+  );
+
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el || !sessionsHasMore || sessionsLoading) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+      onLoadMore();
+    }
+  }, [sessionsHasMore, sessionsLoading, onLoadMore]);
+
+  const handleCreate = useCallback(async () => {
+    if (!newSessionAgentID) return;
+    setShowNew(false);
+    await onCreateSession(newSessionAgentID);
+    setNewSessionAgentID("");
+  }, [newSessionAgentID, onCreateSession]);
+
+  return (
+    <aside
+      className={cn(
+        "border-r border-border flex-col overflow-hidden",
+        hidden ? "hidden lg:flex" : "flex",
+      )}
+    >
+      {/* Header */}
+      <div className="flex-shrink-0 bg-background">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">Sessions</span>
+          <div className="relative">
+            <Button
+              size="xs"
+              onClick={() => setShowNew((v) => !v)}
+            >
+              <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              New
+            </Button>
+            {showNew && (
+              <div
+                className="absolute right-0 top-full mt-1 z-10 bg-background border border-border rounded-lg shadow-lg p-3 w-56 space-y-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div>
+                  <div className="text-[9px] font-mono text-muted-foreground/60 uppercase tracking-wider mb-1">Agent</div>
+                  <select
+                    value={newSessionAgentID}
+                    onChange={(e) => setNewSessionAgentID(e.target.value)}
+                    className="w-full text-xs font-mono border border-input rounded px-2 py-1 bg-background"
+                  >
+                    <option value="">— select agent —</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name || a.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-1 justify-end">
+                  <Button size="xs" variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
+                  <Button size="xs" disabled={!newSessionAgentID} onClick={handleCreate}>Create</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="px-3 py-2.5 border-b border-border">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search sessions…"
+              className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md border border-border bg-transparent focus:outline-none focus:border-primary/60 transition-colors"
+            />
+            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="px-3 pt-2.5 pb-3 space-y-2.5 border-b border-border">
+          <div className="grid grid-cols-3 gap-1.5">
+            <select value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+              <option value="">ch: all</option>
+              {uniqueChannels.map((ch) => (
+                <option key={ch} value={ch}>{channelLabel(ch)}</option>
+              ))}
+            </select>
+            <select value={filterAgent} onChange={(e) => setFilterAgent(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+              <option value="">agent: all</option>
+              {uniqueAgents.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+              <option value="">user: all</option>
+              {uniqueUsers.map((u) => (
+                <option key={u} value={String(u)}>{u}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={showScheduler} onChange={(e) => setShowScheduler(e.target.checked)} className="w-3 h-3" />
+              <span className={cn("text-[10px] font-mono select-none", showScheduler ? "text-muted-foreground" : "text-muted-foreground/50")}>Scheduled</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="w-3 h-3" />
+              <span className={cn("text-[10px] font-mono select-none", showArchived ? "text-muted-foreground" : "text-muted-foreground/50")}>Archived</span>
+            </label>
+            <span className="ml-auto text-[10px] font-mono text-muted-foreground/40 tabular-nums">{filteredSessions.length} sessions</span>
+          </div>
+        </div>
+      </div>
+
+      {/* List */}
+      <div ref={listRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
+        {filteredSessions.map((s) => (
+          <div
+            key={s.id}
+            onClick={() => onSelect(s.id)}
+            className={cn(
+              "px-4 py-3 cursor-pointer transition-colors border-l-2 border-b border-border/50",
+              selectedID === s.id ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/70",
+            )}
+          >
+            <p
+              className={cn(
+                "text-[13px] font-medium leading-snug truncate mb-1",
+                selectedID === s.id ? "text-primary" : s.archived ? "text-muted-foreground/40 italic" : "text-foreground/80",
+              )}
+            >
+              {s.title || "Untitled"}
+            </p>
+            <div className="flex items-center gap-0 text-[10px] font-mono text-muted-foreground/50 min-w-0">
+              <span className="truncate">{channelLabel(s.channel) || "—"}</span>
+              {s.agent_id && <span className="shrink-0 px-1 text-muted-foreground/30">·</span>}
+              {s.agent_id && <span className="truncate">{s.agent_id}</span>}
+              {s.user_id ? <span className="shrink-0 px-1 text-muted-foreground/30">·</span> : null}
+              {s.user_id ? <span className="shrink-0">{s.user_id}</span> : null}
+              <span className="ml-auto shrink-0 pl-2">{formatTime(s.last_active)}</span>
+            </div>
+          </div>
+        ))}
+        {filteredSessions.length === 0 && !sessionsLoading && (
+          <div className="px-4 py-12 text-center">
+            <p className="text-xs text-muted-foreground/40 font-mono">No sessions found.</p>
+          </div>
+        )}
+        {sessionsLoading && (
+          <div className="px-4 py-4 flex items-center justify-center gap-2">
+            <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+            <span className="text-[10px] font-mono text-muted-foreground/50">Loading…</span>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}

@@ -1,6 +1,6 @@
 package web
 
-templ Layout(activePage string, pageScript string, username string, isAdmin bool, content templ.Component) {
+templ Layout(activePage string, pageScript string, username string, isAdmin bool, content templ.Component, viteEntries ...string) {
 	<!DOCTYPE html>
 	<html lang="en" data-theme="terra">
 	<head>
@@ -9,6 +9,9 @@ templ Layout(activePage string, pageScript string, username string, isAdmin bool
 		<title>Anna Admin</title>
 		if pageScript != "" {
 			<meta name="page-script" content={ pageScript }/>
+		}
+		for _, entry := range viteEntries {
+			@templ.Raw(string(ViteEntry(entry)))
 		}
 		<!-- daisyUI 5 CSS (before Tailwind) -->
 		<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>

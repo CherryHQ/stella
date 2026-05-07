@@ -22,15 +22,7 @@ templ sessionMarkdownStyles() {
 }
 
 templ SessionsPage() {
-	@sessionMarkdownStyles()
-	<div
-		x-data="sessionsPage()"
-		class="-mx-6 -mt-12 border-t border-base-300 grid grid-cols-1 lg:grid-cols-[300px_1fr] overflow-hidden"
-		style="height: calc(100vh - 3.5rem);"
-	>
-		@sessionSidebar()
-		@sessionDetailPanel()
-	</div>
+	<div id="sessions-root" class="-mx-6 -mt-12" style="height: calc(100vh - 3.5rem);"></div>
 }
 
 templ sessionSidebar() {
