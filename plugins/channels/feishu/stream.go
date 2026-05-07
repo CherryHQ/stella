@@ -40,11 +40,16 @@ var nowFunc = time.Now
 // a reply message. Thread-aware: when rootID is non-empty, the initial card reply
 // targets the thread root.
 //
-// Phases:
+// When silent=true (group messages), the stream is fully buffered with zero Feishu
+// API calls — no thinking card, no mid-stream patches, no fallback card. sentMsgID
+// is always "" on return. The caller checks isSkipResponse and, if non-SKIP, calls
+// sendFinalResponseInThread to create the card fresh.
+//
+// Phases (non-silent):
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, time.Duration, error) {
+func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string, silent bool) (string, string, []channel.ImageEvent, []channel.FileEvent, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
@@ -56,12 +61,14 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	phase := phaseThinking
 	lastSend := time.Time{}
 
-	// Phase 1: Send "Thinking..." card immediately.
-	msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, thinkingContent())
-	if err != nil {
-		logger().Warn("thinking card failed", "error", err)
-	} else {
-		sentMsgID = msgID
+	if !silent {
+		// Phase 1: Send "Thinking..." card immediately.
+		msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, thinkingContent())
+		if err != nil {
+			logger().Warn("thinking card failed", "error", err)
+		} else {
+			sentMsgID = msgID
+		}
 	}
 
 	for evt := range events {
@@ -87,10 +94,17 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 			} else {
 				currentTool = ""
 			}
-			lastSend = time.Time{}
+			if !silent {
+				lastSend = time.Time{}
+			}
 		}
 
 		sb.WriteString(evt.Text)
+
+		if silent {
+			// Collect all text; make no API calls.
+			continue
+		}
 
 		// Transition to generating phase once we have content.
 		if phase == phaseThinking && (strings.TrimSpace(sb.String()) != "" || currentTool != "") {
