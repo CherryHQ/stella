@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -213,12 +214,16 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// isLocalhost returns true if the request host is localhost or 127.0.0.1.
 func isLocalhost(r *http.Request) bool {
 	host := r.Host
-	return strings.HasPrefix(host, "localhost") ||
-		strings.HasPrefix(host, "127.0.0.1") ||
-		strings.HasPrefix(host, "[::1]")
+	hostOnly, _, err := net.SplitHostPort(host)
+	if err != nil {
+		hostOnly = host
+	}
+	if ip := net.ParseIP(hostOnly); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	return strings.HasPrefix(hostOnly, "localhost")
 }
 
 // clientIP extracts the client IP from the request, checking X-Forwarded-For
