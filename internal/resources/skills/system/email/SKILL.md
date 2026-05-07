@@ -2,13 +2,13 @@
 name: email
 description: |
     Standard IMAP/SMTP email client for Gmail, Outlook, and self-hosted accounts.
-    Manage accounts, browse folders, list/read messages, and send email via the
-    anna email CLI. Use when user mentions email, inbox, send email, check mail,
-    read message, compose, reply (non-Lark/Feishu accounts).
-tags:
-    - email
-    - imap
-    - smtp
+    Use when user mentions email, inbox, send email, check mail, read message,
+    compose, reply, set up email, add email account, configure email
+    (non-Lark/Feishu accounts).
+metadata:
+    author: vaayne/anna
+    owner_plugin: system/email
+    version: "1.0"
 ---
 
 # Email
