@@ -504,6 +504,7 @@ export function register(Alpine) {
     },
 
     startCreateWorkspaceItem(type) {
+      this._ctxDir = ''  // header buttons always create at root
       this.workspaceNewItemType = type
       this.workspaceNewItemName = ''
       this.$nextTick(() => {
@@ -514,13 +515,7 @@ export function register(Alpine) {
     async createWorkspaceItem() {
       const name = this.workspaceNewItemName.trim()
       if (!name || !this.sessionDetail) return
-      // Use ctx-menu directory if set, else derive from selected path, else root.
-      let dir = this._ctxDir != null ? this._ctxDir : ''
-      if (!dir && this.selectedWorkspacePath) {
-        const parts = this.selectedWorkspacePath.split('/')
-        parts.pop()
-        dir = parts.join('/')
-      }
+      const dir = this._ctxDir ?? ''
       this._ctxDir = null
       const path = dir ? `${dir}/${name}` : name
       try {
