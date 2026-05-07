@@ -42,8 +42,8 @@ var nowFunc = time.Now
 //
 // When silent=true (group messages), the stream is fully buffered with zero Feishu
 // API calls — no thinking card, no mid-stream patches, no fallback card. sentMsgID
-// is always "" on return. The caller checks isSkipResponse and, if non-SKIP, calls
-// sendFinalResponseInThread to create the card fresh.
+// is always "" on return. The caller calls sendFinalResponseInThread to create the
+// card fresh.
 //
 // Phases (non-silent):
 //  1. Thinking: sends initial card with "Thinking..." immediately

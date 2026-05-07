@@ -78,13 +78,6 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	if chatType == "group" {
 		reactionContent = b.attributeGroupContent(openID, reactionContent)
-		// Reactions in "always" mode get the SKIP protocol; "mention" mode reactions
-		// already passed shouldRespondInGroup so SKIP is not needed.
-		if b.groupMode(chatID) == "always" {
-			reactionContent = prependSystemPrompt(reactionContent, groupBasePrompt(b.groupSystemPrompt(chatID)))
-		} else if sp := b.groupSystemPrompt(chatID); sp != "" {
-			reactionContent = prependSystemPrompt(reactionContent, sp)
-		}
 	}
 
 	msg := b.incomingMsg(senderIDs, chatID, chatType, reactionContent)
@@ -184,14 +177,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	if chatType == "group" {
 		content = b.attributeGroupContent(openID, content)
-		// Inject SKIP protocol only in "always" mode — in "mention" mode the
-		// shouldRespondInGroup gate already ensures the bot was explicitly addressed,
-		// so SKIP would wrongly discard intentional @mentions.
-		if b.groupMode(chatID) == "always" {
-			content = prependSystemPrompt(content, groupBasePrompt(b.groupSystemPrompt(chatID)))
-		} else if sp := b.groupSystemPrompt(chatID); sp != "" {
-			content = prependSystemPrompt(content, sp)
-		}
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
@@ -222,12 +207,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
-}
-
-// prependSystemPrompt adds a system prompt prefix to message content.
-func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentBlock {
-	prefix := ai.TextContent{Text: fmt.Sprintf("[System: %s]", prompt)}
-	return append([]ai.ContentBlock{prefix}, content...)
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
@@ -369,12 +348,6 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		} else {
 			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
 		}
-	}
-
-	// For group messages: silently discard [SKIP] responses.
-	if msg.IsGroup && isSkipResponse(response) {
-		logger().Debug("group message skipped", "sender_id", senderID)
-		return
 	}
 
 	if strings.TrimSpace(response) == "" {

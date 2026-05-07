@@ -1029,43 +1029,6 @@ func TestGroupSystemPromptEmpty(t *testing.T) {
 	}
 }
 
-func TestPrependSystemPromptText(t *testing.T) {
-	content := channel.TextContent("hello")
-	got := prependSystemPrompt(content, "Be concise.")
-	if len(got) != 2 {
-		t.Fatalf("expected 2 blocks, got %d", len(got))
-	}
-	prefix, ok := got[0].(ai.TextContent)
-	if !ok {
-		t.Fatalf("expected TextContent prefix, got %T", got[0])
-	}
-	if !strings.Contains(prefix.Text, "[System: Be concise.]") {
-		t.Errorf("prefix = %q", prefix.Text)
-	}
-	body, ok := got[1].(ai.TextContent)
-	if !ok {
-		t.Fatalf("expected TextContent body, got %T", got[1])
-	}
-	if body.Text != "hello" {
-		t.Errorf("body = %q", body.Text)
-	}
-}
-
-func TestPrependSystemPromptImage(t *testing.T) {
-	content := []ai.ContentBlock{ai.ImageContent{Data: "abc", MimeType: "image/png"}}
-	got := prependSystemPrompt(content, "Be concise.")
-	if len(got) != 2 {
-		t.Fatalf("expected 2 blocks, got %d", len(got))
-	}
-	prefix, ok := got[0].(ai.TextContent)
-	if !ok {
-		t.Fatalf("expected TextContent prefix, got %T", got[0])
-	}
-	if !strings.Contains(prefix.Text, "[System: Be concise.]") {
-		t.Errorf("prefix = %q", prefix.Text)
-	}
-}
-
 // --- Phase 5b: Reaction handling ---
 
 func TestOnReactionNilEvent(t *testing.T) {
@@ -1168,8 +1131,8 @@ func TestStreamResponseSilentModeWithSkipText(t *testing.T) {
 	if sentMsgID != "" {
 		t.Errorf("silent mode sentMsgID = %q, want empty", sentMsgID)
 	}
-	if !isSkipResponse(response) {
-		t.Errorf("response = %q, should be skip", response)
+	if response != "[SKIP]" {
+		t.Errorf("response = %q, want %q", response, "[SKIP]")
 	}
 }
 
