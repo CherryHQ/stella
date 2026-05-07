@@ -17,7 +17,7 @@ type Envelope struct {
 // AttachmentInfo holds metadata about a message attachment (no content).
 type AttachmentInfo struct {
 	Filename string `json:"filename"`
-	Size     uint32 `json:"size"`
+	Size     int64  `json:"size"`
 	MIMEType string `json:"mime_type"`
 }
 

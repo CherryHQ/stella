@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -146,7 +147,7 @@ func emailConfigAddCommand() *ucli.Command {
 			_, exists := cfg.Accounts[name]
 			if !exists {
 				// New account — require core fields.
-				missing := []string{}
+				var missing []string
 				if c.String("imap-host") == "" {
 					missing = append(missing, "--imap-host")
 				}
@@ -607,14 +608,14 @@ func emailSendCommand() *ucli.Command {
 				}
 				body = string(data)
 			default:
-				// Read from stdin.
-				data, err := os.ReadFile("/dev/stdin")
-				if err != nil {
-					// Non-fatal: just use empty body.
-					body = ""
-				} else {
-					body = string(data)
+				if term.IsTerminal(int(os.Stdin.Fd())) {
+					return fmt.Errorf("no body provided: use --body, --body-file, or pipe input via stdin")
 				}
+				data, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("read stdin: %w", err)
+				}
+				body = string(data)
 			}
 
 			opts := email.SendOptions{

@@ -237,7 +237,7 @@ func Read(acct EmailAccount, folder string, uid uint32) (*Message, error) {
 				}
 				msg.Attachments = append(msg.Attachments, AttachmentInfo{
 					Filename: filename,
-					Size:     uint32(len(body)),
+					Size:     int64(len(body)),
 					MIMEType: ct,
 				})
 			}
@@ -313,9 +313,7 @@ func SaveAttachments(acct EmailAccount, folder string, uid uint32, dir string) (
 		if filename == "" {
 			filename = "attachment"
 		}
-		// Sanitize: keep only the base name, strip path separators and "..".
 		filename = filepath.Base(filename)
-		filename = strings.ReplaceAll(filename, string(filepath.Separator), "_")
 
 		data, readErr := io.ReadAll(part.Body)
 		if readErr != nil {

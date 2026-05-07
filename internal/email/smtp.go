@@ -22,6 +22,10 @@ type SendOptions struct {
 
 // Send composes and sends an email via SMTP using the provided account configuration.
 func Send(acct EmailAccount, opts SendOptions) error {
+	if len(opts.To) == 0 && len(opts.Cc) == 0 && len(opts.Bcc) == 0 {
+		return fmt.Errorf("at least one recipient is required (--to, --cc, or --bcc)")
+	}
+
 	msg := mail.NewMsg()
 
 	from := opts.From
