@@ -70,6 +70,7 @@ type Bot struct {
 	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
 
 	nameCache sync.Map // openID -> display name; populated during auto-provision
+	groupLogs sync.Map // chatID -> *GroupLog
 
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
@@ -92,6 +93,15 @@ func (b *Bot) cachedName(openID string) string {
 		return v.(string)
 	}
 	return ""
+}
+
+func (b *Bot) groupLog(chatID string) *GroupLog {
+	if v, ok := b.groupLogs.Load(chatID); ok {
+		return v.(*GroupLog)
+	}
+	gl := NewGroupLog(100)
+	actual, _ := b.groupLogs.LoadOrStore(chatID, gl)
+	return actual.(*GroupLog)
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
