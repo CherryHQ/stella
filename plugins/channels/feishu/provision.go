@@ -143,6 +143,7 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 	if profile == nil {
 		return
 	}
+	b.cacheName(openID, profile.Name)
 
 	// Use union_id from profile as the canonical external ID.
 	if profile.UnionID != "" {

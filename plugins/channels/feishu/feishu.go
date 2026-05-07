@@ -69,12 +69,29 @@ type Bot struct {
 	provisionedMu sync.Mutex
 	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
 
+	nameCache sync.Map // openID -> display name; populated during auto-provision
+
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
 
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// cacheName stores a display name for an openID.
+func (b *Bot) cacheName(openID, name string) {
+	if openID != "" && name != "" {
+		b.nameCache.Store(openID, name)
+	}
+}
+
+// cachedName retrieves a display name for an openID, returning "" if not cached.
+func (b *Bot) cachedName(openID string) string {
+	if v, ok := b.nameCache.Load(openID); ok {
+		return v.(string)
+	}
+	return ""
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
