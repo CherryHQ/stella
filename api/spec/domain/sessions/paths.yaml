@@ -1,0 +1,123 @@
+paths:
+  /api/sessions:
+    get:
+      tags: [sessions]
+      summary: List sessions (all users see their own; admins see all)
+      operationId: listSessions
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+          description: Maximum number of sessions to return
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+          description: Number of sessions to skip
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/Session" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+    post:
+      tags: [sessions]
+      summary: Create a new session
+      operationId: createSession
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/CreateSessionRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Session" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/sessions/{sessionID}:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get session detail
+      operationId: getSession
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionDetail" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/sessions/{sessionID}/messages:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get messages for a session
+      operationId: getSessionMessages
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+          description: Maximum number of messages to return
+        - name: skip
+          in: query
+          schema: { type: integer, default: 0 }
+          description: Number of messages to skip from the end
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: {}
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [sessions]
+      summary: Send a message to a session (SSE streaming)
+      operationId: sendSessionMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/SendMessageRequest" }
+      responses:
+        "200":
+          description: SSE stream of session events
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/sessions/{sessionID}/system-prompt:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get the system prompt for a session
+      operationId: getSessionSystemPrompt
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SystemPromptResponse" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

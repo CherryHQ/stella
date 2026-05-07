@@ -1,0 +1,133 @@
+paths:
+  /api/channels/public:
+    get:
+      tags: [channels]
+      summary: List public channels (any authenticated user)
+      operationId: listPublicChannels
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/PublicChannelList" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+
+  /api/channels:
+    get:
+      tags: [channels]
+      summary: List all channels (admin only)
+      operationId: listChannels
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/ChannelList" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [channels]
+      summary: Create a channel (admin only)
+      operationId: createChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/channels/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [channels]
+      summary: Get a channel (admin only)
+      operationId: getChannel
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [channels]
+      summary: Update a channel (admin only)
+      operationId: updateChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [channels]
+      summary: Delete a channel (admin only)
+      operationId: deleteChannel
+      responses:
+        "200":
+          description: deleted
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/channels/weixin/qr:
+    post:
+      tags: [weixin]
+      summary: Start WeChat QR login flow (any authenticated user)
+      operationId: startWeixinQR
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WeixinQRCode" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "502":
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Error" }
+
+  /api/channels/weixin/qr/status:
+    get:
+      tags: [weixin]
+      summary: Poll WeChat QR login status (any authenticated user)
+      operationId: pollWeixinQRStatus
+      parameters:
+        - { name: qrcode, in: query, required: true, schema: { type: string }, description: "QR code token from startWeixinQR" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WeixinQRStatus" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "502":
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Error" }

@@ -1,0 +1,46 @@
+openapi: 3.0.3
+info:
+  title: Sessions Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Session:
+      type: object
+      required: [id, channel, title, agent_id, user_id, created_at, last_active, archived]
+      properties:
+        id:          { type: string }
+        channel:     { type: string }
+        title:       { type: string }
+        agent_id:    { type: string }
+        user_id:     { type: integer, format: int64 }
+        created_at:  { type: string }
+        last_active: { type: string }
+        archived:    { type: boolean }
+
+    SessionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Session"
+        - type: object
+          properties:
+            agent_name: { type: string }
+            user_name:  { type: string }
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        agent_id: { type: string }
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: "Message content (required)"
+
+    SystemPromptResponse:
+      type: object
+      required: [system_prompt]
+      properties:
+        system_prompt: { type: string }

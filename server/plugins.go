@@ -9,7 +9,10 @@ import (
 
 const channelPluginConfigError = "channel instance config lives on /channels, not plugin config"
 
-func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -58,8 +61,11 @@ func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) 
 	return out
 }
 
-func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
-	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+func (s *Server) GetPluginStatus(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := pluginRouteID(kind, name)
 	status, err := s.pluginHost.Status(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -68,12 +74,15 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, status)
 }
 
-func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request) {
-	if channelPluginConfigRequest(r) {
+func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if kind == config.PluginKindChannel {
 		writeError(w, http.StatusBadRequest, channelPluginConfigError)
 		return
 	}
-	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+	id := pluginRouteID(kind, name)
 	state, err := s.pluginHost.Config().Get(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -82,13 +91,19 @@ func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, state.Config)
 }
 
-func (s *Server) getPluginConfigSchema(w http.ResponseWriter, r *http.Request) {
-	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+func (s *Server) GetPluginConfigSchema(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := pluginRouteID(kind, name)
 	writeData(w, http.StatusOK, s.pluginHost.ConfigSchema(id))
 }
 
-func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := pluginRouteID(kind, name)
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -130,12 +145,15 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, p)
 }
 
-func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
-	if channelPluginConfigRequest(r) {
+func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if kind == config.PluginKindChannel {
 		writeError(w, http.StatusBadRequest, channelPluginConfigError)
 		return
 	}
-	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+	id := pluginRouteID(kind, name)
 	var req struct {
 		Config map[string]any `json:"config"`
 	}
@@ -170,8 +188,4 @@ func pluginRouteID(kind, name string) string {
 		return name
 	}
 	return config.PluginID(kind, name)
-}
-
-func channelPluginConfigRequest(r *http.Request) bool {
-	return r.PathValue("kind") == config.PluginKindChannel
 }

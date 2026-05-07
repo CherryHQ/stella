@@ -1,0 +1,64 @@
+openapi: 3.0.3
+info:
+  title: Channels Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Channel:
+      type: object
+      required: [id, type, enabled, config]
+      properties:
+        id:       { type: string }
+        type:     { type: string }
+        agent_id: { type: string }
+        enabled:  { type: boolean }
+        config:
+          type: string
+          description: "JSON string of the channel config"
+
+    ChannelList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+
+    PublicChannel:
+      type: object
+      required: [id, type, label, enabled]
+      properties:
+        id:         { type: string }
+        type:       { type: string }
+        label:      { type: string }
+        agent_id:   { type: string }
+        agent_name: { type: string }
+        enabled:    { type: boolean }
+
+    PublicChannelList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/PublicChannel" } }
+
+    ChannelWriteRequest:
+      type: object
+      properties:
+        id:       { type: string }
+        type:     { type: string, nullable: true }
+        agent_id: { type: string, nullable: true }
+        config:   { type: string, description: "JSON string of the channel config" }
+
+    WeixinQRCode:
+      type: object
+      properties:
+        qrcode:            { type: string }
+        qrcode_img_content: { type: string }
+
+    WeixinQRStatus:
+      type: object
+      properties:
+        status:        { type: string }
+        bot_token:     { type: string }
+        ilink_bot_id:  { type: string }
+        ilink_user_id: { type: string }
+        baseurl:       { type: string }
