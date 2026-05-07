@@ -1135,6 +1135,92 @@ func TestHandleIncomingAbortDelegatesToCoordinator(t *testing.T) {
 	}
 }
 
+// --- streamResponseInThread silent mode ---
+
+func TestStreamResponseSilentModeNoAPICallsAndEmptySentMsgID(t *testing.T) {
+	// silent=true: no Feishu API calls, sentMsgID always "".
+	events := make(chan channel.Event, 3)
+	events <- channel.Event{Text: "hello"}
+	events <- channel.Event{Text: " world"}
+	close(events)
+
+	bot := &Bot{} // nil client — any API call would panic
+	sentMsgID, response, _, _, _, err := bot.streamResponseInThread(events, "", "msg1", "", true)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sentMsgID != "" {
+		t.Errorf("silent mode sentMsgID = %q, want empty", sentMsgID)
+	}
+	if response != "hello world" {
+		t.Errorf("response = %q, want %q", response, "hello world")
+	}
+}
+
+func TestStreamResponseSilentModeWithSkipText(t *testing.T) {
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "[SKIP]"}
+	close(events)
+
+	bot := &Bot{}
+	sentMsgID, response, _, _, _, _ := bot.streamResponseInThread(events, "", "msg1", "", true)
+
+	if sentMsgID != "" {
+		t.Errorf("silent mode sentMsgID = %q, want empty", sentMsgID)
+	}
+	if !isSkipResponse(response) {
+		t.Errorf("response = %q, should be skip", response)
+	}
+}
+
+func TestStreamResponseSilentModeCollectsImages(t *testing.T) {
+	events := make(chan channel.Event, 2)
+	events <- channel.Event{Image: &channel.ImageEvent{Data: "abc", MimeType: "image/png"}}
+	events <- channel.Event{Text: "here"}
+	close(events)
+
+	bot := &Bot{}
+	_, _, images, _, _, _ := bot.streamResponseInThread(events, "", "msg1", "", true)
+
+	if len(images) != 1 {
+		t.Errorf("expected 1 image, got %d", len(images))
+	}
+}
+
+// --- cacheName / cachedName ---
+
+func TestCacheNameStoreAndRetrieve(t *testing.T) {
+	bot := &Bot{}
+	bot.cacheName("ou_alice", "Alice")
+	if got := bot.cachedName("ou_alice"); got != "Alice" {
+		t.Errorf("cachedName = %q, want Alice", got)
+	}
+}
+
+func TestCacheNameMissingKey(t *testing.T) {
+	bot := &Bot{}
+	if got := bot.cachedName("ou_missing"); got != "" {
+		t.Errorf("cachedName for missing key = %q, want empty", got)
+	}
+}
+
+func TestCacheNameEmptyOpenIDIgnored(t *testing.T) {
+	bot := &Bot{}
+	bot.cacheName("", "Alice") // should be ignored
+	if got := bot.cachedName(""); got != "" {
+		t.Errorf("empty openID should not be cached, got %q", got)
+	}
+}
+
+func TestCacheNameEmptyNameIgnored(t *testing.T) {
+	bot := &Bot{}
+	bot.cacheName("ou_alice", "") // should be ignored
+	if got := bot.cachedName("ou_alice"); got != "" {
+		t.Errorf("empty name should not be cached, got %q", got)
+	}
+}
+
 // --- mockHandler for tests ---
 
 type mockHandler struct {

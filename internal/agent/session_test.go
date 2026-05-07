@@ -110,6 +110,56 @@ func TestLinkedUserSessionKeySharedAcrossChannels(t *testing.T) {
 	}
 }
 
+func TestBuildGroupSessionKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentID   string
+		channelID string
+		chatID    string
+		want      string
+	}{
+		{
+			name:      "basic group",
+			agentID:   "anna",
+			channelID: "feishu-bot",
+			chatID:    "oc_abc123",
+			want:      "anna:group:feishu-bot:oc_abc123",
+		},
+		{
+			name:      "different channel",
+			agentID:   "anna",
+			channelID: "feishu-bot2",
+			chatID:    "oc_abc123",
+			want:      "anna:group:feishu-bot2:oc_abc123",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildGroupSessionKey(tt.agentID, tt.channelID, tt.chatID)
+			if got != tt.want {
+				t.Errorf("BuildGroupSessionKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildGroupSessionKeyDifferentChannelsDifferentKeys(t *testing.T) {
+	key1 := BuildGroupSessionKey("anna", "bot1", "oc_chat1")
+	key2 := BuildGroupSessionKey("anna", "bot2", "oc_chat1")
+	if key1 == key2 {
+		t.Error("different channelIDs should produce different group session keys")
+	}
+}
+
+func TestBuildGroupSessionKeySameChatDifferentSenders(t *testing.T) {
+	// Two senders in the same group must produce the same key.
+	key1 := BuildGroupSessionKey("anna", "feishu", "oc_group1")
+	key2 := BuildGroupSessionKey("anna", "feishu", "oc_group1")
+	if key1 != key2 {
+		t.Error("same group chat should produce the same session key regardless of sender")
+	}
+}
+
 func TestCompactionConfigWithDefaults(t *testing.T) {
 	tests := []struct {
 		name          string
