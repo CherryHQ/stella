@@ -12,12 +12,20 @@ api/
     components/
       common.yaml                 security schemes + shared responses
     domain/                       ← one sub-folder per domain (auto-discovered by codegen)
+      agents/                       agent CRUD + skill management
+      auth/                         login, logout, register, OAuth
+      auth_users/                   admin user management
+      channels/                     channel management
+      plugins/                      plugin management + manifest plugins
+      profile/                      user profile + vault
       recally/
         schemas.yaml                recally types (Article, Feed, Digest, …)
         paths.yaml                  recally REST paths
       scheduler/
         schemas.yaml                scheduler types (Job, JobList, …)
         paths.yaml                  scheduler REST paths
+      sessions/                     chat session management
+      …                             (agents, models, providers, skills, users, etc.)
   codegen/                      ← oapi-codegen configs
     types.yaml                    → api/types/gen.go
     server.yaml                   → api/server/gen.go  (import-mapping → api/types)
@@ -75,5 +83,5 @@ Every new or changed HTTP API must follow this workflow:
 
 - Edit domain files in `api/spec/domain/<domain>/`; never edit `api/spec/components.yaml` directly.
 - Domain path files reference schemas through `../../components.yaml`.
-- Never hand-write recally/scheduler server routing. Routing comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
+- Never hand-write server routing for any domain. All `/api/*` routing comes from `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`.
 - Enum constants live in `api/types`, not `api/server` or `api/client`. Import `api/types` directly when constants are needed.

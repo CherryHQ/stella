@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/skills"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
@@ -33,7 +33,10 @@ func (s *Server) skillStore() skills.Store {
 	return s.pluginHost.SkillStore()
 }
 
-func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -51,13 +54,15 @@ func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, out)
 }
 
-func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetSkill(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	id := r.PathValue("id")
 	row, err := store.ListAll(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -82,20 +87,21 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, skillToView(*found, paths))
 }
 
-func (s *Server) getSkillFile(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	s.serveSkillFile(w, r, id)
+func (s *Server) GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetSkillFileParams) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	s.serveSkillFile(w, r, id, params.Path)
 }
 
 // serveSkillFile is the shared body of GET .../skills/{id}/file?path=...
 // (reused by scoped handlers after their ownership checks).
-func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return
@@ -112,20 +118,21 @@ func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id strin
 	writeData(w, http.StatusOK, map[string]string{"path": path, "content": content})
 }
 
-// deleteSkillFile removes a single file under a skill (admin-only route).
-func (s *Server) deleteSkillFile(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	s.doDeleteSkillFile(w, r, id)
+// DeleteSkillFile removes a single file under a skill (admin-only route).
+func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteSkillFileParams) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	s.doDeleteSkillFile(w, r, id, params.Path)
 }
 
 // doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
-func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return
@@ -152,7 +159,10 @@ type createSkillRequest struct {
 	Files                  map[string]string `json:"files"`
 }
 
-func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateSkill(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -218,8 +228,10 @@ type updateSkillRequest struct {
 	Files                  map[string]string `json:"files"`
 }
 
-func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) UpdateSkill(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	s.applySkillUpdate(w, r, id)
 }
 
@@ -253,8 +265,10 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 	writeData(w, http.StatusOK, map[string]string{"id": id})
 }
 
-func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	s.doDeleteSkill(w, r, id)
 }
 
@@ -272,20 +286,14 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 	writeData(w, http.StatusOK, map[string]string{"id": id})
 }
 
-// searchSkills handles GET /api/skills/search?q=<query>&limit=<n>.
+// SearchSkills handles GET /api/skills/search?q=<query>&limit=<n>.
 // It queries mcphub for skills matching the query. Errors from the upstream
 // search API are returned as 502 (bad gateway) since they are not our fault.
-func (s *Server) searchSkills(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
-	if q == "" {
-		writeError(w, http.StatusBadRequest, "q is required")
-		return
-	}
+func (s *Server) SearchSkills(w http.ResponseWriter, r *http.Request, params apiserver.SearchSkillsParams) {
+	q := params.Q
 	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
-		}
+	if params.Limit != nil && *params.Limit > 0 {
+		limit = *params.Limit
 	}
 	if limit > 50 {
 		limit = 50
@@ -310,11 +318,14 @@ type installSkillRequest struct {
 	AgentID string `json:"agent_id"`
 }
 
-// installSkill handles POST /api/skills/install.
+// InstallSkill handles POST /api/skills/install.
 // It delegates to skillstool.InstallToStore to fetch and store the skill.
 // "Actually install from a real GitHub repo" is integration-level and should be
 // tested manually — unit tests cover only validation and auth.
-func (s *Server) installSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) InstallSkill(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")

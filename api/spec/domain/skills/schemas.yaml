@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Skills Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    CreateSkillRequest:
+      type: object
+      properties:
+        scope:                    { type: string }
+        user_id:                  { type: integer, format: int64 }
+        agent_id:                 { type: string }
+        name:                     { type: string }
+        description:              { type: string }
+        status:                   { type: string }
+        disable_model_invocation: { type: boolean }
+        files:
+          type: object
+          additionalProperties: { type: string }
+
+    GlobalInstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:   { type: string }
+        scope:    { type: string }
+        user_id:  { type: integer, format: int64 }
+        agent_id: { type: string }
+
+    ProfileInstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source: { type: string }
+
+    SkillSearchResult:
+      type: object
+      properties:
+        id:       { type: string }
+        skillId:  { type: string }
+        name:     { type: string }
+        installs: { type: integer }
+        source:   { type: string }
+
+    SkillSearchResultList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/SkillSearchResult" } }
+
+    SkillFileResponse:
+      type: object
+      properties:
+        path:    { type: string }
+        content: { type: string }
+
+    DeleteFileResult:
+      type: object
+      properties:
+        path: { type: string }

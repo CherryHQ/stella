@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/vaayne/anna/internal/auth"
 )
@@ -38,8 +37,11 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUs
 	}, nil
 }
 
-// listAuthUsers handles GET /api/auth/users.
-func (s *Server) listAuthUsers(w http.ResponseWriter, r *http.Request) {
+// ListAuthUsers handles GET /api/auth/users.
+func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	users, err := s.authStore.ListUsers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
@@ -59,14 +61,11 @@ func (s *Server) listAuthUsers(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, result)
 }
 
-// getAuthUser handles GET /api/auth/users/{id}.
-func (s *Server) getAuthUser(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+// GetAuthUser handles GET /api/auth/users/{id}.
+func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	u, err := s.authStore.GetUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
@@ -82,14 +81,11 @@ func (s *Server) getAuthUser(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-// updateAuthUserRole handles PUT /api/auth/users/{id}/role.
-func (s *Server) updateAuthUserRole(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+// UpdateAuthUserRole handles PUT /api/auth/users/{id}/role.
+func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	var body struct {
 		Role string `json:"role"`
 	}
@@ -118,14 +114,11 @@ func (s *Server) updateAuthUserRole(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-// listAuthUserAgents handles GET /api/auth/users/{id}/agents.
-func (s *Server) listAuthUserAgents(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+// ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
+func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	agentIDs, err := s.authStore.ListUserAgentIDs(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list user agents: "+err.Error())
@@ -135,14 +128,11 @@ func (s *Server) listAuthUserAgents(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, agentIDs)
 }
 
-// updateAuthUserAgents handles PUT /api/auth/users/{id}/agents.
-func (s *Server) updateAuthUserAgents(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+// UpdateAuthUserAgents handles PUT /api/auth/users/{id}/agents.
+func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	var body struct {
 		AgentIDs []string `json:"agent_ids"`
 	}
@@ -196,36 +186,28 @@ func (s *Server) updateAuthUserAgents(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-// deleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
-func (s *Server) deleteAuthUserIdentity(w http.ResponseWriter, r *http.Request) {
-	identityID, err := strconv.ParseInt(r.PathValue("identityId"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid identity id")
+// DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
+func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	ctx := r.Context()
 
 	// Verify the identity exists.
-	identity, err := s.authStore.GetIdentity(ctx, identityID)
+	identity, err := s.authStore.GetIdentity(ctx, identityId)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
 	}
 
 	// Verify it belongs to the specified user.
-	userID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
-		return
-	}
-	if identity.UserID != userID {
+	if identity.UserID != id {
 		writeError(w, http.StatusBadRequest, "identity does not belong to this user")
 		return
 	}
 
-	if err := s.authStore.DeleteIdentity(ctx, identityID); err != nil {
-		s.log.Error("admin delete identity", "id", identityID, "error", err)
+	if err := s.authStore.DeleteIdentity(ctx, identityId); err != nil {
+		s.log.Error("admin delete identity", "id", identityId, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete identity")
 		return
 	}
@@ -233,14 +215,11 @@ func (s *Server) deleteAuthUserIdentity(w http.ResponseWriter, r *http.Request) 
 	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
 }
 
-// updateAuthUserActive handles PUT /api/auth/users/{id}/active.
-func (s *Server) updateAuthUserActive(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
+// UpdateAuthUserActive handles PUT /api/auth/users/{id}/active.
+func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
-
 	var body struct {
 		IsActive bool `json:"is_active"`
 	}

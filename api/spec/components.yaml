@@ -62,6 +62,575 @@ components:
               error:
                 type: string
   schemas:
+    SandboxNetworkConfig:
+      type: object
+      properties:
+        mode:
+          type: string
+        allowlist:
+          type: array
+          items:
+            type: string
+    SandboxConfig:
+      type: object
+      properties:
+        network:
+          $ref: "#/components/schemas/SandboxNetworkConfig"
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        model_strong:
+          type: string
+        model_fast:
+          type: string
+        system_prompt:
+          type: string
+        soul:
+          type: string
+        workspace:
+          type: string
+        sandbox:
+          $ref: "#/components/schemas/SandboxConfig"
+        scope:
+          type: string
+        creator_id:
+          type: integer
+          format: int64
+        enabled:
+          type: boolean
+    AgentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+    CreateAgentRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        model_strong:
+          type: string
+        model_fast:
+          type: string
+        system_prompt:
+          type: string
+        soul:
+          type: string
+        workspace:
+          type: string
+        sandbox:
+          $ref: "#/components/schemas/SandboxConfig"
+        scope:
+          type: string
+        creator_id:
+          type: integer
+          format: int64
+        enabled:
+          type: boolean
+        template_id:
+          type: string
+    AgentUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+    AgentUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentUser"
+    AssignAgentUserRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+    Skill:
+      type: object
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        agent_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    SkillList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+    InstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+    UpdateSkillRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        disable_model_invocation:
+          type: boolean
+          nullable: true
+        files:
+          type: object
+          additionalProperties:
+            type: string
+    SkillUploadResult:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    DuplicateSkillResult:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    AuthResponse:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+    MeResponse:
+      type: object
+      required: [id, username, role, is_admin]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+        is_admin:
+          type: boolean
+    BuiltinResource:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+    BuiltinResourceDetail:
+      type: object
+      required: [kind, id, name, content]
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+        content:
+          type: string
+    Channel:
+      type: object
+      required: [id, type, enabled, config]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        agent_id:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          type: string
+          description: "JSON string of the channel config"
+    ChannelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+    PublicChannel:
+      type: object
+      required: [id, type, label, enabled]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        label:
+          type: string
+        agent_id:
+          type: string
+        agent_name:
+          type: string
+        enabled:
+          type: boolean
+    PublicChannelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicChannel"
+    ChannelWriteRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        config:
+          type: string
+          description: "JSON string of the channel config"
+    WeixinQRCode:
+      type: object
+      properties:
+        qrcode:
+          type: string
+        qrcode_img_content:
+          type: string
+    WeixinQRStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        bot_token:
+          type: string
+        ilink_bot_id:
+          type: string
+        ilink_user_id:
+          type: string
+        baseurl:
+          type: string
+    CachedModel:
+      type: object
+      required: [provider, model]
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+    PluginView:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        display_name:
+          type: string
+        description:
+          type: string
+        managed:
+          type: boolean
+        admin_visible:
+          type: boolean
+        has_config:
+          type: boolean
+        has_status:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+        persisted:
+          type: boolean
+        persisted_id:
+          type: string
+    TogglePluginRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    UpdatePluginConfigRequest:
+      type: object
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+    ManifestPlugin:
+      type: object
+      additionalProperties: true
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+    GenerateLinkCodeRequest:
+      type: object
+      required: [platform]
+      properties:
+        platform:
+          type: string
+    LinkCodeResponse:
+      type: object
+      required: [code, platform]
+      properties:
+        code:
+          type: string
+        platform:
+          type: string
+    SetSoulRequest:
+      type: object
+      required: [soul]
+      properties:
+        soul:
+          type: string
+    VaultEntry:
+      type: object
+      required: [name, created_at, updated_at]
+      properties:
+        name:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    SetVaultEntryRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+    OAuthProviderStatus:
+      type: object
+      required: [provider, available, connected]
+      properties:
+        provider:
+          type: string
+        available:
+          type: boolean
+        connected:
+          type: boolean
+        username:
+          type: string
+        unavailable:
+          type: string
+    OAuthFlowStatus:
+      type: object
+      required: [provider, flow_id, verification_uri, expires_at, state]
+      properties:
+        provider:
+          type: string
+        flow_id:
+          type: string
+        verification_uri:
+          type: string
+        user_code:
+          type: string
+        expires_at:
+          type: string
+        state:
+          type: string
+    OAuthConnectedResponse:
+      type: object
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+        username:
+          type: string
+    ProviderModelCost:
+      type: object
+      properties:
+        input:
+          type: number
+          format: double
+        output:
+          type: number
+          format: double
+        cacheRead:
+          type: number
+          format: double
+        cacheWrite:
+          type: number
+          format: double
+    ProviderModel:
+      type: object
+      required: [enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        reasoning:
+          type: boolean
+        input:
+          type: array
+          items:
+            type: string
+        output:
+          type: array
+          items:
+            type: string
+        contextWindow:
+          type: integer
+        maxTokens:
+          type: integer
+        cost:
+          $ref: "#/components/schemas/ProviderModelCost"
+    Provider:
+      type: object
+      required: [id, type, name, enabled, api_key, base_url]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        api_key:
+          type: string
+        base_url:
+          type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ProviderModel"
+    ProviderModelItem:
+      type: object
+      required: [id, source, enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          $ref: "#/components/schemas/ProviderModel"
+    ProviderType:
+      type: object
+      required: [id, name, default_url]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        default_url:
+          type: string
+    FetchModelsRequest:
+      type: object
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
     # ── Shared ─────────────────────────────────────────────────────────────────
     Error:
       type: object
@@ -529,3 +1098,226 @@ components:
       properties:
         status:
           type: string
+    Session:
+      type: object
+      required: [id, channel, title, agent_id, user_id, created_at, last_active, archived]
+      properties:
+        id:
+          type: string
+        channel:
+          type: string
+        title:
+          type: string
+        agent_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+        last_active:
+          type: string
+        archived:
+          type: boolean
+    SessionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Session"
+        - type: object
+          properties:
+            agent_name: {type: string}
+            user_name: {type: string}
+    CreateSessionRequest:
+      type: object
+      properties:
+        agent_id:
+          type: string
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: "Message content (required)"
+    SystemPromptResponse:
+      type: object
+      required: [system_prompt]
+      properties:
+        system_prompt:
+          type: string
+    CreateSkillRequest:
+      type: object
+      properties:
+        scope:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        agent_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
+    GlobalInstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        agent_id:
+          type: string
+    ProfileInstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+    SkillSearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        skillId:
+          type: string
+        name:
+          type: string
+        installs:
+          type: integer
+        source:
+          type: string
+    SkillSearchResultList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillSearchResult"
+    SkillFileResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+    DeleteFileResult:
+      type: object
+      properties:
+        path:
+          type: string
+    Tool:
+      type: object
+      required: [name, description, category]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+        category:
+          type: string
+    Identity:
+      type: object
+      required: [id, user_id, platform, external_id, name, linked_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        platform:
+          type: string
+        external_id:
+          type: string
+        name:
+          type: string
+        linked_at:
+          type: string
+          format: date-time
+    AuthUser:
+      type: object
+      required: [id, username, role, is_active, identities, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        identities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identity"
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    AuthUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthUser"
+    UserMemory:
+      type: object
+      additionalProperties: {}
+    UpdateDefaultAgentRequest:
+      type: object
+      required: [default_agent_id]
+      properties:
+        default_agent_id:
+          type: string
+    UpdateNotifyIdentityRequest:
+      type: object
+      properties:
+        notify_identity_id:
+          type: integer
+          format: int64
+          nullable: true
+    SetMemoryRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+    UpdateAgentsRequest:
+      type: object
+      required: [agent_ids]
+      properties:
+        agent_ids:
+          type: array
+          items:
+            type: string
+    UpdateActiveRequest:
+      type: object
+      required: [is_active]
+      properties:
+        is_active:
+          type: boolean

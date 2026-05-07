@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginhost"
 	builtinres "github.com/vaayne/anna/internal/resources"
@@ -126,8 +127,8 @@ func builtinSkillFiles(id string) (map[string]string, error) {
 
 // ---- Agent-scoped skills: /api/agents/{id}/skills* ----
 
-func (s *Server) listAgentSkills(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
+func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id string) {
+	agentID := id
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -146,9 +147,9 @@ func (s *Server) listAgentSkills(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, out)
 }
 
-func (s *Server) getAgentSkill(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	agentID := id
+	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -166,9 +167,9 @@ func (s *Server) getAgentSkill(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, skillToView(*sk, paths))
 }
 
-func (s *Server) getAgentSkillFile(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
+	agentID := id
+	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -177,12 +178,12 @@ func (s *Server) getAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, code, msg)
 		return
 	}
-	s.serveSkillFile(w, r, skillID)
+	s.serveSkillFile(w, r, skillID, params.Path)
 }
 
-func (s *Server) updateAgentSkill(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	agentID := id
+	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -194,9 +195,9 @@ func (s *Server) updateAgentSkill(w http.ResponseWriter, r *http.Request) {
 	s.applySkillUpdate(w, r, skillID)
 }
 
-func (s *Server) deleteAgentSkill(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	agentID := id
+	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -208,9 +209,9 @@ func (s *Server) deleteAgentSkill(w http.ResponseWriter, r *http.Request) {
 	s.doDeleteSkill(w, r, skillID)
 }
 
-func (s *Server) deleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
+	agentID := id
+	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -219,11 +220,11 @@ func (s *Server) deleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, skillID)
+	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
-func (s *Server) installAgentSkill(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
+func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
+	agentID := id
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -258,9 +259,9 @@ func (s *Server) installAgentSkill(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, map[string]string{"name": name})
 }
 
-func (s *Server) duplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	skillID := r.PathValue("skillId")
+func (s *Server) DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	agentID := id
+	skillID := skillId
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -314,7 +315,7 @@ func (s *Server) duplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Req
 
 // ---- Profile (self-user) skills: /api/auth/profile/skills* ----
 
-func (s *Server) listProfileSkills(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListProfileSkills(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -334,13 +335,13 @@ func (s *Server) listProfileSkills(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, out)
 }
 
-func (s *Server) getProfileSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	skillID := r.PathValue("skillId")
+	skillID := skillId
 	sk, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, "")
 	if code != 0 {
 		writeError(w, code, msg)
@@ -354,27 +355,27 @@ func (s *Server) getProfileSkill(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, skillToView(*sk, paths))
 }
 
-func (s *Server) getProfileSkillFile(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.GetProfileSkillFileParams) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	skillID := r.PathValue("skillId")
+	skillID := skillId
 	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	s.serveSkillFile(w, r, skillID)
+	s.serveSkillFile(w, r, skillID, params.Path)
 }
 
-func (s *Server) updateProfileSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	skillID := r.PathValue("skillId")
+	skillID := skillId
 	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -382,13 +383,13 @@ func (s *Server) updateProfileSkill(w http.ResponseWriter, r *http.Request) {
 	s.applySkillUpdate(w, r, skillID)
 }
 
-func (s *Server) deleteProfileSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	skillID := r.PathValue("skillId")
+	skillID := skillId
 	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -396,21 +397,21 @@ func (s *Server) deleteProfileSkill(w http.ResponseWriter, r *http.Request) {
 	s.doDeleteSkill(w, r, skillID)
 }
 
-func (s *Server) deleteProfileSkillFile(w http.ResponseWriter, r *http.Request) {
+func (s *Server) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.DeleteProfileSkillFileParams) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	skillID := r.PathValue("skillId")
+	skillID := skillId
 	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, skillID)
+	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
-func (s *Server) installProfileSkill(w http.ResponseWriter, r *http.Request) {
+func (s *Server) InstallProfileSkill(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")

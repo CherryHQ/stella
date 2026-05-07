@@ -7,10 +7,10 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
-// listCachedModels returns enabled models from provider config + fetched cache,
+// ListModels returns enabled models from provider config + fetched cache,
 // filtered to only include models whose provider instance is enabled.
 // No provider API calls — reads only from the DB and ~/.anna/cache/models.json.
-func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list provider config: "+err.Error())

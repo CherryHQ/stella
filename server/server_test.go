@@ -572,7 +572,7 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 		t.Fatalf("config status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": true})
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect/reflect", map[string]any{"enabled": true})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("toggle status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -600,7 +600,7 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 		t.Fatalf("batch metadata = %#v, want 3", payload.Metadata["batch"])
 	}
 
-	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": false})
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect/reflect", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}

@@ -39,6 +39,8 @@ server/
 ### API Conventions
 
 - All API routes: `/api/*` with JSON `Content-Type`
+- All `/api/*` routes are generated from the OpenAPI spec via `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`. Do not hand-register API routes.
+- To add a new API route: follow the spec-first workflow in `api/CLAUDE.md` (write spec → `mise run generate:api` → implement the generated `ServerInterface` method).
 - Response envelope: `{"data": ...}` on success, `{"error": "message"}` on failure
 - Handler helpers: `writeData(w, status, data)`, `writeError(w, status, msg)`, `decodeJSON(r, &dst)`
 - Models cache: `GET /api/models` reads `~/.anna/cache/models.json` (no provider API calls). Cache is updated when "Fetch models" is clicked on the providers page.

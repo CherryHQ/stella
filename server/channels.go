@@ -60,7 +60,7 @@ func channelToView(ch config.Channel) channelView {
 	}
 }
 
-func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 	enabledTypes, err := s.enabledChannelTypes(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -181,7 +181,10 @@ func sortPublicChannels(channels []publicChannelView) {
 	})
 }
 
-func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	channels, err := s.store.ListChannels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -194,8 +197,10 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, views)
 }
 
-func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	ch, err := s.store.GetChannel(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
@@ -204,8 +209,10 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, channelToView(ch))
 }
 
-func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	var req channelWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -224,7 +231,10 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	s.saveChannel(w, r, ch, cfgMap, http.StatusOK)
 }
 
-func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	var req channelWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -350,8 +360,10 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 	return cfgMap, nil
 }
 
-func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	ch, err := s.store.GetChannel(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")

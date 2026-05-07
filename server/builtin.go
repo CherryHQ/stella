@@ -47,8 +47,8 @@ func parseBuiltinKind(s string) (builtinres.Kind, bool) {
 	return "", false
 }
 
-func (s *Server) listBuiltinResources(w http.ResponseWriter, r *http.Request) {
-	kind, ok := parseBuiltinKind(r.PathValue("kind"))
+func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, kindStr string) {
+	kind, ok := parseBuiltinKind(kindStr)
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
@@ -66,13 +66,12 @@ func (s *Server) listBuiltinResources(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, out)
 }
 
-func (s *Server) getBuiltinResource(w http.ResponseWriter, r *http.Request) {
-	kind, ok := parseBuiltinKind(r.PathValue("kind"))
+func (s *Server) GetBuiltinResource(w http.ResponseWriter, r *http.Request, kindStr string, id string) {
+	kind, ok := parseBuiltinKind(kindStr)
 	if !ok {
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
 	}
-	id := r.PathValue("id")
 	reg, err := builtinres.Default()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -50,7 +50,7 @@ func applyTemplate(a *config.Agent, templateID string) error {
 	return nil
 }
 
-func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
@@ -76,7 +76,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, agents)
 }
 
-func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
@@ -155,10 +155,9 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, a)
 }
 
-func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
-	id := r.PathValue("id")
 
 	a, err := s.store.GetAgent(ctx, id)
 	if err != nil {
@@ -178,10 +177,9 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, a)
 }
 
-func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
-	id := r.PathValue("id")
 
 	// Check access: admin or creator.
 	existing, err := s.store.GetAgent(ctx, id)
@@ -234,10 +232,9 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, a)
 }
 
-func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
-	id := r.PathValue("id")
 
 	// Check access: admin or creator.
 	existing, err := s.store.GetAgent(ctx, id)

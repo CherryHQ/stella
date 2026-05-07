@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: Builtin Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    BuiltinResource:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind: { type: string }
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        hash: { type: string }
+    BuiltinResourceDetail:
+      type: object
+      required: [kind, id, name, content]
+      properties:
+        kind: { type: string }
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        hash: { type: string }
+        content: { type: string }

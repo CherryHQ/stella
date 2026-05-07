@@ -2,13 +2,15 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 )
 
 // --- Agent user assignment API (admin-only) ---
 
-func (s *Server) listAgentUsers(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
+func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	agentID := id
 	ctx := r.Context()
 
 	userIDs, err := s.authStore.ListAgentUserIDs(ctx, agentID)
@@ -33,8 +35,11 @@ func (s *Server) listAgentUsers(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, users)
 }
 
-func (s *Server) assignAgentUser(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
+func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	agentID := id
 	ctx := r.Context()
 
 	var body struct {
@@ -66,18 +71,14 @@ func (s *Server) assignAgentUser(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
 
-func (s *Server) removeAgentUser(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	userIDStr := r.PathValue("userId")
-	ctx := r.Context()
-
-	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user ID")
+func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId int64) {
+	if !requireAdmin(w, r) {
 		return
 	}
+	agentID := id
+	ctx := r.Context()
 
-	if err := s.authStore.RemoveAgent(ctx, userID, agentID); err != nil {
+	if err := s.authStore.RemoveAgent(ctx, userId, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove user: "+err.Error())
 		return
 	}

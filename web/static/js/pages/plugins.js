@@ -221,9 +221,19 @@ export function register(Alpine) {
       }
     },
 
+    pluginToggleURL(id) {
+      const p = this.plugins.find(p => p.id === id)
+      if (p) return `/api/plugins/${encodeURIComponent(p.kind)}/${encodeURIComponent(p.name)}`
+      // Fallback: id is "kind/name" or "name" (kind===name); split accordingly.
+      const slash = id.indexOf('/')
+      return slash !== -1
+        ? `/api/plugins/${encodeURIComponent(id.slice(0, slash))}/${encodeURIComponent(id.slice(slash + 1))}`
+        : `/api/plugins/${encodeURIComponent(id)}/${encodeURIComponent(id)}`
+    },
+
     async togglePlugin(id, enabled) {
       try {
-        await api('PATCH', '/api/plugins/' + encodeURIComponent(id), { enabled })
+        await api('PATCH', this.pluginToggleURL(id), { enabled })
         await this.loadPlugins()
         this.$store.toast.show(id + (enabled ? ' enabled' : ' disabled'))
       } catch (e) {
@@ -237,10 +247,10 @@ export function register(Alpine) {
           // Disable all other sandbox backends first (mutual exclusion).
           const others = this.sandboxPlugins.filter(p => p.id !== id && p.enabled)
           for (const other of others) {
-            await api('PATCH', '/api/plugins/' + encodeURIComponent(other.id), { enabled: false })
+            await api('PATCH', this.pluginToggleURL(other.id), { enabled: false })
           }
         }
-        await api('PATCH', '/api/plugins/' + encodeURIComponent(id), { enabled })
+        await api('PATCH', this.pluginToggleURL(id), { enabled })
         await this.loadPlugins()
         this.$store.toast.show(enabled ? id + ' set as active sandbox' : id + ' disabled')
       } catch (e) {

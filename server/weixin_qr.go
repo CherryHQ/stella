@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 
+	apiserver "github.com/vaayne/anna/api/server"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/plugins/channels/weixin"
 )
 
-// startWeixinQR initiates the WeChat QR login flow by requesting a QR code
+// StartWeixinQR initiates the WeChat QR login flow by requesting a QR code
 // from the iLink API. Any authenticated user can call this.
 // POST /api/channels/weixin/qr
-func (s *Server) startWeixinQR(w http.ResponseWriter, r *http.Request) {
+func (s *Server) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
 	client := weixin.NewClient("", "", "")
 	qr, err := client.GetQRCode("")
 	if err != nil {
@@ -24,18 +25,18 @@ func (s *Server) startWeixinQR(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, qr)
 }
 
-// pollWeixinQRStatus polls the QR code scan status. On confirmed, saves
+// PollWeixinQRStatus polls the QR code scan status. On confirmed, saves
 // channel credentials to DB and creates an auth identity linking the
 // current user to the weixin account.
 // GET /api/channels/weixin/qr/status?qrcode=...
-func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, params apiserver.PollWeixinQRStatusParams) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
-	qrcode := r.URL.Query().Get("qrcode")
+	qrcode := params.Qrcode
 	if qrcode == "" {
 		writeError(w, http.StatusBadRequest, "qrcode parameter required")
 		return

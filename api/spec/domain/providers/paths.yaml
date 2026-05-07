@@ -1,0 +1,139 @@
+paths:
+  /api/providers:
+    get:
+      tags: [providers]
+      summary: List all providers (admin only)
+      operationId: listProviders
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/Provider" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [providers]
+      summary: Create a provider (admin only)
+      operationId: createProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/Provider" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Provider" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/providers/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [providers]
+      summary: Get a provider (admin only)
+      operationId: getProvider
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Provider" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [providers]
+      summary: Update a provider (admin only)
+      operationId: updateProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/Provider" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/Provider" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [providers]
+      summary: Delete a provider (admin only)
+      operationId: deleteProvider
+      responses:
+        "200":
+          description: deleted
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/providers/{id}/models:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [providers]
+      summary: List models for a provider (admin only)
+      operationId: listProviderModels
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/ProviderModelItem" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [providers]
+      summary: Fetch and cache models from upstream provider (admin only)
+      operationId: fetchProviderModels
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/FetchModelsRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/ProviderModelItem" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/provider-types:
+    get:
+      tags: [providers]
+      summary: List available provider types (admin only)
+      operationId: listProviderTypes
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "../../components.yaml#/components/schemas/ProviderType" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }

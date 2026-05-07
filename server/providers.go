@@ -10,7 +10,10 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 )
 
-func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -19,7 +22,10 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, providers)
 }
 
-func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -46,8 +52,10 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, p)
 }
 
-func (s *Server) getProvider(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	p, err := s.store.GetProvider(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
@@ -56,8 +64,10 @@ func (s *Server) getProvider(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, p)
 }
 
-func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -83,8 +93,10 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, p)
 }
 
-func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if err := s.store.DeleteProvider(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -111,8 +123,10 @@ type providerModelItem struct {
 	Config  config.ProviderModel `json:"config,omitzero"`
 }
 
-func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	provider, err := s.store.GetProvider(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
@@ -122,8 +136,10 @@ func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, s.mergedProviderModels(provider))
 }
 
-func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
 
 	var body struct {
 		APIKey  string `json:"api_key"`
@@ -277,7 +293,11 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 	}
 }
 
-func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+
 	type providerType struct {
 		ID         string `json:"id"`
 		Name       string `json:"name"`

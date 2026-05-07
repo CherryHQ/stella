@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: Plugins Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    PluginView:
+      type: object
+      properties:
+        id:           { type: string }
+        kind:         { type: string }
+        name:         { type: string }
+        enabled:      { type: boolean }
+        config:       { type: object, additionalProperties: true }
+        display_name: { type: string }
+        description:  { type: string }
+        managed:      { type: boolean }
+        admin_visible: { type: boolean }
+        has_config:   { type: boolean }
+        has_status:   { type: boolean }
+        capabilities: { type: array, items: { type: string } }
+        persisted:    { type: boolean }
+        persisted_id: { type: string }
+
+    TogglePluginRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+
+    UpdatePluginConfigRequest:
+      type: object
+      properties:
+        config: { type: object, additionalProperties: true }
+
+    ManifestPlugin:
+      type: object
+      additionalProperties: true

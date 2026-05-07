@@ -28,8 +28,8 @@ func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
 	}
 }
 
-// listOAuthProviders handles GET /api/auth/profile/oauth/providers.
-func (s *Server) listOAuthProviders(w http.ResponseWriter, r *http.Request) {
+// ListOAuthProviders handles GET /api/auth/profile/oauth/providers.
+func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -44,8 +44,8 @@ func (s *Server) listOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, providers)
 }
 
-// startOAuthFlow handles POST /api/auth/profile/oauth/{provider}/start.
-func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request) {
+// StartOAuthFlow handles POST /api/auth/profile/oauth/{provider}/start.
+func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -56,7 +56,6 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := r.PathValue("provider")
 	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, requestOrigin(r))
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "user_id", info.UserID, "error", err)
@@ -66,8 +65,8 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
 }
 
-// pollOAuthFlow handles GET /api/auth/profile/oauth/{provider}/status/{flowID}.
-func (s *Server) pollOAuthFlow(w http.ResponseWriter, r *http.Request) {
+// PollOAuthFlow handles GET /api/auth/profile/oauth/{provider}/status/{flowID}.
+func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider string, flowID string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -77,9 +76,6 @@ func (s *Server) pollOAuthFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
-	provider := r.PathValue("provider")
-	flowID := r.PathValue("flowID")
 
 	status, _, err := s.credSvc.PollFlow(r.Context(), info.UserID, provider, flowID)
 	if err != nil {
@@ -89,8 +85,8 @@ func (s *Server) pollOAuthFlow(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
 }
 
-// getOAuthConnected handles GET /api/auth/profile/oauth/{provider}/connected.
-func (s *Server) getOAuthConnected(w http.ResponseWriter, r *http.Request) {
+// GetOAuthConnected handles GET /api/auth/profile/oauth/{provider}/connected.
+func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -101,7 +97,6 @@ func (s *Server) getOAuthConnected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := r.PathValue("provider")
 	statuses := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
 
 	type connectedResp struct {
@@ -118,8 +113,8 @@ func (s *Server) getOAuthConnected(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadRequest, "unsupported provider: "+provider)
 }
 
-// disconnectOAuth handles DELETE /api/auth/profile/oauth/{provider}.
-func (s *Server) disconnectOAuth(w http.ResponseWriter, r *http.Request) {
+// DisconnectOAuth handles DELETE /api/auth/profile/oauth/{provider}.
+func (s *Server) DisconnectOAuth(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
 		return
@@ -130,43 +125,12 @@ func (s *Server) disconnectOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := r.PathValue("provider")
 	if err := s.credSvc.Disconnect(r.Context(), info.UserID, provider); err != nil {
 		s.log.Error("disconnect oauth", "provider", provider, "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// oauthCallback handles GET /api/auth/profile/oauth/{provider}/callback.
-func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
-	if s.vaultSvc == nil {
-		http.Error(w, "vault not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	provider := r.PathValue("provider")
-	code := r.URL.Query().Get("code")
-	flowID := r.URL.Query().Get("state")
-	if code == "" || flowID == "" {
-		http.Error(w, "missing code or state", http.StatusBadRequest)
-		return
-	}
-
-	flow, ok := s.credSvc.GetFlowForCallback(flowID)
-	if !ok {
-		http.Error(w, "unknown or expired flow", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.credSvc.CompleteAuthCodeFlowWithOrigin(r.Context(), provider, flowID, code, requestOrigin(r)); err != nil {
-		s.log.Error("oauth callback complete", "provider", provider, "user_id", flow.UserID, "flow_id", flowID, "error", err)
-		http.Error(w, "failed to complete authorization: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/credentials", http.StatusFound)
 }
 
 func requestOrigin(r *http.Request) string {
