@@ -78,8 +78,13 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	if chatType == "group" {
 		reactionContent = b.attributeGroupContent(openID, reactionContent)
-		sp := groupBasePrompt(b.groupSystemPrompt(chatID))
-		reactionContent = prependSystemPrompt(reactionContent, sp)
+		// Reactions in "always" mode get the SKIP protocol; "mention" mode reactions
+		// already passed shouldRespondInGroup so SKIP is not needed.
+		if b.groupMode(chatID) == "always" {
+			reactionContent = prependSystemPrompt(reactionContent, groupBasePrompt(b.groupSystemPrompt(chatID)))
+		} else if sp := b.groupSystemPrompt(chatID); sp != "" {
+			reactionContent = prependSystemPrompt(reactionContent, sp)
+		}
 	}
 
 	msg := b.incomingMsg(senderIDs, chatID, chatType, reactionContent)
@@ -179,8 +184,14 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	if chatType == "group" {
 		content = b.attributeGroupContent(openID, content)
-		sp := groupBasePrompt(b.groupSystemPrompt(chatID))
-		content = prependSystemPrompt(content, sp)
+		// Inject SKIP protocol only in "always" mode — in "mention" mode the
+		// shouldRespondInGroup gate already ensures the bot was explicitly addressed,
+		// so SKIP would wrongly discard intentional @mentions.
+		if b.groupMode(chatID) == "always" {
+			content = prependSystemPrompt(content, groupBasePrompt(b.groupSystemPrompt(chatID)))
+		} else if sp := b.groupSystemPrompt(chatID); sp != "" {
+			content = prependSystemPrompt(content, sp)
+		}
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
