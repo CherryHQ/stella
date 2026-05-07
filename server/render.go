@@ -10,7 +10,7 @@ import (
 
 func (s *Server) pageLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := web.LoginLayout("/static/js/pages/login.js", pages.LoginPage()).Render(r.Context(), w); err != nil {
+	if err := web.LoginLayout("", pages.LoginPage(), "login").Render(r.Context(), w); err != nil {
 		s.log.Error("render page", "page", "login", "error", err)
 	}
 }
