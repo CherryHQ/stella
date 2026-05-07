@@ -109,12 +109,29 @@ func emailConfigCommand() *ucli.Command {
 	}
 }
 
+func configAccountName(c *ucli.Context) (string, error) {
+	name := c.String("name")
+	if name == "" {
+		name = c.Args().First()
+	}
+	if name == "" {
+		return "", fmt.Errorf("account name is required (positional arg or --name)")
+	}
+	if err := email.ValidateAccountName(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+var configNameFlag = &ucli.StringFlag{Name: "name", Aliases: []string{"n"}, Usage: "Account name (lowercase, digits, underscores only)"}
+
 func emailConfigAddCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "add",
 		Usage:     "Add or update an email account",
-		ArgsUsage: "<name>",
+		ArgsUsage: "[name]",
 		Flags: []ucli.Flag{
+			configNameFlag,
 			&ucli.StringFlag{Name: "imap-host", Usage: "IMAP host"},
 			&ucli.IntFlag{Name: "imap-port", Usage: "IMAP port", Value: 0},
 			&ucli.StringFlag{Name: "imap-tls", Usage: "IMAP TLS mode: ssl, starttls, none"},
@@ -126,11 +143,8 @@ func emailConfigAddCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "password-stdin", Usage: "Read password from stdin"},
 		},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("account name is required")
-			}
-			if err := email.ValidateAccountName(name); err != nil {
+			name, err := configAccountName(c)
+			if err != nil {
 				return err
 			}
 
@@ -216,11 +230,12 @@ func emailConfigRemoveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "remove",
 		Usage:     "Remove an email account",
-		ArgsUsage: "<name>",
+		ArgsUsage: "[name]",
+		Flags:     []ucli.Flag{configNameFlag},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("account name is required")
+			name, err := configAccountName(c)
+			if err != nil {
+				return err
 			}
 
 			api, err := newAPIClient()
@@ -289,14 +304,15 @@ func emailConfigShowCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "show",
 		Usage:     "Show details for an email account",
-		ArgsUsage: "<name>",
+		ArgsUsage: "[name]",
 		Flags: []ucli.Flag{
+			configNameFlag,
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("account name is required")
+			name, err := configAccountName(c)
+			if err != nil {
+				return err
 			}
 
 			api, err := newAPIClient()
@@ -339,11 +355,12 @@ func emailConfigDefaultCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "default",
 		Usage:     "Set the default email account",
-		ArgsUsage: "<name>",
+		ArgsUsage: "[name]",
+		Flags:     []ucli.Flag{configNameFlag},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("account name is required")
+			name, err := configAccountName(c)
+			if err != nil {
+				return err
 			}
 
 			api, err := newAPIClient()

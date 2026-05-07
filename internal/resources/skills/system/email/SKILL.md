@@ -31,29 +31,40 @@ Config is stored as a single encrypted `EMAIL_CONFIG` vault entry. **Always use 
 
 The sandbox has `ANNA_TOKEN` injected, so `anna email config` commands work inside the sandbox.
 
+### Account naming rules
+
+Names must match `^[a-z][a-z0-9_]{0,31}$` — lowercase letters, digits, and underscores only. No hyphens.
+
+- `personal` ✓, `work_gmail` ✓, `cherry_hr` ✓
+- `cherry-hr` ✗ (hyphen), `Work` ✗ (uppercase), `123abc` ✗ (starts with digit)
+
 ### Setup flow (agent-initiated)
 
 1. Ask the user for: account name, IMAP host, SMTP host, username, from address, and app password.
-2. Run the config add command, piping the password via `--password-stdin`:
+2. Run the config add command with `--name` flag and pipe password via `--password-stdin`:
    ```bash
-   echo 'the-app-password' | anna email config add personal \
-       --imap-host imap.gmail.com --smtp-host smtp.gmail.com \
-       --username me@gmail.com --from 'Me <me@gmail.com>' --password-stdin
+   echo 'the-app-password' | anna email config add \
+       --name personal \
+       --imap-host imap.gmail.com \
+       --smtp-host smtp.gmail.com \
+       --username me@gmail.com \
+       --from 'Me <me@gmail.com>' \
+       --password-stdin
    ```
 3. Verify with `anna email config list` and `anna email folders`.
 
-**Password handling:** There is no TTY in the sandbox, so always use `--password-stdin`. The user provides the password in conversation; pipe it with `echo`. For Gmail and other providers, remind the user to use an **app password**, not their main account password.
+**Important:** Always use `--name NAME` flag (not positional argument) to avoid argument parsing issues when piping passwords. There is no TTY in the sandbox, so always use `--password-stdin` with `echo`. For Gmail and other providers, remind the user to use an **app password**, not their main account password.
 
 ## Commands
 
 ### Account management (requires ANNA_TOKEN + running server)
 
 ```bash
-anna email config add <name> --imap-host HOST --smtp-host HOST --username USER --from ADDR --password-stdin
-anna email config remove <name>
+anna email config add --name NAME --imap-host HOST --smtp-host HOST --username USER --from ADDR --password-stdin
+anna email config remove --name NAME
 anna email config list [--json]
-anna email config show <name> [--json]
-anna email config default <name>
+anna email config show --name NAME [--json]
+anna email config default --name NAME
 ```
 
 ### Browsing (requires EMAIL_CONFIG env var)
