@@ -1083,7 +1083,7 @@ func TestHandleIncomingAbortDelegatesToCoordinator(t *testing.T) {
 		return "Aborted.", true, nil, nil
 	}}}
 
-	bot.handleIncoming(channel.IncomingMessage{SenderID: "user-1"}, "/abort", "", "user-1", "chat-1", "msg-1", "", func(resp string) {
+	bot.handleIncoming(context.Background(), channel.IncomingMessage{SenderID: "user-1"}, "/abort", "", "user-1", "chat-1", "msg-1", "", func(resp string) {
 		reply = resp
 	})
 

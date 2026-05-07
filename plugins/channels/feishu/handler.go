@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/internal/agent"
@@ -59,8 +60,19 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// Look up the reacted message to get its chat context so we resolve
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID := b.getMessageContext(messageID)
-	if chatType == "group" && !b.shouldRespondInGroup(chatID, nil) {
-		return nil
+	if chatType == "group" {
+		if b.groupMode(chatID) == "disabled" {
+			return nil
+		}
+
+		// Append a synthetic entry to the group log.
+		b.groupLog(chatID).Append(GroupEntry{
+			Timestamp: time.Now(),
+			SenderID:  openID,
+			Name:      b.cachedName(openID),
+			Text:      fmt.Sprintf("[reacted with %s]", emojiType),
+			MessageID: messageID,
+		})
 	}
 
 	// Auto-provision the reacting user. TenantKey is not available in reaction
@@ -86,7 +98,21 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		defer cancel()
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
-	go b.handleIncoming(msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+
+	var opCtx context.Context
+	if chatType == "group" {
+		groupCtx := b.groupLog(chatID).FormatContext(50, b.cachedName)
+		opCtx = context.Background()
+		opCtx = agent.WithGroupContext(opCtx, groupCtx)
+		opCtx = WithGroupReplyFn(opCtx, func(text string) {
+			replyCtx, cancel := b.apiContext()
+			defer cancel()
+			b.replyInThread(replyCtx, messageID, rootID, text)
+		})
+		go b.handleIncoming(opCtx, msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+	} else {
+		go b.handleIncoming(context.Background(), msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+	}
 	return nil
 }
 
@@ -125,8 +151,27 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	if chatType == "group" && !b.shouldRespondInGroup(chatID, mentions) {
-		return nil
+	if chatType == "group" {
+		// Disabled groups: ignore entirely.
+		if b.groupMode(chatID) == "disabled" {
+			return nil
+		}
+
+		// Always append to group log for context (even if not a trigger).
+		plainText := parseTextContent(derefStr(msg.Content))
+		plainText = stripMentions(plainText, mentions)
+		b.groupLog(chatID).Append(GroupEntry{
+			Timestamp: time.Now(),
+			SenderID:  openID,
+			Name:      b.cachedName(openID),
+			Text:      plainText,
+			MessageID: messageID,
+		})
+
+		// Only invoke the agent on explicit triggers (@mention).
+		if !b.isGroupTrigger(chatID, mentions) {
+			return nil
+		}
 	}
 
 	// Extract text once for commands.
@@ -175,8 +220,20 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
 
+	// For group messages, attribute content and build a decorated context
+	// carrying the group log and reply callback.
+	var opCtx context.Context
 	if chatType == "group" {
 		content = b.attributeGroupContent(openID, content)
+
+		groupCtx := b.groupLog(chatID).FormatContext(50, b.cachedName)
+		opCtx = context.Background()
+		opCtx = agent.WithGroupContext(opCtx, groupCtx)
+		opCtx = WithGroupReplyFn(opCtx, func(text string) {
+			replyCtx, cancel := b.apiContext()
+			defer cancel()
+			b.replyInThread(replyCtx, messageID, rootID, text)
+		})
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
@@ -192,7 +249,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			}
 			authContent := channel.TextContent(fmt.Sprintf("Please connect my %s OAuth credentials using the oauth tool with action=connect and provider=%s. Show me the verification URL so I can authorize in my browser.", provider, provider))
 			authMsg := b.incomingMsg(senderIDs, chatID, chatType, authContent)
-			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
+			go b.handleIncoming(context.Background(), authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			return nil
 		case "/model":
 			b.handleModelCommand(args, replyFn)
@@ -205,7 +262,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Parse command for coordinator (shared commands + chat streaming).
 	cmd, args := channel.ParseSlashCommand(text)
-	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+	if chatType == "group" {
+		go b.handleIncoming(opCtx, incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+	} else {
+		go b.handleIncoming(context.Background(), incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+	}
 	return nil
 }
 
@@ -295,19 +356,14 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 // handleIncoming delegates to the coordinator via HandleIncoming.
 // Shared commands are handled by the coordinator (including /abort);
 // otherwise a chat stream is returned.
-func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Ack with 🤔 for DMs; skip for group messages — every group message would
-	// get 🤔 then removed, which is noisy given most messages are skipped.
-	var ackReactionID string
-	if !msg.IsGroup {
-		ackReactionID = b.reactToMessage(messageID, reactionAck)
-	}
+func (b *Bot) handleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
+	// Ack with 🤔 so the user sees the bot is processing.
+	ackReactionID := b.reactToMessage(messageID, reactionAck)
 
-	// Use an operation-scoped context so in-flight work survives bot restarts
-	// with bounded execution time. Keep it alive for the full streamed turn;
-	// cancelling immediately after HandleIncoming returns would abort the agent
-	// stream and release the per-session queue too early.
-	ctx, cancel := b.operationContext()
+	// Wrap the incoming context with an operation timeout so in-flight work
+	// has bounded execution time while preserving any context values (e.g.
+	// group context, reply fn).
+	ctx, cancel := context.WithTimeout(ctx, feishuOperationTimeout)
 
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
@@ -350,14 +406,15 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		}
 	}
 
-	if strings.TrimSpace(response) == "" {
-		response = "(empty response)"
+	// For group messages the agent replies via the group_reply tool;
+	// only send the buffered final response for DMs.
+	if !msg.IsGroup {
+		if strings.TrimSpace(response) == "" {
+			response = "(empty response)"
+		}
+		finalResponse := response + elapsedFooter(elapsed)
+		b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
 	}
-
-	// Append elapsed time footer to the final response.
-	finalResponse := response + elapsedFooter(elapsed)
-
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)
