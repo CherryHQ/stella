@@ -318,6 +318,7 @@ components:
     UpdateActiveRequest:        { $ref: './components.yaml#/components/schemas/UpdateActiveRequest' }
     ChangePasswordRequest:      { $ref: './components.yaml#/components/schemas/ChangePasswordRequest' }
     GenerateLinkCodeRequest:    { $ref: './components.yaml#/components/schemas/GenerateLinkCodeRequest' }
+    VaultEntryValue:            { $ref: './components.yaml#/components/schemas/VaultEntryValue' }
     LinkCodeResponse:           { $ref: './components.yaml#/components/schemas/LinkCodeResponse' }
     SetSoulRequest:             { $ref: './components.yaml#/components/schemas/SetSoulRequest' }
     VaultEntry:                 { $ref: './components.yaml#/components/schemas/VaultEntry' }

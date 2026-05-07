@@ -292,6 +292,9 @@ type UserMemory = externalRef0.UserMemory
 // VaultEntry defines model for VaultEntry.
 type VaultEntry = externalRef0.VaultEntry
 
+// VaultEntryValue defines model for VaultEntryValue.
+type VaultEntryValue = externalRef0.VaultEntryValue
+
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode = externalRef0.WeixinQRCode
 
@@ -773,6 +776,9 @@ type ClientInterface interface {
 
 	// DeleteVaultEntry request
 	DeleteVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetVaultEntry request
+	GetVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetVaultEntryWithBody request with any body
 	SetVaultEntryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1727,6 +1733,18 @@ func (c *Client) ListVaultEntries(ctx context.Context, reqEditors ...RequestEdit
 
 func (c *Client) DeleteVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteVaultEntryRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetVaultEntry(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetVaultEntryRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -4739,6 +4757,40 @@ func NewDeleteVaultEntryRequest(server string, name string) (*http.Request, erro
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetVaultEntryRequest generates requests for GetVaultEntry
+func NewGetVaultEntryRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/profile/vault/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -8217,6 +8269,9 @@ type ClientWithResponsesInterface interface {
 	// DeleteVaultEntryWithResponse request
 	DeleteVaultEntryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteVaultEntryResponse, error)
 
+	// GetVaultEntryWithResponse request
+	GetVaultEntryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetVaultEntryResponse, error)
+
 	// SetVaultEntryWithBodyWithResponse request with any body
 	SetVaultEntryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error)
 
@@ -9922,6 +9977,38 @@ func (r DeleteVaultEntryResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DeleteVaultEntryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetVaultEntryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.VaultEntryValue
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetVaultEntryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetVaultEntryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetVaultEntryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12964,6 +13051,15 @@ func (c *ClientWithResponses) DeleteVaultEntryWithResponse(ctx context.Context, 
 	return ParseDeleteVaultEntryResponse(rsp)
 }
 
+// GetVaultEntryWithResponse request returning *GetVaultEntryResponse
+func (c *ClientWithResponses) GetVaultEntryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetVaultEntryResponse, error) {
+	rsp, err := c.GetVaultEntry(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetVaultEntryResponse(rsp)
+}
+
 // SetVaultEntryWithBodyWithResponse request with arbitrary body returning *SetVaultEntryResponse
 func (c *ClientWithResponses) SetVaultEntryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error) {
 	rsp, err := c.SetVaultEntryWithBody(ctx, name, contentType, body, reqEditors...)
@@ -15677,6 +15773,46 @@ func ParseDeleteVaultEntryResponse(rsp *http.Response) (*DeleteVaultEntryRespons
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetVaultEntryResponse parses an HTTP response from a GetVaultEntryWithResponse call
+func ParseGetVaultEntryResponse(rsp *http.Response) (*GetVaultEntryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetVaultEntryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.VaultEntryValue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 

@@ -848,6 +848,12 @@ type VaultEntry struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// VaultEntryValue defines model for VaultEntryValue.
+type VaultEntryValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // WeixinQRCode defines model for WeixinQRCode.
 type WeixinQRCode struct {
 	Qrcode           *string `json:"qrcode,omitempty"`
