@@ -1,4 +1,9 @@
 import type { Plugin, PluginSchemaProperty } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
 import {
   pluginFieldDescription,
   pluginFieldHasEnum,
@@ -39,30 +44,32 @@ export function GenericConfigEditor({
   const fields = pluginSchemaFields(plugin, schemas);
 
   return (
-    <div className="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+    <div className="px-4 pb-4 border-t border-border bg-muted/30">
       <div className="pt-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm font-medium">Configuration</p>
           <div className="flex items-center gap-2">
-            {isLoading && <span className="loading loading-spinner loading-xs"></span>}
-            <button
+            {isLoading && <Spinner className="size-4" />}
+            <Button
               onClick={onReset}
               disabled={isLoading || isSaving}
-              className="btn btn-ghost btn-xs"
+              variant="ghost"
+              size="xs"
             >
               Reset
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={onSave}
               disabled={isLoading || isSaving}
-              className="btn btn-primary btn-xs"
+              variant="default"
+              size="xs"
             >
               Save
-            </button>
+            </Button>
           </div>
         </div>
         {isLoading ? (
-          <div className="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">
+          <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
             Loading…
           </div>
         ) : (
@@ -83,7 +90,7 @@ export function GenericConfigEditor({
                   key={field.name}
                   className={`space-y-1${isComplex ? " lg:col-span-2" : ""}`}
                 >
-                  <label className="text-xs font-medium text-secondary" htmlFor={fid}>
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor={fid}>
                     {field.name}
                   </label>
                   {hasEnum ? (
@@ -100,37 +107,37 @@ export function GenericConfigEditor({
                       ))}
                     </select>
                   ) : fieldType === "boolean" ? (
-                    <label className="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
-                      <input
+                    <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+                      <Switch
                         id={fid}
-                        type="checkbox"
                         checked={!!value}
-                        onChange={(e) => onDraftChange(field.name, e.target.checked)}
-                        className="toggle toggle-primary toggle-sm"
+                        onCheckedChange={(checked) => onDraftChange(field.name, checked)}
                       />
-                      <span className="label-text text-sm">{field.name}</span>
-                    </label>
+                      <span className="text-sm">{field.name}</span>
+                    </div>
                   ) : isComplex ? (
-                    <textarea
+                    <Textarea
                       id={fid}
                       value={String(value ?? "")}
                       onChange={(e) => onDraftChange(field.name, e.target.value)}
                       rows={rows}
-                      className="textarea textarea-bordered w-full font-mono text-xs"
+                      className="font-mono text-xs"
                       placeholder={placeholder}
                     />
                   ) : (
-                    <input
+                    <Input
                       id={fid}
+                      nativeInput
                       type={inputType}
                       value={String(value ?? "")}
-                      onChange={(e) => onDraftChange(field.name, e.target.value)}
+                      onChange={(e) => onDraftChange(field.name, (e.target as HTMLInputElement).value)}
                       placeholder={placeholder}
-                      className={`input input-bordered input-sm w-full${inputType === "password" ? " font-mono" : ""}`}
+                      className={inputType === "password" ? "font-mono" : undefined}
+                      size="sm"
                     />
                   )}
                   {description && (
-                    <p className="text-[11px] leading-relaxed text-secondary">{description}</p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">{description}</p>
                   )}
                 </div>
               );

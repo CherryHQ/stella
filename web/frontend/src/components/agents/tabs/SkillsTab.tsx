@@ -1,5 +1,11 @@
 import type { Skill } from "@/lib/types";
 import type { AgentsPageState } from "../AgentsPage";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
 
 interface Props {
   state: AgentsPageState;
@@ -22,24 +28,24 @@ function skillScopeLabel(scope: string) {
   return { system: "Built-in", user: "User", agent: "This agent" }[scope] ?? scope;
 }
 
-function skillScopeClass(scope: string) {
+function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
   return (
     {
-      system: "badge-ghost",
-      user: "badge-success badge-soft",
-      agent: "badge-primary badge-soft",
-    }[scope] ?? "badge-ghost"
-  );
+      system: "outline",
+      user: "success",
+      agent: "default",
+    } as Record<string, "outline" | "success" | "default">
+  )[scope] ?? "outline";
 }
 
-function skillStatusClass(status: string) {
+function skillStatusBadgeVariant(status: string): "success" | "warning" | "error" | "outline" {
   return (
     {
-      active: "badge-success badge-soft",
-      draft: "badge-warning badge-soft",
-      deprecated: "badge-error badge-soft",
-    }[status] ?? "badge-ghost"
-  );
+      active: "success",
+      draft: "warning",
+      deprecated: "error",
+    } as Record<string, "success" | "warning" | "error" | "outline">
+  )[status] ?? "outline";
 }
 
 export function SkillsTab({
@@ -147,52 +153,55 @@ export function SkillsTab({
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 min-w-0">
       {/* Skill list */}
-      <div className="border border-base-300 rounded-box bg-base-100/70 min-w-0 overflow-hidden">
-        <div className="p-4 border-b border-base-300 space-y-3">
+      <div className="border border-border rounded-xl bg-background/70 min-w-0 overflow-hidden">
+        <div className="p-4 border-b border-border space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <input
+            <Input
+              nativeInput
               value={skillListQuery}
-              onChange={(e) => onSetState({ skillListQuery: e.target.value })}
+              onChange={(e) => onSetState({ skillListQuery: (e.target as HTMLInputElement).value })}
               type="text"
               placeholder="Search skills..."
-              className="input input-bordered input-sm w-full lg:max-w-sm"
+              size="sm"
+              className="w-full lg:max-w-sm"
             />
             <div className="flex items-center gap-2 flex-wrap">
-              <button
+              <Button
                 onClick={() => onOpenSkillInstallModal()}
-                type="button"
-                className="btn btn-primary btn-sm"
+                size="sm"
               >
                 + Install skill
-              </button>
+              </Button>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {viewFilters.map((f) => (
-              <button
+              <Badge
                 key={f.id}
+                render={<button type="button" />}
+                variant={skillViewFilter === f.id ? "default" : "outline"}
+                size="sm"
                 onClick={() => onSetState({ skillViewFilter: f.id })}
-                type="button"
-                className={`badge badge-sm cursor-pointer ${skillViewFilter === f.id ? "badge-primary" : "badge-ghost"}`}
               >
                 {f.label}
-              </button>
+              </Badge>
             ))}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {scopeFilters.map((f) => (
-              <button
+              <Badge
                 key={f.id}
+                render={<button type="button" />}
+                variant={skillScopeFilter === f.id ? "secondary" : "outline"}
+                size="sm"
                 onClick={() => onSetState({ skillScopeFilter: f.id })}
-                type="button"
-                className={`badge badge-sm cursor-pointer ${skillScopeFilter === f.id ? "badge-accent" : "badge-ghost"}`}
               >
                 {f.label}
-              </button>
+              </Badge>
             ))}
           </div>
           {!editingId && (
-            <div className="text-xs text-base-content/50">
+            <div className="text-xs text-muted-foreground">
               Save the agent first if you want to add or customize agent-specific skills.
             </div>
           )}
@@ -200,7 +209,7 @@ export function SkillsTab({
         <div className="p-3 space-y-2 max-h-[70vh] overflow-y-auto min-w-0">
           {agentSkillsLoading && (
             <div className="py-4 flex justify-center">
-              <span className="loading loading-spinner loading-sm"></span>
+              <Spinner className="size-5" />
             </div>
           )}
           {!agentSkillsLoading &&
@@ -209,78 +218,77 @@ export function SkillsTab({
                 key={skillKey(sk)}
                 onClick={() => onSelectSkill(sk)}
                 type="button"
-                className={`w-full text-left rounded-box border border-base-300 px-3 py-3 transition-colors hover:bg-base-200/50 overflow-hidden ${
+                className={`w-full text-left rounded-xl border border-border px-3 py-3 transition-colors hover:bg-muted/50 overflow-hidden ${
                   selectedSkillKey === skillKey(sk) ? "border-primary bg-primary/5" : ""
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {sk.scope !== "system" ? (
-                    <input
-                      type="checkbox"
-                      className="toggle toggle-primary toggle-xs shrink-0"
+                    <Switch
                       checked={sk.status === "active"}
-                      onChange={(e) => {
-                        e.stopPropagation();
+                      onCheckedChange={(e) => {
+                        (e as unknown as Event).stopPropagation?.();
                         onToggleSkillStatus(sk);
                       }}
                       onClick={(e) => e.stopPropagation()}
+                      className="shrink-0"
                       title={sk.status === "active" ? "Disable skill" : "Enable skill"}
                     />
                   ) : (
-                    <span className="badge badge-ghost badge-xs shrink-0">read only</span>
+                    <Badge variant="outline" size="sm" className="shrink-0">read only</Badge>
                   )}
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
                       <p className="text-sm font-mono truncate min-w-0">{sk.name}</p>
-                      <span className={`badge badge-xs shrink-0 ${skillScopeClass(sk.scope)}`}>
+                      <Badge variant={skillScopeBadgeVariant(sk.scope)} size="sm">
                         {skillScopeLabel(sk.scope)}
-                      </span>
-                      <span className={`badge badge-xs shrink-0 ${skillStatusClass(sk.status)}`}>
+                      </Badge>
+                      <Badge variant={skillStatusBadgeVariant(sk.status)} size="sm">
                         {sk.status === "active" ? "Enabled" : sk.status}
-                      </span>
+                      </Badge>
                     </div>
                     {sk.description && (
-                      <p className="text-xs text-base-content/60 truncate mt-1">{sk.description}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-1">{sk.description}</p>
                     )}
                   </div>
                 </div>
               </button>
             ))}
           {!agentSkillsLoading && filteredSkills().length === 0 && (
-            <div className="text-xs text-base-content/50 p-2">No skills match this filter.</div>
+            <div className="text-xs text-muted-foreground p-2">No skills match this filter.</div>
           )}
         </div>
       </div>
 
       {/* Skill detail */}
-      <div className="border border-base-300 rounded-box bg-base-100/70 min-w-0 overflow-hidden">
+      <div className="border border-border rounded-xl bg-background/70 min-w-0 overflow-hidden">
         {!selectedSkill && !selectedSkillLoading && (
-          <div className="p-8 text-center text-sm text-base-content/50">
+          <div className="p-8 text-center text-sm text-muted-foreground">
             Select a skill to inspect or edit.
           </div>
         )}
         {selectedSkillLoading && (
           <div className="p-8 flex justify-center">
-            <span className="loading loading-spinner loading-md"></span>
+            <Spinner className="size-6" />
           </div>
         )}
         {selectedSkill && !selectedSkillLoading && (
           <div className="min-w-0">
-            <div className="p-4 border-b border-base-300 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="p-4 border-b border-border flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-medium text-base min-w-0 truncate">{selectedSkill.name}</h3>
-                  <span className={`badge badge-xs ${skillScopeClass(selectedSkill.scope)}`}>
+                  <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)} size="sm">
                     {skillScopeLabel(selectedSkill.scope)}
-                  </span>
-                  <span className={`badge badge-xs ${skillStatusClass(selectedSkill.status)}`}>
+                  </Badge>
+                  <Badge variant={skillStatusBadgeVariant(selectedSkill.status)} size="sm">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
-                  </span>
+                  </Badge>
                 </div>
-                <p className="text-sm text-base-content/70 mt-2 break-words">
+                <p className="text-sm text-muted-foreground mt-2 break-words">
                   {selectedSkill.description || "No description yet."}
                 </p>
-                <p className="text-xs text-base-content/60 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   {selectedSkill.scope === "system"
                     ? "Built-in skill. Read-only here; duplicate it to this agent if you want to customize behavior."
                     : selectedSkill.scope === "user"
@@ -290,63 +298,60 @@ export function SkillsTab({
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedSkill.scope === "system" && canInstallAgentSkills && (
-                  <button
+                  <Button
                     onClick={onDuplicateBuiltinToAgent}
-                    type="button"
-                    className="btn btn-primary btn-xs"
+                    size="xs"
                   >
                     Duplicate to agent
-                  </button>
+                  </Button>
                 )}
                 {canEdit && !selectedSkillEditMode && (
-                  <button
+                  <Button
                     onClick={() => onSetState({ selectedSkillEditMode: true })}
-                    type="button"
-                    className="btn btn-ghost btn-xs"
+                    variant="ghost"
+                    size="xs"
                   >
                     Edit
-                  </button>
+                  </Button>
                 )}
                 {canDelete && (
-                  <button
+                  <Button
                     onClick={() => onDeleteSkill(selectedSkill)}
-                    type="button"
-                    className="btn btn-ghost btn-xs text-error"
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive"
                   >
                     Delete
-                  </button>
+                  </Button>
                 )}
                 {canEdit && selectedSkillEditMode && (
                   <>
-                    <button
+                    <Button
                       onClick={onSaveSelectedSkill}
-                      type="button"
                       disabled={selectedSkillSaving || !selectedSkillDirty}
-                      className="btn btn-primary btn-xs"
+                      loading={selectedSkillSaving}
+                      size="xs"
                     >
-                      {selectedSkillSaving && (
-                        <span className="loading loading-spinner loading-xs"></span>
-                      )}
                       Save
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={() => {
                         if (selectedSkillDirty && !confirm("Discard unsaved changes?")) return;
                         onSetState({ selectedSkillEditMode: false, selectedSkillDirty: false });
                       }}
-                      type="button"
-                      className="btn btn-ghost btn-xs"
+                      variant="ghost"
+                      size="xs"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
             </div>
 
-            <div className="p-4 border-b border-base-300 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <p className="text-xs font-mono text-secondary uppercase tracking-wider">Status</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Status</p>
                 {!selectedSkillEditMode ? (
                   <div className="text-sm">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
@@ -360,8 +365,8 @@ export function SkillsTab({
                         selectedSkillDirty: true,
                       });
                     }}
-                    className="select select-bordered select-sm w-full"
                     disabled={!canEdit}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="active">active</option>
                     <option value="draft">draft</option>
@@ -370,21 +375,19 @@ export function SkillsTab({
                 )}
               </div>
               <div className="space-y-2">
-                <p className="text-xs font-mono text-secondary uppercase tracking-wider">Scope</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Scope</p>
                 <div className="text-sm">{skillScopeLabel(selectedSkill.scope)}</div>
                 {selectedSkillEditMode && (
                   <label className="flex items-center gap-2 cursor-pointer pt-1">
-                    <input
+                    <Switch
                       checked={!!selectedSkill.disable_model_invocation}
-                      onChange={(e) => {
+                      onCheckedChange={(checked) => {
                         onSetState({
-                          selectedSkill: { ...selectedSkill, disable_model_invocation: e.target.checked },
+                          selectedSkill: { ...selectedSkill, disable_model_invocation: checked },
                           selectedSkillDirty: true,
                         });
                       }}
                       disabled={!canEdit}
-                      type="checkbox"
-                      className="toggle toggle-primary toggle-sm"
                     />
                     <span className="text-xs">Disable model invocation</span>
                   </label>
@@ -393,111 +396,112 @@ export function SkillsTab({
             </div>
 
             {selectedSkillEditMode && (
-              <div className="p-4 border-b border-base-300 space-y-3">
+              <div className="p-4 border-b border-border space-y-3">
                 <div>
-                  <label className="label">
-                    <span className="label-text text-xs font-medium">Description</span>
-                  </label>
-                  <input
+                  <label className="block text-xs font-medium mb-1">Description</label>
+                  <Input
+                    nativeInput
                     value={selectedSkill.description}
                     onChange={(e) => {
                       onSetState({
-                        selectedSkill: { ...selectedSkill, description: e.target.value },
+                        selectedSkill: { ...selectedSkill, description: (e.target as HTMLInputElement).value },
                         selectedSkillDirty: true,
                       });
                     }}
                     disabled={!canEdit}
                     type="text"
-                    className="input input-bordered input-sm w-full"
+                    size="sm"
                   />
                 </div>
               </div>
             )}
 
-            <div className="p-4 border-b border-base-300">
-              <button
+            <div className="p-4 border-b border-border">
+              <Button
                 onClick={() => onSetState({ selectedSkillShowAdvanced: !selectedSkillShowAdvanced })}
-                type="button"
-                className="btn btn-ghost btn-sm px-0"
+                variant="ghost"
+                size="sm"
+                className="px-0"
               >
                 {selectedSkillShowAdvanced ? "Hide advanced" : "Show advanced"}
-              </button>
-              <p className="text-xs text-base-content/50 mt-2">
+              </Button>
+              <p className="text-xs text-muted-foreground mt-2">
                 Files and source editing live here so the main view stays focused on behavior.
               </p>
             </div>
 
             {selectedSkillShowAdvanced && (
               <div className="min-w-0">
-                <div className="p-4 border-b border-base-300 space-y-2">
+                <div className="p-4 border-b border-border space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <select
                       value={selectedSkillActiveFile}
                       onChange={(e) => onSelectSkillFile(e.target.value)}
-                      className="select select-bordered select-sm w-auto max-w-sm font-mono text-xs"
+                      className="rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring w-auto max-w-sm"
                     >
                       {skillFiles.map((f) => (
                         <option key={f} value={f}>{f}</option>
                       ))}
                     </select>
                     {canEdit && selectedSkillEditMode && selectedSkillActiveFile !== "SKILL.md" && (
-                      <button
+                      <Button
                         onClick={onDeleteSkillFile}
-                        type="button"
-                        className="btn btn-ghost btn-xs text-error"
+                        variant="ghost"
+                        size="xs"
+                        className="text-destructive"
                       >
                         Delete file
-                      </button>
+                      </Button>
                     )}
                     {canEdit && selectedSkillEditMode && !selectedSkillAddingFile && (
-                      <button
+                      <Button
                         onClick={() => onSetState({ selectedSkillAddingFile: true, selectedSkillNewFileName: "" })}
-                        type="button"
-                        className="btn btn-ghost btn-xs"
+                        variant="ghost"
+                        size="xs"
                       >
                         + Add file
-                      </button>
+                      </Button>
                     )}
                   </div>
                   {selectedSkillAddingFile && (
                     <div className="flex items-center gap-2">
-                      <input
+                      <Input
+                        nativeInput
                         value={selectedSkillNewFileName}
-                        onChange={(e) => onSetState({ selectedSkillNewFileName: e.target.value })}
+                        onChange={(e) => onSetState({ selectedSkillNewFileName: (e.target as HTMLInputElement).value })}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") { e.preventDefault(); commitAddSkillFile(); }
                           if (e.key === "Escape") onSetState({ selectedSkillAddingFile: false });
                         }}
                         type="text"
                         placeholder="reference.md"
-                        className="input input-bordered input-xs flex-1 font-mono"
+                        size="sm"
+                        className="flex-1 font-mono"
                         autoFocus
                       />
-                      <button onClick={commitAddSkillFile} type="button" className="btn btn-primary btn-xs">
-                        Add
-                      </button>
-                      <button
+                      <Button onClick={commitAddSkillFile} size="xs">Add</Button>
+                      <Button
                         onClick={() => onSetState({ selectedSkillAddingFile: false })}
-                        type="button"
-                        className="btn btn-ghost btn-xs"
+                        variant="ghost"
+                        size="xs"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
                 <div className="p-4 min-w-0">
                   {selectedSkillFileLoading ? (
                     <div className="py-8 flex justify-center">
-                      <span className="loading loading-spinner loading-sm"></span>
+                      <Spinner className="size-5" />
                     </div>
                   ) : (
-                    <textarea
+                    <Textarea
                       value={selectedSkillFileContent}
-                      onChange={(e) => onSetState({ selectedSkillFileContent: e.target.value, selectedSkillDirty: true })}
+                      onChange={(e) => onSetState({ selectedSkillFileContent: (e.target as HTMLTextAreaElement).value, selectedSkillDirty: true })}
                       disabled={!canEdit || !selectedSkillEditMode}
                       rows={18}
-                      className="textarea textarea-bordered w-full text-xs font-mono resize-y"
+                      className="text-xs font-mono"
                       spellCheck={false}
                     />
                   )}

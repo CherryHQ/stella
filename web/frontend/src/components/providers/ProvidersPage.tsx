@@ -7,6 +7,18 @@ import type {
   ProviderModel,
   ProviderType,
 } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogPopup,
+  DialogTitle,
+  DialogHeader,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -148,8 +160,8 @@ function Toast({ messages }: { messages: ToastMsg[] }) {
           key={m.id}
           className={`px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium pointer-events-auto ${
             m.kind === "error"
-              ? "bg-error text-error-content"
-              : "bg-success text-success-content"
+              ? "bg-destructive text-destructive-foreground"
+              : "bg-success text-success-foreground"
           }`}
         >
           {m.text}
@@ -371,84 +383,86 @@ function ProviderRow({
           onClick={() => setCollapsed((c) => !c)}
           className="flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer"
         >
-          <span className="text-xs text-secondary">{collapsed ? "▸" : "▾"}</span>
+          <span className="text-xs text-muted-foreground">{collapsed ? "▸" : "▾"}</span>
           <div className="flex items-baseline gap-3 flex-wrap min-w-0">
             <span className="font-medium text-lg">{provider.name || provider.id}</span>
-            <span className="text-xs font-mono text-secondary">{provider.id}</span>
-            <span className="badge badge-ghost badge-sm">{provider.type}</span>
-            <span
-              className={`badge badge-sm ${provider.enabled ? "badge-success" : "badge-ghost"}`}
-            >
+            <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
+            <Badge variant="outline" size="sm">{provider.type}</Badge>
+            <Badge variant={provider.enabled ? "success" : "outline"} size="sm">
               {provider.enabled ? "enabled" : "disabled"}
-            </span>
+            </Badge>
           </div>
         </button>
         <div className="flex items-center gap-2 shrink-0">
-          <button
+          <Button
             onClick={() => setCollapsed((c) => !c)}
-            className="btn btn-ghost btn-xs"
+            variant="ghost"
+            size="xs"
           >
             {collapsed ? "Expand" : "Collapse"}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => setConfirmDeleteOpen(true)}
-            className="btn btn-ghost btn-xs text-secondary hover:text-error"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground hover:text-destructive"
           >
             remove
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Confirm delete dialog */}
-      {confirmDeleteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div
-            className="card bg-base-100 shadow-xl w-full max-w-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="card-body">
-              <p className="text-sm">Delete provider {provider.id}?</p>
-              <div className="card-actions justify-end mt-4">
-                <button
-                  onClick={() => setConfirmDeleteOpen(false)}
-                  className="btn btn-ghost btn-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setConfirmDeleteOpen(false);
-                    onDelete(provider.id);
-                  }}
-                  className="btn btn-error btn-sm"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogPopup showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete provider</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <p className="text-sm">Delete provider {provider.id}?</p>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button
+              onClick={() => setConfirmDeleteOpen(false)}
+              variant="ghost"
+              size="sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmDeleteOpen(false);
+                onDelete(provider.id);
+              }}
+              variant="destructive"
+              size="sm"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       {!collapsed && (
         <div className="space-y-4">
           {/* Fields grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-x-8 gap-y-4 mb-4">
             <div>
-              <label className="label text-xs font-medium mb-1">ID</label>
-              <input
+              <label className="text-xs font-medium mb-1 block">ID</label>
+              <Input
                 type="text"
                 value={provider.id}
                 disabled
-                className="input input-bordered w-full text-sm font-mono opacity-70"
+                nativeInput
+                className="font-mono opacity-70"
               />
             </div>
             <div>
-              <label className="label text-xs font-medium mb-1">Type</label>
+              <label className="text-xs font-medium mb-1 block">Type</label>
               <select
                 value={provider.type}
                 onChange={(e) => updateField("type", e.target.value)}
-                className="select select-bordered w-full text-sm"
+                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
               >
                 {providerTypes.map((pt) => (
                   <option key={pt.id} value={pt.id}>
@@ -458,139 +472,143 @@ function ProviderRow({
               </select>
             </div>
             <div>
-              <label className="label text-xs font-medium mb-1">Name</label>
-              <input
+              <label className="text-xs font-medium mb-1 block">Name</label>
+              <Input
                 type="text"
                 value={provider.name}
                 placeholder={provider.id}
-                onChange={(e) => updateField("name", e.target.value)}
-                className="input input-bordered w-full text-sm"
+                onChange={(e) => updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
+                nativeInput
               />
             </div>
             <div>
-              <label className="label text-xs font-medium mb-1">API Key</label>
-              <input
+              <label className="text-xs font-medium mb-1 block">API Key</label>
+              <Input
                 type="password"
                 value={provider.api_key}
                 placeholder="sk-..."
-                onChange={(e) => updateField("api_key", e.target.value)}
-                className="input input-bordered w-full text-sm font-mono"
+                onChange={(e) => updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
+                nativeInput
+                className="font-mono"
               />
             </div>
             <div>
-              <label className="label text-xs font-medium mb-1">Base URL</label>
-              <input
+              <label className="text-xs font-medium mb-1 block">Base URL</label>
+              <Input
                 type="text"
                 value={provider.base_url}
                 placeholder={
                   providerDefaults[provider.type]?.base_url || ""
                 }
-                onChange={(e) => updateField("base_url", e.target.value)}
-                className="input input-bordered w-full text-sm font-mono"
+                onChange={(e) => updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
+                nativeInput
+                className="font-mono"
               />
             </div>
           </div>
 
           {/* Custom models section */}
           <div className="mb-4 space-y-4">
-            <div className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
+            <div className="rounded-xl border border-border bg-card p-4 space-y-4">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <p className="text-sm font-medium">Custom models</p>
-                  <p className="text-xs text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     Add provider-specific models with a guided form. Fetching
                     models only updates discovered models and never overwrites
                     these custom entries.
                   </p>
                 </div>
-                <button
+                <Button
                   onClick={() => {
                     setCustomModelForm(createCustomModelForm());
                     setShowCustomModelForm(true);
                     setShowModels(true);
                   }}
-                  className="btn btn-ghost btn-sm"
+                  variant="ghost"
+                  size="sm"
                 >
                   Add custom model
-                </button>
+                </Button>
               </div>
 
               {showCustomModelForm && (
-                <div className="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-4">
+                <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Model ID
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={customModelForm.id}
                         placeholder="llama3.1:8b"
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            id: e.target.value,
+                            id: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm font-mono"
+                        nativeInput
+                        className="font-mono"
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Display name
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={customModelForm.name}
                         placeholder="Llama 3.1 8B (Local)"
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            name: e.target.value,
+                            name: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm"
+                        nativeInput
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Input
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={customModelForm.input}
                         placeholder="text, image"
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            input: e.target.value,
+                            input: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm"
+                        nativeInput
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Output
                       </label>
-                      <input
+                      <Input
                         type="text"
                         value={customModelForm.output}
                         placeholder="text"
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            output: e.target.value,
+                            output: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm"
+                        nativeInput
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Context window
                       </label>
-                      <input
+                      <Input
                         type="number"
                         min={0}
                         value={customModelForm.context_window}
@@ -598,17 +616,17 @@ function ProviderRow({
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            context_window: e.target.value,
+                            context_window: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm"
+                        nativeInput
                       />
                     </div>
                     <div>
-                      <label className="label text-xs font-medium mb-1">
+                      <label className="text-xs font-medium mb-1 block">
                         Max tokens
                       </label>
-                      <input
+                      <Input
                         type="number"
                         min={0}
                         value={customModelForm.max_tokens}
@@ -616,54 +634,50 @@ function ProviderRow({
                         onChange={(e) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            max_tokens: e.target.value,
+                            max_tokens: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                           }))
                         }
-                        className="input input-bordered w-full text-sm"
+                        nativeInput
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                    <label className="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-4 py-3">
-                      <input
-                        type="checkbox"
+                    <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                      <Switch
                         checked={customModelForm.enabled}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            enabled: e.target.checked,
+                            enabled: checked,
                           }))
                         }
-                        className="toggle toggle-primary toggle-sm"
                       />
                       <div>
                         <p className="text-sm">Enabled</p>
-                        <p className="text-xs text-secondary">
+                        <p className="text-xs text-muted-foreground">
                           Persist model availability on this provider instance.
                         </p>
                       </div>
-                    </label>
-                    <label className="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-4 py-3">
-                      <input
-                        type="checkbox"
+                    </div>
+                    <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                      <Switch
                         checked={customModelForm.reasoning}
-                        onChange={(e) =>
+                        onCheckedChange={(checked) =>
                           setCustomModelForm((f) => ({
                             ...f,
-                            reasoning: e.target.checked,
+                            reasoning: checked,
                           }))
                         }
-                        className="toggle toggle-primary toggle-sm"
                       />
                       <div>
                         <p className="text-sm">Reasoning</p>
-                        <p className="text-xs text-secondary">
+                        <p className="text-xs text-muted-foreground">
                           Stores the provider-facing{" "}
                           <span className="font-mono">reasoning</span> flag.
                         </p>
                       </div>
-                    </label>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -686,10 +700,10 @@ function ProviderRow({
                       },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <label className="label text-xs font-medium mb-1">
+                        <label className="text-xs font-medium mb-1 block">
                           {label}
                         </label>
-                        <input
+                        <Input
                           type="number"
                           step="any"
                           value={customModelForm[field]}
@@ -697,37 +711,39 @@ function ProviderRow({
                           onChange={(e) =>
                             setCustomModelForm((f) => ({
                               ...f,
-                              [field]: e.target.value,
+                              [field]: (e as React.ChangeEvent<HTMLInputElement>).target.value,
                             }))
                           }
-                          className="input input-bordered w-full text-sm"
+                          nativeInput
                         />
                       </div>
                     ))}
                   </div>
 
                   <div className="flex items-center gap-3 justify-end">
-                    <button
+                    <Button
                       onClick={() => {
                         setCustomModelForm(createCustomModelForm());
                         setShowCustomModelForm(false);
                       }}
-                      className="btn btn-ghost btn-sm"
+                      variant="ghost"
+                      size="sm"
                     >
                       Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={handleSubmitCustomModel}
-                      className="btn btn-primary btn-sm"
+                      variant="default"
+                      size="sm"
                     >
                       {customModelForm.original_id ? "Update model" : "Add model"}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
 
               {/* Advanced JSON editor */}
-              <div className="border-t border-base-300 pt-4 space-y-3">
+              <div className="border-t border-border pt-4 space-y-3">
                 <button
                   onClick={() => {
                     setProviderJSON(
@@ -735,7 +751,7 @@ function ProviderRow({
                     );
                     setShowAdvancedJSON((v) => !v);
                   }}
-                  className="text-xs font-mono text-secondary hover:text-base-content"
+                  className="text-xs font-mono text-muted-foreground hover:text-foreground"
                 >
                   {showAdvancedJSON
                     ? "Hide advanced JSON editor"
@@ -743,23 +759,24 @@ function ProviderRow({
                 </button>
                 {showAdvancedJSON && (
                   <div className="space-y-2">
-                    <label className="label text-xs font-medium mb-1">
+                    <label className="text-xs font-medium mb-1 block">
                       Provider JSON
                     </label>
-                    <textarea
+                    <Textarea
                       value={providerJSON}
                       onChange={(e) => setProviderJSON(e.target.value)}
                       rows={16}
                       placeholder={`{\n  "type": "openai",\n  "name": "Ollama",\n  "enabled": true,\n  "api_key": "ollama",\n  "base_url": "http://localhost:11434/v1",\n  "models": {}\n}`}
-                      className="textarea textarea-bordered w-full text-xs font-mono"
+                      className="font-mono text-xs"
                     />
                     <div className="flex justify-end">
-                      <button
+                      <Button
                         onClick={handleApplyJSON}
-                        className="btn btn-ghost btn-xs"
+                        variant="ghost"
+                        size="xs"
                       >
                         Apply JSON
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -769,42 +786,41 @@ function ProviderRow({
 
           {/* Actions row */}
           <div className="flex items-center gap-4 flex-wrap">
-            <label className="label cursor-pointer justify-start gap-2 py-0">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              <Switch
                 checked={provider.enabled}
-                onChange={(e) => updateField("enabled", e.target.checked)}
-                className="toggle toggle-primary toggle-sm"
+                onCheckedChange={(checked) => updateField("enabled", checked)}
               />
-              <span className="label-text text-sm">Enabled</span>
-            </label>
-            <button onClick={handleSave} className="btn btn-primary btn-sm">
+              <span className="text-sm">Enabled</span>
+            </div>
+            <Button onClick={handleSave} variant="default" size="sm">
               Save
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleFetchModels}
-              disabled={fetching}
-              className="btn btn-ghost btn-sm text-secondary"
+              loading={fetching}
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
             >
-              {fetching && (
-                <span className="loading loading-spinner loading-xs"></span>
-              )}
               {fetching ? "Fetching..." : "Fetch models"}
-            </button>
+            </Button>
             {modelCount > 0 && (
-              <button
+              <Button
                 onClick={() => setShowModels((v) => !v)}
-                className="btn btn-ghost btn-xs font-mono text-primary"
+                variant="ghost"
+                size="xs"
+                className="font-mono text-primary"
               >
                 {modelCount} models {showModels ? "↑" : "↓"}
-              </button>
+              </Button>
             )}
           </div>
 
           {/* Model list */}
           {showModels && (
-            <div className="mt-4 pl-4 border-l-2 border-base-300 space-y-3">
-              <p className="text-xs text-secondary">
+            <div className="mt-4 pl-4 border-l-2 border-border space-y-3">
+              <p className="text-xs text-muted-foreground">
                 Toggle models on or off, then save. Custom models can be edited
                 with the form or in the advanced JSON editor.
               </p>
@@ -813,48 +829,47 @@ function ProviderRow({
                   {models.map((m) => (
                     <div
                       key={`${m.id}:${m.source}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
                     >
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm">{m.id}</span>
-                          <span className="badge badge-ghost badge-xs">
+                          <Badge variant="outline" size="sm">
                             {m.source}
-                          </span>
-                          <span
-                            className={`badge badge-xs ${m.enabled ? "badge-success" : "badge-ghost"}`}
-                          >
+                          </Badge>
+                          <Badge variant={m.enabled ? "success" : "outline"} size="sm">
                             {m.enabled ? "enabled" : "disabled"}
-                          </span>
+                          </Badge>
                         </div>
                         {m.name && m.name !== m.id && (
-                          <p className="text-xs text-secondary">{m.name}</p>
+                          <p className="text-xs text-muted-foreground">{m.name}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <label className="label cursor-pointer justify-start gap-2 py-0">
-                          <input
-                            type="checkbox"
+                        <div className="flex items-center gap-2">
+                          <Switch
                             checked={m.enabled}
-                            onChange={() => handleToggleModel(m)}
-                            className="toggle toggle-primary toggle-sm"
+                            onCheckedChange={() => handleToggleModel(m)}
                           />
-                          <span className="label-text text-sm">Enabled</span>
-                        </label>
+                          <span className="text-sm">Enabled</span>
+                        </div>
                         {m.source === "custom" && (
                           <>
-                            <button
+                            <Button
                               onClick={() => handleEditCustomModel(m)}
-                              className="btn btn-ghost btn-xs"
+                              variant="ghost"
+                              size="xs"
                             >
                               edit
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               onClick={() => handleRemoveCustomModel(m.id)}
-                              className="btn btn-ghost btn-xs text-error"
+                              variant="ghost"
+                              size="xs"
+                              className="text-destructive"
                             >
                               remove
-                            </button>
+                            </Button>
                           </>
                         )}
                       </div>
@@ -862,7 +877,7 @@ function ProviderRow({
                   ))}
                 </div>
               ) : (
-                <div className="text-xs text-secondary py-2">
+                <div className="text-xs text-muted-foreground py-2">
                   No models yet. Fetch from the provider or add custom models
                   above.
                 </div>
@@ -1099,18 +1114,18 @@ export function ProvidersPage() {
         <h1 className="font-serif text-2xl tracking-tight mb-1">
           LLM connections
         </h1>
-        <p className="text-sm text-secondary">
+        <p className="text-sm text-muted-foreground">
           API keys and endpoints for each model provider Anna can use.
         </p>
       </div>
 
-      <div className="border-t border-base-300 pt-8">
+      <div className="border-t border-border pt-8">
         {/* Add provider bar */}
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 mb-8">
           <select
             value={newProviderType}
             onChange={(e) => setNewProviderType(e.target.value)}
-            className="select select-bordered text-sm"
+            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
           >
             <option value="" disabled>
               Select provider type...
@@ -1121,33 +1136,35 @@ export function ProvidersPage() {
               </option>
             ))}
           </select>
-          <input
+          <Input
             value={newProviderID}
-            onChange={(e) => setNewProviderID(e.target.value)}
+            onChange={(e) => setNewProviderID((e as React.ChangeEvent<HTMLInputElement>).target.value)}
             type="text"
             placeholder="provider id (e.g. openrouter)"
-            className="input input-bordered text-sm font-mono"
+            nativeInput
+            className="font-mono"
           />
-          <input
+          <Input
             value={newProviderName}
-            onChange={(e) => setNewProviderName(e.target.value)}
+            onChange={(e) => setNewProviderName((e as React.ChangeEvent<HTMLInputElement>).target.value)}
             type="text"
             placeholder="display name"
-            className="input input-bordered text-sm"
+            nativeInput
           />
-          <button
+          <Button
             onClick={handleAddProvider}
             disabled={!newProviderType || !newProviderID}
-            className="btn btn-primary btn-sm"
+            variant="default"
+            size="sm"
           >
             Add
-          </button>
+          </Button>
         </div>
 
         {/* Empty state */}
         {providers.length === 0 && (
           <div className="py-16 text-center">
-            <p className="text-sm text-secondary">
+            <p className="text-sm text-muted-foreground">
               No providers yet. Add one above to connect Anna to an LLM API.
             </p>
           </div>
@@ -1161,14 +1178,14 @@ export function ProvidersPage() {
                 <h3 className="text-sm font-medium">
                   {providerDefaults[group.type]?.name || group.type}
                 </h3>
-                <span className="badge badge-ghost badge-sm font-mono">
+                <Badge variant="outline" size="sm" className="font-mono">
                   {group.type}
-                </span>
-                <span className="text-xs text-secondary">
+                </Badge>
+                <span className="text-xs text-muted-foreground">
                   {group.providers.length} configured
                 </span>
               </div>
-              <div className="divide-y divide-base-300 border border-base-300 rounded-xl px-4">
+              <div className="divide-y divide-border border border-border rounded-xl px-4">
                 {group.providers.map((p) => (
                   <ProviderRow
                     key={p.id}

@@ -1,4 +1,6 @@
 import type { AgentsPageState } from "../AgentsPage";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 
 interface Props {
   state: AgentsPageState;
@@ -18,48 +20,46 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
     <div className="space-y-4">
       {builtinSouls.length > 0 && (
         <div>
-          <label className="label"><span className="label-text font-mono text-sm">Soul preset</span></label>
+          <label className="block text-sm font-mono mb-1">Soul preset</label>
           <div className="flex flex-wrap gap-2">
             {builtinSouls.map((soul) => (
-              <button
+              <Badge
                 key={soul.id}
+                render={<button type="button" title={soul.description} />}
+                variant={selectedSoulID === soul.id ? "default" : "outline"}
+                size="sm"
                 onClick={() => {
                   onSetState({ selectedSoulID: soul.id });
                   onApplySoul(soul.id);
                 }}
-                type="button"
-                className={`badge badge-sm cursor-pointer transition-colors ${
-                  selectedSoulID === soul.id ? "badge-primary" : "badge-ghost"
-                }`}
-                title={soul.description}
               >
                 {soul.name}
-              </button>
+              </Badge>
             ))}
           </div>
         </div>
       )}
       <div>
-        <label className="label"><span className="label-text font-mono text-sm">Soul</span></label>
-        <p className="text-xs text-base-content/60 mb-1">
+        <label className="block text-sm font-mono mb-1">Soul</label>
+        <p className="text-xs text-muted-foreground mb-1">
           Default personality for all users. Each user can override their own.
         </p>
-        <textarea
+        <Textarea
           value={form.soul}
-          onChange={(e) => setForm({ soul: e.target.value })}
+          onChange={(e) => setForm({ soul: (e.target as HTMLTextAreaElement).value })}
           rows={3}
           placeholder="Personality and behavior tone..."
-          className="textarea textarea-bordered w-full text-sm font-mono resize-y"
+          className="text-sm font-mono"
         />
       </div>
       <div>
-        <label className="label"><span className="label-text font-mono text-sm">System Prompt</span></label>
-        <textarea
+        <label className="block text-sm font-mono mb-1">System Prompt</label>
+        <Textarea
           value={form.system_prompt}
-          onChange={(e) => setForm({ system_prompt: e.target.value })}
+          onChange={(e) => setForm({ system_prompt: (e.target as HTMLTextAreaElement).value })}
           rows={10}
           disabled={!canEdit}
-          className="textarea textarea-bordered w-full text-sm font-mono resize-y"
+          className="text-sm font-mono"
         />
       </div>
     </div>

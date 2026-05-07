@@ -1,4 +1,8 @@
 import type { McpServer, McpStatus } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   formatTimestamp,
   mcpStatusFor,
@@ -138,6 +142,14 @@ export function McpTab({
     updateServer(serverIndex, { [field]: next });
   }
 
+  function statusBadgeVariant(tone: string): "success" | "error" | "warning" | "info" | "outline" {
+    if (tone === "success") return "success";
+    if (tone === "error") return "error";
+    if (tone === "warning") return "warning";
+    if (tone === "info") return "info";
+    return "outline";
+  }
+
   return (
     <div>
       {/* MCP plugin toggle */}
@@ -145,44 +157,40 @@ export function McpTab({
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <p className="text-sm font-medium">MCP plugin</p>
-            <span
-              className={`badge badge-sm ${mcpPluginEnabled ? "badge-success" : "badge-ghost"}`}
-            >
+            <Badge variant={mcpPluginEnabled ? "success" : "outline"} size="sm">
               {mcpPluginEnabled ? "enabled" : "disabled"}
-            </span>
+            </Badge>
           </div>
-          <p className="text-xs text-secondary">
+          <p className="text-xs text-muted-foreground">
             Toggle the <span className="font-mono">tool/mcp</span> plugin. Servers below are
             managed independently.
           </p>
         </div>
-        <input
-          type="checkbox"
+        <Switch
           checked={mcpPluginEnabled}
-          onChange={(e) => onToggleMcpPlugin(e.target.checked)}
-          className="toggle toggle-primary toggle-sm"
+          onCheckedChange={onToggleMcpPlugin}
         />
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <div className="rounded-lg border border-base-300 bg-base-100 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-secondary">Servers</p>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Servers</p>
           <p className="text-lg font-semibold">
             {enabledCount} / {mcpServers.length}
           </p>
         </div>
-        <div className="rounded-lg border border-base-300 bg-base-100 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-secondary">Running</p>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Running</p>
           <p className="text-lg font-semibold">{runningCount}</p>
         </div>
-        <div className="rounded-lg border border-base-300 bg-base-100 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-secondary">Tools discovered</p>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Tools discovered</p>
           <p className="text-lg font-semibold">{discoveredToolCount}</p>
         </div>
-        <div className="rounded-lg border border-base-300 bg-base-100 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-secondary">Suppressed</p>
-          <p className={`text-lg font-semibold${suppressedCount > 0 ? " text-error" : ""}`}>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Suppressed</p>
+          <p className={`text-lg font-semibold${suppressedCount > 0 ? " text-destructive" : ""}`}>
             {suppressedCount}
           </p>
         </div>
@@ -190,13 +198,13 @@ export function McpTab({
 
       {/* Warnings */}
       {!mcpPluginEnabled && (
-        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-content mb-4">
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground mb-4">
           The MCP plugin is disabled. Saved configs stay intact, but no server will connect until
           enabled.
         </div>
       )}
       {validation.global.length > 0 && (
-        <div className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs text-error-content space-y-1 mb-4">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground space-y-1 mb-4">
           {validation.global.map((error) => (
             <p key={error}>{error}</p>
           ))}
@@ -205,24 +213,25 @@ export function McpTab({
 
       {/* Actions */}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2 text-xs text-secondary">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {mcpLastSavedAt && <span>Last saved {formatTimestamp(mcpLastSavedAt)}</span>}
           {!mcpSaving && mcpIsDirty && (
-            <span className="badge badge-warning badge-xs">unsaved</span>
+            <Badge variant="warning" size="sm">unsaved</Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={addServer} className="btn btn-ghost btn-sm">
+          <Button onClick={addServer} variant="ghost" size="sm">
             Add server
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onSave}
             disabled={mcpSaving || mcpHasErrors || !mcpIsDirty}
-            className="btn btn-primary btn-sm"
+            loading={mcpSaving}
+            variant="default"
+            size="sm"
           >
-            {mcpSaving && <span className="loading loading-spinner loading-xs"></span>}
             Save
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -240,64 +249,63 @@ export function McpTab({
           const statusTone = mcpStatusTone(server.name, mcpStatuses);
 
           return (
-            <div key={server.id} className="rounded-xl border border-base-300 bg-base-100 overflow-hidden">
+            <div key={server.id} className="rounded-xl border border-border bg-card overflow-hidden">
               {/* Server header */}
               <div
                 className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer"
                 onClick={() => toggleServerExpanded(index)}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs text-secondary">{server.expanded ? "▾" : "▸"}</span>
+                  <span className="text-xs text-muted-foreground">{server.expanded ? "▾" : "▸"}</span>
                   <span className="font-medium text-sm truncate">
                     {server.name || `Server ${index + 1}`}
                   </span>
-                  <span className="badge badge-ghost badge-xs">{server.transport}</span>
-                  <span className={`badge badge-xs ${statusTone}`}>{statusLabel}</span>
+                  <Badge variant="outline" size="sm">{server.transport}</Badge>
+                  <Badge variant={statusBadgeVariant(statusTone)} size="sm">{statusLabel}</Badge>
                   {statusInfo?.discovered_tool_count ? (
-                    <span className="badge badge-info badge-xs">
+                    <Badge variant="info" size="sm">
                       {statusInfo.discovered_tool_count} tools
-                    </span>
+                    </Badge>
                   ) : null}
                 </div>
                 <div
                   className="flex items-center gap-2"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
+                  <Button
                     onClick={() => duplicateServer(index)}
-                    className="btn btn-ghost btn-xs"
+                    variant="ghost"
+                    size="xs"
                   >
                     Duplicate
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => removeServer(index)}
-                    className="btn btn-ghost btn-xs text-error"
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive"
                   >
                     Remove
-                  </button>
-                  <label className="label cursor-pointer gap-2 py-0">
-                    <input
-                      type="checkbox"
-                      checked={server.enabled}
-                      onChange={(e) => updateServer(index, { enabled: e.target.checked })}
-                      className="toggle toggle-primary toggle-sm"
-                    />
-                  </label>
+                  </Button>
+                  <Switch
+                    checked={server.enabled}
+                    onCheckedChange={(checked) => updateServer(index, { enabled: checked })}
+                  />
                 </div>
               </div>
 
               {/* Server body */}
               {server.expanded && (
-                <div className="px-4 pb-4 border-t border-base-300 space-y-4">
+                <div className="px-4 pb-4 border-t border-border space-y-4">
                   {serverErrors.length > 0 && (
-                    <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error-content space-y-1 mt-3">
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground space-y-1 mt-3">
                       {serverErrors.map((error) => (
                         <p key={error}>{error}</p>
                       ))}
                     </div>
                   )}
                   {statusInfo?.last_error && (
-                    <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-content mt-3">
+                    <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground mt-3">
                       <p className="font-medium">Last runtime error</p>
                       <p className="font-mono break-all">{statusInfo.last_error}</p>
                     </div>
@@ -306,17 +314,18 @@ export function McpTab({
                   {/* Config fields */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-secondary">Server name</label>
-                      <input
+                      <label className="text-xs font-medium text-muted-foreground">Server name</label>
+                      <Input
+                        nativeInput
                         value={server.name}
-                        onChange={(e) => updateServer(index, { name: e.target.value })}
+                        onChange={(e) => updateServer(index, { name: (e.target as HTMLInputElement).value })}
                         type="text"
                         placeholder="github"
-                        className="input input-bordered input-sm w-full"
+                        size="sm"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-secondary">Transport</label>
+                      <label className="text-xs font-medium text-muted-foreground">Transport</label>
                       <select
                         value={server.transport}
                         onChange={(e) => updateServer(index, { transport: e.target.value })}
@@ -329,42 +338,45 @@ export function McpTab({
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-secondary">
+                      <label className="text-xs font-medium text-muted-foreground">
                         Timeout (seconds)
                       </label>
-                      <input
+                      <Input
+                        nativeInput
                         value={server.timeout_seconds}
                         onChange={(e) =>
-                          updateServer(index, { timeout_seconds: Number(e.target.value) })
+                          updateServer(index, { timeout_seconds: Number((e.target as HTMLInputElement).value) })
                         }
                         type="number"
                         min="0"
                         placeholder="30"
-                        className="input input-bordered input-sm w-full"
+                        size="sm"
                       />
                     </div>
                   </div>
 
                   {/* Command / URL */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-secondary">
+                    <label className="text-xs font-medium text-muted-foreground">
                       {server.transport === "stdio" ? "Command" : "Endpoint URL"}
                     </label>
                     {server.transport === "stdio" ? (
-                      <input
+                      <Input
+                        nativeInput
                         value={server.command}
-                        onChange={(e) => updateServer(index, { command: e.target.value })}
+                        onChange={(e) => updateServer(index, { command: (e.target as HTMLInputElement).value })}
                         type="text"
                         placeholder="npx"
-                        className="input input-bordered input-sm w-full"
+                        size="sm"
                       />
                     ) : (
-                      <input
+                      <Input
+                        nativeInput
                         value={server.url}
-                        onChange={(e) => updateServer(index, { url: e.target.value })}
+                        onChange={(e) => updateServer(index, { url: (e.target as HTMLInputElement).value })}
                         type="text"
                         placeholder="https://example.com/mcp"
-                        className="input input-bordered input-sm w-full"
+                        size="sm"
                       />
                     )}
                   </div>
@@ -373,26 +385,30 @@ export function McpTab({
                   {server.transport === "stdio" && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-secondary">Arguments</label>
-                        <button onClick={() => addArg(index)} className="btn btn-ghost btn-xs">
+                        <label className="text-xs font-medium text-muted-foreground">Arguments</label>
+                        <Button onClick={() => addArg(index)} variant="ghost" size="xs">
                           Add
-                        </button>
+                        </Button>
                       </div>
                       {server.args.map((arg, argIndex) => (
                         <div key={arg.id} className="flex items-center gap-2">
-                          <input
+                          <Input
+                            nativeInput
                             value={arg.value}
-                            onChange={(e) => updateArg(index, argIndex, e.target.value)}
+                            onChange={(e) => updateArg(index, argIndex, (e.target as HTMLInputElement).value)}
                             type="text"
                             placeholder={`arg ${argIndex + 1}`}
-                            className="input input-bordered input-sm w-full font-mono"
+                            className="font-mono"
+                            size="sm"
                           />
-                          <button
+                          <Button
                             onClick={() => removeArg(index, argIndex)}
-                            className="btn btn-ghost btn-xs text-error"
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
                           >
                             &times;
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -402,42 +418,49 @@ export function McpTab({
                   {server.transport === "stdio" && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-secondary">
+                        <label className="text-xs font-medium text-muted-foreground">
                           Environment variables
                         </label>
-                        <button
+                        <Button
                           onClick={() => addKeyValue(index, "env")}
-                          className="btn btn-ghost btn-xs"
+                          variant="ghost"
+                          size="xs"
                         >
                           Add
-                        </button>
+                        </Button>
                       </div>
                       {server.env.map((row, rowIndex) => (
                         <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                          <input
+                          <Input
+                            nativeInput
                             value={row.key}
                             onChange={(e) =>
-                              updateKeyValue(index, "env", rowIndex, "key", e.target.value)
+                              updateKeyValue(index, "env", rowIndex, "key", (e.target as HTMLInputElement).value)
                             }
                             type="text"
                             placeholder="KEY"
-                            className="input input-bordered input-sm w-full font-mono"
+                            className="font-mono"
+                            size="sm"
                           />
-                          <input
+                          <Input
+                            nativeInput
                             value={row.value}
                             onChange={(e) =>
-                              updateKeyValue(index, "env", rowIndex, "value", e.target.value)
+                              updateKeyValue(index, "env", rowIndex, "value", (e.target as HTMLInputElement).value)
                             }
                             type="text"
                             placeholder="value"
-                            className="input input-bordered input-sm w-full font-mono"
+                            className="font-mono"
+                            size="sm"
                           />
-                          <button
+                          <Button
                             onClick={() => removeKeyValue(index, "env", rowIndex)}
-                            className="btn btn-ghost btn-xs text-error"
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
                           >
                             &times;
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -447,63 +470,70 @@ export function McpTab({
                   {usesRemoteTransport(server) && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-secondary">HTTP headers</label>
-                        <button
+                        <label className="text-xs font-medium text-muted-foreground">HTTP headers</label>
+                        <Button
                           onClick={() => addKeyValue(index, "headers")}
-                          className="btn btn-ghost btn-xs"
+                          variant="ghost"
+                          size="xs"
                         >
                           Add
-                        </button>
+                        </Button>
                       </div>
                       {server.headers.map((row, rowIndex) => (
                         <div key={row.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                          <input
+                          <Input
+                            nativeInput
                             value={row.key}
                             onChange={(e) =>
-                              updateKeyValue(index, "headers", rowIndex, "key", e.target.value)
+                              updateKeyValue(index, "headers", rowIndex, "key", (e.target as HTMLInputElement).value)
                             }
                             type="text"
                             placeholder="Authorization"
-                            className="input input-bordered input-sm w-full font-mono"
+                            className="font-mono"
+                            size="sm"
                           />
-                          <input
+                          <Input
+                            nativeInput
                             value={row.value}
                             onChange={(e) =>
-                              updateKeyValue(index, "headers", rowIndex, "value", e.target.value)
+                              updateKeyValue(index, "headers", rowIndex, "value", (e.target as HTMLInputElement).value)
                             }
                             type="text"
                             placeholder="Bearer ..."
-                            className="input input-bordered input-sm w-full font-mono"
+                            className="font-mono"
+                            size="sm"
                           />
-                          <button
+                          <Button
                             onClick={() => removeKeyValue(index, "headers", rowIndex)}
-                            className="btn btn-ghost btn-xs text-error"
+                            variant="ghost"
+                            size="xs"
+                            className="text-destructive"
                           >
                             &times;
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
                   )}
 
                   {/* Runtime status */}
-                  <div className="rounded-lg border border-base-300 p-3 space-y-2 text-sm">
-                    <p className="text-xs font-medium text-secondary">Runtime status</p>
+                  <div className="rounded-lg border border-border p-3 space-y-2 text-sm">
+                    <p className="text-xs font-medium text-muted-foreground">Runtime status</p>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1 text-xs">
                       <div className="flex justify-between">
-                        <span className="text-secondary">State</span>
+                        <span className="text-muted-foreground">State</span>
                         <span>{statusLabel}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-secondary">Tools</span>
+                        <span className="text-muted-foreground">Tools</span>
                         <span>{statusInfo?.discovered_tool_count || 0}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-secondary">Failures</span>
+                        <span className="text-muted-foreground">Failures</span>
                         <span>{statusInfo?.failures || 0}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-secondary">Connected</span>
+                        <span className="text-muted-foreground">Connected</span>
                         <span>{formatTimestamp(statusInfo?.last_connected_at ?? "") || "—"}</span>
                       </div>
                     </div>
@@ -515,15 +545,15 @@ export function McpTab({
         })}
 
         {mcpServers.length === 0 && (
-          <div className="rounded-lg border border-dashed border-base-300 bg-base-100 px-4 py-8 text-center space-y-2">
+          <div className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center space-y-2">
             <p className="text-sm font-medium">No MCP servers configured</p>
-            <p className="text-xs text-secondary">
+            <p className="text-xs text-muted-foreground">
               Add a server to connect a local stdio process or a remote HTTP/SSE endpoint.
             </p>
             <div>
-              <button onClick={addServer} className="btn btn-primary btn-sm">
+              <Button onClick={addServer} variant="default" size="sm">
                 Add server
-              </button>
+              </Button>
             </div>
           </div>
         )}

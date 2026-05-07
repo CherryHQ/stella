@@ -21,9 +21,13 @@ function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
   return (
     <div
-      className={`alert ${toast.type === "error" ? "alert-error" : "alert-success"} fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg`}
+      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 shadow-lg text-sm font-medium ${
+        toast.type === "error"
+          ? "border-destructive/30 bg-destructive/10 text-destructive-foreground"
+          : "border-success/30 bg-success/10 text-success-foreground"
+      }`}
     >
-      <span>{toast.message}</span>
+      {toast.message}
     </div>
   );
 }
@@ -846,7 +850,7 @@ export function AgentsPage() {
   }, [showToast]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] -mx-6 -mt-6 border-t border-base-300">
+    <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] -mx-6 -mt-6 border-t border-border">
       <AgentList
         state={state}
         onEdit={editAgent}

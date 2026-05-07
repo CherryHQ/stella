@@ -1,5 +1,8 @@
 import { nextRowID } from "./pluginUtils";
 import type { ManifestInstallDraft } from "./pluginUtils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 interface Props {
   draft: ManifestInstallDraft;
@@ -56,115 +59,135 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
   }
 
   return (
-    <div className="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+    <div className="px-4 pb-4 border-t border-border bg-muted/30">
       <div className="pt-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-medium">Tool definition</p>
-            <p className="text-xs text-secondary mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Saved to <code className="font-mono">$ANNA_HOME/plugins.yaml</code>; binaries sync after save.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onReset} className="btn btn-ghost btn-xs">Reset</button>
-            <button onClick={onSave} className="btn btn-primary btn-xs">Save definition</button>
+            <Button onClick={onReset} variant="ghost" size="xs">Reset</Button>
+            <Button onClick={onSave} variant="default" size="xs">Save definition</Button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">ID</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">ID</label>
+            <Input
+              nativeInput
               value={draft.id}
-              onChange={(e) => update({ id: e.target.value })}
-              className="input input-bordered input-sm w-full font-mono"
+              onChange={(e) => update({ id: (e.target as HTMLInputElement).value })}
+              className="font-mono"
+              size="sm"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">Kind</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Kind</label>
+            <Input
+              nativeInput
               value={draft.kind}
-              onChange={(e) => update({ kind: e.target.value })}
-              className="input input-bordered input-sm w-full font-mono"
+              onChange={(e) => update({ kind: (e.target as HTMLInputElement).value })}
+              className="font-mono"
+              size="sm"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">Name</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Name</label>
+            <Input
+              nativeInput
               value={draft.name}
-              onChange={(e) => update({ name: e.target.value })}
-              className="input input-bordered input-sm w-full font-mono"
+              onChange={(e) => update({ name: (e.target as HTMLInputElement).value })}
+              className="font-mono"
+              size="sm"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">Display name</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Display name</label>
+            <Input
+              nativeInput
               value={draft.display_name}
-              onChange={(e) => update({ display_name: e.target.value })}
-              className="input input-bordered input-sm w-full"
+              onChange={(e) => update({ display_name: (e.target as HTMLInputElement).value })}
+              size="sm"
             />
           </div>
           <div className="space-y-1 md:col-span-2 xl:col-span-4">
-            <label className="text-xs font-medium text-secondary">Description</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Description</label>
+            <Input
+              nativeInput
               value={draft.description}
-              onChange={(e) => update({ description: e.target.value })}
-              className="input input-bordered input-sm w-full"
+              onChange={(e) => update({ description: (e.target as HTMLInputElement).value })}
+              size="sm"
             />
           </div>
 
           {/* Binaries */}
           <div className="space-y-1 md:col-span-2 xl:col-span-4">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-secondary">Binaries</label>
-              <button onClick={addBinary} className="btn btn-ghost btn-xs">Add binary</button>
+              <label className="text-xs font-medium text-muted-foreground">Binaries</label>
+              <Button onClick={addBinary} variant="ghost" size="xs">Add binary</Button>
             </div>
             <div className="space-y-2">
               {draft.binaries.map((binary, index) => (
                 <div
                   key={binary.id}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1.4fr_0.8fr_0.8fr_0.8fr_auto] gap-2 rounded-lg border border-base-300 p-2"
+                  className="grid grid-cols-1 md:grid-cols-[1fr_1.4fr_0.8fr_0.8fr_0.8fr_auto] gap-2 rounded-lg border border-border p-2"
                 >
-                  <input
+                  <Input
+                    nativeInput
                     value={binary.name}
-                    onChange={(e) => updateBinary(index, "name", e.target.value)}
+                    onChange={(e) => updateBinary(index, "name", (e.target as HTMLInputElement).value)}
                     placeholder="binary name"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <input
+                  <Input
+                    nativeInput
                     value={binary.repo}
-                    onChange={(e) => updateBinary(index, "repo", e.target.value)}
+                    onChange={(e) => updateBinary(index, "repo", (e.target as HTMLInputElement).value)}
                     placeholder="owner/repo"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <input
+                  <Input
+                    nativeInput
                     value={binary.version ?? ""}
-                    onChange={(e) => updateBinary(index, "version", e.target.value)}
+                    onChange={(e) => updateBinary(index, "version", (e.target as HTMLInputElement).value)}
                     placeholder="version"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <input
+                  <Input
+                    nativeInput
                     value={binary.bin_path ?? ""}
-                    onChange={(e) => updateBinary(index, "bin_path", e.target.value)}
+                    onChange={(e) => updateBinary(index, "bin_path", (e.target as HTMLInputElement).value)}
                     placeholder="bin path"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <input
+                  <Input
+                    nativeInput
                     value={binary.exe ?? ""}
-                    onChange={(e) => updateBinary(index, "exe", e.target.value)}
+                    onChange={(e) => updateBinary(index, "exe", (e.target as HTMLInputElement).value)}
                     placeholder="exe"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <button
+                  <Button
                     onClick={() => removeBinary(index)}
-                    className="btn btn-ghost btn-xs text-error"
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
               ))}
               {draft.binaries.length === 0 && (
-                <div className="rounded-lg border border-dashed border-base-300 px-3 py-3 text-xs text-secondary">
+                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                   No binaries declared.
                 </div>
               )}
@@ -174,20 +197,22 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           {/* Session env */}
           <div className="space-y-1 md:col-span-2 xl:col-span-4">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-secondary">Session environment</label>
-              <button onClick={addSessionEnv} className="btn btn-ghost btn-xs">Add env</button>
+              <label className="text-xs font-medium text-muted-foreground">Session environment</label>
+              <Button onClick={addSessionEnv} variant="ghost" size="xs">Add env</Button>
             </div>
             <div className="space-y-2">
               {draft.session_env.map((env, index) => (
                 <div
                   key={env.id}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto_auto] gap-2 rounded-lg border border-base-300 p-2 items-center"
+                  className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto_auto] gap-2 rounded-lg border border-border p-2 items-center"
                 >
-                  <input
+                  <Input
+                    nativeInput
                     value={env.env_var}
-                    onChange={(e) => updateSessionEnv(index, "env_var", e.target.value)}
+                    onChange={(e) => updateSessionEnv(index, "env_var", (e.target as HTMLInputElement).value)}
                     placeholder="ENV_VAR"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                   <select
                     value={env.source}
@@ -199,31 +224,33 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                     <option value="oauth.client_id">oauth.client_id</option>
                     <option value="oauth.brand">oauth.brand</option>
                   </select>
-                  <input
+                  <Input
+                    nativeInput
                     value={env.value ?? ""}
-                    onChange={(e) => updateSessionEnv(index, "value", e.target.value)}
+                    onChange={(e) => updateSessionEnv(index, "value", (e.target as HTMLInputElement).value)}
                     placeholder="value (static only)"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
-                  <label className="label cursor-pointer gap-2 py-0">
-                    <input
-                      type="checkbox"
+                  <div className="flex items-center gap-2">
+                    <Switch
                       checked={!!env.required}
-                      onChange={(e) => updateSessionEnv(index, "required", e.target.checked)}
-                      className="checkbox checkbox-xs"
+                      onCheckedChange={(checked) => updateSessionEnv(index, "required", checked)}
                     />
-                    <span className="label-text text-xs">required</span>
-                  </label>
-                  <button
+                    <span className="text-xs text-muted-foreground">required</span>
+                  </div>
+                  <Button
                     onClick={() => removeSessionEnv(index)}
-                    className="btn btn-ghost btn-xs text-error"
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
               ))}
               {draft.session_env.length === 0 && (
-                <div className="rounded-lg border border-dashed border-base-300 px-3 py-3 text-xs text-secondary">
+                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                   No session environment variables declared.
                 </div>
               )}
@@ -232,30 +259,36 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
 
           {/* OAuth */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">OAuth provider</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">OAuth provider</label>
+            <Input
+              nativeInput
               value={draft.oauth_provider}
-              onChange={(e) => update({ oauth_provider: e.target.value })}
+              onChange={(e) => update({ oauth_provider: (e.target as HTMLInputElement).value })}
               placeholder="github"
-              className="input input-bordered input-sm w-full font-mono"
+              className="font-mono"
+              size="sm"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-secondary">Provider config field</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Provider config field</label>
+            <Input
+              nativeInput
               value={draft.oauth_provider_config_field}
-              onChange={(e) => update({ oauth_provider_config_field: e.target.value })}
+              onChange={(e) => update({ oauth_provider_config_field: (e.target as HTMLInputElement).value })}
               placeholder="brand"
-              className="input input-bordered input-sm w-full font-mono"
+              className="font-mono"
+              size="sm"
             />
           </div>
           <div className="space-y-1 md:col-span-2">
-            <label className="text-xs font-medium text-secondary">Provider choices</label>
-            <input
+            <label className="text-xs font-medium text-muted-foreground">Provider choices</label>
+            <Input
+              nativeInput
               value={draft.oauth_provider_choices}
-              onChange={(e) => update({ oauth_provider_choices: e.target.value })}
+              onChange={(e) => update({ oauth_provider_choices: (e.target as HTMLInputElement).value })}
               placeholder="feishu, lark"
-              className="input input-bordered input-sm w-full font-mono"
+              className="font-mono"
+              size="sm"
             />
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { normalizeSandbox } from "../AgentsPage";
 import type { AgentsPageState } from "../AgentsPage";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   state: AgentsPageState;
@@ -28,18 +29,18 @@ export function AdvancedTab({ state, onSetState }: Props) {
   const networkMode = form.sandbox?.network?.mode ?? "disabled";
 
   return (
-    <div className="border border-base-300 rounded-box p-4 bg-base-200/40 space-y-4">
+    <div className="rounded-xl border border-border p-4 bg-muted/40 space-y-4">
       <div>
-        <p className="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1">
+        <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-1">
           Network Policy
         </p>
-        <p className="text-xs text-base-content/60">
+        <p className="text-xs text-muted-foreground">
           Sandbox backend is configured on the{" "}
-          <a href="/plugins" className="link link-primary">Plugins</a> page.
+          <a href="/plugins" className="text-primary underline underline-offset-4">Plugins</a> page.
         </p>
       </div>
       <div>
-        <label className="label"><span className="label-text font-mono text-sm">Network Mode</span></label>
+        <label className="block text-sm font-mono mb-1">Network Mode</label>
         <select
           value={networkMode}
           onChange={(e) =>
@@ -52,7 +53,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
               }),
             })
           }
-          className="select select-bordered w-full text-sm"
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="disabled">disabled — block outbound network</option>
           <option value="allow_all">allow_all — allow outbound network</option>
@@ -61,13 +62,13 @@ export function AdvancedTab({ state, onSetState }: Props) {
       </div>
       {networkMode === "whitelist" && (
         <div>
-          <label className="label"><span className="label-text font-mono text-sm">Allowlist</span></label>
-          <textarea
+          <label className="block text-sm font-mono mb-1">Allowlist</label>
+          <Textarea
             value={allowlistText}
-            onChange={(e) => updateSandboxAllowlist(e.target.value)}
+            onChange={(e) => updateSandboxAllowlist((e.target as HTMLTextAreaElement).value)}
             placeholder={"api.github.com\npypi.org\n10.0.0.0/8"}
             rows={4}
-            className="textarea textarea-bordered w-full text-sm font-mono resize-y"
+            className="text-sm font-mono"
           />
           <p className="mt-1 text-xs text-warning">
             Runtime whitelist support depends on your sandbox backend version.

@@ -424,12 +424,12 @@ export function mcpStatusFor(serverName: string, statuses: McpStatus[]): McpStat
 
 export function mcpStatusTone(serverName: string, statuses: McpStatus[]): string {
   const status = mcpStatusFor(serverName, statuses);
-  if (!status) return "badge-ghost";
-  if (status.state === "running") return "badge-success";
-  if (status.state === "suppressed") return "badge-error";
-  if (status.state === "backoff") return "badge-warning";
-  if (status.state === "starting") return "badge-info";
-  return "badge-ghost";
+  if (!status) return "outline";
+  if (status.state === "running") return "success";
+  if (status.state === "suppressed") return "error";
+  if (status.state === "backoff") return "warning";
+  if (status.state === "starting") return "info";
+  return "outline";
 }
 
 export function mcpStatusLabel(
@@ -462,18 +462,18 @@ export function manifestInstallSummary(plugin: PluginWithMeta): string {
 
 export function pluginMetaBadges(
   plugin: PluginWithMeta,
-): { key: string; label: string; className: string }[] {
-  const badges: { key: string; label: string; className: string }[] = [];
-  if (plugin._manifest) badges.push({ key: "manifest", label: "manifest", className: "badge-primary" });
-  if (plugin.managed) badges.push({ key: "managed", label: "managed", className: "badge-primary" });
-  if (plugin.has_config) badges.push({ key: "config", label: "config", className: "badge-neutral" });
-  if (plugin.has_status) badges.push({ key: "status", label: "status", className: "badge-neutral" });
+): { key: string; label: string; variant: string }[] {
+  const badges: { key: string; label: string; variant: string }[] = [];
+  if (plugin._manifest) badges.push({ key: "manifest", label: "manifest", variant: "default" });
+  if (plugin.managed) badges.push({ key: "managed", label: "managed", variant: "default" });
+  if (plugin.has_config) badges.push({ key: "config", label: "config", variant: "secondary" });
+  if (plugin.has_status) badges.push({ key: "status", label: "status", variant: "secondary" });
   if (plugin.supports_notifications)
-    badges.push({ key: "notifications", label: "notifications", className: "badge-info" });
+    badges.push({ key: "notifications", label: "notifications", variant: "info" });
   const hiddenCapabilities = new Set([plugin.kind, "config", "status"]);
   for (const capability of plugin.capabilities || []) {
     if (hiddenCapabilities.has(capability)) continue;
-    badges.push({ key: `capability:${capability}`, label: capability, className: "badge-ghost" });
+    badges.push({ key: `capability:${capability}`, label: capability, variant: "outline" });
   }
   return badges;
 }

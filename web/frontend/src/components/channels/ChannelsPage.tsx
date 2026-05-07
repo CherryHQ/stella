@@ -2,6 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { api } from "@/lib/api";
 import type { Channel, Identity, Plugin } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Dialog,
+  DialogPopup,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
@@ -108,6 +120,9 @@ interface Toast {
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
+const selectClassName =
+  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs/5 outline-none sm:h-8 sm:text-sm";
+
 function InstanceFields({
   ch,
   onChange,
@@ -117,16 +132,15 @@ function InstanceFields({
 }) {
   const type = ch.type as string;
   const field = (key: string, label: string, inputType = "text", placeholder = "") => (
-    <div className="form-control w-full">
-      <label className="label">
-        <span className="label-text font-mono font-medium text-sm">{label}</span>
-      </label>
-      <input
+    <div className="w-full space-y-1.5">
+      <label className="text-sm font-medium font-mono">{label}</label>
+      <Input
+        nativeInput
         type={inputType}
         value={(ch[key] as string) || ""}
         onChange={(e) => onChange(key, e.target.value)}
         placeholder={placeholder}
-        className="input input-bordered w-full text-sm font-mono"
+        className="w-full text-sm font-mono"
       />
     </div>
   );
@@ -138,14 +152,12 @@ function InstanceFields({
           {field("token", "Bot Token", "password", "From @BotFather")}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {field("channel_id", "Channel ID", "text", "Default channel")}
-            <div className="form-control w-full">
-              <label className="label">
-                <span className="label-text font-mono font-medium text-sm">Group Mode</span>
-              </label>
+            <div className="w-full space-y-1.5">
+              <label className="text-sm font-medium font-mono">Group Mode</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
-                className="select select-bordered w-full text-sm"
+                className={selectClassName}
               >
                 <option value="">Default</option>
                 <option value="mention">Mention</option>
@@ -162,14 +174,12 @@ function InstanceFields({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {field("app_id", "App ID", "text", "QQ Bot App ID")}
             {field("app_secret", "App Secret", "password")}
-            <div className="form-control w-full">
-              <label className="label">
-                <span className="label-text font-mono font-medium text-sm">Group Mode</span>
-              </label>
+            <div className="w-full space-y-1.5">
+              <label className="text-sm font-medium font-mono">Group Mode</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
-                className="select select-bordered w-full text-sm"
+                className={selectClassName}
               >
                 <option value="">Default (mention)</option>
                 <option value="mention">Mention</option>
@@ -183,7 +193,7 @@ function InstanceFields({
 
       {type === "feishu" && (
         <div className="space-y-4">
-          <p className="text-xs text-secondary">
+          <p className="text-xs text-muted-foreground">
             Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
@@ -191,14 +201,12 @@ function InstanceFields({
             {field("app_secret", "App Secret", "password")}
             {field("encrypt_key", "Encrypt Key", "password", "optional")}
             {field("verification_token", "Verification Token", "password", "optional")}
-            <div className="form-control w-full">
-              <label className="label">
-                <span className="label-text font-mono font-medium text-sm">Group Mode</span>
-              </label>
+            <div className="w-full space-y-1.5">
+              <label className="text-sm font-medium font-mono">Group Mode</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
-                className="select select-bordered w-full text-sm"
+                className={selectClassName}
               >
                 <option value="">Default (mention)</option>
                 <option value="mention">Mention</option>
@@ -208,22 +216,18 @@ function InstanceFields({
             </div>
             {field("tenant_key", "Tenant Key", "text", "optional, auto-detected at startup")}
           </div>
-          <div className="form-control">
-            <label className="label cursor-pointer gap-3 justify-start">
-              <input
-                type="checkbox"
-                checked={Boolean(ch.auto_provision)}
-                onChange={(e) => onChange("auto_provision", e.target.checked)}
-                className="toggle toggle-primary toggle-sm"
-              />
-              <span className="label-text text-sm">Auto-provision accounts for tenant members</span>
-            </label>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={Boolean(ch.auto_provision)}
+              onCheckedChange={(v) => onChange("auto_provision", v)}
+            />
+            <span className="text-sm">Auto-provision accounts for tenant members</span>
           </div>
         </div>
       )}
 
       {type === "weixin" && (
-        <p className="text-xs text-secondary">
+        <p className="text-xs text-muted-foreground">
           Weixin dedicated instances currently only expose notification settings here.
         </p>
       )}
@@ -307,8 +311,10 @@ export function ChannelsPage() {
   const instanceStatus = (ch: NormalizedChannel) =>
     hasConfig(ch.type, ch) ? "Configured" : "Needs config";
 
-  const instanceStatusClass = (ch: NormalizedChannel) =>
-    hasConfig(ch.type, ch) ? "badge-success" : "badge-ghost";
+  const instanceStatusVariant = (
+    ch: NormalizedChannel,
+  ): "success" | "secondary" =>
+    hasConfig(ch.type, ch) ? "success" : "secondary";
 
   const identityLabel = (identity: Identity | null) => {
     if (!identity) return "";
@@ -616,13 +622,27 @@ export function ChannelsPage() {
 
   const isLoading = loadingPlatforms || (isAdmin && loadingInstances);
 
+  const wxQrStatusVariant = (
+    status: string,
+  ): "warning" | "info" | "success" | "error" | "secondary" => {
+    if (status === "waiting") return "warning";
+    if (status === "scaned") return "info";
+    if (status === "confirmed") return "success";
+    if (status === "expired") return "error";
+    return "secondary";
+  };
+
   return (
     <div>
       {/* Toast */}
       {toast && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50">
           <div
-            className={`alert text-sm font-mono shadow-lg ${toast.kind === "error" ? "alert-error" : "alert-success"}`}
+            className={`rounded-lg border px-4 py-2 text-sm font-mono shadow-lg ${
+              toast.kind === "error"
+                ? "border-destructive/50 bg-destructive/10 text-destructive-foreground"
+                : "border-success/50 bg-success/10 text-success-foreground"
+            }`}
           >
             {toast.message}
           </div>
@@ -632,37 +652,37 @@ export function ChannelsPage() {
       {/* Page header */}
       <div className="mb-8">
         <h1 className="font-serif text-3xl md:text-4xl tracking-tight mb-2">Channels</h1>
-        <p className="text-secondary text-sm max-w-lg">
+        <p className="text-muted-foreground text-sm max-w-lg">
           Link the platforms you use. The Plugins page controls which platforms appear here.
         </p>
       </div>
 
-      <section className="border-t border-base-300 pt-8">
+      <section className="border-t border-border pt-8">
         <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
           <div>
             <h2 className="text-lg font-medium">Platforms</h2>
-            <p className="text-sm text-secondary mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Link your own account here. Admins can also configure the platform default and any dedicated
               instances in the same card.
             </p>
           </div>
-          <span className="text-xs font-mono text-secondary">{linkedIdentities.length} linked</span>
+          <span className="text-xs font-mono text-muted-foreground">{linkedIdentities.length} linked</span>
         </div>
 
         {isLoading ? (
           <div className="flex justify-center py-8">
-            <span className="loading loading-spinner loading-sm"></span>
+            <Spinner className="size-4" />
           </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {publicChannels.length === 0 ? (
-              <div className="card bg-base-200 border border-dashed border-base-300 xl:col-span-2">
-                <div className="card-body text-sm text-secondary">
+              <div className="rounded-xl border border-dashed border-border bg-muted xl:col-span-2 p-6">
+                <div className="text-sm text-muted-foreground">
                   <p>No platform channels are available right now.</p>
                   {isAdmin && (
                     <p>
                       Enable one or more channel plugins on the{" "}
-                      <a href="/plugins" className="link link-primary">
+                      <a href="/plugins" className="text-primary underline underline-offset-4 hover:text-primary/80">
                         Plugins
                       </a>{" "}
                       page.
@@ -690,7 +710,7 @@ export function ChannelsPage() {
                   newChannel={newChannel}
                   creatingInstance={creatingInstance}
                   instanceStatus={instanceStatus}
-                  instanceStatusClass={instanceStatusClass}
+                  instanceStatusVariant={instanceStatusVariant}
                   onGenerateCode={generateCode}
                   onStartWeixinQR={startWeixinQR}
                   onUnlink={(id) => unlinkIdentity(id)}
@@ -725,79 +745,67 @@ export function ChannelsPage() {
 
         {/* Link code alert */}
         {linkCode && (
-          <div className="alert shadow-md mt-4">
+          <div className="rounded-lg border border-border bg-card shadow-md mt-4 p-4">
             <div>
               <p className="font-medium">
                 Send this command to Anna on {platformLabel(linkPlatform)}:
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <code className="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all">
+                <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
                   /link {linkCode}
                 </code>
-                <button onClick={copyLinkCode} className="btn btn-ghost btn-xs">
+                <Button onClick={copyLinkCode} variant="ghost" size="xs">
                   copy
-                </button>
+                </Button>
               </div>
-              <p className="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
+              <p className="text-xs text-muted-foreground mt-2">Expires in 5 minutes.</p>
             </div>
           </div>
         )}
 
         {/* Weixin QR */}
         {wxQrUrl && (
-          <div className="card bg-base-200 mt-4 border border-base-300">
-            <div className="card-body py-4 items-center">
-              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-              <span
-                className={`badge badge-sm mt-2 ${
-                  wxQrStatus === "waiting"
-                    ? "badge-warning"
-                    : wxQrStatus === "scaned"
-                      ? "badge-info"
-                      : wxQrStatus === "confirmed"
-                        ? "badge-success"
-                        : wxQrStatus === "expired"
-                          ? "badge-error"
-                          : ""
-                }`}
-              >
-                {wxQrStatus}
-              </span>
-              {wxQrStatus === "expired" && (
-                <button onClick={startWeixinQR} className="btn btn-outline btn-xs mt-1">
-                  Refresh
-                </button>
-              )}
-            </div>
+          <div className="rounded-xl border border-border bg-muted mt-4 p-6 flex flex-col items-center">
+            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+              {wxQrStatus}
+            </Badge>
+            {wxQrStatus === "expired" && (
+              <Button onClick={startWeixinQR} variant="outline" size="xs" className="mt-1">
+                Refresh
+              </Button>
+            )}
           </div>
         )}
       </section>
 
       {/* Confirm dialog */}
-      {confirmMsg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="card bg-base-100 shadow-xl w-full max-w-sm">
-            <div className="card-body">
-              <p className="text-sm">{confirmMsg}</p>
-              <div className="card-actions justify-end mt-4">
-                <button onClick={() => setConfirmMsg("")} className="btn btn-ghost btn-sm">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    confirmActionRef.current();
-                    setConfirmMsg("");
-                  }}
-                  className="btn btn-error btn-sm"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+      <Dialog open={!!confirmMsg} onOpenChange={(open) => { if (!open) setConfirmMsg(""); }}>
+        <DialogPopup showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Confirm</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <p className="text-sm">{confirmMsg}</p>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button onClick={() => setConfirmMsg("")} variant="ghost" size="sm">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                confirmActionRef.current();
+                setConfirmMsg("");
+              }}
+              variant="destructive"
+              size="sm"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }
@@ -821,7 +829,7 @@ interface PlatformCardProps {
   newChannel: Record<string, unknown>;
   creatingInstance: boolean;
   instanceStatus: (ch: NormalizedChannel) => string;
-  instanceStatusClass: (ch: NormalizedChannel) => string;
+  instanceStatusVariant: (ch: NormalizedChannel) => "success" | "secondary";
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
   onUnlink: (id: number | undefined) => void;
@@ -853,7 +861,7 @@ function PlatformCard({
   newChannel,
   creatingInstance,
   instanceStatus,
-  instanceStatusClass,
+  instanceStatusVariant,
   onGenerateCode,
   onStartWeixinQR,
   onUnlink,
@@ -868,245 +876,245 @@ function PlatformCard({
   onToggleConfigCollapse,
 }: PlatformCardProps) {
   return (
-    <div className="card bg-base-200 border border-base-300">
-      <div className="card-body gap-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-medium text-base">{channel.label}</h3>
-              <span className="badge badge-ghost badge-sm">platform</span>
-              <span className={`badge badge-sm ${linked ? "badge-success" : "badge-ghost"}`}>
-                {linked ? "linked" : "not linked"}
-              </span>
-              {isAdmin && configInstance && (
-                <span className={`badge badge-sm ${instanceStatusClass(configInstance)}`}>
-                  {instanceStatus(configInstance)}
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-secondary mt-2">{platformDescription}</p>
-          </div>
-          {channel.agent_id && (
-            <span className="badge badge-primary badge-sm">agent: {linkedAgentLabel}</span>
-          )}
-        </div>
-
-        {/* My account */}
-        <div className="space-y-2 text-sm">
-          <p className="text-xs font-mono text-secondary uppercase tracking-wider">My account</p>
-          {identity ? (
-            <div>
-              <p className="text-xs text-secondary mb-1">Linked identity</p>
-              <p className="font-mono text-sm">{identityLabel(identity)}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-secondary">No account linked yet.</p>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="card-actions justify-start">
-          {!linked && channel.type !== "weixin" && (
-            <button
-              onClick={() => onGenerateCode(channel.type)}
-              disabled={generating}
-              className="btn btn-primary btn-sm"
-            >
-              {generating && linkPlatform === channel.type && (
-                <span className="loading loading-spinner loading-xs"></span>
-              )}
-              Link {channel.label}
-            </button>
-          )}
-          {!linked && channel.type === "weixin" && (
-            <button onClick={onStartWeixinQR} disabled={wxQrPolling} className="btn btn-primary btn-sm">
-              {wxQrPolling && <span className="loading loading-spinner loading-xs"></span>}
-              Link Weixin
-            </button>
-          )}
-          {linked && (
-            <button
-              onClick={() => onUnlink(identity?.id)}
-              className="btn btn-ghost btn-sm text-error"
-            >
-              Unlink
-            </button>
-          )}
-        </div>
-
-        {/* Admin: default config */}
-        {isAdmin && configInstance && (
-          <div className="border-t border-base-300 pt-5 space-y-4">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <p className="text-xs font-mono text-secondary uppercase tracking-wider">
-                  Default channel config
-                </p>
-                <p className="text-sm text-secondary mt-1">
-                  Shared bot or app credentials for this platform's default channel.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {configInstance.agent_id && (
-                  <span className="badge badge-outline badge-sm">
-                    agent: {configInstance.agent_id as string}
-                  </span>
-                )}
-                <button
-                  onClick={() => onToggleConfigCollapse(channel.type)}
-                  className="btn btn-ghost btn-sm"
-                >
-                  {configInstance._collapsed ? "Configure" : "Collapse"}
-                </button>
-              </div>
-            </div>
-            {!configInstance._collapsed && (
-              <div className="space-y-4">
-                <InstanceFields
-                  ch={configInstance}
-                  onChange={(key, value) => onUpdateInstance(configInstance.id, { [key]: value })}
-                />
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <p className="text-xs text-secondary">
-                    This config controls the platform default. Agent selection belongs on the agent page.
-                  </p>
-                  <button onClick={() => onSaveInstance(configInstance)} className="btn btn-primary btn-sm">
-                    Save default config
-                  </button>
-                </div>
-              </div>
+    <div className="rounded-xl border border-border bg-muted flex flex-col gap-6 p-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-medium text-base">{channel.label}</h3>
+            <Badge variant="secondary" size="sm">platform</Badge>
+            <Badge size="sm" variant={linked ? "success" : "secondary"}>
+              {linked ? "linked" : "not linked"}
+            </Badge>
+            {isAdmin && configInstance && (
+              <Badge size="sm" variant={instanceStatusVariant(configInstance)}>
+                {instanceStatus(configInstance)}
+              </Badge>
             )}
           </div>
-        )}
-
-        {/* Admin: dedicated instances */}
-        {isAdmin && (
-          <div className="border-t border-base-300 pt-5 space-y-4">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <p className="text-xs font-mono text-secondary uppercase tracking-wider">
-                  Dedicated instances
-                </p>
-                <p className="text-sm text-secondary mt-1">
-                  Reusable per-platform instances with separate credentials.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono text-secondary">
-                  {dedicatedInstances.length} instances
-                </span>
-                <button onClick={onToggleNewInstanceForm} className="btn btn-primary btn-xs">
-                  Add dedicated instance
-                </button>
-              </div>
-            </div>
-
-            {/* New instance form */}
-            {showNewInstanceForm && (
-              <div className="card bg-base-100 border border-base-300">
-                <div className="card-body space-y-4">
-                  <div className="form-control w-full">
-                    <label className="label">
-                      <span className="label-text font-mono font-medium text-sm">Instance ID</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={(newChannel.id as string) || ""}
-                      onChange={(e) => onNewChannelChange("id", e.target.value)}
-                      placeholder="feishu-coder"
-                      className="input input-bordered w-full text-sm font-mono"
-                    />
-                  </div>
-                  <InstanceFields ch={newChannel} onChange={onNewChannelChange} />
-                  <div className="card-actions justify-end">
-                    <button onClick={onCancelNewInstance} className="btn btn-ghost btn-sm">
-                      Cancel
-                    </button>
-                    <button
-                      onClick={onCreateChannel}
-                      disabled={creatingInstance || !newChannel.id || !newChannel.type}
-                      className="btn btn-primary btn-sm"
-                    >
-                      {creatingInstance && <span className="loading loading-spinner loading-xs"></span>}
-                      Create instance
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Dedicated instance list */}
-            <div className="space-y-3">
-              {dedicatedInstances.map((ch) => (
-                <div key={ch.id} className="card bg-base-100 border border-base-300">
-                  <div className="card-body gap-4">
-                    <div className="flex items-start justify-between gap-4 flex-wrap">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-medium text-sm font-mono">{ch.id}</h4>
-                          <span className="badge badge-ghost badge-sm">dedicated</span>
-                          <span className={`badge badge-sm ${instanceStatusClass(ch)}`}>
-                            {instanceStatus(ch)}
-                          </span>
-                          {ch.agent_id && (
-                            <span className="badge badge-outline badge-sm">
-                              agent: {ch.agent_id as string}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-secondary mt-2">
-                          Dedicated instance. Configure it here, then attach it from the agent page.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onToggleInstanceCollapse(ch.id, !ch._collapsed)}
-                          className="btn btn-ghost btn-sm"
-                        >
-                          {ch._collapsed ? "Configure" : "Collapse"}
-                        </button>
-                        <button
-                          onClick={() => onDeleteInstance(ch.id)}
-                          className="btn btn-ghost btn-sm text-error"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    {!ch._collapsed && (
-                      <div className="space-y-4">
-                        <InstanceFields
-                          ch={ch}
-                          onChange={(key, value) => onUpdateInstance(ch.id, { [key]: value })}
-                        />
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <p className="text-xs text-secondary">
-                            This page stores the instance config only. Agent selection belongs on the agent
-                            page.
-                          </p>
-                          <button onClick={() => onSaveInstance(ch)} className="btn btn-primary btn-sm">
-                            Save config
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {dedicatedInstances.length === 0 && !showNewInstanceForm && (
-                <div className="rounded-lg border border-dashed border-base-300 px-4 py-5 text-sm text-secondary">
-                  <p>No dedicated instances yet.</p>
-                  <p className="mt-1">
-                    Create one when you need separate credentials for a specific workflow or agent.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+          <p className="text-sm text-muted-foreground mt-2">{platformDescription}</p>
+        </div>
+        {channel.agent_id && (
+          <Badge variant="default" size="sm">agent: {linkedAgentLabel}</Badge>
         )}
       </div>
+
+      {/* My account */}
+      <div className="space-y-2 text-sm">
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">My account</p>
+        {identity ? (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Linked identity</p>
+            <p className="font-mono text-sm">{identityLabel(identity)}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No account linked yet.</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        {!linked && channel.type !== "weixin" && (
+          <Button
+            onClick={() => onGenerateCode(channel.type)}
+            disabled={generating}
+            loading={generating && linkPlatform === channel.type}
+            size="sm"
+          >
+            Link {channel.label}
+          </Button>
+        )}
+        {!linked && channel.type === "weixin" && (
+          <Button
+            onClick={onStartWeixinQR}
+            loading={wxQrPolling}
+            size="sm"
+          >
+            Link Weixin
+          </Button>
+        )}
+        {linked && (
+          <Button
+            onClick={() => onUnlink(identity?.id)}
+            variant="ghost"
+            size="sm"
+            className="text-destructive-foreground"
+          >
+            Unlink
+          </Button>
+        )}
+      </div>
+
+      {/* Admin: default config */}
+      {isAdmin && configInstance && (
+        <div className="border-t border-border pt-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                Default channel config
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Shared bot or app credentials for this platform's default channel.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {configInstance.agent_id && (
+                <Badge variant="outline" size="sm">
+                  agent: {configInstance.agent_id as string}
+                </Badge>
+              )}
+              <Button
+                onClick={() => onToggleConfigCollapse(channel.type)}
+                variant="ghost"
+                size="sm"
+              >
+                {configInstance._collapsed ? "Configure" : "Collapse"}
+              </Button>
+            </div>
+          </div>
+          {!configInstance._collapsed && (
+            <div className="space-y-4">
+              <InstanceFields
+                ch={configInstance}
+                onChange={(key, value) => onUpdateInstance(configInstance.id, { [key]: value })}
+              />
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  This config controls the platform default. Agent selection belongs on the agent page.
+                </p>
+                <Button onClick={() => onSaveInstance(configInstance)} size="sm">
+                  Save default config
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Admin: dedicated instances */}
+      {isAdmin && (
+        <div className="border-t border-border pt-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                Dedicated instances
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Reusable per-platform instances with separate credentials.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-mono text-muted-foreground">
+                {dedicatedInstances.length} instances
+              </span>
+              <Button onClick={onToggleNewInstanceForm} size="xs">
+                Add dedicated instance
+              </Button>
+            </div>
+          </div>
+
+          {/* New instance form */}
+          {showNewInstanceForm && (
+            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+              <div className="w-full space-y-1.5">
+                <label className="text-sm font-medium font-mono">Instance ID</label>
+                <Input
+                  nativeInput
+                  type="text"
+                  value={(newChannel.id as string) || ""}
+                  onChange={(e) => onNewChannelChange("id", e.target.value)}
+                  placeholder="feishu-coder"
+                  className="w-full text-sm font-mono"
+                />
+              </div>
+              <InstanceFields ch={newChannel} onChange={onNewChannelChange} />
+              <div className="flex justify-end gap-2">
+                <Button onClick={onCancelNewInstance} variant="ghost" size="sm">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={onCreateChannel}
+                  disabled={creatingInstance || !newChannel.id || !newChannel.type}
+                  loading={creatingInstance}
+                  size="sm"
+                >
+                  Create instance
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Dedicated instance list */}
+          <div className="space-y-3">
+            {dedicatedInstances.map((ch) => (
+              <div key={ch.id} className="rounded-xl border border-border bg-card flex flex-col gap-4 p-6">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-medium text-sm font-mono">{ch.id}</h4>
+                      <Badge variant="secondary" size="sm">dedicated</Badge>
+                      <Badge size="sm" variant={instanceStatusVariant(ch)}>
+                        {instanceStatus(ch)}
+                      </Badge>
+                      {ch.agent_id && (
+                        <Badge variant="outline" size="sm">
+                          agent: {ch.agent_id as string}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Dedicated instance. Configure it here, then attach it from the agent page.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => onToggleInstanceCollapse(ch.id, !ch._collapsed)}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      {ch._collapsed ? "Configure" : "Collapse"}
+                    </Button>
+                    <Button
+                      onClick={() => onDeleteInstance(ch.id)}
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive-foreground"
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+                {!ch._collapsed && (
+                  <div className="space-y-4">
+                    <InstanceFields
+                      ch={ch}
+                      onChange={(key, value) => onUpdateInstance(ch.id, { [key]: value })}
+                    />
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-muted-foreground">
+                        This page stores the instance config only. Agent selection belongs on the agent
+                        page.
+                      </p>
+                      <Button onClick={() => onSaveInstance(ch)} size="sm">
+                        Save config
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {dedicatedInstances.length === 0 && !showNewInstanceForm && (
+              <div className="rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+                <p>No dedicated instances yet.</p>
+                <p className="mt-1">
+                  Create one when you need separate credentials for a specific workflow or agent.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

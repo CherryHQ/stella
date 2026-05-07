@@ -9,9 +9,13 @@ function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
   return (
     <div
-      className={`alert ${toast.type === "error" ? "alert-error" : "alert-success"} fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg`}
+      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-lg border px-4 py-3 text-sm shadow-md ${
+        toast.type === "error"
+          ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
+          : "border-success/36 bg-success/8 text-success-foreground"
+      }`}
     >
-      <span>{toast.message}</span>
+      {toast.message}
     </div>
   );
 }
@@ -63,18 +67,15 @@ export function AccountPage() {
     <div className="py-6">
       <div className="mb-6">
         <h1 className="font-serif text-3xl tracking-tight">Account</h1>
-        <p className="text-secondary text-sm mt-1">Manage your account settings.</p>
+        <p className="text-muted-foreground text-sm mt-1">Manage your account settings.</p>
       </div>
 
       <div className="mb-10">
         <h2 className="font-serif text-xl mb-4">Change Password</h2>
-        <div className="card bg-base-200">
-          <div className="card-body">
+        <div className="rounded-xl border border-border bg-card p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="label mb-1">
-                  <span className="label-text text-sm font-medium">Current Password</span>
-                </label>
+                <label className="mb-1.5 block text-sm font-medium">Current Password</label>
                 <Input
                   type="password"
                   value={currentPassword}
@@ -85,9 +86,7 @@ export function AccountPage() {
                 />
               </div>
               <div>
-                <label className="label mb-1">
-                  <span className="label-text text-sm font-medium">New Password</span>
-                </label>
+                <label className="mb-1.5 block text-sm font-medium">New Password</label>
                 <Input
                   type="password"
                   value={newPassword}
@@ -99,9 +98,7 @@ export function AccountPage() {
                 />
               </div>
               <div>
-                <label className="label mb-1">
-                  <span className="label-text text-sm font-medium">Confirm New Password</span>
-                </label>
+                <label className="mb-1.5 block text-sm font-medium">Confirm New Password</label>
                 <Input
                   type="password"
                   value={confirmPassword}
@@ -117,7 +114,6 @@ export function AccountPage() {
                 Change Password
               </Button>
             </div>
-          </div>
         </div>
       </div>
 

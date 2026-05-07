@@ -2,6 +2,10 @@ import { useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { SkillSearchResult } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 
 interface Props {
   state: AgentsPageState;
@@ -35,7 +39,8 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
       showToast((e as Error).message, "error");
       setSearchResults([]);
     } finally {
-      setSearching(false); }
+      setSearching(false);
+    }
   };
 
   const handleInstall = async (source: string) => {
@@ -60,134 +65,132 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
   };
 
   return (
-    <div className="modal modal-open">
-      <div className="modal-box w-11/12 max-w-5xl p-0 overflow-hidden">
-        <div className="border-b border-base-300 px-6 py-5 flex items-start justify-between gap-4">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogPopup className="max-w-5xl" showCloseButton={false}>
+        <div className="border-b border-border px-6 py-5 flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h3 className="font-bold text-xl">Add a skill</h3>
-            <p className="text-sm text-base-content/60">Install from the catalog or upload your own skill bundle.</p>
+            <DialogTitle>Add a skill</DialogTitle>
+            <DialogDescription>Install from the catalog or upload your own skill bundle.</DialogDescription>
           </div>
-          <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle shrink-0">✕</button>
+          <Button onClick={onClose} variant="ghost" size="icon-sm">✕</Button>
         </div>
-        <div className="px-6 py-4 border-b border-base-300 space-y-2 bg-base-200/30">
-          <label className="text-xs font-medium text-secondary block uppercase tracking-wide">Install target</label>
+        <div className="px-6 py-4 border-b border-border space-y-2 bg-muted/30">
+          <label className="text-xs font-medium text-muted-foreground block uppercase tracking-wide">Install target</label>
           <div className="flex items-center gap-2 flex-wrap">
             {canInstallAgentSkills && (
-              <button
+              <Button
                 onClick={() => onSetScope("agent")}
-                type="button"
-                className={`btn btn-sm ${skillInstallScope === "agent" ? "btn-primary" : "btn-ghost"}`}
+                variant={skillInstallScope === "agent" ? "default" : "ghost"}
+                size="sm"
               >
                 Only this agent
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={() => onSetScope("user")}
-              type="button"
-              className={`btn btn-sm ${skillInstallScope === "user" ? "btn-primary" : "btn-ghost"}`}
+              variant={skillInstallScope === "user" ? "default" : "ghost"}
+              size="sm"
             >
               My profile
-            </button>
+            </Button>
           </div>
           {!canInstallAgentSkills && (
-            <p className="text-xs text-base-content/50">
+            <p className="text-xs text-muted-foreground">
               Agent-only install is available after the agent is saved, and only for admins.
             </p>
           )}
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-0">
-          <section className="p-6 min-w-0 xl:border-r border-base-300 space-y-4">
+          <section className="p-6 min-w-0 xl:border-r border-border space-y-4">
             <div className="space-y-1">
               <h4 className="font-medium text-base">Browse catalog</h4>
-              <p className="text-sm text-base-content/60">Search public skills and install in one click.</p>
+              <p className="text-sm text-muted-foreground">Search public skills and install in one click.</p>
             </div>
-            <input
+            <Input
+              nativeInput
               value={searchQuery}
               onChange={(e) => {
-                const q = e.target.value;
+                const q = (e.target as HTMLInputElement).value;
                 setSearchQuery(q);
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
                 searchTimerRef.current = setTimeout(() => doSearch(q), 300);
               }}
               type="text"
               placeholder="Search skills..."
-              className="input input-bordered w-full"
               autoFocus
             />
             {searching && (
-              <div className="py-10 text-center">
-                <span className="loading loading-spinner loading-md"></span>
+              <div className="py-10 text-center flex justify-center">
+                <Spinner className="size-6" />
               </div>
             )}
             {!searching && searchResults.length > 0 && (
               <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
                 {searchResults.map((s) => (
-                  <div key={s.id} className="rounded-box border border-base-300 bg-base-100 px-4 py-4 space-y-3">
+                  <div key={s.id} className="rounded-xl border border-border bg-background px-4 py-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-mono text-sm font-medium truncate">{s.name || s.skillId}</p>
-                          <span className="badge badge-ghost badge-xs">{s.installs} installs</span>
+                          <span className="text-xs text-muted-foreground">{s.installs} installs</span>
                         </div>
-                        <p className="text-xs text-base-content/50 font-mono truncate mt-1">
+                        <p className="text-xs text-muted-foreground font-mono truncate mt-1">
                           {s.source}@{s.skillId}
                         </p>
                       </div>
-                      <button
+                      <Button
                         onClick={() => handleInstall(`${s.source}@${s.skillId}`)}
                         disabled={installing}
-                        type="button"
-                        className="btn btn-primary btn-sm shrink-0"
+                        loading={installing && installSource === `${s.source}@${s.skillId}`}
+                        size="sm"
                       >
-                        {installing && installSource === `${s.source}@${s.skillId}` && (
-                          <span className="loading loading-spinner loading-xs"></span>
-                        )}
                         Install
-                      </button>
+                      </Button>
                     </div>
-                    {s.description && <p className="text-sm text-base-content/70">{s.description}</p>}
+                    {s.description && <p className="text-sm text-muted-foreground">{s.description}</p>}
                   </div>
                 ))}
               </div>
             )}
             {!searching && searchResults.length === 0 && searchQuery && (
-              <div className="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 No skills found for that search.
               </div>
             )}
             {!searching && !searchQuery && (
-              <div className="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 Start typing to search the catalog.
               </div>
             )}
             <div className="space-y-1">
               <h4 className="font-medium text-sm">Or install from source</h4>
               <div className="flex gap-2">
-                <input
+                <Input
+                  nativeInput
                   value={installSource}
-                  onChange={(e) => setInstallSource(e.target.value)}
+                  onChange={(e) => setInstallSource((e.target as HTMLInputElement).value)}
                   type="text"
                   placeholder="source@skill-id"
-                  className="input input-bordered input-sm flex-1 font-mono"
+                  size="sm"
+                  className="flex-1 font-mono"
                 />
-                <button
+                <Button
                   onClick={() => handleInstall(installSource)}
                   disabled={installing || !installSource}
-                  type="button"
-                  className="btn btn-primary btn-sm"
+                  loading={installing}
+                  size="sm"
                 >
-                  {installing && <span className="loading loading-spinner loading-xs"></span>}
                   Install
-                </button>
+                </Button>
               </div>
             </div>
           </section>
-          <section className="p-6 space-y-4 bg-base-200/20">
+          <section className="p-6 space-y-4 bg-muted/20">
             <div className="space-y-1">
               <h4 className="font-medium text-base">Upload zip</h4>
-              <p className="text-sm text-base-content/60">Import a skill you already have on disk.</p>
+              <p className="text-sm text-muted-foreground">Import a skill you already have on disk.</p>
             </div>
-            <label className="block rounded-box border-2 border-dashed border-base-300 bg-base-100 px-5 py-8 text-center cursor-pointer hover:border-primary transition-colors">
+            <label className="block rounded-xl border-2 border-dashed border-border bg-background px-5 py-8 text-center cursor-pointer hover:border-primary transition-colors">
               <input
                 onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                 type="file"
@@ -196,30 +199,28 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
               />
               <div className="space-y-2">
                 <div className="text-sm font-medium">{uploadFile ? uploadFile.name : "Choose a .zip file"}</div>
-                <p className="text-xs text-base-content/60">
+                <p className="text-xs text-muted-foreground">
                   Must contain exactly one skill folder with <span className="font-mono">SKILL.md</span>.
                 </p>
-                <span className="btn btn-ghost btn-sm">Browse files</span>
+                <Button variant="ghost" size="sm">Browse files</Button>
               </div>
             </label>
-            <ul className="text-xs text-base-content/60 space-y-1 list-disc pl-4">
+            <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
               <li><span className="font-mono">.zip</span> only</li>
               <li>Single skill folder</li>
               <li><span className="font-mono">SKILL.md</span> required</li>
             </ul>
-            <button
+            <Button
               onClick={handleUpload}
               disabled={uploading || !uploadFile}
-              type="button"
-              className="btn btn-primary w-full"
+              loading={uploading}
+              className="w-full"
             >
-              {uploading && <span className="loading loading-spinner loading-xs"></span>}
               Upload skill
-            </button>
+            </Button>
           </section>
         </div>
-      </div>
-      <div className="modal-backdrop" onClick={onClose}></div>
-    </div>
+      </DialogPopup>
+    </Dialog>
   );
 }

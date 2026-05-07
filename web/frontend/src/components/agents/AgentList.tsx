@@ -1,5 +1,7 @@
 import type { AgentDetail } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface Props {
   state: AgentsPageState;
@@ -17,17 +19,17 @@ export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDel
 
   return (
     <aside
-      className={`lg:border-r border-base-300 px-3 py-4 lg:min-h-screen ${showForm ? "hidden lg:block" : "block"}`}
+      className={`lg:border-r border-border px-3 py-4 lg:min-h-screen ${showForm ? "hidden lg:block" : "block"}`}
     >
       <div className="flex items-center justify-between mb-3 px-1">
-        <span className="text-xs font-mono text-secondary">{agents.length} agents</span>
-        <button onClick={onStartCreate} className="btn btn-ghost btn-xs text-primary font-medium">
+        <span className="text-xs font-mono text-muted-foreground">{agents.length} agents</span>
+        <Button onClick={onStartCreate} variant="ghost" size="xs" className="text-primary font-medium">
           + New
-        </button>
+        </Button>
       </div>
       {agents.length === 0 && (
         <div className="py-8 text-center">
-          <p className="text-sm text-base-content/50">No agents configured yet.</p>
+          <p className="text-sm text-muted-foreground">No agents configured yet.</p>
         </div>
       )}
       <div className="space-y-0.5">
@@ -38,35 +40,35 @@ export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDel
             className={`group rounded-lg px-3 py-2.5 cursor-pointer transition-colors border ${
               editingId === a.id
                 ? "border-primary/50 bg-primary/5"
-                : "border-transparent hover:bg-base-200"
+                : "border-transparent hover:bg-muted"
             }`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-medium text-sm truncate">{a.name}</span>
-                  <span
-                    className={`badge badge-xs shrink-0 ${a.enabled ? "badge-success" : "badge-ghost"}`}
-                  >
+                  <Badge variant={a.enabled ? "success" : "outline"} size="sm">
                     {a.enabled ? "on" : "off"}
-                  </span>
+                  </Badge>
                   {a.scope === "restricted" && (
-                    <span className="badge badge-xs badge-warning shrink-0">restricted</span>
+                    <Badge variant="warning" size="sm">restricted</Badge>
                   )}
                 </div>
-                <div className="text-xs font-mono text-secondary mt-0.5 truncate">{a.model || "—"}</div>
+                <div className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{a.model || "—"}</div>
               </div>
               {canEditAgent(a) && (
-                <button
+                <Button
                   onClick={(e) => {
                     e.stopPropagation();
                     onConfirmDelete(`Delete ${a.name}?`, () => onDeleteAgent(a.id));
                   }}
-                  className="btn btn-ghost btn-xs text-error shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Delete agent"
                 >
                   ✕
-                </button>
+                </Button>
               )}
             </div>
           </div>

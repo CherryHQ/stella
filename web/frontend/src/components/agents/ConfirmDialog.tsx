@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogPopup, DialogTitle, DialogFooter, DialogHeader, DialogDescription } from "@/components/ui/dialog";
+
 interface Props {
   message: string;
   onConfirm: () => void;
@@ -6,16 +9,17 @@ interface Props {
 
 export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="card bg-base-100 shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="card-body">
-          <p className="text-sm">{message}</p>
-          <div className="card-actions justify-end mt-4">
-            <button onClick={onCancel} className="btn btn-ghost btn-sm">Cancel</button>
-            <button onClick={onConfirm} className="btn btn-error btn-sm">Delete</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+      <DialogPopup showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Confirm</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button variant="destructive" size="sm" onClick={onConfirm}>Delete</Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   );
 }

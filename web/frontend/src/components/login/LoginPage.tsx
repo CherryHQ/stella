@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
@@ -70,120 +72,101 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-100">
-      <div className="card bg-base-200 shadow-xl w-full max-w-sm">
-        <div className="card-body">
-          {/* Logo */}
-          <div className="text-center mb-4">
-            <span className="font-serif italic text-primary text-3xl tracking-tight select-none">anna</span>
-            <p className="text-secondary text-sm mt-1">Admin Panel</p>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-sm p-8">
+        <div className="text-center mb-6">
+          <span className="font-serif italic text-primary text-3xl tracking-tight select-none">anna</span>
+          <p className="text-muted-foreground text-sm mt-1">Admin Panel</p>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-sm text-destructive-foreground">
+            {error}
           </div>
-          {/* Error message */}
-          {error && (
-            <div className="alert alert-error text-sm mb-4">
-              <span>{error}</span>
+        )}
+
+        {!isRegister && (
+          <form onSubmit={login} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium font-mono">Username</label>
+              <Input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="username"
+                required
+                autoComplete="username"
+                nativeInput
+              />
             </div>
-          )}
-          {/* Login form */}
-          {!isRegister && (
-            <form onSubmit={login}>
-              <div className="form-control w-full mb-3">
-                <label className="label">
-                  <span className="label-text font-mono font-medium text-sm">Username</span>
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="username"
-                  className="input input-bordered w-full text-sm"
-                  required
-                  autoComplete="username"
-                />
-              </div>
-              <div className="form-control w-full mb-5">
-                <label className="label">
-                  <span className="label-text font-mono font-medium text-sm">Password</span>
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="password"
-                  className="input input-bordered w-full text-sm"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-              <button type="submit" disabled={loading} className="btn btn-primary w-full">
-                {loading && <span className="loading loading-spinner loading-xs"></span>}
-                {loading ? "Signing in..." : "Sign in"}
-              </button>
-            </form>
-          )}
-          {/* Register form */}
-          {isRegister && (
-            <form onSubmit={register}>
-              <div className="form-control w-full mb-3">
-                <label className="label">
-                  <span className="label-text font-mono font-medium text-sm">Username</span>
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="username"
-                  className="input input-bordered w-full text-sm"
-                  required
-                  autoComplete="username"
-                />
-              </div>
-              <div className="form-control w-full mb-3">
-                <label className="label">
-                  <span className="label-text font-mono font-medium text-sm">Password</span>
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="min 8 characters"
-                  className="input input-bordered w-full text-sm"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                />
-              </div>
-              <div className="form-control w-full mb-5">
-                <label className="label">
-                  <span className="label-text font-mono font-medium text-sm">Confirm Password</span>
-                </label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="confirm password"
-                  className="input input-bordered w-full text-sm"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                />
-              </div>
-              <button type="submit" disabled={loading} className="btn btn-primary w-full">
-                {loading && <span className="loading loading-spinner loading-xs"></span>}
-                {loading ? "Creating account..." : "Create account"}
-              </button>
-            </form>
-          )}
-          {/* Toggle */}
-          <div className="text-center mt-4">
-            <button
-              type="button"
-              onClick={toggleMode}
-              className="btn btn-ghost btn-sm text-secondary"
-            >
-              {isRegister ? "Already have an account? Sign in" : "Need an account? Register"}
-            </button>
-          </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium font-mono">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="password"
+                required
+                autoComplete="current-password"
+                nativeInput
+              />
+            </div>
+            <Button type="submit" loading={loading} className="w-full">
+              {loading ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+        )}
+
+        {isRegister && (
+          <form onSubmit={register} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium font-mono">Username</label>
+              <Input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="username"
+                required
+                autoComplete="username"
+                nativeInput
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium font-mono">Password</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="min 8 characters"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                nativeInput
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium font-mono">Confirm Password</label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="confirm password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                nativeInput
+              />
+            </div>
+            <Button type="submit" loading={loading} className="w-full">
+              {loading ? "Creating account…" : "Create account"}
+            </Button>
+          </form>
+        )}
+
+        <div className="text-center mt-4">
+          <Button type="button" variant="ghost" size="sm" onClick={toggleMode}>
+            {isRegister ? "Already have an account? Sign in" : "Need an account? Register"}
+          </Button>
         </div>
       </div>
     </div>

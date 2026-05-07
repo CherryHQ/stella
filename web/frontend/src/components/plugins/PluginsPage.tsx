@@ -23,6 +23,10 @@ import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
 import { ManifestInstallEditor } from "./ManifestInstallEditor";
 import { McpTab } from "./McpTab";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 
 type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
 
@@ -423,13 +427,13 @@ export function PluginsPage() {
       {/* Page header */}
       <div className="mb-6">
         <h1 className="font-serif text-2xl tracking-tight">Plugins</h1>
-        <p className="text-sm text-secondary mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Manage built-in tools, hooks, channels, memory backends, and standalone services.
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-base-300 mb-6 overflow-x-auto">
+      <div className="flex gap-4 border-b border-border mb-6 overflow-x-auto">
         {tabs.filter((t) => t.show).map((t) => (
           <button
             key={t.id}
@@ -437,11 +441,11 @@ export function PluginsPage() {
             className={`pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
               tab === t.id
                 ? "border-primary text-primary"
-                : "border-transparent text-secondary hover:text-base-content"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {t.label}
-            <span className="text-xs text-secondary ml-1">({t.count})</span>
+            <span className="text-xs text-muted-foreground ml-1">({t.count})</span>
           </button>
         ))}
       </div>
@@ -452,8 +456,10 @@ export function PluginsPage() {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`alert shadow-lg max-w-sm text-sm ${
-                toast.type === "error" ? "alert-error" : "alert-success"
+              className={`rounded-lg border px-4 py-3 shadow-lg max-w-sm text-sm ${
+                toast.type === "error"
+                  ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
+                  : "border-success/40 bg-success/10 text-success-foreground"
               }`}
             >
               <span>{toast.message}</span>
@@ -466,30 +472,31 @@ export function PluginsPage() {
       {tab === "tools" && (
         <div>
           <div className="flex items-center justify-between gap-3 mb-4">
-            <p className="text-xs text-secondary">
+            <p className="text-xs text-muted-foreground">
               CLI tools and tool plugins. Manifest-backed tools are installed and synced
               automatically.
             </p>
-            <button
+            <Button
               onClick={() => setShowAddManifestTool(!showAddManifestTool)}
-              className="btn btn-primary btn-sm"
+              variant="default"
+              size="sm"
             >
               {showAddManifestTool ? "Cancel" : "Add Tool"}
-            </button>
+            </Button>
           </div>
 
           {showAddManifestTool && (
-            <div className="rounded-xl border border-base-300 bg-base-100 p-4 mb-4 space-y-4">
+            <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium">Add Tool</p>
-                  <p className="text-xs text-secondary mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     Declare a GitHub release binary. Anna writes it to{" "}
                     <code className="font-mono">$ANNA_HOME/plugins.yaml</code> and syncs
                     automatically.
                   </p>
                 </div>
-                <button
+                <Button
                   onClick={() =>
                     setNewManifestTool({
                       id: "tool/",
@@ -503,126 +510,143 @@ export function PluginsPage() {
                       exe: "",
                     })
                   }
-                  className="btn btn-ghost btn-xs"
+                  variant="ghost"
+                  size="xs"
                 >
                   Reset
-                </button>
+                </Button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Binary name</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Binary name</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.binary_name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, binary_name: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, binary_name: (e.target as HTMLInputElement).value }))
                     }
                     onBlur={fillNewManifestToolDefaults}
                     type="text"
                     placeholder="my-cli"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">GitHub repo</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.repo}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, repo: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, repo: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="owner/repo"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Plugin ID</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Plugin ID</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.id}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, id: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, id: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="tool/my-cli"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Name</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Name</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, name: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, name: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="my-cli"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Display name</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Display name</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.display_name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, display_name: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, display_name: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="My CLI"
-                    className="input input-bordered input-sm w-full"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Version</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Version</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.version}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, version: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, version: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="latest or v1.2.3"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Bin path</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Bin path</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.bin_path}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, bin_path: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, bin_path: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="bin"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-secondary">Exe override</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Exe override</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.exe}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, exe: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, exe: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="archive binary name"
-                    className="input input-bordered input-sm w-full font-mono"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
                 <div className="space-y-1 md:col-span-2 xl:col-span-4">
-                  <label className="text-xs font-medium text-secondary">Description</label>
-                  <input
+                  <label className="text-xs font-medium text-muted-foreground">Description</label>
+                  <Input
+                    nativeInput
                     value={newManifestTool.description}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, description: e.target.value }))
+                      setNewManifestTool((prev) => ({ ...prev, description: (e.target as HTMLInputElement).value }))
                     }
                     type="text"
                     placeholder="What this CLI does"
-                    className="input input-bordered input-sm w-full"
+                    size="sm"
                   />
                 </div>
               </div>
               <div className="flex justify-end">
-                <button onClick={createManifestTool} className="btn btn-primary btn-sm">
+                <Button onClick={createManifestTool} variant="default" size="sm">
                   Save and sync
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -676,9 +700,9 @@ export function PluginsPage() {
       {/* Channels Tab */}
       {tab === "channels" && (
         <div>
-          <p className="text-xs text-secondary mb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Enable platform types here. Configure bot instances on the{" "}
-            <a href="/channels" className="link link-primary">
+            <a href="/channels" className="text-primary underline underline-offset-4">
               Channels
             </a>{" "}
             page.
@@ -748,34 +772,32 @@ export function PluginsPage() {
       {/* Memory Tab */}
       {tab === "memory" && (
         <div>
-          <p className="text-xs text-secondary mb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Only one memory plugin can be active at a time. Changing requires restart.
           </p>
-          <div className="border border-base-300 rounded-lg divide-y divide-base-300">
+          <div className="border border-border rounded-lg divide-y divide-border">
             {memoryPlugins.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                    <span className="font-mono text-[11px] text-secondary">{p.id}</span>
-                    {p.enabled && <span className="badge badge-success badge-xs">on</span>}
+                    <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
+                    {p.enabled && <Badge variant="success" size="sm">on</Badge>}
                   </div>
                   {pluginDescription(p) && (
-                    <p className="text-xs text-secondary mt-1 leading-relaxed">
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                       {pluginDescription(p)}
                     </p>
                   )}
                 </div>
-                <input
-                  type="checkbox"
+                <Switch
                   checked={p.enabled}
-                  onChange={(e) => void togglePlugin(p.id, e.target.checked)}
-                  className="toggle toggle-primary toggle-sm"
+                  onCheckedChange={(checked) => void togglePlugin(p.id, checked)}
                 />
               </div>
             ))}
             {memoryPlugins.length === 0 && (
-              <div className="px-4 py-8 text-center text-secondary text-sm">
+              <div className="px-4 py-8 text-center text-muted-foreground text-sm">
                 No memory plugins registered.
               </div>
             )}
@@ -786,48 +808,46 @@ export function PluginsPage() {
       {/* Sandbox Tab */}
       {tab === "sandbox" && (
         <div>
-          <p className="text-xs text-secondary mb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Select which sandbox backend agents use. Only one can be active at a time.
           </p>
-          <div className="border border-base-300 rounded-lg divide-y divide-base-300">
+          <div className="border border-border rounded-lg divide-y divide-border">
             {sandboxPlugins.map((p) => {
               const meta = sandboxMeta(p.id);
               return (
-                <div key={p.id} className={`px-4 py-4${p.enabled ? " bg-base-200/50" : ""}`}>
+                <div key={p.id} className={`px-4 py-4${p.enabled ? " bg-muted/50" : ""}`}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                        {p.enabled && <span className="badge badge-success badge-xs">active</span>}
+                        {p.enabled && <Badge variant="success" size="sm">active</Badge>}
                         {meta.recommended && (
-                          <span className="badge badge-primary badge-xs">recommended</span>
+                          <Badge variant="default" size="sm">recommended</Badge>
                         )}
                         {meta.isDefault && (
-                          <span className="badge badge-neutral badge-xs">default</span>
+                          <Badge variant="secondary" size="sm">default</Badge>
                         )}
                       </div>
                       {pluginDescription(p) && (
-                        <p className="text-xs text-secondary mt-1 leading-relaxed">
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                           {pluginDescription(p)}
                         </p>
                       )}
                     </div>
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={p.enabled}
-                      onChange={(e) => void toggleSandboxPlugin(p.id, e.target.checked)}
-                      className="toggle toggle-primary toggle-sm"
+                      onCheckedChange={(checked) => void toggleSandboxPlugin(p.id, checked)}
                     />
                   </div>
                   {(meta.features.length > 0 || meta.limitations.length > 0) && (
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-6">
                       {meta.features.length > 0 && (
                         <div className="flex-1">
-                          <p className="text-[11px] font-medium text-success mb-1">Features</p>
-                          <ul className="text-[11px] text-secondary space-y-0.5">
+                          <p className="text-[11px] font-medium text-success-foreground mb-1">Features</p>
+                          <ul className="text-[11px] text-muted-foreground space-y-0.5">
                             {meta.features.map((f) => (
                               <li key={f} className="flex items-start gap-1">
-                                <span className="text-success shrink-0">✓</span>
+                                <span className="text-success-foreground shrink-0">✓</span>
                                 <span>{f}</span>
                               </li>
                             ))}
@@ -836,11 +856,11 @@ export function PluginsPage() {
                       )}
                       {meta.limitations.length > 0 && (
                         <div className="flex-1">
-                          <p className="text-[11px] font-medium text-warning mb-1">Limitations</p>
-                          <ul className="text-[11px] text-secondary space-y-0.5">
+                          <p className="text-[11px] font-medium text-warning-foreground mb-1">Limitations</p>
+                          <ul className="text-[11px] text-muted-foreground space-y-0.5">
                             {meta.limitations.map((l) => (
                               <li key={l} className="flex items-start gap-1">
-                                <span className="text-warning shrink-0">⚠</span>
+                                <span className="text-warning-foreground shrink-0">⚠</span>
                                 <span>{l}</span>
                               </li>
                             ))}
@@ -853,7 +873,7 @@ export function PluginsPage() {
               );
             })}
             {sandboxPlugins.length === 0 && (
-              <div className="px-4 py-8 text-center text-secondary text-sm">
+              <div className="px-4 py-8 text-center text-muted-foreground text-sm">
                 No sandbox plugins registered.
               </div>
             )}
@@ -864,7 +884,7 @@ export function PluginsPage() {
       {/* Standalone Tab */}
       {tab === "standalone" && (
         <div>
-          <p className="text-xs text-secondary mb-4">
+          <p className="text-xs text-muted-foreground mb-4">
             Background services that run independently. Toggling takes effect immediately.
           </p>
           <PluginList
@@ -945,7 +965,7 @@ function PluginList({
   showManifestEditor = false,
 }: PluginListProps) {
   return (
-    <div className="border border-base-300 rounded-lg divide-y divide-base-300">
+    <div className="border border-border rounded-lg divide-y divide-border">
       {plugins.map((p) => {
         const hasConfig = hasGenericConfigEditor(p, schemas);
         const isConfigOpen = !!pluginConfigOpen[p.id];
@@ -958,47 +978,47 @@ function PluginList({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                  <span className="font-mono text-[11px] text-secondary">{p.id}</span>
-                  {p.enabled && <span className="badge badge-success badge-xs">on</span>}
+                  <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
+                  {p.enabled && <Badge variant="success" size="sm">on</Badge>}
                   {badges.map((badge) => (
-                    <span key={badge.key} className={`badge badge-xs ${badge.className}`}>
+                    <Badge key={badge.key} variant={badge.variant as "default" | "outline" | "secondary" | "info"} size="sm">
                       {badge.label}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
                 {pluginDescription(p) && (
-                  <p className="text-xs text-secondary mt-1 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {pluginDescription(p)}
                   </p>
                 )}
                 {p._manifest && (
-                  <p className="text-[11px] text-secondary mt-1 font-mono">
+                  <p className="text-[11px] text-muted-foreground mt-1 font-mono">
                     {manifestInstallSummary(p)}
                   </p>
                 )}
               </div>
               <div className="flex items-center gap-2">
                 {hasConfig && (
-                  <button
+                  <Button
                     onClick={() => onToggleConfigEditor(p)}
-                    className="btn btn-ghost btn-xs"
+                    variant="ghost"
+                    size="xs"
                   >
                     {isConfigOpen ? "Hide config" : "Configure"}
-                  </button>
+                  </Button>
                 )}
                 {showManifestEditor && p._manifest && (
-                  <button
+                  <Button
                     onClick={() => onToggleManifestEditor(p)}
-                    className="btn btn-ghost btn-xs"
+                    variant="ghost"
+                    size="xs"
                   >
                     {isManifestOpen ? "Hide definition" : "Edit definition"}
-                  </button>
+                  </Button>
                 )}
-                <input
-                  type="checkbox"
+                <Switch
                   checked={p.enabled}
-                  onChange={(e) => onToggle(p, e.target.checked)}
-                  className="toggle toggle-primary toggle-sm"
+                  onCheckedChange={(checked) => onToggle(p, checked)}
                 />
               </div>
             </div>
@@ -1028,7 +1048,7 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="px-4 py-8 text-center text-secondary text-sm">{emptyMessage}</div>
+        <div className="px-4 py-8 text-center text-muted-foreground text-sm">{emptyMessage}</div>
       )}
     </div>
   );
