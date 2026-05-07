@@ -156,6 +156,8 @@ paths:
     $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}'
   /api/sessions/{sessionID}/messages:
     $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages'
+  /api/sessions/{sessionID}/workspace:
+    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace'
   /api/sessions/{sessionID}/system-prompt:
     $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt'
   # ── Users ──────────────────────────────────────────────────────────────────

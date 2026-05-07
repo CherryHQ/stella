@@ -2,6 +2,18 @@ import { api } from '/static/js/api.js'
 import { formatTime } from '/static/js/utils.js'
 import { marked } from 'https://esm.sh/marked@14'
 
+let _treesModule = null
+async function getTreesModule() {
+  if (!_treesModule) {
+    const [trees] = await Promise.all([
+      import('https://esm.sh/@pierre/trees@1.0.0-beta.3'),
+      import('https://esm.sh/@pierre/trees@1.0.0-beta.3/web-components'),
+    ])
+    _treesModule = trees
+  }
+  return _treesModule
+}
+
 marked.setOptions({ breaks: true, gfm: true })
 
 /**
@@ -24,6 +36,9 @@ export function register(Alpine) {
     sessionMessagesHasMore: false,
     sessionMessagesLoading: false,
     sessionSystemPrompt: '',
+    sessionWorkspace: null,
+    workspaceLoading: false,
+    _fileTree: null,
 
     tools: [],
     toolsLoading: false,
@@ -242,11 +257,14 @@ export function register(Alpine) {
     // --- Session message loading ---
 
     async openSession(sessionID, pushState = true) {
+      const prevPanel = this.activePanel
       this.sessionMessagesLoading = true
       this.sessionMessages = []
       this.sessionMessagesSkip = 0
       this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
+      this.sessionWorkspace = null
+      this._destroyFileTree()
       this.activePanel = null
       try {
         const enc = encodeURIComponent(sessionID)
@@ -261,6 +279,11 @@ export function register(Alpine) {
         if (pr && pr.system_prompt) this.sessionSystemPrompt = pr.system_prompt
         if (pushState) {
           history.pushState({ sessionID }, '', '/sessions/' + enc)
+        }
+        // Restore the previously open panel; reload workspace if it was visible.
+        if (prevPanel) {
+          this.activePanel = prevPanel
+          if (prevPanel === 'workspace') this.loadWorkspace()
         }
         // Scroll transcript to bottom after render.
         this.$nextTick(() => {
@@ -333,6 +356,70 @@ export function register(Alpine) {
       if (name === 'tools' && this.activePanel === 'tools' && this.tools.length === 0) {
         this.loadTools()
       }
+      if (name === 'workspace' && this.activePanel === 'workspace' && !this.sessionWorkspace) {
+        this.loadWorkspace()
+      }
+    },
+
+    _destroyFileTree() {
+      if (this._fileTree) {
+        this._fileTree.cleanUp()
+        this._fileTree = null
+      }
+    },
+
+    async loadWorkspace() {
+      if (!this.sessionDetail) return
+      this.workspaceLoading = true
+      try {
+        const enc = encodeURIComponent(this.sessionDetail.id)
+        const data = await api('GET', `/api/sessions/${enc}/workspace`)
+        this.sessionWorkspace = data
+        if (data && data.paths && data.paths.length > 0) {
+          this.$nextTick(async () => {
+            const container = this.$refs.fileTreeContainer
+            if (!container) return
+            container.innerHTML = ''
+            const host = document.createElement('file-tree-container')
+            host.style.cssText = 'display: block; width: 100%;'
+            container.appendChild(host)
+            const { FileTree } = await getTreesModule()
+            this._destroyFileTree()
+            // Resolve actual computed colour values from daisyUI tokens so the
+            // @pierre/trees shadow-DOM theme receives real hex/oklch strings.
+            const style = getComputedStyle(document.documentElement)
+            const resolve = v => style.getPropertyValue(v).trim() || undefined
+            const isDark = document.documentElement.dataset.theme === 'dark' ||
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+            const theme = {
+              type: isDark ? 'dark' : 'light',
+              bg: resolve('--color-base-100'),
+              fg: resolve('--color-base-content'),
+              colors: {
+                'input.background': resolve('--color-base-200'),
+                'input.border': resolve('--color-base-300'),
+                'sideBar.background': resolve('--color-base-100'),
+                'sideBar.foreground': resolve('--color-base-content'),
+                'sideBar.border': resolve('--color-base-300'),
+                'list.hoverBackground': resolve('--color-base-200'),
+                'list.activeSelectionBackground': resolve('--color-base-200'),
+                'list.activeSelectionForeground': resolve('--color-primary'),
+              },
+            }
+            const tree = new FileTree({
+              paths: data.paths,
+              initialExpansion: 'first',
+              search: false,
+            })
+            tree.render({ fileTreeContainer: host, theme })
+            this._fileTree = tree
+          })
+        }
+      } catch (e) {
+        console.error('loadWorkspace:', e)
+      } finally {
+        this.workspaceLoading = false
+      }
     },
 
     backToList() {
@@ -341,6 +428,8 @@ export function register(Alpine) {
       this.sessionMessagesSkip = 0
       this.sessionMessagesHasMore = false
       this.sessionSystemPrompt = ''
+      this.sessionWorkspace = null
+      this._destroyFileTree()
       this.activePanel = null
       history.pushState(null, '', '/sessions')
     },

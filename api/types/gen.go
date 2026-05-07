@@ -675,6 +675,15 @@ type SessionDetail struct {
 	UserName   *string `json:"user_name,omitempty"`
 }
 
+// SessionWorkspace defines model for SessionWorkspace.
+type SessionWorkspace struct {
+	// Paths Relative file paths within the workspace
+	Paths []string `json:"paths"`
+
+	// Root Absolute path of the workspace root directory
+	Root string `json:"root"`
+}
+
 // SetMemoryRequest defines model for SetMemoryRequest.
 type SetMemoryRequest struct {
 	Content string `json:"content"`

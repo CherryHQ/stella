@@ -44,3 +44,15 @@ components:
       required: [system_prompt]
       properties:
         system_prompt: { type: string }
+
+    SessionWorkspace:
+      type: object
+      required: [root, paths]
+      properties:
+        root:
+          type: string
+          description: Absolute path of the workspace root directory
+        paths:
+          type: array
+          items: { type: string }
+          description: Relative file paths within the workspace

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	apiserver "github.com/vaayne/anna/api/server"
@@ -366,6 +367,74 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 		return fmt.Errorf("access denied")
 	}
 	return nil
+}
+
+func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+		return
+	}
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return
+	}
+	info, err := sm.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if info.UserID <= 0 || info.AgentID == "" {
+		writeData(w, http.StatusOK, map[string]any{"root": "", "paths": []string{}})
+		return
+	}
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	root := agent.UserRoot(userDir)
+	paths, err := collectWorkspacePaths(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+// collectWorkspacePaths walks root and returns relative file paths, capped at 1000.
+// Hidden system directories (.agents) are skipped.
+func collectWorkspacePaths(root string) ([]string, error) {
+	const maxPaths = 1000
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil //nolint:nilerr // skip unreadable entries
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == "." {
+			return nil //nolint:nilerr
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == ".agents" || name == ".git" || name == ".cache" || name == "__pycache__" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		paths = append(paths, rel)
+		if len(paths) >= maxPaths {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {

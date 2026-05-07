@@ -105,6 +105,23 @@ paths:
         "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/sessions/{sessionID}/workspace:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: List files in the session workspace
+      operationId: getSessionWorkspace
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/sessions/{sessionID}/system-prompt:
     parameters:
       - { name: sessionID, in: path, required: true, schema: { type: string } }

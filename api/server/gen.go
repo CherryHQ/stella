@@ -872,6 +872,9 @@ type ServerInterface interface {
 	// Get the system prompt for a session
 	// (GET /api/sessions/{sessionID}/system-prompt)
 	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string)
+	// List files in the session workspace
+	// (GET /api/sessions/{sessionID}/workspace)
+	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string)
 	// List all skills (admin only)
 	// (GET /api/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request)
@@ -4391,6 +4394,38 @@ func (siw *ServerInterfaceWrapper) GetSessionSystemPrompt(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// GetSessionWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionWorkspace(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkills operation middleware
 func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -5121,6 +5156,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.GetSessionMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.SendSessionMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/system-prompt", wrapper.GetSessionSystemPrompt)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace", wrapper.GetSessionWorkspace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)

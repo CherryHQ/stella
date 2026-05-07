@@ -1013,6 +1013,9 @@ type ClientInterface interface {
 	// GetSessionSystemPrompt request
 	GetSessionSystemPrompt(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetSessionWorkspace request
+	GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSkills request
 	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2765,6 +2768,18 @@ func (c *Client) SendSessionMessage(ctx context.Context, sessionID string, body 
 
 func (c *Client) GetSessionSystemPrompt(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionSystemPromptRequest(c.Server, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionWorkspaceRequest(c.Server, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -7422,6 +7437,40 @@ func NewGetSessionSystemPromptRequest(server string, sessionID string) (*http.Re
 	return req, nil
 }
 
+// NewGetSessionWorkspaceRequest generates requests for GetSessionWorkspace
+func NewGetSessionWorkspaceRequest(server string, sessionID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/workspace", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListSkillsRequest generates requests for ListSkills
 func NewListSkillsRequest(server string) (*http.Request, error) {
 	var err error
@@ -8504,6 +8553,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionSystemPromptWithResponse request
 	GetSessionSystemPromptWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error)
+
+	// GetSessionWorkspaceWithResponse request
+	GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
 
 	// ListSkillsWithResponse request
 	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
@@ -12058,6 +12110,39 @@ func (r GetSessionSystemPromptResponse) ContentType() string {
 	return ""
 }
 
+type GetSessionWorkspaceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SessionWorkspace
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionWorkspaceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionWorkspaceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionWorkspaceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -13801,6 +13886,15 @@ func (c *ClientWithResponses) GetSessionSystemPromptWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseGetSessionSystemPromptResponse(rsp)
+}
+
+// GetSessionWorkspaceWithResponse request returning *GetSessionWorkspaceResponse
+func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error) {
+	rsp, err := c.GetSessionWorkspace(ctx, sessionID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionWorkspaceResponse(rsp)
 }
 
 // ListSkillsWithResponse request returning *ListSkillsResponse
@@ -18497,6 +18591,53 @@ func ParseGetSessionSystemPromptResponse(rsp *http.Response) (*GetSessionSystemP
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest externalRef0.SystemPromptResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionWorkspaceResponse parses an HTTP response from a GetSessionWorkspaceWithResponse call
+func ParseGetSessionWorkspaceResponse(rsp *http.Response) (*GetSessionWorkspaceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionWorkspaceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SessionWorkspace
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

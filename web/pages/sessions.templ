@@ -170,7 +170,9 @@ templ sessionDetailPanel() {
 			<p class="text-sm text-secondary">Select a session to inspect its transcript.</p>
 		</div>
 		<!-- Session detail -->
-		<div x-show="sessionDetail" x-cloak class="flex flex-col h-full overflow-hidden">
+		<div x-show="sessionDetail" x-cloak class="flex flex-row h-full overflow-hidden">
+			<!-- Main column -->
+			<div class="flex flex-col flex-1 min-w-0 overflow-hidden">
 			<!-- Header -->
 			<div class="flex-shrink-0 px-6 py-4 border-b border-base-300 bg-base-100">
 				<div class="flex items-start justify-between gap-4 mb-2">
@@ -191,6 +193,7 @@ templ sessionDetailPanel() {
 						<div class="w-px h-4 bg-base-300 mx-0.5"></div>
 						<button @click="togglePanel('tools')" class="btn btn-ghost btn-xs text-xs" :class="activePanel === 'tools' ? 'text-primary btn-active' : 'text-secondary'">Tools</button>
 						<button @click="togglePanel('prompt')" class="btn btn-ghost btn-xs text-xs" :class="activePanel === 'prompt' ? 'text-primary btn-active' : 'text-secondary'">System Prompt</button>
+						<button @click="togglePanel('workspace')" class="btn btn-ghost btn-xs text-xs" :class="activePanel === 'workspace' ? 'text-primary btn-active' : 'text-secondary'">Workspace</button>
 					</div>
 				</div>
 				<!-- Metadata -->
@@ -525,6 +528,30 @@ templ sessionDetailPanel() {
 					</div>
 				</div>
 			</div>
+		</div>
+		<!-- Workspace right sidebar -->
+		<div
+			x-show="activePanel === 'workspace'"
+			x-transition
+			x-cloak
+			class="w-80 border-l border-base-300 flex-shrink-0 flex flex-col overflow-hidden bg-base-100"
+		>
+			<div class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-base-300 flex-shrink-0">
+				<span class="text-[9px] font-mono text-base-content/30 uppercase tracking-wider">Workspace</span>
+				<div class="flex items-center gap-2">
+					<span x-show="workspaceLoading" class="loading loading-spinner loading-xs text-secondary"></span>
+					<span x-show="!workspaceLoading && sessionWorkspace" class="text-[10px] font-mono text-base-content/25" x-text="(sessionWorkspace?.paths?.length >= 1000 ? '1000+' : (sessionWorkspace?.paths?.length || 0)) + ' files'"></span>
+				</div>
+			</div>
+			<div x-show="!workspaceLoading && sessionWorkspace && sessionWorkspace.paths.length === 0" class="px-4 py-3 text-[10px] font-mono text-base-content/30">
+				Workspace is empty.
+			</div>
+			<div
+				x-ref="fileTreeContainer"
+				class="flex-1 overflow-y-auto"
+				x-show="!workspaceLoading && sessionWorkspace && sessionWorkspace.paths.length > 0"
+			></div>
+		</div>
 		</div>
 	</div>
 }
