@@ -150,7 +150,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 
 		plainText := parseTextContent(derefStr(msg.Content))
-		plainText = stripMentions(plainText, mentions)
+		plainText = resolveMentions(plainText, mentions)
 		entry := GroupEntry{
 			Timestamp: time.Now(),
 			SenderID:  openID,
@@ -175,7 +175,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// Extract text once for commands.
 	text := parseTextContent(derefStr(msg.Content))
 	if chatType == "group" {
-		text = stripMentions(text, mentions)
+		text = resolveMentions(text, mentions)
 	}
 
 	// Auto-provision the sender if enabled. Done after dedup+group checks so
@@ -275,7 +275,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 	switch msgType {
 	case "text":
 		text := parseTextContent(rawContent)
-		text = stripMentions(text, msg.Mentions)
+		text = resolveMentions(text, msg.Mentions)
 		if strings.TrimSpace(text) == "" {
 			return nil
 		}
@@ -351,8 +351,12 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 // Shared commands are handled by the coordinator (including /abort);
 // otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Ack with 🤔 so the user sees the bot is processing.
-	ackReactionID := b.reactToMessage(messageID, reactionAck)
+	// Ack with 🤔 so the user sees the bot is processing (DMs only —
+	// in group chats the agent may stay silent so acking every message is noisy).
+	var ackReactionID string
+	if !msg.IsGroup {
+		ackReactionID = b.reactToMessage(messageID, reactionAck)
+	}
 
 	// Wrap the incoming context with an operation timeout so in-flight work
 	// has bounded execution time while preserving any context values (e.g.
@@ -400,14 +404,12 @@ func (b *Bot) handleIncoming(ctx context.Context, msg channel.IncomingMessage, c
 		}
 	}
 
-	if strings.TrimSpace(response) == "" {
-		if msg.IsGroup {
-			// In group mode the agent may choose not to respond; stay silent.
-		} else {
+	// In group chats the agent replies via the notify tool; the buffered
+	// final response is not sent to avoid duplicates.
+	if !msg.IsGroup {
+		if strings.TrimSpace(response) == "" {
 			response = "(empty response)"
 		}
-	}
-	if strings.TrimSpace(response) != "" {
 		finalResponse := response + elapsedFooter(elapsed)
 		b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
 	}

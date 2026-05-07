@@ -39,7 +39,8 @@ func (b *Bot) groupSystemPrompt(chatID string) string {
 }
 
 // isGroupTrigger checks if a group message should trigger agent invocation.
-//   - "always"  — every message triggers the agent
+//   - "always"  — every message triggers the agent, unless a different bot is
+//     explicitly @mentioned (meaning the message is directed elsewhere)
 //   - "mention" — only @bot mentions trigger
 //   - "disabled" — never triggers
 func (b *Bot) isGroupTrigger(chatID string, mentions []*larkim.MentionEvent) bool {
@@ -47,10 +48,25 @@ func (b *Bot) isGroupTrigger(chatID string, mentions []*larkim.MentionEvent) boo
 	case "disabled":
 		return false
 	case "always":
+		if b.hasBotMentions(mentions) && !b.isBotMentioned(mentions) {
+			return false
+		}
 		return true
 	default:
 		return b.isBotMentioned(mentions)
 	}
+}
+
+// hasBotMentions returns true if the mentions list contains any bot @mention
+// (i.e. not @all and not a regular user mention — heuristic: any mention with
+// a key that isn't @_all counts as a bot-directed mention).
+func (b *Bot) hasBotMentions(mentions []*larkim.MentionEvent) bool {
+	for _, m := range mentions {
+		if m.Key != nil && *m.Key != "@_all" {
+			return true
+		}
+	}
+	return false
 }
 
 // decorateGroupCtx builds a context carrying the group log, system prompt,
@@ -73,7 +89,13 @@ func (b *Bot) decorateGroupCtx(chatID, messageID, rootID, groupLogText string) c
 		}
 	}
 
-	groupLogText += "\n\nTo reply in this group conversation, use the notify tool."
+	// Inject bot identity so the agent knows who it is.
+	if name, _ := b.botName.Load().(string); name != "" {
+		groupLogText += fmt.Sprintf("\n\nYou are %s in this group chat.", name)
+	}
+
+	groupLogText += "\nYou MUST use the notify tool to send any reply in this group conversation. Do not reply with plain text — only the notify tool delivers messages to the group."
+	groupLogText += "\nOnly respond when the message is directed at you, asks something you can help with, or is relevant to your role. If you have nothing useful to contribute, do not call the notify tool."
 
 	ctx = agent.WithGroupContext(ctx, groupLogText)
 	ctx = channel.WithNotificationReply(ctx, channel.NotificationReplyContext{

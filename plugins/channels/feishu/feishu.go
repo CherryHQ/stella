@@ -60,6 +60,7 @@ type Bot struct {
 	handler  channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
+	botName   atomic.Value // bot's display name (string), fetched on startup
 
 	mu            sync.RWMutex
 	chatModels    map[string]channel.ModelOption
@@ -191,7 +192,8 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 	var result struct {
 		Code int `json:"code"`
 		Bot  struct {
-			OpenID string `json:"open_id"`
+			OpenID  string `json:"open_id"`
+			BotName string `json:"app_name"`
 		} `json:"bot"`
 	}
 	if err := json.Unmarshal(resp.RawBody, &result); err != nil {
@@ -205,7 +207,10 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 	}
 
 	b.botOpenID.Store(result.Bot.OpenID)
-	logger().Info("fetched bot open_id", "open_id", result.Bot.OpenID)
+	if result.Bot.BotName != "" {
+		b.botName.Store(result.Bot.BotName)
+	}
+	logger().Info("fetched bot info", "open_id", result.Bot.OpenID, "name", result.Bot.BotName)
 	return nil
 }
 
@@ -308,11 +313,21 @@ func (b *Bot) markSeen(messageID string) bool {
 	return false
 }
 
-// stripMentions removes @mention placeholders from message text.
-// First removes known mention keys, then cleans up any remaining @_user_N patterns.
-func stripMentions(text string, mentions []*larkim.MentionEvent) string {
+// resolveMentions replaces @mention placeholders with display names.
+// e.g. "@_user_1 最近好吗" becomes "@Anna - dev 最近好吗".
+// Falls back to removing unknown placeholders.
+func resolveMentions(text string, mentions []*larkim.MentionEvent) string {
 	for _, m := range mentions {
-		if m.Key != nil {
+		if m.Key == nil {
+			continue
+		}
+		name := ""
+		if m.Name != nil {
+			name = *m.Name
+		}
+		if name != "" {
+			text = strings.ReplaceAll(text, *m.Key, "@"+name)
+		} else {
 			text = strings.ReplaceAll(text, *m.Key, "")
 		}
 	}

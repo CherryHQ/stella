@@ -304,21 +304,31 @@ func TestParseTextContentInvalidJSON(t *testing.T) {
 	}
 }
 
-// --- stripMentions ---
+// --- resolveMentions ---
 
-func TestStripMentions(t *testing.T) {
+func TestResolveMentionsWithName(t *testing.T) {
 	key := "@_user_1"
-	mentions := []*larkim.MentionEvent{{Key: &key}}
-	result := stripMentions("hello @_user_1 world", mentions)
-	if result != "hello  world" {
-		t.Errorf("stripMentions = %q", result)
+	name := "Alice"
+	mentions := []*larkim.MentionEvent{{Key: &key, Name: &name}}
+	result := resolveMentions("hello @_user_1 world", mentions)
+	if result != "hello @Alice world" {
+		t.Errorf("resolveMentions = %q, want %q", result, "hello @Alice world")
 	}
 }
 
-func TestStripMentionsNoMentions(t *testing.T) {
-	result := stripMentions("hello world", nil)
+func TestResolveMentionsWithoutName(t *testing.T) {
+	key := "@_user_1"
+	mentions := []*larkim.MentionEvent{{Key: &key}}
+	result := resolveMentions("hello @_user_1 world", mentions)
+	if result != "hello  world" {
+		t.Errorf("resolveMentions = %q", result)
+	}
+}
+
+func TestResolveMentionsNoMentions(t *testing.T) {
+	result := resolveMentions("hello world", nil)
 	if result != "hello world" {
-		t.Errorf("stripMentions = %q", result)
+		t.Errorf("resolveMentions = %q", result)
 	}
 }
 
@@ -603,22 +613,24 @@ func TestMarkSeenDifferentMessages(t *testing.T) {
 	}
 }
 
-// --- stripMentions additional ---
+// --- resolveMentions additional ---
 
-func TestStripMentionsMultiple(t *testing.T) {
+func TestResolveMentionsMultiple(t *testing.T) {
 	key1 := "@_user_1"
+	name1 := "Alice"
 	key2 := "@_user_2"
-	mentions := []*larkim.MentionEvent{{Key: &key1}, {Key: &key2}}
-	result := stripMentions("@_user_1 hello @_user_2", mentions)
-	if result != "hello" {
-		t.Errorf("stripMentions = %q, want 'hello'", result)
+	name2 := "Bob"
+	mentions := []*larkim.MentionEvent{{Key: &key1, Name: &name1}, {Key: &key2, Name: &name2}}
+	result := resolveMentions("@_user_1 hello @_user_2", mentions)
+	if result != "@Alice hello @Bob" {
+		t.Errorf("resolveMentions = %q, want '@Alice hello @Bob'", result)
 	}
 }
 
-func TestStripMentionsRegexCleanup(t *testing.T) {
-	result := stripMentions("hello @_user_99 world", nil)
+func TestResolveMentionsRegexCleanup(t *testing.T) {
+	result := resolveMentions("hello @_user_99 world", nil)
 	if result != "hello  world" {
-		t.Errorf("stripMentions regex = %q, want 'hello  world'", result)
+		t.Errorf("resolveMentions regex = %q, want 'hello  world'", result)
 	}
 }
 
