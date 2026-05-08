@@ -3,7 +3,7 @@
 FROM --platform=$BUILDPLATFORM node:22-slim AS web-builder
 
 WORKDIR /web
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN npm install -g pnpm@11.0.8 --ignore-scripts && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
