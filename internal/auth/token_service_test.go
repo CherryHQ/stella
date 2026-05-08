@@ -119,7 +119,7 @@ func TestTokenHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateToken: %v", err)
 	}
-	if len(token) <= len("stella_") || token[:5] != "stella_" {
+	if len(token) <= len("stella_") || token[:7] != "stella_" {
 		t.Fatalf("generateToken = %q, want stella_ prefix", token)
 	}
 	if hashToken(token) == hashToken(token+"x") {

@@ -717,7 +717,7 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusBadRequest, "missing file field: "+err.Error())
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(file)
 	if err != nil {

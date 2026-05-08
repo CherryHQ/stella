@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
+FROM --platform=$BUILDPLATFORM node:22-slim AS web-builder
+
+WORKDIR /web
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN npm install -g pnpm@11.0.8 --ignore-scripts && pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm build
+
 FROM --platform=$BUILDPLATFORM debian:13-slim AS builder
 
 WORKDIR /go/src/app
@@ -30,6 +38,7 @@ RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 COPY . .
+COPY --from=web-builder /web/static/dist/ ./web/static/dist/
 
 # Download embedded mise binary for the target platform.
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go generate ./internal/resources/binaries/

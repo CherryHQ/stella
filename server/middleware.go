@@ -138,23 +138,6 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 	}
 }
 
-// adminOnlyMiddleware checks that the authenticated user has the admin role.
-// Returns 403 for non-admin users.
-func (s *Server) adminOnlyMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		info := UserFromContext(r.Context())
-		if info == nil || !info.IsAdmin {
-			if isAPIRoute(r.URL.Path) {
-				writeError(w, http.StatusForbidden, "admin access required")
-			} else {
-				http.Redirect(w, r, "/agents", http.StatusFound)
-			}
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // requireAdmin checks that the authenticated user has the admin role.
 // It writes a 403 JSON error and returns false when the caller is not admin.
 // Returns true when the caller is admin. Intended for inline use in API handlers.

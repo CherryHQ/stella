@@ -21,7 +21,7 @@ const (
 	StellaTokenName      = vault.StellaTokenName
 	autoTokenTTL         = 90 * 24 * time.Hour
 	autoTokenRotateAfter = 60 * 24 * time.Hour
-	tokenPrefixLength    = 13
+	tokenPrefixLength    = 15
 )
 
 type tokenStore interface {
