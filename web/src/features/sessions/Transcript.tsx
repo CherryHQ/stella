@@ -251,7 +251,7 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
 
 function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const n = block.name.toLowerCase();
-  const args = block.arguments;
+  const args = block.arguments ?? {};
 
   if (n === "bash")
     return (
@@ -301,7 +301,7 @@ function toolColor(name: string): string {
 }
 
 function toolPreview(block: ContentBlock & { type: "tool_call" }): string {
-  const args = block.arguments;
+  const args = block.arguments ?? {};
   const n = block.name.toLowerCase();
   const trunc = (s: string, len = 55) => (s.length > len ? s.slice(0, len) + "…" : s);
   const shortPath = (p: string) => {
