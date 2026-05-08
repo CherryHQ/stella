@@ -409,6 +409,12 @@ type GetSessionMessagesParams struct {
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
 }
 
+// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
+type GetSessionWorkspaceParams struct {
+	// ShowHidden Include dot-prefixed files and directories
+	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+}
+
 // GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
@@ -1044,7 +1050,7 @@ type ClientInterface interface {
 	GetSessionSystemPrompt(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetSessionWorkspace request
-	GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetSessionWorkspace(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetWorkspaceFileContent request
 	GetWorkspaceFileContent(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2834,8 +2840,8 @@ func (c *Client) GetSessionSystemPrompt(ctx context.Context, sessionID string, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetSessionWorkspace(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSessionWorkspaceRequest(c.Server, sessionID)
+func (c *Client) GetSessionWorkspace(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionWorkspaceRequest(c.Server, sessionID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7614,7 +7620,7 @@ func NewGetSessionSystemPromptRequest(server string, sessionID string) (*http.Re
 }
 
 // NewGetSessionWorkspaceRequest generates requests for GetSessionWorkspace
-func NewGetSessionWorkspaceRequest(server string, sessionID string) (*http.Request, error) {
+func NewGetSessionWorkspaceRequest(server string, sessionID string, params *GetSessionWorkspaceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -7637,6 +7643,33 @@ func NewGetSessionWorkspaceRequest(server string, sessionID string) (*http.Reque
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ShowHidden != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "show_hidden", *params.ShowHidden, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -9012,7 +9045,7 @@ type ClientWithResponsesInterface interface {
 	GetSessionSystemPromptWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error)
 
 	// GetSessionWorkspaceWithResponse request
-	GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
+	GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
 
 	// GetWorkspaceFileContentWithResponse request
 	GetWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error)
@@ -14576,8 +14609,8 @@ func (c *ClientWithResponses) GetSessionSystemPromptWithResponse(ctx context.Con
 }
 
 // GetSessionWorkspaceWithResponse request returning *GetSessionWorkspaceResponse
-func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error) {
-	rsp, err := c.GetSessionWorkspace(ctx, sessionID, reqEditors...)
+func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error) {
+	rsp, err := c.GetSessionWorkspace(ctx, sessionID, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

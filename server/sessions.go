@@ -372,7 +372,7 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 	return nil
 }
 
-func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetSessionWorkspaceParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -400,7 +400,8 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	root := agent.UserRoot(userDir)
-	paths, err := collectWorkspacePaths(root)
+	showHidden := params.ShowHidden != nil && *params.ShowHidden
+	paths, err := collectWorkspacePaths(root, showHidden)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -408,11 +409,9 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
 }
 
-// collectWorkspacePaths walks root and returns relative file paths, capped at 1000.
-// Hidden system directories (.agents) are skipped.
-func collectWorkspacePaths(root string) ([]string, error) {
+func collectWorkspacePaths(root string, showHidden bool) ([]string, error) {
 	const maxPaths = 1000
-	var paths []string
+	var visible, hidden []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil //nolint:nilerr // skip unreadable entries
@@ -423,19 +422,39 @@ func collectWorkspacePaths(root string) ([]string, error) {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if name == ".agents" || name == ".assets" || name == ".git" || name == ".cache" || name == "__pycache__" || name == "node_modules" {
+			if name == "__pycache__" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			if !showHidden && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		paths = append(paths, rel)
-		if len(paths) >= maxPaths {
-			return filepath.SkipAll
+		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, "/.")
+		if isDot {
+			if showHidden && len(hidden) < maxPaths {
+				hidden = append(hidden, rel)
+			}
+		} else {
+			visible = append(visible, rel)
+			if len(visible) >= maxPaths {
+				return filepath.SkipAll
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	paths := visible
+	if showHidden {
+		remaining := maxPaths - len(paths)
+		if remaining > 0 && len(hidden) > 0 {
+			if len(hidden) > remaining {
+				hidden = hidden[:remaining]
+			}
+			paths = append(paths, hidden...)
+		}
 	}
 	return paths, nil
 }
@@ -521,7 +540,7 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 			return
 		}
 	}
-	paths, err := collectWorkspacePaths(root)
+	paths, err := collectWorkspacePaths(root, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -552,7 +571,7 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	paths, err := collectWorkspacePaths(root)
+	paths, err := collectWorkspacePaths(root, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -592,7 +611,7 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessi
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	paths, err := collectWorkspacePaths(root)
+	paths, err := collectWorkspacePaths(root, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

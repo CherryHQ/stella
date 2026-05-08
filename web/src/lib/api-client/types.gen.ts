@@ -4169,7 +4169,12 @@ export type GetSessionWorkspaceData = {
   path: {
     sessionID: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * Include dot-prefixed files and directories
+     */
+    show_hidden?: boolean;
+  };
   url: "/api/sessions/{sessionID}/workspace";
 };
 

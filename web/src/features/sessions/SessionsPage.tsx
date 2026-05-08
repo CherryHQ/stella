@@ -97,12 +97,13 @@ export function SessionsPage() {
   }, [openSession]);
 
   // Workspace loading
-  const loadWorkspace = useCallback(async (sid: string) => {
+  const loadWorkspace = useCallback(async (sid: string, showHidden = false) => {
     setWorkspaceLoading(true);
     try {
+      const qs = showHidden ? "?show_hidden=true" : "";
       const data = await api<Workspace>(
         "GET",
-        `/api/sessions/${encodeURIComponent(sid)}/workspace`,
+        `/api/sessions/${encodeURIComponent(sid)}/workspace${qs}`,
       );
       setWorkspace(data);
     } catch (e) {
@@ -225,8 +226,8 @@ export function SessionsPage() {
           sessionID={sessionDetail?.id ?? ""}
           workspace={workspace}
           workspaceLoading={workspaceLoading}
-          onWorkspaceChange={setWorkspace}
           onOpenFile={openFileEditor}
+          onReload={loadWorkspace}
         />
       </div>
 

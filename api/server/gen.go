@@ -407,6 +407,12 @@ type GetSessionMessagesParams struct {
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
 }
 
+// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
+type GetSessionWorkspaceParams struct {
+	// ShowHidden Include dot-prefixed files and directories
+	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+}
+
 // GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
@@ -904,7 +910,7 @@ type ServerInterface interface {
 	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string)
 	// List files in the session workspace
 	// (GET /api/sessions/{sessionID}/workspace)
-	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string)
+	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params GetSessionWorkspaceParams)
 	// Get the content of a file in the session workspace
 	// (GET /api/sessions/{sessionID}/workspace/file-content)
 	GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params GetWorkspaceFileContentParams)
@@ -4463,8 +4469,24 @@ func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r 
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionWorkspaceParams
+
+	// ------------- Optional query parameter "show_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "show_hidden", r.URL.Query(), &params.ShowHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "show_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "show_hidden", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSessionWorkspace(w, r, sessionID)
+		siw.Handler.GetSessionWorkspace(w, r, sessionID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

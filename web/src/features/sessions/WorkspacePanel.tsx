@@ -12,8 +12,8 @@ interface Props {
   sessionID: string;
   workspace: Workspace | null;
   workspaceLoading: boolean;
-  onWorkspaceChange: (w: Workspace) => void;
   onOpenFile: (path: string) => void;
+  onReload: (sid: string, showHidden?: boolean) => Promise<void>;
 }
 
 function buildTheme(): TreeThemeInput {
@@ -52,7 +52,7 @@ function buildTheme(): TreeThemeInput {
 interface FileTreePanelProps {
   sessionID: string;
   workspace: Workspace;
-  onWorkspaceChange: (w: Workspace) => void;
+  onReload: () => void;
   onOpenFile: (path: string) => void;
   onSelectedPath: (path: string | null) => void;
   onContextMenu: (e: React.MouseEvent, path: string | null) => void;
@@ -61,7 +61,7 @@ interface FileTreePanelProps {
 function FileTreePanel({
   sessionID,
   workspace,
-  onWorkspaceChange,
+  onReload,
   onOpenFile,
   onSelectedPath,
   onContextMenu,
@@ -106,9 +106,7 @@ function FileTreePanel({
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Move failed";
           console.error("drop:", msg);
-          // Reload workspace to revert the optimistic tree update
-          const data = await api<Workspace>("GET", `/api/sessions/${enc}/workspace`);
-          onWorkspaceChange(data);
+          onReload();
         }
       },
       onDropError: (message: string) => {
@@ -148,12 +146,13 @@ export function WorkspacePanel({
   sessionID,
   workspace,
   workspaceLoading,
-  onWorkspaceChange,
   onOpenFile,
+  onReload,
 }: Props) {
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{
     show: boolean;
     x: number;
@@ -163,27 +162,31 @@ export function WorkspacePanel({
 
   const enc = encodeURIComponent(sessionID);
 
+  const reload = useCallback(() => {
+    onReload(sessionID, showHidden).catch(console.error);
+  }, [sessionID, showHidden, onReload]);
+
   const createItem = useCallback(async () => {
     const name = newItemName.trim();
     if (!name) return;
     const isDir = newItemType === "dir";
-    const data = await api<Workspace>("POST", `/api/sessions/${enc}/workspace/files`, {
+    await api("POST", `/api/sessions/${enc}/workspace/files`, {
       path: name,
       is_dir: isDir,
     });
-    onWorkspaceChange(data);
+    reload();
     setNewItemType(null);
     setNewItemName("");
-  }, [enc, newItemName, newItemType, onWorkspaceChange]);
+  }, [enc, newItemName, newItemType, reload]);
 
   const deleteItem = useCallback(
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
-      const data = await api<Workspace>("DELETE", `/api/sessions/${enc}/workspace/files`, { path });
-      onWorkspaceChange(data);
+      await api("DELETE", `/api/sessions/${enc}/workspace/files`, { path });
+      reload();
       if (selectedPath === path) setSelectedPath(null);
     },
-    [enc, selectedPath, onWorkspaceChange],
+    [enc, selectedPath, reload],
   );
 
   const handleContextMenu = useCallback((e: React.MouseEvent, path: string | null) => {
@@ -286,6 +289,46 @@ export function WorkspacePanel({
               />
             </svg>
           </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              if (sessionID) onReload(sessionID, next).catch(console.error);
+            }}
+            title={showHidden ? "Hide dot files" : "Show dot files"}
+            className={cn("px-1", showHidden ? "text-primary" : "text-muted-foreground/50")}
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.8"
+              stroke="currentColor"
+            >
+              {showHidden ? (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                />
+              ) : (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"
+                />
+              )}
+              {showHidden && (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                />
+              )}
+            </svg>
+          </Button>
           <div className="w-px h-3 bg-border mx-0.5" />
           {workspaceLoading && (
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
@@ -351,7 +394,7 @@ export function WorkspacePanel({
           <FileTreePanel
             sessionID={sessionID}
             workspace={workspace}
-            onWorkspaceChange={onWorkspaceChange}
+            onReload={reload}
             onOpenFile={onOpenFile}
             onSelectedPath={setSelectedPath}
             onContextMenu={handleContextMenu}

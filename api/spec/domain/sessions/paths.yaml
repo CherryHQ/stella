@@ -112,6 +112,11 @@ paths:
       tags: [sessions]
       summary: List files in the session workspace
       operationId: getSessionWorkspace
+      parameters:
+        - name: show_hidden
+          in: query
+          schema: { type: boolean, default: false }
+          description: Include dot-prefixed files and directories
       responses:
         "200":
           description: ok
