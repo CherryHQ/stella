@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { ManifestPlugin, McpServer, McpStatus, Plugin, PluginSchemaProperty, PluginWithMeta } from "@/lib/types";
+import type {
+  ManifestPlugin,
+  McpServer,
+  McpStatus,
+  Plugin,
+  PluginSchemaProperty,
+  PluginWithMeta,
+} from "@/lib/types";
 import {
   buildManifestInstallDraft,
   buildManifestPluginFromDraft,
@@ -42,19 +49,27 @@ export function PluginsPage() {
   const [tab, setTab] = useState<Tab>("tools");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [manifestPlugins, setManifestPlugins] = useState<ManifestPlugin[]>([]);
-  const [schemas, setSchemas] = useState<Record<string, { properties?: Record<string, PluginSchemaProperty> }>>({});
+  const [schemas, setSchemas] = useState<
+    Record<string, { properties?: Record<string, PluginSchemaProperty> }>
+  >({});
 
   // Plugin config state
   const [pluginConfigOpen, setPluginConfigOpen] = useState<Record<string, boolean>>({});
   const [pluginConfigLoading, setPluginConfigLoading] = useState<Record<string, boolean>>({});
   const [pluginConfigSaving, setPluginConfigSaving] = useState<Record<string, boolean>>({});
   const [pluginConfigLoaded, setPluginConfigLoaded] = useState<Record<string, boolean>>({});
-  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, Record<string, unknown>>>({});
-  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<Record<string, Record<string, unknown>>>({});
+  const [pluginConfigRaw, setPluginConfigRaw] = useState<Record<string, Record<string, unknown>>>(
+    {},
+  );
+  const [pluginConfigDrafts, setPluginConfigDrafts] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
 
   // Manifest install state
   const [manifestInstallOpen, setManifestInstallOpen] = useState<Record<string, boolean>>({});
-  const [manifestInstallDrafts, setManifestInstallDrafts] = useState<Record<string, ManifestInstallDraft>>({});
+  const [manifestInstallDrafts, setManifestInstallDrafts] = useState<
+    Record<string, ManifestInstallDraft>
+  >({});
 
   // Add tool form
   const [showAddManifestTool, setShowAddManifestTool] = useState(false);
@@ -95,7 +110,9 @@ export function PluginsPage() {
   const hookPlugins = semanticPlugins("hook", plugins, manifestPlugins);
   const memoryPlugins = plugins.filter((p) => p.kind === "memory");
   const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
-  const sandboxPlugins = plugins.filter((p) => p.kind === "sandbox" && validSandboxBackends.has(p.id));
+  const sandboxPlugins = plugins.filter(
+    (p) => p.kind === "sandbox" && validSandboxBackends.has(p.id),
+  );
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
 
   const mcpPlugin = plugins.find((p) => p.id === "tool/mcp") || null;
@@ -123,28 +140,37 @@ export function PluginsPage() {
                 "GET",
                 `/api/plugin-config-schema/${encodeURIComponent(p.kind)}/${encodeURIComponent(p.name)}`,
               );
-              return [p.id, schema || {}] as [string, { properties?: Record<string, PluginSchemaProperty> }];
+              return [p.id, schema || {}] as [
+                string,
+                { properties?: Record<string, PluginSchemaProperty> },
+              ];
             } catch {
               return [p.id, null] as [string, null];
             }
           }),
       );
       const newSchemas = Object.fromEntries(
-        schemaResults.filter((entry): entry is [string, { properties?: Record<string, PluginSchemaProperty> }] => !!entry[1]),
+        schemaResults.filter(
+          (entry): entry is [string, { properties?: Record<string, PluginSchemaProperty> }] =>
+            !!entry[1],
+        ),
       );
       setSchemas(newSchemas);
 
       // Init MCP servers from plugin config
       const mcp = pluginList.find((p) => p.id === "tool/mcp");
       const servers = normalizeMcpServers(
-        ((mcp?.config?.servers as Record<string, unknown>[]) || []),
+        (mcp?.config?.servers as Record<string, unknown>[]) || [],
       );
       setMcpServers(servers);
       setMcpSavedSignature(JSON.stringify(snapshotMcpConfig(servers)));
 
       // Load MCP status
       try {
-        const statusResp = await api<{ servers?: McpStatus[] }>("GET", "/api/plugin-status/tool/mcp");
+        const statusResp = await api<{ servers?: McpStatus[] }>(
+          "GET",
+          "/api/plugin-status/tool/mcp",
+        );
         setMcpStatuses(Array.isArray(statusResp?.servers) ? statusResp.servers : []);
       } catch {
         setMcpStatuses([]);
@@ -301,7 +327,10 @@ export function PluginsPage() {
     const isOpen = !manifestInstallOpen[plugin.id];
     setManifestInstallOpen((prev) => ({ ...prev, [plugin.id]: isOpen }));
     if (isOpen && !manifestInstallDrafts[plugin.id]) {
-      setManifestInstallDrafts((prev) => ({ ...prev, [plugin.id]: buildManifestInstallDraft(plugin) }));
+      setManifestInstallDrafts((prev) => ({
+        ...prev,
+        [plugin.id]: buildManifestInstallDraft(plugin),
+      }));
     }
   }
 
@@ -329,7 +358,10 @@ export function PluginsPage() {
   }
 
   function resetManifestInstallDraft(plugin: PluginWithMeta) {
-    setManifestInstallDrafts((prev) => ({ ...prev, [plugin.id]: buildManifestInstallDraft(plugin) }));
+    setManifestInstallDrafts((prev) => ({
+      ...prev,
+      [plugin.id]: buildManifestInstallDraft(plugin),
+    }));
   }
 
   // MCP
@@ -419,7 +451,12 @@ export function PluginsPage() {
     { id: "hooks", label: "Hooks", count: hookPlugins.length, show: true },
     { id: "memory", label: "Memory", count: memoryPlugins.length, show: true },
     { id: "sandbox", label: "Sandbox", count: sandboxPlugins.length, show: true },
-    { id: "standalone", label: "Others", count: standalonePlugins.length, show: standalonePlugins.length > 0 },
+    {
+      id: "standalone",
+      label: "Others",
+      count: standalonePlugins.length,
+      show: standalonePlugins.length > 0,
+    },
   ];
 
   return (
@@ -434,20 +471,22 @@ export function PluginsPage() {
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-border mb-6 overflow-x-auto">
-        {tabs.filter((t) => t.show).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
-              tab === t.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-            <span className="text-xs text-muted-foreground ml-1">({t.count})</span>
-          </button>
-        ))}
+        {tabs
+          .filter((t) => t.show)
+          .map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
+                tab === t.id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              <span className="text-xs text-muted-foreground ml-1">({t.count})</span>
+            </button>
+          ))}
       </div>
 
       {/* Toast notifications */}
@@ -523,7 +562,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.binary_name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, binary_name: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        binary_name: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     onBlur={fillNewManifestToolDefaults}
                     type="text"
@@ -538,7 +580,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.repo}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, repo: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        repo: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="owner/repo"
@@ -552,7 +597,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.id}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, id: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        id: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="tool/my-cli"
@@ -566,7 +614,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, name: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        name: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="my-cli"
@@ -580,7 +631,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.display_name}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, display_name: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        display_name: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="My CLI"
@@ -593,7 +647,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.version}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, version: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        version: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="latest or v1.2.3"
@@ -607,7 +664,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.bin_path}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, bin_path: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        bin_path: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="bin"
@@ -621,7 +681,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.exe}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, exe: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        exe: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="archive binary name"
@@ -635,7 +698,10 @@ export function PluginsPage() {
                     nativeInput
                     value={newManifestTool.description}
                     onChange={(e) =>
-                      setNewManifestTool((prev) => ({ ...prev, description: (e.target as HTMLInputElement).value }))
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        description: (e.target as HTMLInputElement).value,
+                      }))
                     }
                     type="text"
                     placeholder="What this CLI does"
@@ -782,7 +848,11 @@ export function PluginsPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{pluginLabel(p)}</span>
                     <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
-                    {p.enabled && <Badge variant="success" size="sm">on</Badge>}
+                    {p.enabled && (
+                      <Badge variant="success" size="sm">
+                        on
+                      </Badge>
+                    )}
                   </div>
                   {pluginDescription(p) && (
                     <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
@@ -820,12 +890,20 @@ export function PluginsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                        {p.enabled && <Badge variant="success" size="sm">active</Badge>}
+                        {p.enabled && (
+                          <Badge variant="success" size="sm">
+                            active
+                          </Badge>
+                        )}
                         {meta.recommended && (
-                          <Badge variant="default" size="sm">recommended</Badge>
+                          <Badge variant="default" size="sm">
+                            recommended
+                          </Badge>
                         )}
                         {meta.isDefault && (
-                          <Badge variant="secondary" size="sm">default</Badge>
+                          <Badge variant="secondary" size="sm">
+                            default
+                          </Badge>
                         )}
                       </div>
                       {pluginDescription(p) && (
@@ -843,7 +921,9 @@ export function PluginsPage() {
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-6">
                       {meta.features.length > 0 && (
                         <div className="flex-1">
-                          <p className="text-[11px] font-medium text-success-foreground mb-1">Features</p>
+                          <p className="text-[11px] font-medium text-success-foreground mb-1">
+                            Features
+                          </p>
                           <ul className="text-[11px] text-muted-foreground space-y-0.5">
                             {meta.features.map((f) => (
                               <li key={f} className="flex items-start gap-1">
@@ -856,7 +936,9 @@ export function PluginsPage() {
                       )}
                       {meta.limitations.length > 0 && (
                         <div className="flex-1">
-                          <p className="text-[11px] font-medium text-warning-foreground mb-1">Limitations</p>
+                          <p className="text-[11px] font-medium text-warning-foreground mb-1">
+                            Limitations
+                          </p>
                           <ul className="text-[11px] text-muted-foreground space-y-0.5">
                             {meta.limitations.map((l) => (
                               <li key={l} className="flex items-start gap-1">
@@ -979,9 +1061,17 @@ function PluginList({
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm">{pluginLabel(p)}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
-                  {p.enabled && <Badge variant="success" size="sm">on</Badge>}
+                  {p.enabled && (
+                    <Badge variant="success" size="sm">
+                      on
+                    </Badge>
+                  )}
                   {badges.map((badge) => (
-                    <Badge key={badge.key} variant={badge.variant as "default" | "outline" | "secondary" | "info"} size="sm">
+                    <Badge
+                      key={badge.key}
+                      variant={badge.variant as "default" | "outline" | "secondary" | "info"}
+                      size="sm"
+                    >
                       {badge.label}
                     </Badge>
                   ))}
@@ -999,27 +1089,16 @@ function PluginList({
               </div>
               <div className="flex items-center gap-2">
                 {hasConfig && (
-                  <Button
-                    onClick={() => onToggleConfigEditor(p)}
-                    variant="ghost"
-                    size="xs"
-                  >
+                  <Button onClick={() => onToggleConfigEditor(p)} variant="ghost" size="xs">
                     {isConfigOpen ? "Hide config" : "Configure"}
                   </Button>
                 )}
                 {showManifestEditor && p._manifest && (
-                  <Button
-                    onClick={() => onToggleManifestEditor(p)}
-                    variant="ghost"
-                    size="xs"
-                  >
+                  <Button onClick={() => onToggleManifestEditor(p)} variant="ghost" size="xs">
                     {isManifestOpen ? "Hide definition" : "Edit definition"}
                   </Button>
                 )}
-                <Switch
-                  checked={p.enabled}
-                  onCheckedChange={(checked) => onToggle(p, checked)}
-                />
+                <Switch checked={p.enabled} onCheckedChange={(checked) => onToggle(p, checked)} />
               </div>
             </div>
 

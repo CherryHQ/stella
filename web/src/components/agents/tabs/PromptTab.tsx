@@ -11,8 +11,7 @@ interface Props {
 export function PromptTab({ state, onSetState, onApplySoul }: Props) {
   const { form, builtinSouls, selectedSoulID, editingId, isAdmin } = state;
 
-  const setForm = (patch: Partial<typeof form>) =>
-    onSetState({ form: { ...form, ...patch } });
+  const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
   const canEdit = !editingId || isAdmin || form.creator_id === state.currentUserId;
 

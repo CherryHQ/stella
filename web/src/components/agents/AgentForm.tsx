@@ -56,7 +56,9 @@ export function AgentForm({
     return (
       <main className="px-6 py-6 min-w-0 hidden lg:block">
         <div className="flex flex-col items-center justify-center min-h-64 text-center gap-4 min-w-0">
-          <p className="text-muted-foreground text-sm">Select an agent to edit, or create a new one.</p>
+          <p className="text-muted-foreground text-sm">
+            Select an agent to edit, or create a new one.
+          </p>
         </div>
       </main>
     );
@@ -81,17 +83,16 @@ export function AgentForm({
             if (tab === "users" && editingId) onLoadAssignedUsers(editingId);
           }}
         >
-          <TabsList variant="underline" className="w-full justify-start px-2 border-b border-border rounded-none bg-muted/20 gap-0">
+          <TabsList
+            variant="underline"
+            className="w-full justify-start px-2 border-b border-border rounded-none bg-muted/20 gap-0"
+          >
             <TabsTrigger value="config">Config</TabsTrigger>
             <TabsTrigger value="prompt">Prompt</TabsTrigger>
             <TabsTrigger value="skills">Skills</TabsTrigger>
             <TabsTrigger value="advanced">Advanced</TabsTrigger>
-            {isAdmin && (
-              <TabsTrigger value="users">Users</TabsTrigger>
-            )}
-            {editingId && (
-              <TabsTrigger value="personal">Personal</TabsTrigger>
-            )}
+            {isAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
+            {editingId && <TabsTrigger value="personal">Personal</TabsTrigger>}
           </TabsList>
           <div className="p-4 space-y-4">
             <TabsContent value="config">
@@ -137,7 +138,9 @@ export function AgentForm({
           </div>
         </Tabs>
         <div className="border-t border-border px-4 py-3 flex items-center justify-end gap-2 bg-muted/20">
-          <Button onClick={onCancel} variant="ghost" size="sm">Cancel</Button>
+          <Button onClick={onCancel} variant="ghost" size="sm">
+            Cancel
+          </Button>
           <Button onClick={onSave} size="sm">
             {editingId ? "Update" : "Create"}
           </Button>

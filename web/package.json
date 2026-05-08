@@ -6,7 +6,30 @@
   "scripts": {
     "dev": "vp dev",
     "build": "tsc && vp build",
-    "preview": "vp preview"
+    "preview": "vp preview",
+    "lint": "vp check",
+    "format": "vp check --fix"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@pierre/trees": "1.0.0-beta.3",
+    "@tailwindcss/vite": "^4.2.4",
+    "@tanstack/react-query": "latest",
+    "@tanstack/react-router": "latest",
+    "@types/qrcode": "^1.5.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "geist": "^1.7.0",
+    "lucide-react": "^1.14.0",
+    "qrcode": "^1.5.4",
+    "radix-ui": "^1.4.3",
+    "react": "^19.2.5",
+    "react-day-picker": "^9.14.0",
+    "react-dom": "^19.2.5",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
     "@tanstack/router-plugin": "latest",
@@ -18,25 +41,5 @@
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
-  "packageManager": "pnpm@11.0.8",
-  "dependencies": {
-    "@tanstack/react-query": "latest",
-    "@tanstack/react-router": "latest",
-    "@base-ui/react": "^1.4.1",
-    "@fontsource-variable/inter": "^5.2.8",
-    "@pierre/trees": "1.0.0-beta.3",
-    "@tailwindcss/vite": "^4.2.4",
-    "@types/qrcode": "^1.5.6",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "geist": "^1.7.0",
-    "lucide-react": "^1.14.0",
-    "qrcode": "^1.5.4",
-    "react": "^19.2.5",
-    "react-day-picker": "^9.14.0",
-    "react-dom": "^19.2.5",
-    "streamdown": "^2.5.0",
-    "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.2.4"
-  }
+  "packageManager": "pnpm@11.0.8"
 }

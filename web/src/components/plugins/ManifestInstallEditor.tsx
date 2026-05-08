@@ -65,12 +65,17 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           <div>
             <p className="text-sm font-medium">Tool definition</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Saved to <code className="font-mono">$ANNA_HOME/plugins.yaml</code>; binaries sync after save.
+              Saved to <code className="font-mono">$ANNA_HOME/plugins.yaml</code>; binaries sync
+              after save.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={onReset} variant="ghost" size="xs">Reset</Button>
-            <Button onClick={onSave} variant="default" size="xs">Save definition</Button>
+            <Button onClick={onReset} variant="ghost" size="xs">
+              Reset
+            </Button>
+            <Button onClick={onSave} variant="default" size="xs">
+              Save definition
+            </Button>
           </div>
         </div>
 
@@ -128,7 +133,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           <div className="space-y-1 md:col-span-2 xl:col-span-4">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-medium text-muted-foreground">Binaries</label>
-              <Button onClick={addBinary} variant="ghost" size="xs">Add binary</Button>
+              <Button onClick={addBinary} variant="ghost" size="xs">
+                Add binary
+              </Button>
             </div>
             <div className="space-y-2">
               {draft.binaries.map((binary, index) => (
@@ -139,7 +146,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={binary.name}
-                    onChange={(e) => updateBinary(index, "name", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateBinary(index, "name", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="binary name"
                     className="font-mono"
                     size="sm"
@@ -147,7 +156,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={binary.repo}
-                    onChange={(e) => updateBinary(index, "repo", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateBinary(index, "repo", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="owner/repo"
                     className="font-mono"
                     size="sm"
@@ -155,7 +166,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={binary.version ?? ""}
-                    onChange={(e) => updateBinary(index, "version", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateBinary(index, "version", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="version"
                     className="font-mono"
                     size="sm"
@@ -163,7 +176,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={binary.bin_path ?? ""}
-                    onChange={(e) => updateBinary(index, "bin_path", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateBinary(index, "bin_path", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="bin path"
                     className="font-mono"
                     size="sm"
@@ -171,7 +186,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={binary.exe ?? ""}
-                    onChange={(e) => updateBinary(index, "exe", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateBinary(index, "exe", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="exe"
                     className="font-mono"
                     size="sm"
@@ -197,8 +214,12 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           {/* Session env */}
           <div className="space-y-1 md:col-span-2 xl:col-span-4">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-muted-foreground">Session environment</label>
-              <Button onClick={addSessionEnv} variant="ghost" size="xs">Add env</Button>
+              <label className="text-xs font-medium text-muted-foreground">
+                Session environment
+              </label>
+              <Button onClick={addSessionEnv} variant="ghost" size="xs">
+                Add env
+              </Button>
             </div>
             <div className="space-y-2">
               {draft.session_env.map((env, index) => (
@@ -209,7 +230,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={env.env_var}
-                    onChange={(e) => updateSessionEnv(index, "env_var", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateSessionEnv(index, "env_var", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="ENV_VAR"
                     className="font-mono"
                     size="sm"
@@ -227,7 +250,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                   <Input
                     nativeInput
                     value={env.value ?? ""}
-                    onChange={(e) => updateSessionEnv(index, "value", (e.target as HTMLInputElement).value)}
+                    onChange={(e) =>
+                      updateSessionEnv(index, "value", (e.target as HTMLInputElement).value)
+                    }
                     placeholder="value (static only)"
                     className="font-mono"
                     size="sm"
@@ -270,11 +295,15 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Provider config field</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              Provider config field
+            </label>
             <Input
               nativeInput
               value={draft.oauth_provider_config_field}
-              onChange={(e) => update({ oauth_provider_config_field: (e.target as HTMLInputElement).value })}
+              onChange={(e) =>
+                update({ oauth_provider_config_field: (e.target as HTMLInputElement).value })
+              }
               placeholder="brand"
               className="font-mono"
               size="sm"
@@ -285,7 +314,9 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
             <Input
               nativeInput
               value={draft.oauth_provider_choices}
-              onChange={(e) => update({ oauth_provider_choices: (e.target as HTMLInputElement).value })}
+              onChange={(e) =>
+                update({ oauth_provider_choices: (e.target as HTMLInputElement).value })
+              }
               placeholder="feishu, lark"
               className="font-mono"
               size="sm"

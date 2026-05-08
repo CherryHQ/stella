@@ -47,8 +47,14 @@ function statusBadgeVariant(status: string): "success" | "error" | "warning" | "
   return "outline";
 }
 
-interface Toast { msg: string; kind: "success" | "error"; }
-interface ConfirmState { msg: string; action: () => void; }
+interface Toast {
+  msg: string;
+  kind: "success" | "error";
+}
+interface ConfirmState {
+  msg: string;
+  action: () => void;
+}
 
 export function SchedulerPage() {
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
@@ -71,21 +77,27 @@ export function SchedulerPage() {
     try {
       const list = await api<SchedulerJobList>("GET", "/api/scheduler/jobs");
       setJobs(list.items || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   const loadAgents = useCallback(async () => {
     try {
       const list = await api<Agent[]>("GET", "/api/agents");
       setAgents(list || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   const loadMe = useCallback(async () => {
     try {
       const me = await api<{ is_admin: boolean }>("GET", "/api/auth/me");
       setIsAdmin(me.is_admin || false);
-    } catch { setIsAdmin(false); }
+    } catch {
+      setIsAdmin(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -138,61 +150,91 @@ export function SchedulerPage() {
     }
   }, [jobForm, isAdmin, editingJobId, resetForm, loadJobs, showToast]);
 
-  const toggleJob = useCallback(async (j: SchedulerJob) => {
-    if (j.owner_kind === "plugin") return;
-    try {
-      await api("PUT", "/api/scheduler/jobs/" + j.id, {
-        name: j.name, message: j.message,
-        cron: j.cron || "", every: j.every || "",
-        session_mode: j.session_mode, enabled: !j.enabled,
-        agent_id: j.agent_id || "",
-      });
-      await loadJobs();
-    } catch (e) { showToast(e instanceof Error ? e.message : "Request failed", "error"); }
-  }, [loadJobs, showToast]);
-
-  const doDeleteJob = useCallback(async (id: number) => {
-    const job = jobs.find((item) => item.id === id);
-    if (job?.owner_kind === "plugin") return;
-    try {
-      await api("DELETE", "/api/scheduler/jobs/" + id);
-      await loadJobs();
-      showToast("Deleted");
-    } catch (e) { showToast(e instanceof Error ? e.message : "Request failed", "error"); }
-  }, [jobs, loadJobs, showToast]);
-
-  const triggerJob = useCallback(async (j: SchedulerJob) => {
-    setTriggeringJobId(j.id);
-    try {
-      await api("POST", "/api/scheduler/jobs/" + j.id + "/run");
-      showToast("Job triggered");
-      if (expandedJobId === j.id) {
-        const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + j.id + "/runs");
-        setRunHistories((prev) => ({ ...prev, [j.id]: runs || [] }));
+  const toggleJob = useCallback(
+    async (j: SchedulerJob) => {
+      if (j.owner_kind === "plugin") return;
+      try {
+        await api("PUT", "/api/scheduler/jobs/" + j.id, {
+          name: j.name,
+          message: j.message,
+          cron: j.cron || "",
+          every: j.every || "",
+          session_mode: j.session_mode,
+          enabled: !j.enabled,
+          agent_id: j.agent_id || "",
+        });
+        await loadJobs();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Request failed", "error");
       }
-      await loadJobs();
-    } catch (e) { showToast(e instanceof Error ? e.message : "Request failed", "error"); }
-    finally { setTriggeringJobId(null); }
-  }, [expandedJobId, loadJobs, showToast]);
+    },
+    [loadJobs, showToast],
+  );
 
-  const toggleRuns = useCallback(async (jobId: number) => {
-    if (expandedJobId === jobId) { setExpandedJobId(null); return; }
-    setExpandedJobId(jobId);
-    try {
-      const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
-      setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
-    } catch (e) { console.error(e); }
-  }, [expandedJobId]);
+  const doDeleteJob = useCallback(
+    async (id: number) => {
+      const job = jobs.find((item) => item.id === id);
+      if (job?.owner_kind === "plugin") return;
+      try {
+        await api("DELETE", "/api/scheduler/jobs/" + id);
+        await loadJobs();
+        showToast("Deleted");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Request failed", "error");
+      }
+    },
+    [jobs, loadJobs, showToast],
+  );
+
+  const triggerJob = useCallback(
+    async (j: SchedulerJob) => {
+      setTriggeringJobId(j.id);
+      try {
+        await api("POST", "/api/scheduler/jobs/" + j.id + "/run");
+        showToast("Job triggered");
+        if (expandedJobId === j.id) {
+          const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + j.id + "/runs");
+          setRunHistories((prev) => ({ ...prev, [j.id]: runs || [] }));
+        }
+        await loadJobs();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Request failed", "error");
+      } finally {
+        setTriggeringJobId(null);
+      }
+    },
+    [expandedJobId, loadJobs, showToast],
+  );
+
+  const toggleRuns = useCallback(
+    async (jobId: number) => {
+      if (expandedJobId === jobId) {
+        setExpandedJobId(null);
+        return;
+      }
+      setExpandedJobId(jobId);
+      try {
+        const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
+        setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [expandedJobId],
+  );
 
   const isFormValid =
-    jobForm.name && jobForm.message &&
+    jobForm.name &&
+    jobForm.message &&
     (jobForm.schedule_type === "cron" ? !!jobForm.cron : !!jobForm.every);
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="font-serif text-2xl font-normal tracking-tight mb-1">Scheduled tasks</h1>
-        <p className="text-sm text-muted-foreground">Recurring jobs that Anna executes on a schedule.</p>
+        <p className="text-sm text-muted-foreground">
+          Recurring jobs that Anna executes on a schedule.
+        </p>
       </div>
 
       <div className="border-t border-border pt-8">
@@ -203,13 +245,17 @@ export function SchedulerPage() {
               {editingJobId ? "EDIT JOB" : "NEW JOB"}
             </p>
             {editingJobId && (
-              <Button variant="ghost" size="xs" onClick={resetForm}>Cancel</Button>
+              <Button variant="ghost" size="xs" onClick={resetForm}>
+                Cancel
+              </Button>
             )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
             <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">Name</label>
+              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                Name
+              </label>
               <Input
                 type="text"
                 value={jobForm.name}
@@ -219,7 +265,9 @@ export function SchedulerPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">Session Mode</label>
+              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                Session Mode
+              </label>
               <select
                 value={jobForm.session_mode}
                 onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
@@ -232,7 +280,9 @@ export function SchedulerPage() {
           </div>
 
           <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">Schedule</label>
+            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
+              Schedule
+            </label>
             <div className="flex items-center gap-4 mb-2">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -279,7 +329,9 @@ export function SchedulerPage() {
           </div>
 
           <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">Agent</label>
+            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
+              Agent
+            </label>
             <select
               value={jobForm.agent_id}
               onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
@@ -287,7 +339,9 @@ export function SchedulerPage() {
             >
               <option value="">Default agent</option>
               {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
               ))}
             </select>
           </div>
@@ -304,7 +358,9 @@ export function SchedulerPage() {
           )}
 
           <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">Message</label>
+            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
+              Message
+            </label>
             <Textarea
               value={jobForm.message}
               onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
@@ -336,14 +392,19 @@ export function SchedulerPage() {
                   <Badge size="sm" variant={j.enabled ? "success" : "outline"}>
                     {j.enabled ? "on" : "off"}
                   </Badge>
-                  <span className="text-xs font-mono text-muted-foreground">{jobScheduleText(j)}</span>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {jobScheduleText(j)}
+                  </span>
                   {j.owner_kind === "plugin" && (
-                    <Badge size="sm" variant="info">plugin:{j.plugin_id}</Badge>
+                    <Badge size="sm" variant="info">
+                      plugin:{j.plugin_id}
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
-                    variant="ghost" size="xs"
+                    variant="ghost"
+                    size="xs"
                     loading={triggeringJobId === j.id}
                     onClick={() => triggerJob(j)}
                   >
@@ -357,11 +418,16 @@ export function SchedulerPage() {
                       <Button variant="ghost" size="xs" onClick={() => toggleJob(j)}>
                         {j.enabled ? "disable" : "enable"}
                       </Button>
-                      <Button variant="ghost" size="xs" onClick={() => editJob(j)}>edit</Button>
+                      <Button variant="ghost" size="xs" onClick={() => editJob(j)}>
+                        edit
+                      </Button>
                       <Button
-                        variant="ghost" size="xs"
+                        variant="ghost"
+                        size="xs"
                         className="text-destructive hover:text-destructive"
-                        onClick={() => setConfirm({ msg: "Delete this job?", action: () => doDeleteJob(j.id) })}
+                        onClick={() =>
+                          setConfirm({ msg: "Delete this job?", action: () => doDeleteJob(j.id) })
+                        }
                       >
                         remove
                       </Button>
@@ -373,29 +439,51 @@ export function SchedulerPage() {
               </div>
 
               <div className="text-sm text-muted-foreground mt-1">
-                {j.owner_kind === "plugin" ? (j.description || "Plugin-owned scheduled job") : j.message}
+                {j.owner_kind === "plugin"
+                  ? j.description || "Plugin-owned scheduled job"
+                  : j.message}
               </div>
 
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                {j.owner_kind !== "plugin" && <Badge size="sm" variant="outline">{j.session_mode}</Badge>}
-                {j.agent_id && <Badge size="sm" variant="outline">{j.agent_id}</Badge>}
+                {j.owner_kind !== "plugin" && (
+                  <Badge size="sm" variant="outline">
+                    {j.session_mode}
+                  </Badge>
+                )}
+                {j.agent_id && (
+                  <Badge size="sm" variant="outline">
+                    {j.agent_id}
+                  </Badge>
+                )}
                 {j.owner_kind === "plugin" && (
                   <>
-                    <Badge size="sm" variant="outline">key:{j.job_key}</Badge>
-                    <Badge size="sm" variant="outline">runtime:{j.runtime_name}</Badge>
+                    <Badge size="sm" variant="outline">
+                      key:{j.job_key}
+                    </Badge>
+                    <Badge size="sm" variant="outline">
+                      runtime:{j.runtime_name}
+                    </Badge>
                   </>
                 )}
                 {isAdmin && j.owner_kind !== "plugin" && !j.user_id && (
-                  <Badge size="sm" variant="secondary">system</Badge>
+                  <Badge size="sm" variant="secondary">
+                    system
+                  </Badge>
                 )}
                 {isAdmin && j.owner_kind !== "plugin" && !!j.user_id && (
-                  <Badge size="sm" variant="outline">user:{j.user_id}</Badge>
+                  <Badge size="sm" variant="outline">
+                    user:{j.user_id}
+                  </Badge>
                 )}
                 {j.last_run_at && (
-                  <Badge size="sm" variant="outline">last run: {formatTime(j.last_run_at)}</Badge>
+                  <Badge size="sm" variant="outline">
+                    last run: {formatTime(j.last_run_at)}
+                  </Badge>
                 )}
                 {j.last_error && (
-                  <Badge size="sm" variant="error">error: {j.last_error}</Badge>
+                  <Badge size="sm" variant="error">
+                    error: {j.last_error}
+                  </Badge>
                 )}
               </div>
 
@@ -412,16 +500,25 @@ export function SchedulerPage() {
                   ) : (
                     runHistories[j.id].map((run) => (
                       <div key={run.id} className="flex items-center gap-3 text-xs py-1">
-                        <Badge size="sm" variant={statusBadgeVariant(run.status)}>{run.status}</Badge>
+                        <Badge size="sm" variant={statusBadgeVariant(run.status)}>
+                          {run.status}
+                        </Badge>
                         <span className="text-muted-foreground">{formatTime(run.started_at)}</span>
-                        {run.duration && <span className="font-mono text-muted-foreground">{run.duration}</span>}
+                        {run.duration && (
+                          <span className="font-mono text-muted-foreground">{run.duration}</span>
+                        )}
                         {run.session_id && (
-                          <a href={"/sessions/" + encodeURIComponent(run.session_id)} className="text-primary hover:underline">
+                          <a
+                            href={"/sessions/" + encodeURIComponent(run.session_id)}
+                            className="text-primary hover:underline"
+                          >
                             session
                           </a>
                         )}
                         {run.error && (
-                          <span className="text-destructive truncate max-w-xs" title={run.error}>{run.error}</span>
+                          <span className="text-destructive truncate max-w-xs" title={run.error}>
+                            {run.error}
+                          </span>
                         )}
                       </div>
                     ))
@@ -434,20 +531,33 @@ export function SchedulerPage() {
 
         {jobs.length === 0 && (
           <div className="py-12 text-center">
-            <p className="text-sm text-muted-foreground">No jobs yet. Create one above to schedule recurring tasks.</p>
+            <p className="text-sm text-muted-foreground">
+              No jobs yet. Create one above to schedule recurring tasks.
+            </p>
           </div>
         )}
       </div>
 
       {/* Confirm dialog */}
-      <Dialog open={!!confirm} onOpenChange={(open) => { if (!open) setConfirm(null); }}>
+      <Dialog
+        open={!!confirm}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+      >
         <DialogPopup className="max-w-sm">
           <DialogTitle>{confirm?.msg}</DialogTitle>
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>
+              Cancel
+            </Button>
             <Button
-              variant="destructive" size="sm"
-              onClick={() => { confirm?.action(); setConfirm(null); }}
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                confirm?.action();
+                setConfirm(null);
+              }}
             >
               Delete
             </Button>
@@ -457,11 +567,13 @@ export function SchedulerPage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-md max-w-sm ${
-          toast.kind === "error"
-            ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-            : "border-success/36 bg-success/8 text-success-foreground"
-        }`}>
+        <div
+          className={`fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-md max-w-sm ${
+            toast.kind === "error"
+              ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
+              : "border-success/36 bg-success/8 text-success-foreground"
+          }`}
+        >
           {toast.msg}
         </div>
       )}

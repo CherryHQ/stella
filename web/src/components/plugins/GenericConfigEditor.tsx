@@ -50,20 +50,10 @@ export function GenericConfigEditor({
           <p className="text-sm font-medium">Configuration</p>
           <div className="flex items-center gap-2">
             {isLoading && <Spinner className="size-4" />}
-            <Button
-              onClick={onReset}
-              disabled={isLoading || isSaving}
-              variant="ghost"
-              size="xs"
-            >
+            <Button onClick={onReset} disabled={isLoading || isSaving} variant="ghost" size="xs">
               Reset
             </Button>
-            <Button
-              onClick={onSave}
-              disabled={isLoading || isSaving}
-              variant="default"
-              size="xs"
-            >
+            <Button onClick={onSave} disabled={isLoading || isSaving} variant="default" size="xs">
               Save
             </Button>
           </div>
@@ -86,10 +76,7 @@ export function GenericConfigEditor({
               const value = draft[field.name];
 
               return (
-                <div
-                  key={field.name}
-                  className={`space-y-1${isComplex ? " lg:col-span-2" : ""}`}
-                >
+                <div key={field.name} className={`space-y-1${isComplex ? " lg:col-span-2" : ""}`}>
                   <label className="text-xs font-medium text-muted-foreground" htmlFor={fid}>
                     {field.name}
                   </label>
@@ -130,14 +117,18 @@ export function GenericConfigEditor({
                       nativeInput
                       type={inputType}
                       value={String(value ?? "")}
-                      onChange={(e) => onDraftChange(field.name, (e.target as HTMLInputElement).value)}
+                      onChange={(e) =>
+                        onDraftChange(field.name, (e.target as HTMLInputElement).value)
+                      }
                       placeholder={placeholder}
                       className={inputType === "password" ? "font-mono" : undefined}
                       size="sm"
                     />
                   )}
                   {description && (
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">{description}</p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {description}
+                    </p>
                   )}
                 </div>
               );

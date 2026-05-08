@@ -1,5 +1,12 @@
 import type { BuiltinItem } from "@/lib/types";
-import { Dialog, DialogPopup, DialogTitle, DialogHeader, DialogDescription, DialogPanel } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogPopup,
+  DialogTitle,
+  DialogHeader,
+  DialogDescription,
+  DialogPanel,
+} from "@/components/ui/dialog";
 
 interface Props {
   templates: BuiltinItem[];
@@ -10,12 +17,18 @@ interface Props {
 
 export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props) {
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogPopup className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Start from a template</DialogTitle>
           <DialogDescription>
-            Templates pre-fill the system prompt, skills, and model. You can edit everything before saving.
+            Templates pre-fill the system prompt, skills, and model. You can edit everything before
+            saving.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

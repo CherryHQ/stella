@@ -28,7 +28,15 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
   const [activePanel, setActivePanel] = useState<"tools" | "prompt" | "workspace" | null>(null);
   const [userInput, setUserInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [fileEditor, setFileEditor] = useState<{ open: boolean; path: string; content: string; language: string; saving: boolean; loading: boolean; previewMd: boolean } | null>(null);
+  const [fileEditor, setFileEditor] = useState<{
+    open: boolean;
+    path: string;
+    content: string;
+    language: string;
+    saving: boolean;
+    loading: boolean;
+    previewMd: boolean;
+  } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -40,7 +48,10 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
   const loadWorkspace = useCallback(async (sid: string) => {
     setWorkspaceLoading(true);
     try {
-      const data = await api<Workspace>("GET", `/api/sessions/${encodeURIComponent(sid)}/workspace`);
+      const data = await api<Workspace>(
+        "GET",
+        `/api/sessions/${encodeURIComponent(sid)}/workspace`,
+      );
       setWorkspace(data);
     } catch (e) {
       console.error(e);
@@ -78,13 +89,16 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
       setMessagesHasMore((msgs ?? []).length === 20);
       if (pr?.system_prompt) setSystemPrompt(pr.system_prompt);
       setTimeout(() => {
-        if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+        if (transcriptRef.current)
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
     };
-    load().catch(console.error).finally(() => {
-      messagesLoadingRef.current = false;
-      setMessagesLoading(false);
-    });
+    load()
+      .catch(console.error)
+      .finally(() => {
+        messagesLoadingRef.current = false;
+        setMessagesLoading(false);
+      });
   }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadOlderMessages = useCallback(async () => {
@@ -96,12 +110,20 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
     const prevHeight = el.scrollHeight;
     try {
       const e = encodeURIComponent(session.id);
-      const older = await api<Message[]>(`GET`, `/api/sessions/${e}/messages?limit=20&skip=${messagesSkip}`);
-      if (!older?.length) { setMessagesHasMore(false); return; }
+      const older = await api<Message[]>(
+        `GET`,
+        `/api/sessions/${e}/messages?limit=20&skip=${messagesSkip}`,
+      );
+      if (!older?.length) {
+        setMessagesHasMore(false);
+        return;
+      }
       setMessages((prev) => [...older, ...prev]);
       setMessagesSkip((s) => s + older.length);
       setMessagesHasMore(older.length === 20);
-      setTimeout(() => { if (el) el.scrollTop = el.scrollHeight - prevHeight; }, 0);
+      setTimeout(() => {
+        if (el) el.scrollTop = el.scrollHeight - prevHeight;
+      }, 0);
     } catch (e) {
       console.error(e);
     } finally {
@@ -117,29 +139,39 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
     try {
-      setTools(await api<Tool[]>("GET", "/api/tools") ?? []);
+      setTools((await api<Tool[]>("GET", "/api/tools")) ?? []);
     } finally {
       setToolsLoading(false);
     }
   }, []);
 
-  const togglePanel = useCallback((name: "tools" | "prompt" | "workspace") => {
-    setActivePanel((prev) => {
-      const next = prev === name ? null : name;
-      if (next === "tools" && tools.length === 0) loadTools().catch(console.error);
-      if (next === "workspace" && !workspace && session) loadWorkspace(session.id).catch(console.error);
-      return next;
-    });
-  }, [tools.length, workspace, session, loadTools, loadWorkspace]);
+  const togglePanel = useCallback(
+    (name: "tools" | "prompt" | "workspace") => {
+      setActivePanel((prev) => {
+        const next = prev === name ? null : name;
+        if (next === "tools" && tools.length === 0) loadTools().catch(console.error);
+        if (next === "workspace" && !workspace && session)
+          loadWorkspace(session.id).catch(console.error);
+        return next;
+      });
+    },
+    [tools.length, workspace, session, loadTools, loadWorkspace],
+  );
 
   const sendMessage = useCallback(async () => {
     if (!userInput.trim() || isStreaming || !session) return;
     const content = userInput.trim();
     setUserInput("");
-    setMessages((prev) => [...prev, { role: "user", content, timestamp: new Date().toISOString() }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content, timestamp: new Date().toISOString() },
+    ]);
     setIsStreaming(true);
     abortRef.current = new AbortController();
-    setTimeout(() => { if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight; }, 0);
+    setTimeout(() => {
+      if (transcriptRef.current)
+        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }, 0);
 
     try {
       const res = await fetch(`/api/sessions/${enc}/messages`, {
@@ -148,7 +180,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
         body: JSON.stringify({ content }),
         signal: abortRef.current.signal,
       });
-      if (!res.ok) throw new Error(await res.text() || res.statusText);
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
@@ -159,14 +191,19 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
       const scrollToBottom = () => {
         if (transcriptRef.current) {
           const el = transcriptRef.current;
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) el.scrollTop = el.scrollHeight;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 200)
+            el.scrollTop = el.scrollHeight;
         }
       };
 
       const dispatch = (event: string, dataStr: string) => {
         if (!dataStr) return;
         let data: Record<string, unknown>;
-        try { data = JSON.parse(dataStr) as Record<string, unknown>; } catch { return; }
+        try {
+          data = JSON.parse(dataStr) as Record<string, unknown>;
+        } catch {
+          return;
+        }
 
         if (event === "text") {
           const text = (data.text as string) || "";
@@ -182,18 +219,43 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
               }
               return [...prev.slice(0, -1), { ...last, blocks }];
             }
-            return [...prev, { role: "assistant", blocks: [{ type: "text", text }], timestamp: new Date().toISOString(), _streaming: true }];
+            return [
+              ...prev,
+              {
+                role: "assistant",
+                blocks: [{ type: "text", text }],
+                timestamp: new Date().toISOString(),
+                _streaming: true,
+              },
+            ];
           });
           scrollToBottom();
         } else if (event === "tool_use") {
           if ((data.type as string) === "tool_call") {
             setMessages((prev) => {
               const last = prev[prev.length - 1];
-              const newBlock = { type: "tool_call" as const, id: data.id as string, name: data.name as string, arguments: data.arguments as Record<string, unknown>, status: "running" as const };
+              const newBlock = {
+                type: "tool_call" as const,
+                id: data.id as string,
+                name: data.name as string,
+                arguments: data.arguments as Record<string, unknown>,
+                status: "running" as const,
+              };
               if (last?.role === "assistant" && last._streaming) {
-                return [...prev.slice(0, -1), { ...last, blocks: [...(last.blocks ?? []), newBlock] }];
+                return [
+                  ...prev.slice(0, -1),
+                  { ...last, blocks: [...(last.blocks ?? []), newBlock] },
+                ];
               }
-              return [...prev, { role: "assistant", blocks: [newBlock], timestamp: new Date().toISOString(), _streaming: true }];
+              return [
+                ...prev,
+                {
+                  role: "assistant",
+                  blocks: [newBlock],
+                  timestamp: new Date().toISOString(),
+                  _streaming: true,
+                },
+              ];
             });
             scrollToBottom();
           } else if ((data.type as string) === "tool_result") {
@@ -202,7 +264,15 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
                 if (msg.role !== "assistant") return msg;
                 const blocks = (msg.blocks ?? []).map((block) => {
                   if (block.type === "tool_call" && block.id === (data.tool_call_id as string)) {
-                    return { ...block, result: { tool_call_id: data.tool_call_id as string, content: data.content as string, is_error: data.is_error as boolean }, status: "done" as const };
+                    return {
+                      ...block,
+                      result: {
+                        tool_call_id: data.tool_call_id as string,
+                        content: data.content as string,
+                        is_error: data.is_error as boolean,
+                      },
+                      status: "done" as const,
+                    };
                   }
                   return block;
                 });
@@ -247,25 +317,51 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
     }
   }, [userInput, isStreaming, session, enc]);
 
-  const openFileEditor = useCallback(async (path: string) => {
-    if (!session) return;
-    setFileEditor({ open: true, path, content: "", language: "", saving: false, loading: true, previewMd: false });
-    try {
-      const data = await api<{ content: string; language: string }>("GET", `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`);
-      setFileEditor((prev) => prev ? { ...prev, content: data.content ?? "", language: data.language ?? "", loading: false } : null);
-    } catch (e) {
-      console.error(e);
-      setFileEditor(null);
-    }
-  }, [session, enc]);
+  const openFileEditor = useCallback(
+    async (path: string) => {
+      if (!session) return;
+      setFileEditor({
+        open: true,
+        path,
+        content: "",
+        language: "",
+        saving: false,
+        loading: true,
+        previewMd: false,
+      });
+      try {
+        const data = await api<{ content: string; language: string }>(
+          "GET",
+          `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
+        );
+        setFileEditor((prev) =>
+          prev
+            ? {
+                ...prev,
+                content: data.content ?? "",
+                language: data.language ?? "",
+                loading: false,
+              }
+            : null,
+        );
+      } catch (e) {
+        console.error(e);
+        setFileEditor(null);
+      }
+    },
+    [session, enc],
+  );
 
   const saveFileEditor = useCallback(async () => {
     if (!fileEditor || !session) return;
-    setFileEditor((prev) => prev ? { ...prev, saving: true } : null);
+    setFileEditor((prev) => (prev ? { ...prev, saving: true } : null));
     try {
-      await api("PUT", `/api/sessions/${enc}/workspace/file-content`, { path: fileEditor.path, content: fileEditor.content });
+      await api("PUT", `/api/sessions/${enc}/workspace/file-content`, {
+        path: fileEditor.path,
+        content: fileEditor.content,
+      });
     } finally {
-      setFileEditor((prev) => prev ? { ...prev, saving: false } : null);
+      setFileEditor((prev) => (prev ? { ...prev, saving: false } : null));
     }
   }, [fileEditor, session, enc]);
 
@@ -278,7 +374,9 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
     return (
       <div className="flex-col overflow-hidden hidden lg:flex">
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-muted-foreground">Select a session to inspect its transcript.</p>
+          <p className="text-sm text-muted-foreground">
+            Select a session to inspect its transcript.
+          </p>
         </div>
       </div>
     );
@@ -294,24 +392,72 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
         <div className="flex-shrink-0 px-6 py-4 border-b border-border bg-background">
           <div className="flex items-start justify-between gap-4 mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <button onClick={onBack} className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0">←</button>
-              <h1 className="font-serif text-xl tracking-tight truncate">{session.title || "Untitled session"}</h1>
+              <button
+                onClick={onBack}
+                className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+              >
+                ←
+              </button>
+              <h1 className="font-serif text-xl tracking-tight truncate">
+                {session.title || "Untitled session"}
+              </h1>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {session.archived && <span className="text-[10px] border border-border rounded-full px-2 py-0.5 text-muted-foreground">archived</span>}
-              <Button variant="ghost" size="xs" onClick={copyID} className="font-mono text-[10px] text-muted-foreground gap-1">
+              {session.archived && (
+                <span className="text-[10px] border border-border rounded-full px-2 py-0.5 text-muted-foreground">
+                  archived
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={copyID}
+                className="font-mono text-[10px] text-muted-foreground gap-1"
+              >
                 Copy ID
               </Button>
               <div className="w-px h-4 bg-border mx-0.5" />
-              <Button variant="ghost" size="xs" onClick={() => togglePanel("tools")} className={cn("text-xs", activePanel === "tools" ? "text-primary" : "text-muted-foreground")}>Tools</Button>
-              <Button variant="ghost" size="xs" onClick={() => togglePanel("prompt")} className={cn("text-xs", activePanel === "prompt" ? "text-primary" : "text-muted-foreground")}>System Prompt</Button>
-              <Button variant="ghost" size="xs" onClick={() => togglePanel("workspace")} className={cn("text-xs", activePanel === "workspace" ? "text-primary" : "text-muted-foreground")}>Workspace</Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => togglePanel("tools")}
+                className={cn(
+                  "text-xs",
+                  activePanel === "tools" ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                Tools
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => togglePanel("prompt")}
+                className={cn(
+                  "text-xs",
+                  activePanel === "prompt" ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                System Prompt
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => togglePanel("workspace")}
+                className={cn(
+                  "text-xs",
+                  activePanel === "workspace" ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                Workspace
+              </Button>
             </div>
           </div>
 
           {/* Metadata */}
           <div className="flex items-center gap-2 flex-wrap text-xs font-mono text-muted-foreground">
-            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">{channelLabel(session.channel) || "unknown"}</span>
+            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">
+              {channelLabel(session.channel) || "unknown"}
+            </span>
             {(session.agent_name || session.agent_id) && (
               <span className="flex items-center gap-1">
                 <span className="text-muted-foreground/30">·</span>
@@ -331,7 +477,9 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
             {sessionTotalTokens > 0 && (
               <span className="flex items-center gap-1">
                 <span className="text-muted-foreground/30">·</span>
-                <span className="text-[10px] text-primary/60">{sessionTotalTokens.toLocaleString()} tok</span>
+                <span className="text-[10px] text-primary/60">
+                  {sessionTotalTokens.toLocaleString()} tok
+                </span>
               </span>
             )}
             <span className="text-[10px] text-muted-foreground/30 ml-1 truncate">{session.id}</span>
@@ -341,7 +489,9 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
           {activePanel === "tools" && (
             <div className="mt-4 -mx-6 border-t border-border">
               {toolsLoading ? (
-                <div className="px-6 py-4 text-xs text-muted-foreground font-mono">Loading tools…</div>
+                <div className="px-6 py-4 text-xs text-muted-foreground font-mono">
+                  Loading tools…
+                </div>
               ) : (
                 <div className="divide-y divide-border">
                   {tools.map((tool) => (
@@ -356,11 +506,17 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
           {activePanel === "prompt" && systemPrompt && (
             <div className="mt-4 -mx-6 px-6 pt-4 border-t border-border">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">System Prompt</span>
-                <span className="text-[10px] font-mono text-muted-foreground/40">~{Math.round(systemPrompt.length / 4)} tokens</span>
+                <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+                  System Prompt
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground/40">
+                  ~{Math.round(systemPrompt.length / 4)} tokens
+                </span>
               </div>
               <div className="max-h-40 overflow-y-auto border-l-2 border-primary/25 pl-3">
-                <pre className="text-[10px] font-mono text-muted-foreground/60 whitespace-pre-wrap leading-relaxed">{systemPrompt}</pre>
+                <pre className="text-[10px] font-mono text-muted-foreground/60 whitespace-pre-wrap leading-relaxed">
+                  {systemPrompt}
+                </pre>
               </div>
             </div>
           )}
@@ -377,10 +533,12 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
         {/* Message input */}
         {session.user_id === currentUserID && (
           <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-background border-t border-border">
-            <div className={cn(
-              "relative rounded-2xl border bg-background transition-colors shadow-sm",
-              isStreaming ? "border-primary/40" : "border-border focus-within:border-primary/60",
-            )}>
+            <div
+              className={cn(
+                "relative rounded-2xl border bg-background transition-colors shadow-sm",
+                isStreaming ? "border-primary/40" : "border-border focus-within:border-primary/60",
+              )}
+            >
               <textarea
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
@@ -402,17 +560,37 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
                 disabled={isStreaming}
               />
               <div className="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
-                {!isStreaming && <span className="text-[10px] font-mono text-muted-foreground/30 select-none">⌘↵ to send</span>}
-                {isStreaming && <span className="text-[10px] font-mono text-primary/50 select-none">generating…</span>}
+                {!isStreaming && (
+                  <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
+                    ⌘↵ to send
+                  </span>
+                )}
+                {isStreaming && (
+                  <span className="text-[10px] font-mono text-primary/50 select-none">
+                    generating…
+                  </span>
+                )}
                 <div className="flex items-center gap-1 pointer-events-auto">
                   {isStreaming && (
-                    <Button size="xs" variant="ghost" onClick={() => abortRef.current?.abort()} className="text-destructive gap-1 rounded-lg">
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => abortRef.current?.abort()}
+                      className="text-destructive gap-1 rounded-lg"
+                    >
                       Stop
                     </Button>
                   )}
                   {!isStreaming && (
-                    <Button size="sm" disabled={!userInput.trim()} onClick={() => sendMessage().catch(console.error)} className="rounded-xl gap-1.5">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" /></svg>
+                    <Button
+                      size="sm"
+                      disabled={!userInput.trim()}
+                      onClick={() => sendMessage().catch(console.error)}
+                      className="rounded-xl gap-1.5"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
+                      </svg>
                       Send
                     </Button>
                   )}
@@ -440,8 +618,10 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
           fileEditor={fileEditor}
           onClose={() => setFileEditor(null)}
           onSave={saveFileEditor}
-          onChange={(content) => setFileEditor((prev) => prev ? { ...prev, content } : null)}
-          onTogglePreview={() => setFileEditor((prev) => prev ? { ...prev, previewMd: !prev.previewMd } : null)}
+          onChange={(content) => setFileEditor((prev) => (prev ? { ...prev, content } : null))}
+          onTogglePreview={() =>
+            setFileEditor((prev) => (prev ? { ...prev, previewMd: !prev.previewMd } : null))
+          }
         />
       )}
     </div>
@@ -458,19 +638,26 @@ function ToolRow({ tool }: { tool: Tool }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div>
-      <button onClick={() => setExpanded((v) => !v)} className="w-full text-left flex items-center gap-3 px-6 py-2.5 hover:bg-muted transition-colors cursor-pointer">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-left flex items-center gap-3 px-6 py-2.5 hover:bg-muted transition-colors cursor-pointer"
+      >
         <span className="text-[10px] text-muted-foreground">{expanded ? "▾" : "▸"}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-mono font-medium">{tool.name}</span>
-            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">{tool.category}</span>
+            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">
+              {tool.category}
+            </span>
           </div>
           <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tool.description}</p>
         </div>
       </button>
       {expanded && (
         <div className="px-6 pb-3">
-          <pre className="text-[10px] font-mono text-muted-foreground/70 bg-muted px-3 py-2 rounded overflow-x-auto">{JSON.stringify(tool.input_schema, null, 2)}</pre>
+          <pre className="text-[10px] font-mono text-muted-foreground/70 bg-muted px-3 py-2 rounded overflow-x-auto">
+            {JSON.stringify(tool.input_schema, null, 2)}
+          </pre>
         </div>
       )}
     </div>

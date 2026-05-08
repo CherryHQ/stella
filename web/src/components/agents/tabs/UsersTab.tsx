@@ -15,12 +15,19 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">Manage user access for restricted-scope agents.</p>
+      <p className="text-xs text-muted-foreground">
+        Manage user access for restricted-scope agents.
+      </p>
       <div className="divide-y divide-border">
         {assignedUsers.map((u) => (
           <div key={u.id} className="flex items-center justify-between py-2">
             <span className="text-sm font-mono">{u.username}</span>
-            <Button onClick={() => onRemoveUser(u.id)} variant="ghost" size="xs" className="text-destructive">
+            <Button
+              onClick={() => onRemoveUser(u.id)}
+              variant="ghost"
+              size="xs"
+              className="text-destructive"
+            >
               remove
             </Button>
           </div>
@@ -37,7 +44,9 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
         >
           <option value="">Select user...</option>
           {availableUsers.map((u) => (
-            <option key={u.id} value={u.id}>{u.username}</option>
+            <option key={u.id} value={u.id}>
+              {u.username}
+            </option>
           ))}
         </select>
         <Button onClick={onAddUser} disabled={!addUserId} size="sm">

@@ -30,22 +30,26 @@ function skillScopeLabel(scope: string) {
 
 function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default" {
   return (
-    {
-      system: "outline",
-      user: "success",
-      agent: "default",
-    } as Record<string, "outline" | "success" | "default">
-  )[scope] ?? "outline";
+    (
+      {
+        system: "outline",
+        user: "success",
+        agent: "default",
+      } as Record<string, "outline" | "success" | "default">
+    )[scope] ?? "outline"
+  );
 }
 
 function skillStatusBadgeVariant(status: string): "success" | "warning" | "error" | "outline" {
   return (
-    {
-      active: "success",
-      draft: "warning",
-      deprecated: "error",
-    } as Record<string, "success" | "warning" | "error" | "outline">
-  )[status] ?? "outline";
+    (
+      {
+        active: "success",
+        draft: "warning",
+        deprecated: "error",
+      } as Record<string, "success" | "warning" | "error" | "outline">
+    )[status] ?? "outline"
+  );
 }
 
 export function SkillsTab({
@@ -166,10 +170,7 @@ export function SkillsTab({
               className="w-full lg:max-w-sm"
             />
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                onClick={() => onOpenSkillInstallModal()}
-                size="sm"
-              >
+              <Button onClick={() => onOpenSkillInstallModal()} size="sm">
                 + Install skill
               </Button>
             </div>
@@ -235,7 +236,9 @@ export function SkillsTab({
                       title={sk.status === "active" ? "Disable skill" : "Enable skill"}
                     />
                   ) : (
-                    <Badge variant="outline" size="sm" className="shrink-0">read only</Badge>
+                    <Badge variant="outline" size="sm" className="shrink-0">
+                      read only
+                    </Badge>
                   )}
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -248,7 +251,9 @@ export function SkillsTab({
                       </Badge>
                     </div>
                     {sk.description && (
-                      <p className="text-xs text-muted-foreground truncate mt-1">{sk.description}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-1">
+                        {sk.description}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -298,10 +303,7 @@ export function SkillsTab({
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedSkill.scope === "system" && canInstallAgentSkills && (
-                  <Button
-                    onClick={onDuplicateBuiltinToAgent}
-                    size="xs"
-                  >
+                  <Button onClick={onDuplicateBuiltinToAgent} size="xs">
                     Duplicate to agent
                   </Button>
                 )}
@@ -351,7 +353,9 @@ export function SkillsTab({
 
             <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Status</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                  Status
+                </p>
                 {!selectedSkillEditMode ? (
                   <div className="text-sm">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
@@ -361,7 +365,10 @@ export function SkillsTab({
                     value={selectedSkill.status}
                     onChange={(e) => {
                       onSetState({
-                        selectedSkill: { ...selectedSkill, status: e.target.value as Skill["status"] },
+                        selectedSkill: {
+                          ...selectedSkill,
+                          status: e.target.value as Skill["status"],
+                        },
                         selectedSkillDirty: true,
                       });
                     }}
@@ -375,7 +382,9 @@ export function SkillsTab({
                 )}
               </div>
               <div className="space-y-2">
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Scope</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+                  Scope
+                </p>
                 <div className="text-sm">{skillScopeLabel(selectedSkill.scope)}</div>
                 {selectedSkillEditMode && (
                   <label className="flex items-center gap-2 cursor-pointer pt-1">
@@ -404,7 +413,10 @@ export function SkillsTab({
                     value={selectedSkill.description}
                     onChange={(e) => {
                       onSetState({
-                        selectedSkill: { ...selectedSkill, description: (e.target as HTMLInputElement).value },
+                        selectedSkill: {
+                          ...selectedSkill,
+                          description: (e.target as HTMLInputElement).value,
+                        },
                         selectedSkillDirty: true,
                       });
                     }}
@@ -418,7 +430,9 @@ export function SkillsTab({
 
             <div className="p-4 border-b border-border">
               <Button
-                onClick={() => onSetState({ selectedSkillShowAdvanced: !selectedSkillShowAdvanced })}
+                onClick={() =>
+                  onSetState({ selectedSkillShowAdvanced: !selectedSkillShowAdvanced })
+                }
                 variant="ghost"
                 size="sm"
                 className="px-0"
@@ -440,7 +454,9 @@ export function SkillsTab({
                       className="rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring w-auto max-w-sm"
                     >
                       {skillFiles.map((f) => (
-                        <option key={f} value={f}>{f}</option>
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
                       ))}
                     </select>
                     {canEdit && selectedSkillEditMode && selectedSkillActiveFile !== "SKILL.md" && (
@@ -455,7 +471,12 @@ export function SkillsTab({
                     )}
                     {canEdit && selectedSkillEditMode && !selectedSkillAddingFile && (
                       <Button
-                        onClick={() => onSetState({ selectedSkillAddingFile: true, selectedSkillNewFileName: "" })}
+                        onClick={() =>
+                          onSetState({
+                            selectedSkillAddingFile: true,
+                            selectedSkillNewFileName: "",
+                          })
+                        }
                         variant="ghost"
                         size="xs"
                       >
@@ -468,9 +489,16 @@ export function SkillsTab({
                       <Input
                         nativeInput
                         value={selectedSkillNewFileName}
-                        onChange={(e) => onSetState({ selectedSkillNewFileName: (e.target as HTMLInputElement).value })}
+                        onChange={(e) =>
+                          onSetState({
+                            selectedSkillNewFileName: (e.target as HTMLInputElement).value,
+                          })
+                        }
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); commitAddSkillFile(); }
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitAddSkillFile();
+                          }
                           if (e.key === "Escape") onSetState({ selectedSkillAddingFile: false });
                         }}
                         type="text"
@@ -479,7 +507,9 @@ export function SkillsTab({
                         className="flex-1 font-mono"
                         autoFocus
                       />
-                      <Button onClick={commitAddSkillFile} size="xs">Add</Button>
+                      <Button onClick={commitAddSkillFile} size="xs">
+                        Add
+                      </Button>
                       <Button
                         onClick={() => onSetState({ selectedSkillAddingFile: false })}
                         variant="ghost"
@@ -498,7 +528,12 @@ export function SkillsTab({
                   ) : (
                     <Textarea
                       value={selectedSkillFileContent}
-                      onChange={(e) => onSetState({ selectedSkillFileContent: (e.target as HTMLTextAreaElement).value, selectedSkillDirty: true })}
+                      onChange={(e) =>
+                        onSetState({
+                          selectedSkillFileContent: (e.target as HTMLTextAreaElement).value,
+                          selectedSkillDirty: true,
+                        })
+                      }
                       disabled={!canEdit || !selectedSkillEditMode}
                       rows={18}
                       className="text-xs font-mono"

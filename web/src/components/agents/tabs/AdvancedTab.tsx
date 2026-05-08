@@ -10,8 +10,7 @@ interface Props {
 export function AdvancedTab({ state, onSetState }: Props) {
   const { form } = state;
 
-  const setForm = (patch: Partial<typeof form>) =>
-    onSetState({ form: { ...form, ...patch } });
+  const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
   const allowlistText = (form.sandbox?.network?.allowlist ?? []).join("\n");
 
@@ -20,7 +19,10 @@ export function AdvancedTab({ state, onSetState }: Props) {
       sandbox: normalizeSandbox({
         network: {
           mode: form.sandbox?.network?.mode ?? "disabled",
-          allowlist: value.split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean),
+          allowlist: value
+            .split(/\r?\n|,/)
+            .map((v) => v.trim())
+            .filter(Boolean),
         },
       }),
     });
@@ -36,7 +38,10 @@ export function AdvancedTab({ state, onSetState }: Props) {
         </p>
         <p className="text-xs text-muted-foreground">
           Sandbox backend is configured on the{" "}
-          <a href="/plugins" className="text-primary underline underline-offset-4">Plugins</a> page.
+          <a href="/plugins" className="text-primary underline underline-offset-4">
+            Plugins
+          </a>{" "}
+          page.
         </p>
       </div>
       <div>

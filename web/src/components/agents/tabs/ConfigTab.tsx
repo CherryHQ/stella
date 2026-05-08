@@ -35,7 +35,9 @@ function ModelComboField({
   return (
     <div className="relative">
       <div className="flex items-center justify-between mb-1">
-        <label className="text-sm font-mono" htmlFor={`model-field-${field}`}>{label}</label>
+        <label className="text-sm font-mono" htmlFor={`model-field-${field}`}>
+          {label}
+        </label>
         {optional && <span className="text-xs text-muted-foreground">(optional)</span>}
       </div>
       <Input
@@ -83,8 +85,7 @@ function ModelComboField({
 export function ConfigTab({ state, onSetState }: Props) {
   const { form, cachedModels, isAdmin, editingId, channels, selectedChannelIDs } = state;
 
-  const setForm = (patch: Partial<typeof form>) =>
-    onSetState({ form: { ...form, ...patch } });
+  const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
   const availableDedicatedChannels = channels.filter(
     (ch) => ch.id !== ch.type && ch.enabled && (!ch.agent_id || ch.agent_id === editingId),
@@ -111,7 +112,10 @@ export function ConfigTab({ state, onSetState }: Props) {
       </div>
       <div>
         <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Models <span className="normal-case tracking-normal text-muted-foreground/50">— provider/model</span>
+          Models{" "}
+          <span className="normal-case tracking-normal text-muted-foreground/50">
+            — provider/model
+          </span>
         </p>
         <div className="space-y-3">
           <ModelComboField
@@ -160,7 +164,9 @@ export function ConfigTab({ state, onSetState }: Props) {
       {isAdmin && editingId && (
         <div>
           <label className="block text-sm font-mono mb-1">Dedicated channels</label>
-          <p className="text-xs text-muted-foreground mb-2">Bind dedicated channel instances to this agent.</p>
+          <p className="text-xs text-muted-foreground mb-2">
+            Bind dedicated channel instances to this agent.
+          </p>
           <div className="space-y-1">
             {availableDedicatedChannels.map((ch) => (
               <label

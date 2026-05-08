@@ -1,14 +1,19 @@
 import { defineConfig } from "vite-plus";
-import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
+import tanstackRouter from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 export default defineConfig({
-  fmt: {},
-  lint: { options: { typeAware: true, typeCheck: true } },
+  fmt: {
+    ignorePatterns: ["src/components/ui/**"],
+  },
+  lint: {
+    ignorePatterns: ["src/components/ui/**"],
+    options: { typeAware: true, typeCheck: true },
+  },
   plugins: [
-    TanStackRouterVite({
+    tanstackRouter({
       routesDirectory: "./src/routes",
       generatedRouteTree: "./src/routeTree.gen.ts",
     }),

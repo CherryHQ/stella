@@ -55,7 +55,7 @@ function parseConfig(raw: string): Record<string, unknown> {
 }
 
 function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...(platformMeta[type]?.defaults || {}) };
+  return { ...platformMeta[type]?.defaults };
 }
 
 function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
@@ -63,7 +63,10 @@ function normalizeConfigValue(defaultValue: string | boolean, value: unknown): s
   return (value as string) || "";
 }
 
-function serializePlatformConfig(type: string, data: Record<string, unknown>): Record<string, unknown> {
+function serializePlatformConfig(
+  type: string,
+  data: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
       key,
@@ -194,7 +197,8 @@ function InstanceFields({
       {type === "feishu" && (
         <div className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.
+            Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark
+            workspace automation.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {field("app_id", "App ID")}
@@ -302,7 +306,8 @@ export function ChannelsPage() {
   );
 
   const dedicatedInstancesFor = useCallback(
-    (type: string): NormalizedChannel[] => instances.filter((ch) => ch.type === type && ch.id !== type),
+    (type: string): NormalizedChannel[] =>
+      instances.filter((ch) => ch.type === type && ch.id !== type),
     [instances],
   );
 
@@ -311,9 +316,7 @@ export function ChannelsPage() {
   const instanceStatus = (ch: NormalizedChannel) =>
     hasConfig(ch.type, ch) ? "Configured" : "Needs config";
 
-  const instanceStatusVariant = (
-    ch: NormalizedChannel,
-  ): "success" | "secondary" =>
+  const instanceStatusVariant = (ch: NormalizedChannel): "success" | "secondary" =>
     hasConfig(ch.type, ch) ? "success" : "secondary";
 
   const identityLabel = (identity: Identity | null) => {
@@ -324,16 +327,15 @@ export function ChannelsPage() {
 
   const platformDescription = (channel: Channel) => {
     if (!channel) return "";
-    if (isLinked(channel.type)) return `Your ${channel.label} account is linked and ready to use with Anna.`;
+    if (isLinked(channel.type))
+      return `Your ${channel.label} account is linked and ready to use with Anna.`;
     if (channel.type === "weixin") return "Link your Weixin account by scanning a QR code.";
     return `Link your ${channel.label} account once to chat with Anna on this platform.`;
   };
 
   const linkedAgentLabel = (channel: Channel) => {
     if (!channel?.agent_id) return "";
-    return channel.agent_name
-      ? `${channel.agent_name} (${channel.agent_id})`
-      : channel.agent_id;
+    return channel.agent_name ? `${channel.agent_name} (${channel.agent_id})` : channel.agent_id;
   };
 
   const platformLabel = (type: string) => platformMeta[type]?.label || type;
@@ -454,7 +456,9 @@ export function ChannelsPage() {
     setWxQrStatus("");
     wxQrCodeRef.current = "";
     try {
-      const result = await api<{ code: string }>("POST", "/api/auth/profile/link-code", { platform });
+      const result = await api<{ code: string }>("POST", "/api/auth/profile/link-code", {
+        platform,
+      });
       setLinkCode(result.code);
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -545,9 +549,7 @@ export function ChannelsPage() {
   // ── instance management ──
 
   const updateInstance = (id: string, updates: Record<string, unknown>) => {
-    setInstances((prev) =>
-      prev.map((ch) => (ch.id === id ? { ...ch, ...updates } : ch)),
-    );
+    setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, ...updates } : ch)));
   };
 
   const saveInstance = async (ch: NormalizedChannel) => {
@@ -662,11 +664,13 @@ export function ChannelsPage() {
           <div>
             <h2 className="text-lg font-medium">Platforms</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Link your own account here. Admins can also configure the platform default and any dedicated
-              instances in the same card.
+              Link your own account here. Admins can also configure the platform default and any
+              dedicated instances in the same card.
             </p>
           </div>
-          <span className="text-xs font-mono text-muted-foreground">{linkedIdentities.length} linked</span>
+          <span className="text-xs font-mono text-muted-foreground">
+            {linkedIdentities.length} linked
+          </span>
         </div>
 
         {isLoading ? (
@@ -682,7 +686,10 @@ export function ChannelsPage() {
                   {isAdmin && (
                     <p>
                       Enable one or more channel plugins on the{" "}
-                      <a href="/plugins" className="text-primary underline underline-offset-4 hover:text-primary/80">
+                      <a
+                        href="/plugins"
+                        className="text-primary underline underline-offset-4 hover:text-primary/80"
+                      >
                         Plugins
                       </a>{" "}
                       page.
@@ -717,7 +724,8 @@ export function ChannelsPage() {
                   onToggleNewInstanceForm={() => toggleNewInstanceForm(channel.type)}
                   onNewChannelChange={(key, value) =>
                     setNewChannel((prev) => {
-                      if (key === "type") return newInstanceDraft(value as string, prev.id as string);
+                      if (key === "type")
+                        return newInstanceDraft(value as string, prev.id as string);
                       return { ...prev, [key]: value };
                     })
                   }
@@ -732,7 +740,9 @@ export function ChannelsPage() {
                     setConfirmMsg(`Delete dedicated instance ${id}?`);
                   }}
                   onUpdateInstance={updateInstance}
-                  onToggleInstanceCollapse={(id, collapsed) => updateInstance(id, { _collapsed: collapsed })}
+                  onToggleInstanceCollapse={(id, collapsed) =>
+                    updateInstance(id, { _collapsed: collapsed })
+                  }
                   onToggleConfigCollapse={(type) => {
                     const cfg = configForPlatform(type);
                     if (cfg) updateInstance(cfg.id, { _collapsed: !cfg._collapsed });
@@ -781,7 +791,12 @@ export function ChannelsPage() {
       </section>
 
       {/* Confirm dialog */}
-      <Dialog open={!!confirmMsg} onOpenChange={(open) => { if (!open) setConfirmMsg(""); }}>
+      <Dialog
+        open={!!confirmMsg}
+        onOpenChange={(open) => {
+          if (!open) setConfirmMsg("");
+        }}
+      >
         <DialogPopup showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>Confirm</DialogTitle>
@@ -882,7 +897,9 @@ function PlatformCard({
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-medium text-base">{channel.label}</h3>
-            <Badge variant="secondary" size="sm">platform</Badge>
+            <Badge variant="secondary" size="sm">
+              platform
+            </Badge>
             <Badge size="sm" variant={linked ? "success" : "secondary"}>
               {linked ? "linked" : "not linked"}
             </Badge>
@@ -895,13 +912,17 @@ function PlatformCard({
           <p className="text-sm text-muted-foreground mt-2">{platformDescription}</p>
         </div>
         {channel.agent_id && (
-          <Badge variant="default" size="sm">agent: {linkedAgentLabel}</Badge>
+          <Badge variant="default" size="sm">
+            agent: {linkedAgentLabel}
+          </Badge>
         )}
       </div>
 
       {/* My account */}
       <div className="space-y-2 text-sm">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">My account</p>
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+          My account
+        </p>
         {identity ? (
           <div>
             <p className="text-xs text-muted-foreground mb-1">Linked identity</p>
@@ -925,11 +946,7 @@ function PlatformCard({
           </Button>
         )}
         {!linked && channel.type === "weixin" && (
-          <Button
-            onClick={onStartWeixinQR}
-            loading={wxQrPolling}
-            size="sm"
-          >
+          <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
             Link Weixin
           </Button>
         )}
@@ -980,7 +997,8 @@ function PlatformCard({
               />
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className="text-xs text-muted-foreground">
-                  This config controls the platform default. Agent selection belongs on the agent page.
+                  This config controls the platform default. Agent selection belongs on the agent
+                  page.
                 </p>
                 <Button onClick={() => onSaveInstance(configInstance)} size="sm">
                   Save default config
@@ -1047,12 +1065,17 @@ function PlatformCard({
           {/* Dedicated instance list */}
           <div className="space-y-3">
             {dedicatedInstances.map((ch) => (
-              <div key={ch.id} className="rounded-xl border border-border bg-card flex flex-col gap-4 p-6">
+              <div
+                key={ch.id}
+                className="rounded-xl border border-border bg-card flex flex-col gap-4 p-6"
+              >
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="font-medium text-sm font-mono">{ch.id}</h4>
-                      <Badge variant="secondary" size="sm">dedicated</Badge>
+                      <Badge variant="secondary" size="sm">
+                        dedicated
+                      </Badge>
                       <Badge size="sm" variant={instanceStatusVariant(ch)}>
                         {instanceStatus(ch)}
                       </Badge>
@@ -1092,8 +1115,8 @@ function PlatformCard({
                     />
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <p className="text-xs text-muted-foreground">
-                        This page stores the instance config only. Agent selection belongs on the agent
-                        page.
+                        This page stores the instance config only. Agent selection belongs on the
+                        agent page.
                       </p>
                       <Button onClick={() => onSaveInstance(ch)} size="sm">
                         Save config

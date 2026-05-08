@@ -16,7 +16,9 @@ export function CredentialsPage() {
   const [newSecretValue, setNewSecretValue] = useState("");
 
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
-  const [oauthStatus, setOauthStatus] = useState<Record<string, "checking" | "connected" | "disconnected">>({});
+  const [oauthStatus, setOauthStatus] = useState<
+    Record<string, "checking" | "connected" | "disconnected">
+  >({});
   const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
   const [oauthFlowActive, setOauthFlowActive] = useState<Record<string, boolean>>({});
 
@@ -44,7 +46,8 @@ export function CredentialsPage() {
 
   const loadOAuthProviders = useCallback(async () => {
     try {
-      const providers = (await api<OAuthProvider[]>("GET", "/api/auth/profile/oauth/providers")) ?? [];
+      const providers =
+        (await api<OAuthProvider[]>("GET", "/api/auth/profile/oauth/providers")) ?? [];
       setOauthProviders(providers);
       setOauthStatus((prev) => {
         const next = { ...prev };
@@ -77,8 +80,14 @@ export function CredentialsPage() {
   const checkOAuthConnected = useCallback(async (provider: string) => {
     setOauthStatus((prev) => ({ ...prev, [provider]: "checking" }));
     try {
-      const data = await api<{ connected: boolean }>("GET", `/api/auth/profile/oauth/${provider}/connected`);
-      setOauthStatus((prev) => ({ ...prev, [provider]: data?.connected ? "connected" : "disconnected" }));
+      const data = await api<{ connected: boolean }>(
+        "GET",
+        `/api/auth/profile/oauth/${provider}/connected`,
+      );
+      setOauthStatus((prev) => ({
+        ...prev,
+        [provider]: data?.connected ? "connected" : "disconnected",
+      }));
     } catch {
       setOauthStatus((prev) => ({ ...prev, [provider]: "disconnected" }));
     }
@@ -100,11 +109,19 @@ export function CredentialsPage() {
   }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected]);
 
   const addVaultEntry = useCallback(async () => {
-    if (!newSecretName) { showToast("Secret name is required", "error"); return; }
-    if (!newSecretValue) { showToast("Secret value is required", "error"); return; }
+    if (!newSecretName) {
+      showToast("Secret name is required", "error");
+      return;
+    }
+    if (!newSecretValue) {
+      showToast("Secret value is required", "error");
+      return;
+    }
     setVaultSaving(true);
     try {
-      await api("PUT", `/api/auth/profile/vault/${encodeURIComponent(newSecretName)}`, { value: newSecretValue });
+      await api("PUT", `/api/auth/profile/vault/${encodeURIComponent(newSecretName)}`, {
+        value: newSecretValue,
+      });
       showToast("Secret saved");
       setNewSecretName("");
       setNewSecretValue("");
@@ -116,74 +133,95 @@ export function CredentialsPage() {
     }
   }, [newSecretName, newSecretValue, showToast, loadVaultEntries]);
 
-  const deleteVaultEntry = useCallback(async (name: string) => {
-    if (!window.confirm(`Delete secret "${name}"?`)) return;
-    try {
-      await api("DELETE", `/api/auth/profile/vault/${encodeURIComponent(name)}`);
-      showToast("Secret deleted");
-      await loadVaultEntries();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to delete secret", "error");
-    }
-  }, [showToast, loadVaultEntries]);
-
-  const pollUntilDone = useCallback(async (provider: string, flowID: string) => {
-    pollAbortRef.current[provider] = false;
-    while (!pollAbortRef.current[provider]) {
-      await new Promise((r) => setTimeout(r, 3000));
-      if (pollAbortRef.current[provider]) break;
-      let status: { state: string } | null = null;
+  const deleteVaultEntry = useCallback(
+    async (name: string) => {
+      if (!window.confirm(`Delete secret "${name}"?`)) return;
       try {
-        status = await api<{ state: string }>("GET", `/api/auth/profile/oauth/${provider}/status/${flowID}`);
-      } catch { break; }
-      if (!status || status.state !== "pending") {
-        if (status?.state === "authorized") showToast(`${provider} connected successfully`);
-        else if (status) showToast(`${provider} authorization ${status.state}`, "error");
-        break;
+        await api("DELETE", `/api/auth/profile/vault/${encodeURIComponent(name)}`);
+        showToast("Secret deleted");
+        await loadVaultEntries();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to delete secret", "error");
       }
-    }
-  }, [showToast]);
+    },
+    [showToast, loadVaultEntries],
+  );
 
-  const connectOAuth = useCallback(async (provider: string) => {
-    setOauthFlowActive((prev) => ({ ...prev, [provider]: true }));
-    setOauthFlow((prev) => ({ ...prev, [provider]: null }));
-    try {
-      const flow = await api<OAuthFlow>("POST", `/api/auth/profile/oauth/${provider}/start`);
-      setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
-      await pollUntilDone(provider, flow.flow_id);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "OAuth error", "error");
-    } finally {
-      setOauthFlowActive((prev) => ({ ...prev, [provider]: false }));
+  const pollUntilDone = useCallback(
+    async (provider: string, flowID: string) => {
+      pollAbortRef.current[provider] = false;
+      while (!pollAbortRef.current[provider]) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (pollAbortRef.current[provider]) break;
+        let status: { state: string } | null = null;
+        try {
+          status = await api<{ state: string }>(
+            "GET",
+            `/api/auth/profile/oauth/${provider}/status/${flowID}`,
+          );
+        } catch {
+          break;
+        }
+        if (!status || status.state !== "pending") {
+          if (status?.state === "authorized") showToast(`${provider} connected successfully`);
+          else if (status) showToast(`${provider} authorization ${status.state}`, "error");
+          break;
+        }
+      }
+    },
+    [showToast],
+  );
+
+  const connectOAuth = useCallback(
+    async (provider: string) => {
+      setOauthFlowActive((prev) => ({ ...prev, [provider]: true }));
       setOauthFlow((prev) => ({ ...prev, [provider]: null }));
-      await checkOAuthConnected(provider);
-    }
-  }, [pollUntilDone, showToast, checkOAuthConnected]);
+      try {
+        const flow = await api<OAuthFlow>("POST", `/api/auth/profile/oauth/${provider}/start`);
+        setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
+        await pollUntilDone(provider, flow.flow_id);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "OAuth error", "error");
+      } finally {
+        setOauthFlowActive((prev) => ({ ...prev, [provider]: false }));
+        setOauthFlow((prev) => ({ ...prev, [provider]: null }));
+        await checkOAuthConnected(provider);
+      }
+    },
+    [pollUntilDone, showToast, checkOAuthConnected],
+  );
 
-  const disconnectOAuth = useCallback(async (provider: string) => {
-    if (!window.confirm(`Disconnect ${provider} credentials?`)) return;
-    try {
-      await api("DELETE", `/api/auth/profile/oauth/${provider}`);
-      showToast(`${provider} disconnected`);
-      await checkOAuthConnected(provider);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to disconnect", "error");
-    }
-  }, [showToast, checkOAuthConnected]);
+  const disconnectOAuth = useCallback(
+    async (provider: string) => {
+      if (!window.confirm(`Disconnect ${provider} credentials?`)) return;
+      try {
+        await api("DELETE", `/api/auth/profile/oauth/${provider}`);
+        showToast(`${provider} disconnected`);
+        await checkOAuthConnected(provider);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to disconnect", "error");
+      }
+    },
+    [showToast, checkOAuthConnected],
+  );
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="font-serif text-3xl tracking-tight">Credentials</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage OAuth connections and vault secrets.</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage OAuth connections and vault secrets.
+        </p>
       </div>
 
       {toast && (
-        <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
-          toast.type === "error"
-            ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-            : "border-success/36 bg-success/8 text-success-foreground"
-        }`}>
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+            toast.type === "error"
+              ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
+              : "border-success/36 bg-success/8 text-success-foreground"
+          }`}
+        >
           {toast.message}
         </div>
       )}
@@ -192,7 +230,8 @@ export function CredentialsPage() {
         <h2 className="font-serif text-xl mb-4">OAuth CLI Credentials</h2>
         <div className="rounded-xl border border-border bg-card p-6">
           <p className="text-sm text-muted-foreground">
-            Connect your GitHub or Lark/Feishu account so anna can act on your behalf in CLI tools and runners.
+            Connect your GitHub or Lark/Feishu account so anna can act on your behalf in CLI tools
+            and runners.
           </p>
           <div className="mt-4 flex flex-col gap-4">
             {oauthProviders.map((p) => (
@@ -243,7 +282,10 @@ export function CredentialsPage() {
                     </a>
                     {oauthFlow[p.provider]!.user_code && (
                       <p className="mt-1">
-                        Code: <span className="font-mono font-bold">{oauthFlow[p.provider]!.user_code}</span>
+                        Code:{" "}
+                        <span className="font-mono font-bold">
+                          {oauthFlow[p.provider]!.user_code}
+                        </span>
                       </p>
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">Waiting for authorization…</p>
@@ -268,8 +310,12 @@ export function CredentialsPage() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Name</th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Created</th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Updated</th>
+                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">
+                      Created
+                    </th>
+                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">
+                      Updated
+                    </th>
                     <th></th>
                   </tr>
                 </thead>
@@ -277,10 +323,18 @@ export function CredentialsPage() {
                   {vaultEntries.map((entry) => (
                     <tr key={entry.name} className="border-b border-border/50">
                       <td className="py-2 font-mono">{entry.name}</td>
-                      <td className="py-2 text-xs text-muted-foreground">{formatTime(entry.created_at)}</td>
-                      <td className="py-2 text-xs text-muted-foreground">{formatTime(entry.updated_at)}</td>
+                      <td className="py-2 text-xs text-muted-foreground">
+                        {formatTime(entry.created_at)}
+                      </td>
+                      <td className="py-2 text-xs text-muted-foreground">
+                        {formatTime(entry.updated_at)}
+                      </td>
                       <td className="py-2 text-right">
-                        <Button size="xs" variant="destructive-outline" onClick={() => deleteVaultEntry(entry.name)}>
+                        <Button
+                          size="xs"
+                          variant="destructive-outline"
+                          onClick={() => deleteVaultEntry(entry.name)}
+                        >
                           Delete
                         </Button>
                       </td>

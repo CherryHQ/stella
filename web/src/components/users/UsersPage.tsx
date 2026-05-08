@@ -4,7 +4,14 @@ import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogPopup, DialogTitle, DialogHeader, DialogPanel, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogPopup,
+  DialogTitle,
+  DialogHeader,
+  DialogPanel,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface Toast {
   message: string;
@@ -34,7 +41,9 @@ export function UsersPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [addAgentId, setAddAgentId] = useState("");
   const [legacyUsers, setLegacyUsers] = useState<LegacyUser[]>([]);
-  const [userMemories, setUserMemories] = useState<Record<number, (UserMemory & { _content: string })[]>>({});
+  const [userMemories, setUserMemories] = useState<
+    Record<number, (UserMemory & { _content: string })[]>
+  >({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmDialog | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,7 +168,9 @@ export function UsersPage() {
       if (!selectedUser) return;
       try {
         const val = identityId ? parseInt(identityId, 10) : null;
-        await api("PUT", `/api/users/${selectedUser.id}/notify-identity`, { notify_identity_id: val });
+        await api("PUT", `/api/users/${selectedUser.id}/notify-identity`, {
+          notify_identity_id: val,
+        });
         const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
         setSelectedUser(updated);
         showToast("Notify channel updated");
@@ -210,7 +221,9 @@ export function UsersPage() {
   const toggleUserMemory = useCallback(
     async (u: LegacyUser) => {
       const show = !u._showMemory;
-      setLegacyUsers((prev) => prev.map((lu) => (lu.id === u.id ? { ...lu, _showMemory: show } : lu)));
+      setLegacyUsers((prev) =>
+        prev.map((lu) => (lu.id === u.id ? { ...lu, _showMemory: show } : lu)),
+      );
       if (show) await loadUserMemories(u.id);
     },
     [loadUserMemories],
@@ -221,9 +234,7 @@ export function UsersPage() {
       try {
         await api("PUT", `/api/users/${u.id}`, { default_agent_id: u._defaultAgent });
         setLegacyUsers((prev) =>
-          prev.map((lu) =>
-            lu.id === u.id ? { ...lu, default_agent_id: lu._defaultAgent } : lu,
-          ),
+          prev.map((lu) => (lu.id === u.id ? { ...lu, default_agent_id: lu._defaultAgent } : lu)),
         );
         showToast("Saved");
       } catch (e) {
@@ -339,7 +350,9 @@ export function UsersPage() {
       {/* Auth Users Tab */}
       {tab === "auth" && (
         <div>
-          <div className="text-xs font-mono text-muted-foreground mb-4">{authUsers.length} users</div>
+          <div className="text-xs font-mono text-muted-foreground mb-4">
+            {authUsers.length} users
+          </div>
           <div className="border-t border-border divide-y divide-border">
             {authUsers.map((u) => (
               <div key={u.id} className="py-4">
@@ -355,7 +368,11 @@ export function UsersPage() {
                     <Badge variant={u.role === "admin" ? "default" : "outline"} size="sm">
                       {u.role}
                     </Badge>
-                    {!u.is_active && <Badge variant="error" size="sm">inactive</Badge>}
+                    {!u.is_active && (
+                      <Badge variant="error" size="sm">
+                        inactive
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{u.created_at}</span>
@@ -365,7 +382,12 @@ export function UsersPage() {
                   <div className="mt-1 flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">Linked:</span>
                     {u.identities.map((ident) => (
-                      <Badge key={ident.id} variant="outline" size="sm" className="font-mono uppercase">
+                      <Badge
+                        key={ident.id}
+                        variant="outline"
+                        size="sm"
+                        className="font-mono uppercase"
+                      >
                         {ident.platform}
                       </Badge>
                     ))}
@@ -375,7 +397,9 @@ export function UsersPage() {
             ))}
           </div>
           {authUsers.length === 0 && (
-            <div className="py-12 text-center text-sm text-muted-foreground">No users registered yet.</div>
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No users registered yet.
+            </div>
           )}
         </div>
       )}
@@ -383,7 +407,9 @@ export function UsersPage() {
       {/* Memory Tab */}
       {tab === "memory" && (
         <div>
-          <div className="text-xs font-mono text-muted-foreground mb-4">{legacyUsers.length} users</div>
+          <div className="text-xs font-mono text-muted-foreground mb-4">
+            {legacyUsers.length} users
+          </div>
           <div className="border-t border-border divide-y divide-border">
             {legacyUsers.map((u) => (
               <div key={u.id} className="py-6">
@@ -449,7 +475,9 @@ export function UsersPage() {
                             setUserMemories((prev) => ({
                               ...prev,
                               [u.id]: (prev[u.id] || []).map((m) =>
-                                m.agent_id === mem.agent_id ? { ...m, _content: e.target.value } : m,
+                                m.agent_id === mem.agent_id
+                                  ? { ...m, _content: e.target.value }
+                                  : m,
                               ),
                             }))
                           }
@@ -516,9 +544,7 @@ export function UsersPage() {
                           onChange={(e) =>
                             setLegacyUsers((prev) =>
                               prev.map((lu) =>
-                                lu.id === u.id
-                                  ? { ...lu, _newMemoryContent: e.target.value }
-                                  : lu,
+                                lu.id === u.id ? { ...lu, _newMemoryContent: e.target.value } : lu,
                               ),
                             )
                           }
@@ -610,7 +636,9 @@ export function UsersPage() {
                     variant="ghost"
                     size="xs"
                     onClick={() => void toggleActive()}
-                    className={selectedUser.is_active ? "text-destructive" : "text-success-foreground"}
+                    className={
+                      selectedUser.is_active ? "text-destructive" : "text-success-foreground"
+                    }
                   >
                     {selectedUser.is_active ? "Deactivate" : "Activate"}
                   </Button>
@@ -691,7 +719,9 @@ export function UsersPage() {
                       </div>
                     ))}
                     {(!selectedUser.identities || selectedUser.identities.length === 0) && (
-                      <div className="text-xs text-muted-foreground py-2">No linked identities.</div>
+                      <div className="text-xs text-muted-foreground py-2">
+                        No linked identities.
+                      </div>
                     )}
                   </div>
                 </div>
@@ -780,7 +810,12 @@ export function UsersPage() {
       </Dialog>
 
       {/* Confirm Dialog */}
-      <Dialog open={!!confirm} onOpenChange={(open) => { if (!open) setConfirm(null); }}>
+      <Dialog
+        open={!!confirm}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+      >
         <DialogPopup className="max-w-sm" showCloseButton={false}>
           <DialogPanel>
             <p className="text-sm">{confirm?.message}</p>

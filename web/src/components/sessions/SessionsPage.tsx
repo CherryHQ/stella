@@ -37,20 +37,17 @@ export function SessionsPage() {
     }
   }, []);
 
-  const openSession = useCallback(
-    async (sessionID: string, pushState = true) => {
-      if (pushState) {
-        history.pushState({ sessionID }, "", "/sessions/" + encodeURIComponent(sessionID));
-      }
-      try {
-        const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionID)}`);
-        setSessionDetail(detail);
-      } catch (e) {
-        console.error(e);
-      }
-    },
-    [],
-  );
+  const openSession = useCallback(async (sessionID: string, pushState = true) => {
+    if (pushState) {
+      history.pushState({ sessionID }, "", "/sessions/" + encodeURIComponent(sessionID));
+    }
+    try {
+      const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionID)}`);
+      setSessionDetail(detail);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   const createSession = useCallback(
     async (agentID: string) => {
@@ -77,7 +74,8 @@ export function SessionsPage() {
           .catch(() => {}),
       ]);
       const parts = window.location.pathname.split("/");
-      const sessionID = parts.length >= 3 && parts[1] === "sessions" ? decodeURIComponent(parts[2]) : "";
+      const sessionID =
+        parts.length >= 3 && parts[1] === "sessions" ? decodeURIComponent(parts[2]) : "";
       if (sessionID) {
         await openSession(sessionID, false);
       }

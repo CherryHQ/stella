@@ -29,10 +29,7 @@ export function pluginToggleURL(plugin: Plugin): string {
   return `/api/plugins/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}`;
 }
 
-export function pluginToggleURLByID(
-  id: string,
-  plugins: Plugin[],
-): string {
+export function pluginToggleURLByID(id: string, plugins: Plugin[]): string {
   const p = plugins.find((p) => p.id === id);
   if (p) return pluginToggleURL(p);
   const slash = id.indexOf("/");
@@ -179,7 +176,12 @@ export function hasGenericConfigEditor(
   plugin: Plugin,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
 ): boolean {
-  return !!plugin && plugin.id !== "tool/mcp" && plugin.has_config && pluginSchemaFields(plugin, schemas).length > 0;
+  return (
+    !!plugin &&
+    plugin.id !== "tool/mcp" &&
+    plugin.has_config &&
+    pluginSchemaFields(plugin, schemas).length > 0
+  );
 }
 
 export function buildPluginConfigDraft(
@@ -362,9 +364,10 @@ export function validateKeyValueRows(
   return errors;
 }
 
-export function validateMcpServers(
-  servers: McpServer[],
-): { global: string[]; byIndex: string[][] } {
+export function validateMcpServers(servers: McpServer[]): {
+  global: string[];
+  byIndex: string[][];
+} {
   const global: string[] = [];
   const byIndex: string[][] = servers.map(() => []);
   const names = new Map<string, number[]>();
@@ -419,7 +422,14 @@ export function usesRemoteTransport(server: McpServer): boolean {
 
 export function mcpStatusFor(serverName: string, statuses: McpStatus[]): McpStatus | null {
   const key = (serverName || "").trim().toLowerCase();
-  return statuses.find((s) => String(s.name || "").trim().toLowerCase() === key) ?? null;
+  return (
+    statuses.find(
+      (s) =>
+        String(s.name || "")
+          .trim()
+          .toLowerCase() === key,
+    ) ?? null
+  );
 }
 
 export function mcpStatusTone(serverName: string, statuses: McpStatus[]): string {
@@ -547,9 +557,7 @@ export interface ManifestInstallDraft {
   oauth_provider_choices: string;
 }
 
-export function buildManifestInstallDraft(
-  plugin: PluginWithMeta,
-): ManifestInstallDraft {
+export function buildManifestInstallDraft(plugin: PluginWithMeta): ManifestInstallDraft {
   const manifest = plugin._manifestPlugin || ({} as ManifestPlugin);
   return {
     id: manifest.id || plugin.id || "",
@@ -579,9 +587,7 @@ export function buildManifestInstallDraft(
   };
 }
 
-export function buildManifestPluginFromDraft(
-  draft: ManifestInstallDraft,
-): ManifestPlugin {
+export function buildManifestPluginFromDraft(draft: ManifestInstallDraft): ManifestPlugin {
   const binaries = (draft.binaries || [])
     .map((row) => {
       const binary: ManifestBinary = {

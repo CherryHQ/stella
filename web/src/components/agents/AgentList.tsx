@@ -23,7 +23,12 @@ export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDel
     >
       <div className="flex items-center justify-between mb-3 px-1">
         <span className="text-xs font-mono text-muted-foreground">{agents.length} agents</span>
-        <Button onClick={onStartCreate} variant="ghost" size="xs" className="text-primary font-medium">
+        <Button
+          onClick={onStartCreate}
+          variant="ghost"
+          size="xs"
+          className="text-primary font-medium"
+        >
           + New
         </Button>
       </div>
@@ -51,10 +56,14 @@ export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDel
                     {a.enabled ? "on" : "off"}
                   </Badge>
                   {a.scope === "restricted" && (
-                    <Badge variant="warning" size="sm">restricted</Badge>
+                    <Badge variant="warning" size="sm">
+                      restricted
+                    </Badge>
                   )}
                 </div>
-                <div className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{a.model || "—"}</div>
+                <div className="text-xs font-mono text-muted-foreground mt-0.5 truncate">
+                  {a.model || "—"}
+                </div>
               </div>
               {canEditAgent(a) && (
                 <Button

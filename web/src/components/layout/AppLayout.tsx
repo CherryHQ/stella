@@ -1,38 +1,38 @@
-import React from 'react'
-import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { meQueryOptions } from '@/lib/queries/me'
-import { queryClient } from '@/lib/queryClient'
-import { Separator } from '@/components/ui/separator'
+import React from "react";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { meQueryOptions } from "@/lib/queries/me";
+import { queryClient } from "@/lib/queryClient";
+import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { id: 'providers', label: 'Providers', href: '/providers', adminOnly: true },
-  { id: 'agents', label: 'Agents', href: '/agents', adminOnly: false },
-  { id: 'channels', label: 'Channels', href: '/channels', adminOnly: false },
-  { id: 'credentials', label: 'Credentials', href: '/credentials', adminOnly: false },
-  { id: 'users', label: 'Users', href: '/users', adminOnly: true },
-  { id: 'sessions', label: 'Sessions', href: '/sessions', adminOnly: false },
-  { id: 'scheduler', label: 'Scheduler', href: '/scheduler', adminOnly: false },
-  { id: 'plugins', label: 'Plugins', href: '/plugins', adminOnly: true },
-]
+  { id: "providers", label: "Providers", href: "/providers", adminOnly: true },
+  { id: "agents", label: "Agents", href: "/agents", adminOnly: false },
+  { id: "channels", label: "Channels", href: "/channels", adminOnly: false },
+  { id: "credentials", label: "Credentials", href: "/credentials", adminOnly: false },
+  { id: "users", label: "Users", href: "/users", adminOnly: true },
+  { id: "sessions", label: "Sessions", href: "/sessions", adminOnly: false },
+  { id: "scheduler", label: "Scheduler", href: "/scheduler", adminOnly: false },
+  { id: "plugins", label: "Plugins", href: "/plugins", adminOnly: true },
+];
 
 export function AppLayout() {
-  const { data: me } = useQuery(meQueryOptions)
-  const navigate = useNavigate()
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const { data: me } = useQuery(meQueryOptions);
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || me?.is_admin)
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || me?.is_admin);
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
-    queryClient.clear()
-    navigate({ to: '/login' })
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+    queryClient.clear();
+    navigate({ to: "/login" });
   }
 
   function handleMobileNav(e: React.ChangeEvent<HTMLSelectElement>) {
-    const href = e.target.value
+    const href = e.target.value;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (href) navigate({ to: href as any })
+    if (href) navigate({ to: href as any });
   }
 
   return (
@@ -42,7 +42,7 @@ export function AppLayout() {
           {/* Logo */}
           <Link
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            to={(me?.is_admin ? '/providers' : '/agents') as any}
+            to={(me?.is_admin ? "/providers" : "/agents") as any}
             className="font-serif italic text-primary text-xl tracking-tight select-none"
           >
             anna
@@ -57,8 +57,11 @@ export function AppLayout() {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   to={item.href as any}
                   className="py-1 font-medium transition-colors"
-                  activeProps={{ className: 'text-primary py-1 font-medium transition-colors' }}
-                  inactiveProps={{ className: 'text-muted-foreground hover:text-foreground py-1 font-medium transition-colors' }}
+                  activeProps={{ className: "text-primary py-1 font-medium transition-colors" }}
+                  inactiveProps={{
+                    className:
+                      "text-muted-foreground hover:text-foreground py-1 font-medium transition-colors",
+                  }}
                 >
                   {item.label}
                 </Link>
@@ -87,7 +90,9 @@ export function AppLayout() {
                   <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-mono font-semibold">
                     {me.username[0]?.toUpperCase()}
                   </div>
-                  <span className="hidden md:inline text-sm text-muted-foreground">{me.username}</span>
+                  <span className="hidden md:inline text-sm text-muted-foreground">
+                    {me.username}
+                  </span>
                 </summary>
                 <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-border bg-popover p-2 shadow-lg z-50">
                   <div className="px-3 py-2">
@@ -97,7 +102,7 @@ export function AppLayout() {
                   <Separator className="my-2" />
                   <Link
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    to={'/account' as any}
+                    to={"/account" as any}
                     className="flex w-full items-center rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
                   >
                     Account settings
@@ -119,5 +124,5 @@ export function AppLayout() {
         <Outlet />
       </main>
     </div>
-  )
+  );
 }

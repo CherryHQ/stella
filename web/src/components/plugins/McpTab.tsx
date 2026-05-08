@@ -38,8 +38,7 @@ export function McpTab({
   onSave,
 }: Props) {
   const validation = validateMcpServers(mcpServers);
-  const mcpHasErrors =
-    validation.global.length > 0 || validation.byIndex.some((e) => e.length > 0);
+  const mcpHasErrors = validation.global.length > 0 || validation.byIndex.some((e) => e.length > 0);
 
   const enabledCount = mcpServers.filter((s) => s.enabled).length;
   const runningCount = mcpStatuses.filter((s) => s.state === "running").length;
@@ -162,14 +161,11 @@ export function McpTab({
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            Toggle the <span className="font-mono">tool/mcp</span> plugin. Servers below are
-            managed independently.
+            Toggle the <span className="font-mono">tool/mcp</span> plugin. Servers below are managed
+            independently.
           </p>
         </div>
-        <Switch
-          checked={mcpPluginEnabled}
-          onCheckedChange={onToggleMcpPlugin}
-        />
+        <Switch checked={mcpPluginEnabled} onCheckedChange={onToggleMcpPlugin} />
       </div>
 
       {/* Stats */}
@@ -185,7 +181,9 @@ export function McpTab({
           <p className="text-lg font-semibold">{runningCount}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Tools discovered</p>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Tools discovered
+          </p>
           <p className="text-lg font-semibold">{discoveredToolCount}</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
@@ -216,7 +214,9 @@ export function McpTab({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {mcpLastSavedAt && <span>Last saved {formatTimestamp(mcpLastSavedAt)}</span>}
           {!mcpSaving && mcpIsDirty && (
-            <Badge variant="warning" size="sm">unsaved</Badge>
+            <Badge variant="warning" size="sm">
+              unsaved
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -249,34 +249,36 @@ export function McpTab({
           const statusTone = mcpStatusTone(server.name, mcpStatuses);
 
           return (
-            <div key={server.id} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div
+              key={server.id}
+              className="rounded-xl border border-border bg-card overflow-hidden"
+            >
               {/* Server header */}
               <div
                 className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer"
                 onClick={() => toggleServerExpanded(index)}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs text-muted-foreground">{server.expanded ? "▾" : "▸"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {server.expanded ? "▾" : "▸"}
+                  </span>
                   <span className="font-medium text-sm truncate">
                     {server.name || `Server ${index + 1}`}
                   </span>
-                  <Badge variant="outline" size="sm">{server.transport}</Badge>
-                  <Badge variant={statusBadgeVariant(statusTone)} size="sm">{statusLabel}</Badge>
+                  <Badge variant="outline" size="sm">
+                    {server.transport}
+                  </Badge>
+                  <Badge variant={statusBadgeVariant(statusTone)} size="sm">
+                    {statusLabel}
+                  </Badge>
                   {statusInfo?.discovered_tool_count ? (
                     <Badge variant="info" size="sm">
                       {statusInfo.discovered_tool_count} tools
                     </Badge>
                   ) : null}
                 </div>
-                <div
-                  className="flex items-center gap-2"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Button
-                    onClick={() => duplicateServer(index)}
-                    variant="ghost"
-                    size="xs"
-                  >
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <Button onClick={() => duplicateServer(index)} variant="ghost" size="xs">
                     Duplicate
                   </Button>
                   <Button
@@ -314,11 +316,15 @@ export function McpTab({
                   {/* Config fields */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Server name</label>
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Server name
+                      </label>
                       <Input
                         nativeInput
                         value={server.name}
-                        onChange={(e) => updateServer(index, { name: (e.target as HTMLInputElement).value })}
+                        onChange={(e) =>
+                          updateServer(index, { name: (e.target as HTMLInputElement).value })
+                        }
                         type="text"
                         placeholder="github"
                         size="sm"
@@ -345,7 +351,9 @@ export function McpTab({
                         nativeInput
                         value={server.timeout_seconds}
                         onChange={(e) =>
-                          updateServer(index, { timeout_seconds: Number((e.target as HTMLInputElement).value) })
+                          updateServer(index, {
+                            timeout_seconds: Number((e.target as HTMLInputElement).value),
+                          })
                         }
                         type="number"
                         min="0"
@@ -364,7 +372,9 @@ export function McpTab({
                       <Input
                         nativeInput
                         value={server.command}
-                        onChange={(e) => updateServer(index, { command: (e.target as HTMLInputElement).value })}
+                        onChange={(e) =>
+                          updateServer(index, { command: (e.target as HTMLInputElement).value })
+                        }
                         type="text"
                         placeholder="npx"
                         size="sm"
@@ -373,7 +383,9 @@ export function McpTab({
                       <Input
                         nativeInput
                         value={server.url}
-                        onChange={(e) => updateServer(index, { url: (e.target as HTMLInputElement).value })}
+                        onChange={(e) =>
+                          updateServer(index, { url: (e.target as HTMLInputElement).value })
+                        }
                         type="text"
                         placeholder="https://example.com/mcp"
                         size="sm"
@@ -385,7 +397,9 @@ export function McpTab({
                   {server.transport === "stdio" && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-muted-foreground">Arguments</label>
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Arguments
+                        </label>
                         <Button onClick={() => addArg(index)} variant="ghost" size="xs">
                           Add
                         </Button>
@@ -395,7 +409,9 @@ export function McpTab({
                           <Input
                             nativeInput
                             value={arg.value}
-                            onChange={(e) => updateArg(index, argIndex, (e.target as HTMLInputElement).value)}
+                            onChange={(e) =>
+                              updateArg(index, argIndex, (e.target as HTMLInputElement).value)
+                            }
                             type="text"
                             placeholder={`arg ${argIndex + 1}`}
                             className="font-mono"
@@ -421,11 +437,7 @@ export function McpTab({
                         <label className="text-xs font-medium text-muted-foreground">
                           Environment variables
                         </label>
-                        <Button
-                          onClick={() => addKeyValue(index, "env")}
-                          variant="ghost"
-                          size="xs"
-                        >
+                        <Button onClick={() => addKeyValue(index, "env")} variant="ghost" size="xs">
                           Add
                         </Button>
                       </div>
@@ -435,7 +447,13 @@ export function McpTab({
                             nativeInput
                             value={row.key}
                             onChange={(e) =>
-                              updateKeyValue(index, "env", rowIndex, "key", (e.target as HTMLInputElement).value)
+                              updateKeyValue(
+                                index,
+                                "env",
+                                rowIndex,
+                                "key",
+                                (e.target as HTMLInputElement).value,
+                              )
                             }
                             type="text"
                             placeholder="KEY"
@@ -446,7 +464,13 @@ export function McpTab({
                             nativeInput
                             value={row.value}
                             onChange={(e) =>
-                              updateKeyValue(index, "env", rowIndex, "value", (e.target as HTMLInputElement).value)
+                              updateKeyValue(
+                                index,
+                                "env",
+                                rowIndex,
+                                "value",
+                                (e.target as HTMLInputElement).value,
+                              )
                             }
                             type="text"
                             placeholder="value"
@@ -470,7 +494,9 @@ export function McpTab({
                   {usesRemoteTransport(server) && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-muted-foreground">HTTP headers</label>
+                        <label className="text-xs font-medium text-muted-foreground">
+                          HTTP headers
+                        </label>
                         <Button
                           onClick={() => addKeyValue(index, "headers")}
                           variant="ghost"
@@ -485,7 +511,13 @@ export function McpTab({
                             nativeInput
                             value={row.key}
                             onChange={(e) =>
-                              updateKeyValue(index, "headers", rowIndex, "key", (e.target as HTMLInputElement).value)
+                              updateKeyValue(
+                                index,
+                                "headers",
+                                rowIndex,
+                                "key",
+                                (e.target as HTMLInputElement).value,
+                              )
                             }
                             type="text"
                             placeholder="Authorization"
@@ -496,7 +528,13 @@ export function McpTab({
                             nativeInput
                             value={row.value}
                             onChange={(e) =>
-                              updateKeyValue(index, "headers", rowIndex, "value", (e.target as HTMLInputElement).value)
+                              updateKeyValue(
+                                index,
+                                "headers",
+                                rowIndex,
+                                "value",
+                                (e.target as HTMLInputElement).value,
+                              )
                             }
                             type="text"
                             placeholder="Bearer ..."

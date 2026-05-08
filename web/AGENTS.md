@@ -44,9 +44,9 @@ Auth state lives in the TanStack Query cache via `meQueryOptions` (`src/lib/quer
 1. Create `src/components/mypage/MyPage.tsx` — React component
 2. Create `src/routes/_app/mypage.tsx`:
    ```typescript
-   import { createFileRoute } from '@tanstack/react-router'
-   import { MyPage } from '@/components/mypage/MyPage'
-   export const Route = createFileRoute('/_app/mypage')({ component: MyPage })
+   import { createFileRoute } from "@tanstack/react-router";
+   import { MyPage } from "@/components/mypage/MyPage";
+   export const Route = createFileRoute("/_app/mypage")({ component: MyPage });
    ```
    For admin-only pages, add a `beforeLoad` that checks `queryClient.getQueryData(meQueryOptions.queryKey)?.is_admin` and throws `redirect({ to: '/agents' })` if false.
 3. Add the nav link to `src/components/layout/AppLayout.tsx` → `navItems` array
@@ -59,18 +59,18 @@ No Go server changes needed — the wildcard `GET /{path...}` already serves all
 Use TanStack Router search params, not `history.pushState` directly:
 
 ```typescript
-export const Route = createFileRoute('/_app/mypage')({
+export const Route = createFileRoute("/_app/mypage")({
   validateSearch: (search) => ({
-    status: (search.status as string) || 'all',
+    status: (search.status as string) || "all",
     page: Number(search.page) || 1,
   }),
   component: MyPage,
-})
+});
 
 // Inside component:
-const { status, page } = Route.useSearch()
-const navigate = useNavigate({ from: Route.fullPath })
-navigate({ search: (prev) => ({ ...prev, status: 'active' }) })
+const { status, page } = Route.useSearch();
+const navigate = useNavigate({ from: Route.fullPath });
+navigate({ search: (prev) => ({ ...prev, status: "active" }) });
 ```
 
 ### Dev workflow
@@ -90,9 +90,10 @@ In dev, open `localhost:5173`. The Vite dev server proxies `/api/*` to the Go se
 ### CossUI components
 
 All components live in `src/components/ui/`. Import directly:
+
 ```typescript
-import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 ```
 
 Based on `@base-ui/react`. Design tokens are in `src/globals.css` under `:root` (light) and `.dark`.

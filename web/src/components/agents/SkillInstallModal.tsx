@@ -16,7 +16,14 @@ interface Props {
   showToast: (msg: string, type?: "success" | "error") => void;
 }
 
-export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpload, showToast }: Props) {
+export function SkillInstallModal({
+  state,
+  onClose,
+  onSetScope,
+  onInstall,
+  onUpload,
+  showToast,
+}: Props) {
   const { skillInstallScope, isAdmin, editingId } = state;
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SkillSearchResult[]>([]);
@@ -30,10 +37,16 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
   const canInstallAgentSkills = isAdmin && !!editingId;
 
   const doSearch = async (q: string) => {
-    if (!q.trim()) { setSearchResults([]); return; }
+    if (!q.trim()) {
+      setSearchResults([]);
+      return;
+    }
     setSearching(true);
     try {
-      const results = await api<SkillSearchResult[]>("GET", `/api/skills/search?q=${encodeURIComponent(q)}&limit=20`);
+      const results = await api<SkillSearchResult[]>(
+        "GET",
+        `/api/skills/search?q=${encodeURIComponent(q)}&limit=20`,
+      );
       setSearchResults(results ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -65,17 +78,28 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogPopup className="max-w-5xl" showCloseButton={false}>
         <div className="border-b border-border px-6 py-5 flex items-start justify-between gap-4">
           <div className="space-y-1">
             <DialogTitle>Add a skill</DialogTitle>
-            <DialogDescription>Install from the catalog or upload your own skill bundle.</DialogDescription>
+            <DialogDescription>
+              Install from the catalog or upload your own skill bundle.
+            </DialogDescription>
           </div>
-          <Button onClick={onClose} variant="ghost" size="icon-sm">✕</Button>
+          <Button onClick={onClose} variant="ghost" size="icon-sm">
+            ✕
+          </Button>
         </div>
         <div className="px-6 py-4 border-b border-border space-y-2 bg-muted/30">
-          <label className="text-xs font-medium text-muted-foreground block uppercase tracking-wide">Install target</label>
+          <label className="text-xs font-medium text-muted-foreground block uppercase tracking-wide">
+            Install target
+          </label>
           <div className="flex items-center gap-2 flex-wrap">
             {canInstallAgentSkills && (
               <Button
@@ -104,7 +128,9 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
           <section className="p-6 min-w-0 xl:border-r border-border space-y-4">
             <div className="space-y-1">
               <h4 className="font-medium text-base">Browse catalog</h4>
-              <p className="text-sm text-muted-foreground">Search public skills and install in one click.</p>
+              <p className="text-sm text-muted-foreground">
+                Search public skills and install in one click.
+              </p>
             </div>
             <Input
               nativeInput
@@ -127,12 +153,19 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
             {!searching && searchResults.length > 0 && (
               <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
                 {searchResults.map((s) => (
-                  <div key={s.id} className="rounded-xl border border-border bg-background px-4 py-4 space-y-3">
+                  <div
+                    key={s.id}
+                    className="rounded-xl border border-border bg-background px-4 py-4 space-y-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-mono text-sm font-medium truncate">{s.name || s.skillId}</p>
-                          <span className="text-xs text-muted-foreground">{s.installs} installs</span>
+                          <p className="font-mono text-sm font-medium truncate">
+                            {s.name || s.skillId}
+                          </p>
+                          <span className="text-xs text-muted-foreground">
+                            {s.installs} installs
+                          </span>
                         </div>
                         <p className="text-xs text-muted-foreground font-mono truncate mt-1">
                           {s.source}@{s.skillId}
@@ -147,7 +180,9 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
                         Install
                       </Button>
                     </div>
-                    {s.description && <p className="text-sm text-muted-foreground">{s.description}</p>}
+                    {s.description && (
+                      <p className="text-sm text-muted-foreground">{s.description}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -188,7 +223,9 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
           <section className="p-6 space-y-4 bg-muted/20">
             <div className="space-y-1">
               <h4 className="font-medium text-base">Upload zip</h4>
-              <p className="text-sm text-muted-foreground">Import a skill you already have on disk.</p>
+              <p className="text-sm text-muted-foreground">
+                Import a skill you already have on disk.
+              </p>
             </div>
             <label className="block rounded-xl border-2 border-dashed border-border bg-background px-5 py-8 text-center cursor-pointer hover:border-primary transition-colors">
               <input
@@ -198,17 +235,26 @@ export function SkillInstallModal({ state, onClose, onSetScope, onInstall, onUpl
                 className="hidden"
               />
               <div className="space-y-2">
-                <div className="text-sm font-medium">{uploadFile ? uploadFile.name : "Choose a .zip file"}</div>
+                <div className="text-sm font-medium">
+                  {uploadFile ? uploadFile.name : "Choose a .zip file"}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Must contain exactly one skill folder with <span className="font-mono">SKILL.md</span>.
+                  Must contain exactly one skill folder with{" "}
+                  <span className="font-mono">SKILL.md</span>.
                 </p>
-                <Button variant="ghost" size="sm">Browse files</Button>
+                <Button variant="ghost" size="sm">
+                  Browse files
+                </Button>
               </div>
             </label>
             <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
-              <li><span className="font-mono">.zip</span> only</li>
+              <li>
+                <span className="font-mono">.zip</span> only
+              </li>
               <li>Single skill folder</li>
-              <li><span className="font-mono">SKILL.md</span> required</li>
+              <li>
+                <span className="font-mono">SKILL.md</span> required
+              </li>
             </ul>
             <Button
               onClick={handleUpload}

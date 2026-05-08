@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { queryClient } from '@/lib/queryClient'
-import { meQueryOptions } from '@/lib/queries/me'
+import { queryClient } from "@/lib/queryClient";
+import { meQueryOptions } from "@/lib/queries/me";
 
 export function LoginPage() {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -36,8 +36,8 @@ export function LoginPage() {
         setError(json.error);
         return;
       }
-      await queryClient.invalidateQueries(meQueryOptions)
-      navigate({ to: '/agents' as any })
+      await queryClient.invalidateQueries(meQueryOptions);
+      navigate({ to: "/agents" as any });
     } catch (e) {
       setError((e as Error).message || "Login failed");
     } finally {
@@ -68,8 +68,8 @@ export function LoginPage() {
         setError(json.error);
         return;
       }
-      await queryClient.invalidateQueries(meQueryOptions)
-      navigate({ to: '/agents' as any })
+      await queryClient.invalidateQueries(meQueryOptions);
+      navigate({ to: "/agents" as any });
     } catch (e) {
       setError((e as Error).message || "Registration failed");
     } finally {
@@ -81,7 +81,9 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-sm p-8">
         <div className="text-center mb-6">
-          <span className="font-serif italic text-primary text-3xl tracking-tight select-none">anna</span>
+          <span className="font-serif italic text-primary text-3xl tracking-tight select-none">
+            anna
+          </span>
           <p className="text-muted-foreground text-sm mt-1">Admin Panel</p>
         </div>
 

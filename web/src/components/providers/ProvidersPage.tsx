@@ -73,21 +73,13 @@ function modelConfigFromForm(form: CustomModelForm): ModelConfig {
     cacheRead: numberOrZero(form.cost_cache_read),
     cacheWrite: numberOrZero(form.cost_cache_write),
   };
-  if (
-    cost.input !== 0 ||
-    cost.output !== 0 ||
-    cost.cacheRead !== 0 ||
-    cost.cacheWrite !== 0
-  ) {
+  if (cost.input !== 0 || cost.output !== 0 || cost.cacheRead !== 0 || cost.cacheWrite !== 0) {
     model.cost = cost;
   }
   return model;
 }
 
-function formFromModelConfig(
-  modelID: string,
-  config: ModelConfig | undefined,
-): CustomModelForm {
+function formFromModelConfig(modelID: string, config: ModelConfig | undefined): CustomModelForm {
   const form = createCustomModelForm();
   form.original_id = modelID;
   form.id = modelID;
@@ -96,17 +88,12 @@ function formFromModelConfig(
   form.reasoning = Boolean(config?.reasoning);
   form.input = (config?.input || []).join(", ");
   form.output = (config?.output || []).join(", ");
-  form.context_window =
-    config?.contextWindow != null ? String(config.contextWindow) : "";
+  form.context_window = config?.contextWindow != null ? String(config.contextWindow) : "";
   form.max_tokens = config?.maxTokens != null ? String(config.maxTokens) : "";
-  form.cost_input =
-    config?.cost?.input != null ? String(config.cost.input) : "";
-  form.cost_output =
-    config?.cost?.output != null ? String(config.cost.output) : "";
-  form.cost_cache_read =
-    config?.cost?.cacheRead != null ? String(config.cost.cacheRead) : "";
-  form.cost_cache_write =
-    config?.cost?.cacheWrite != null ? String(config.cost.cacheWrite) : "";
+  form.cost_input = config?.cost?.input != null ? String(config.cost.input) : "";
+  form.cost_output = config?.cost?.output != null ? String(config.cost.output) : "";
+  form.cost_cache_read = config?.cost?.cacheRead != null ? String(config.cost.cacheRead) : "";
+  form.cost_cache_write = config?.cost?.cacheWrite != null ? String(config.cost.cacheWrite) : "";
   return form;
 }
 
@@ -121,9 +108,7 @@ function providerJSONValue(p: Provider): object {
   };
 }
 
-function groupProvidersByType(
-  providers: Provider[],
-): { type: string; providers: Provider[] }[] {
+function groupProvidersByType(providers: Provider[]): { type: string; providers: Provider[] }[] {
   const byType = new Map<string, Provider[]>();
   for (const p of providers) {
     if (!byType.has(p.type)) byType.set(p.type, []);
@@ -132,9 +117,7 @@ function groupProvidersByType(
   const groups = Array.from(byType.entries()).map(([type, list]) => ({
     type,
     providers: [...list].sort(
-      (a, b) =>
-        (a.name || a.id).localeCompare(b.name || b.id) ||
-        a.id.localeCompare(b.id),
+      (a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id),
     ),
   }));
   groups.sort((a, b) => a.type.localeCompare(b.type));
@@ -181,16 +164,9 @@ interface ProviderRowProps {
   onSave: (p: Provider) => void;
   onDelete: (id: string) => void;
   onFetchModels: (p: Provider) => void;
-  onToggleModel: (
-    providerId: string,
-    model: ProviderModel,
-    enabled: boolean,
-  ) => void;
+  onToggleModel: (providerId: string, model: ProviderModel, enabled: boolean) => void;
   onRemoveCustomModel: (providerId: string, modelID: string) => void;
-  onAddCustomModel: (
-    providerId: string,
-    form: CustomModelForm,
-  ) => void;
+  onAddCustomModel: (providerId: string, form: CustomModelForm) => void;
   showToast: (text: string, kind?: "success" | "error") => void;
 }
 
@@ -211,9 +187,7 @@ function ProviderRow({
   const [collapsed, setCollapsed] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const [showCustomModelForm, setShowCustomModelForm] = useState(false);
-  const [customModelForm, setCustomModelForm] = useState<CustomModelForm>(
-    createCustomModelForm(),
-  );
+  const [customModelForm, setCustomModelForm] = useState<CustomModelForm>(createCustomModelForm());
   const [showAdvancedJSON, setShowAdvancedJSON] = useState(false);
   const [providerJSON, setProviderJSON] = useState(() =>
     JSON.stringify(providerJSONValue(initialProvider), null, 2),
@@ -227,17 +201,11 @@ function ProviderRow({
     setProviderJSON(JSON.stringify(providerJSONValue(initialProvider), null, 2));
   }, [initialProvider]);
 
-  const syncJSON = useCallback(
-    (p: Provider) => {
-      setProviderJSON(JSON.stringify(providerJSONValue(p), null, 2));
-    },
-    [],
-  );
+  const syncJSON = useCallback((p: Provider) => {
+    setProviderJSON(JSON.stringify(providerJSONValue(p), null, 2));
+  }, []);
 
-  const updateField = (
-    field: keyof Provider,
-    value: Provider[keyof Provider],
-  ) => {
+  const updateField = (field: keyof Provider, value: Provider[keyof Provider]) => {
     const next = { ...provider, [field]: value };
     setProvider(next);
     syncJSON(next);
@@ -258,16 +226,12 @@ function ProviderRow({
     return {
       ...provider,
       type: String(parsed.type || provider.type || "").trim(),
-      name:
-        String(parsed.name || provider.name || provider.id).trim() ||
-        provider.id,
+      name: String(parsed.name || provider.name || provider.id).trim() || provider.id,
       enabled: parsed.enabled !== false,
       api_key: String(parsed.api_key || ""),
       base_url: String(parsed.base_url || ""),
       models:
-        parsed.models &&
-        !Array.isArray(parsed.models) &&
-        typeof parsed.models === "object"
+        parsed.models && !Array.isArray(parsed.models) && typeof parsed.models === "object"
           ? (parsed.models as Record<string, ModelConfig>)
           : {},
     };
@@ -311,20 +275,15 @@ function ProviderRow({
     try {
       const modelID = (customModelForm.id || "").trim();
       if (!modelID) throw new Error("Model ID is required");
-      const nextModels = { ...(provider.models || {}) };
-      if (
-        customModelForm.original_id &&
-        customModelForm.original_id !== modelID
-      ) {
+      const nextModels = { ...provider.models };
+      if (customModelForm.original_id && customModelForm.original_id !== modelID) {
         delete nextModels[customModelForm.original_id];
       }
       nextModels[modelID] = modelConfigFromForm({ ...customModelForm, id: modelID });
       const next = { ...provider, models: nextModels };
       setProvider(next);
       syncJSON(next);
-      setCustomModelForm(
-        formFromModelConfig(modelID, nextModels[modelID]),
-      );
+      setCustomModelForm(formFromModelConfig(modelID, nextModels[modelID]));
       setShowCustomModelForm(false);
       onAddCustomModel(provider.id, { ...customModelForm, id: modelID });
     } catch (e) {
@@ -340,7 +299,7 @@ function ProviderRow({
   };
 
   const handleToggleModel = (model: ProviderModel) => {
-    const nextModels = { ...(provider.models || {}) };
+    const nextModels = { ...provider.models };
     const current = nextModels[model.id] || {
       id: model.id,
       name: model.name || model.id,
@@ -358,15 +317,12 @@ function ProviderRow({
   };
 
   const handleRemoveCustomModel = (modelID: string) => {
-    const next = { ...(provider.models || {}) };
+    const next = { ...provider.models };
     delete next[modelID];
     const nextProvider = { ...provider, models: next };
     setProvider(nextProvider);
     syncJSON(nextProvider);
-    if (
-      customModelForm.original_id === modelID ||
-      customModelForm.id === modelID
-    ) {
+    if (customModelForm.original_id === modelID || customModelForm.id === modelID) {
       setCustomModelForm(createCustomModelForm());
       setShowCustomModelForm(false);
     }
@@ -387,18 +343,16 @@ function ProviderRow({
           <div className="flex items-baseline gap-3 flex-wrap min-w-0">
             <span className="font-medium text-lg">{provider.name || provider.id}</span>
             <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
-            <Badge variant="outline" size="sm">{provider.type}</Badge>
+            <Badge variant="outline" size="sm">
+              {provider.type}
+            </Badge>
             <Badge variant={provider.enabled ? "success" : "outline"} size="sm">
               {provider.enabled ? "enabled" : "disabled"}
             </Badge>
           </div>
         </button>
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            onClick={() => setCollapsed((c) => !c)}
-            variant="ghost"
-            size="xs"
-          >
+          <Button onClick={() => setCollapsed((c) => !c)} variant="ghost" size="xs">
             {collapsed ? "Expand" : "Collapse"}
           </Button>
           <Button
@@ -422,11 +376,7 @@ function ProviderRow({
             <p className="text-sm">Delete provider {provider.id}?</p>
           </div>
           <DialogFooter>
-            <Button
-              onClick={() => setConfirmDeleteOpen(false)}
-              variant="ghost"
-              size="sm"
-            >
+            <Button onClick={() => setConfirmDeleteOpen(false)} variant="ghost" size="sm">
               Cancel
             </Button>
             <Button
@@ -477,7 +427,9 @@ function ProviderRow({
                 type="text"
                 value={provider.name}
                 placeholder={provider.id}
-                onChange={(e) => updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
+                onChange={(e) =>
+                  updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
+                }
                 nativeInput
               />
             </div>
@@ -487,7 +439,9 @@ function ProviderRow({
                 type="password"
                 value={provider.api_key}
                 placeholder="sk-..."
-                onChange={(e) => updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
+                onChange={(e) =>
+                  updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)
+                }
                 nativeInput
                 className="font-mono"
               />
@@ -497,10 +451,10 @@ function ProviderRow({
               <Input
                 type="text"
                 value={provider.base_url}
-                placeholder={
-                  providerDefaults[provider.type]?.base_url || ""
+                placeholder={providerDefaults[provider.type]?.base_url || ""}
+                onChange={(e) =>
+                  updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)
                 }
-                onChange={(e) => updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)}
                 nativeInput
                 className="font-mono"
               />
@@ -514,9 +468,8 @@ function ProviderRow({
                 <div>
                   <p className="text-sm font-medium">Custom models</p>
                   <p className="text-xs text-muted-foreground">
-                    Add provider-specific models with a guided form. Fetching
-                    models only updates discovered models and never overwrites
-                    these custom entries.
+                    Add provider-specific models with a guided form. Fetching models only updates
+                    discovered models and never overwrites these custom entries.
                   </p>
                 </div>
                 <Button
@@ -536,9 +489,7 @@ function ProviderRow({
                 <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Model ID
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Model ID</label>
                       <Input
                         type="text"
                         value={customModelForm.id}
@@ -554,9 +505,7 @@ function ProviderRow({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Display name
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Display name</label>
                       <Input
                         type="text"
                         value={customModelForm.name}
@@ -571,9 +520,7 @@ function ProviderRow({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Input
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Input</label>
                       <Input
                         type="text"
                         value={customModelForm.input}
@@ -588,9 +535,7 @@ function ProviderRow({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Output
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Output</label>
                       <Input
                         type="text"
                         value={customModelForm.output}
@@ -605,9 +550,7 @@ function ProviderRow({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Context window
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Context window</label>
                       <Input
                         type="number"
                         min={0}
@@ -623,9 +566,7 @@ function ProviderRow({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-medium mb-1 block">
-                        Max tokens
-                      </label>
+                      <label className="text-xs font-medium mb-1 block">Max tokens</label>
                       <Input
                         type="number"
                         min={0}
@@ -673,8 +614,8 @@ function ProviderRow({
                       <div>
                         <p className="text-sm">Reasoning</p>
                         <p className="text-xs text-muted-foreground">
-                          Stores the provider-facing{" "}
-                          <span className="font-mono">reasoning</span> flag.
+                          Stores the provider-facing <span className="font-mono">reasoning</span>{" "}
+                          flag.
                         </p>
                       </div>
                     </div>
@@ -700,9 +641,7 @@ function ProviderRow({
                       },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <label className="text-xs font-medium mb-1 block">
-                          {label}
-                        </label>
+                        <label className="text-xs font-medium mb-1 block">{label}</label>
                         <Input
                           type="number"
                           step="any"
@@ -731,11 +670,7 @@ function ProviderRow({
                     >
                       Cancel
                     </Button>
-                    <Button
-                      onClick={handleSubmitCustomModel}
-                      variant="default"
-                      size="sm"
-                    >
+                    <Button onClick={handleSubmitCustomModel} variant="default" size="sm">
                       {customModelForm.original_id ? "Update model" : "Add model"}
                     </Button>
                   </div>
@@ -746,22 +681,16 @@ function ProviderRow({
               <div className="border-t border-border pt-4 space-y-3">
                 <button
                   onClick={() => {
-                    setProviderJSON(
-                      JSON.stringify(providerJSONValue(provider), null, 2),
-                    );
+                    setProviderJSON(JSON.stringify(providerJSONValue(provider), null, 2));
                     setShowAdvancedJSON((v) => !v);
                   }}
                   className="text-xs font-mono text-muted-foreground hover:text-foreground"
                 >
-                  {showAdvancedJSON
-                    ? "Hide advanced JSON editor"
-                    : "Show advanced JSON editor"}
+                  {showAdvancedJSON ? "Hide advanced JSON editor" : "Show advanced JSON editor"}
                 </button>
                 {showAdvancedJSON && (
                   <div className="space-y-2">
-                    <label className="text-xs font-medium mb-1 block">
-                      Provider JSON
-                    </label>
+                    <label className="text-xs font-medium mb-1 block">Provider JSON</label>
                     <Textarea
                       value={providerJSON}
                       onChange={(e) => setProviderJSON(e.target.value)}
@@ -770,11 +699,7 @@ function ProviderRow({
                       className="font-mono text-xs"
                     />
                     <div className="flex justify-end">
-                      <Button
-                        onClick={handleApplyJSON}
-                        variant="ghost"
-                        size="xs"
-                      >
+                      <Button onClick={handleApplyJSON} variant="ghost" size="xs">
                         Apply JSON
                       </Button>
                     </div>
@@ -821,8 +746,8 @@ function ProviderRow({
           {showModels && (
             <div className="mt-4 pl-4 border-l-2 border-border space-y-3">
               <p className="text-xs text-muted-foreground">
-                Toggle models on or off, then save. Custom models can be edited
-                with the form or in the advanced JSON editor.
+                Toggle models on or off, then save. Custom models can be edited with the form or in
+                the advanced JSON editor.
               </p>
               {models.length > 0 ? (
                 <div className="max-h-80 overflow-y-auto space-y-2">
@@ -878,8 +803,7 @@ function ProviderRow({
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground py-2">
-                  No models yet. Fetch from the provider or add custom models
-                  above.
+                  No models yet. Fetch from the provider or add custom models above.
                 </div>
               )}
             </div>
@@ -894,9 +818,7 @@ function ProviderRow({
 
 export function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [providerModels, setProviderModels] = useState<
-    Record<string, ProviderModel[]>
-  >({});
+  const [providerModels, setProviderModels] = useState<Record<string, ProviderModel[]>>({});
   const [providerTypes, setProviderTypes] = useState<ProviderType[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<
     Record<string, { base_url: string; name: string }>
@@ -906,19 +828,15 @@ export function ProvidersPage() {
   const [newProviderName, setNewProviderName] = useState("");
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
-  const showToast = useCallback(
-    (text: string, kind: "success" | "error" = "success") => {
-      const id = ++toastSeq;
-      setToasts((prev) => [...prev, { id, text, kind }]);
-      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
-    },
-    [],
-  );
+  const showToast = useCallback((text: string, kind: "success" | "error" = "success") => {
+    const id = ++toastSeq;
+    setToasts((prev) => [...prev, { id, text, kind }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+  }, []);
 
   const loadProviderTypes = useCallback(async () => {
     try {
-      const types =
-        (await api<ProviderType[]>("GET", "/api/provider-types")) || [];
+      const types = (await api<ProviderType[]>("GET", "/api/provider-types")) || [];
       const defaults: Record<string, { base_url: string; name: string }> = {};
       for (const t of types) {
         defaults[t.id] = { base_url: t.default_url, name: t.name };
@@ -926,9 +844,7 @@ export function ProvidersPage() {
       setProviderDefaults(defaults);
       setProviderTypes(
         [...types]
-          .sort(
-            (a, b) => (a.name || a.id).localeCompare(b.name || b.id),
-          )
+          .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
           .map((t) => ({ id: t.id, name: t.name || t.id, default_url: t.default_url })),
       );
     } catch (e) {
@@ -936,21 +852,15 @@ export function ProvidersPage() {
     }
   }, []);
 
-  const loadProviderModels = useCallback(
-    async (providerID: string) => {
-      try {
-        const models =
-          (await api<ProviderModel[]>(
-            "GET",
-            `/api/providers/${providerID}/models`,
-          )) || [];
-        setProviderModels((prev) => ({ ...prev, [providerID]: models }));
-      } catch {
-        setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
-      }
-    },
-    [],
-  );
+  const loadProviderModels = useCallback(async (providerID: string) => {
+    try {
+      const models =
+        (await api<ProviderModel[]>("GET", `/api/providers/${providerID}/models`)) || [];
+      setProviderModels((prev) => ({ ...prev, [providerID]: models }));
+    } catch {
+      setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
+    }
+  }, []);
 
   const loadProviders = useCallback(async () => {
     try {
@@ -1046,11 +956,10 @@ export function ProvidersPage() {
 
   const handleFetchModels = async (p: Provider) => {
     try {
-      const models = await api<ProviderModel[]>(
-        "POST",
-        `/api/providers/${p.id}/models`,
-        { api_key: p.api_key, base_url: p.base_url },
-      );
+      const models = await api<ProviderModel[]>("POST", `/api/providers/${p.id}/models`, {
+        api_key: p.api_key,
+        base_url: p.base_url,
+      });
       const list = models || [];
       setProviderModels((prev) => ({ ...prev, [p.id]: list }));
       showToast(`${list.length} models available`);
@@ -1059,19 +968,13 @@ export function ProvidersPage() {
     }
   };
 
-  const handleToggleModel = (
-    providerId: string,
-    model: ProviderModel,
-    enabled: boolean,
-  ) => {
+  const handleToggleModel = (providerId: string, model: ProviderModel, enabled: boolean) => {
     setProviderModels((prev) => {
       const list = prev[providerId] || [];
       return {
         ...prev,
         [providerId]: list.map((m) =>
-          m.id === model.id && m.source === model.source
-            ? { ...m, enabled }
-            : m,
+          m.id === model.id && m.source === model.source ? { ...m, enabled } : m,
         ),
       };
     });
@@ -1082,9 +985,7 @@ export function ProvidersPage() {
       const list = prev[providerId] || [];
       return {
         ...prev,
-        [providerId]: list.filter(
-          (m) => !(m.id === modelID && m.source === "custom"),
-        ),
+        [providerId]: list.filter((m) => !(m.id === modelID && m.source === "custom")),
       };
     });
   };
@@ -1100,7 +1001,12 @@ export function ProvidersPage() {
             (m.id === modelID || (form.original_id && m.id === form.original_id))
           ),
       );
-      list.push({ id: modelID, name: form.name || modelID, enabled: form.enabled, source: "custom" });
+      list.push({
+        id: modelID,
+        name: form.name || modelID,
+        enabled: form.enabled,
+        source: "custom",
+      });
       return { ...prev, [providerId]: list };
     });
   };
@@ -1111,9 +1017,7 @@ export function ProvidersPage() {
     <div>
       {/* Page header */}
       <div className="mb-8">
-        <h1 className="font-serif text-2xl tracking-tight mb-1">
-          LLM connections
-        </h1>
+        <h1 className="font-serif text-2xl tracking-tight mb-1">LLM connections</h1>
         <p className="text-sm text-muted-foreground">
           API keys and endpoints for each model provider Anna can use.
         </p>
@@ -1138,7 +1042,9 @@ export function ProvidersPage() {
           </select>
           <Input
             value={newProviderID}
-            onChange={(e) => setNewProviderID((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            onChange={(e) =>
+              setNewProviderID((e as React.ChangeEvent<HTMLInputElement>).target.value)
+            }
             type="text"
             placeholder="provider id (e.g. openrouter)"
             nativeInput
@@ -1146,7 +1052,9 @@ export function ProvidersPage() {
           />
           <Input
             value={newProviderName}
-            onChange={(e) => setNewProviderName((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            onChange={(e) =>
+              setNewProviderName((e as React.ChangeEvent<HTMLInputElement>).target.value)
+            }
             type="text"
             placeholder="display name"
             nativeInput

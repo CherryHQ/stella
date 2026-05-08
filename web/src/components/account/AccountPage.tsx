@@ -73,47 +73,47 @@ export function AccountPage() {
       <div className="mb-10">
         <h2 className="font-serif text-xl mb-4">Change Password</h2>
         <div className="rounded-xl border border-border bg-card p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Current Password</label>
-                <Input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="current password"
-                  autoComplete="current-password"
-                  nativeInput
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">New Password</label>
-                <Input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="min 8 characters"
-                  minLength={8}
-                  autoComplete="new-password"
-                  nativeInput
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Confirm New Password</label>
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="confirm new password"
-                  autoComplete="new-password"
-                  nativeInput
-                />
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Current Password</label>
+              <Input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="current password"
+                autoComplete="current-password"
+                nativeInput
+              />
             </div>
-            <div className="mt-4">
-              <Button size="sm" loading={changingPassword} onClick={changePassword}>
-                Change Password
-              </Button>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="min 8 characters"
+                minLength={8}
+                autoComplete="new-password"
+                nativeInput
+              />
             </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Confirm New Password</label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="confirm new password"
+                autoComplete="new-password"
+                nativeInput
+              />
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button size="sm" loading={changingPassword} onClick={changePassword}>
+              Change Password
+            </Button>
+          </div>
         </div>
       </div>
 

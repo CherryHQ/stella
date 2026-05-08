@@ -48,7 +48,12 @@ export function SessionSidebar({
     () =>
       sessions.filter((s) => {
         if (!showArchived && s.archived) return false;
-        if (!showScheduler && s.id && (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:"))) return false;
+        if (
+          !showScheduler &&
+          s.id &&
+          (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:"))
+        )
+          return false;
         if (filterChannel && s.channel !== filterChannel) return false;
         if (filterAgent && s.agent_id !== filterAgent) return false;
         if (filterUser && String(s.user_id) !== filterUser) return false;
@@ -103,13 +108,18 @@ export function SessionSidebar({
       {/* Header */}
       <div className="flex-shrink-0 bg-background">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">Sessions</span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
+            Sessions
+          </span>
           <div className="relative">
-            <Button
-              size="xs"
-              onClick={() => setShowNew((v) => !v)}
-            >
-              <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+            <Button size="xs" onClick={() => setShowNew((v) => !v)}>
+              <svg
+                className="w-3 h-3 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth="2.5"
+                stroke="currentColor"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
               New
@@ -120,7 +130,9 @@ export function SessionSidebar({
                 onClick={(e) => e.stopPropagation()}
               >
                 <div>
-                  <div className="text-[9px] font-mono text-muted-foreground/60 uppercase tracking-wider mb-1">Agent</div>
+                  <div className="text-[9px] font-mono text-muted-foreground/60 uppercase tracking-wider mb-1">
+                    Agent
+                  </div>
                   <select
                     value={newSessionAgentID}
                     onChange={(e) => setNewSessionAgentID(e.target.value)}
@@ -135,8 +147,12 @@ export function SessionSidebar({
                   </select>
                 </div>
                 <div className="flex gap-1 justify-end">
-                  <Button size="xs" variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
-                  <Button size="xs" disabled={!newSessionAgentID} onClick={handleCreate}>Create</Button>
+                  <Button size="xs" variant="ghost" onClick={() => setShowNew(false)}>
+                    Cancel
+                  </Button>
+                  <Button size="xs" disabled={!newSessionAgentID} onClick={handleCreate}>
+                    Create
+                  </Button>
                 </div>
               </div>
             )}
@@ -153,8 +169,18 @@ export function SessionSidebar({
               placeholder="Search sessions…"
               className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md border border-border bg-transparent focus:outline-none focus:border-primary/60 transition-colors"
             />
-            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            <svg
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="2.5"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+              />
             </svg>
           </div>
         </div>
@@ -162,35 +188,79 @@ export function SessionSidebar({
         {/* Filters */}
         <div className="px-3 pt-2.5 pb-3 space-y-2.5 border-b border-border">
           <div className="grid grid-cols-3 gap-1.5">
-            <select value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+            <select
+              value={filterChannel}
+              onChange={(e) => setFilterChannel(e.target.value)}
+              className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background"
+            >
               <option value="">ch: all</option>
               {uniqueChannels.map((ch) => (
-                <option key={ch} value={ch}>{channelLabel(ch)}</option>
+                <option key={ch} value={ch}>
+                  {channelLabel(ch)}
+                </option>
               ))}
             </select>
-            <select value={filterAgent} onChange={(e) => setFilterAgent(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+            <select
+              value={filterAgent}
+              onChange={(e) => setFilterAgent(e.target.value)}
+              className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background"
+            >
               <option value="">agent: all</option>
               {uniqueAgents.map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>
+                  {a}
+                </option>
               ))}
             </select>
-            <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background">
+            <select
+              value={filterUser}
+              onChange={(e) => setFilterUser(e.target.value)}
+              className="text-[10px] font-mono border border-border rounded px-1 py-1 bg-background"
+            >
               <option value="">user: all</option>
               {uniqueUsers.map((u) => (
-                <option key={u} value={String(u)}>{u}</option>
+                <option key={u} value={String(u)}>
+                  {u}
+                </option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="checkbox" checked={showScheduler} onChange={(e) => setShowScheduler(e.target.checked)} className="w-3 h-3" />
-              <span className={cn("text-[10px] font-mono select-none", showScheduler ? "text-muted-foreground" : "text-muted-foreground/50")}>Scheduled</span>
+              <input
+                type="checkbox"
+                checked={showScheduler}
+                onChange={(e) => setShowScheduler(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-mono select-none",
+                  showScheduler ? "text-muted-foreground" : "text-muted-foreground/50",
+                )}
+              >
+                Scheduled
+              </span>
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="w-3 h-3" />
-              <span className={cn("text-[10px] font-mono select-none", showArchived ? "text-muted-foreground" : "text-muted-foreground/50")}>Archived</span>
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-mono select-none",
+                  showArchived ? "text-muted-foreground" : "text-muted-foreground/50",
+                )}
+              >
+                Archived
+              </span>
             </label>
-            <span className="ml-auto text-[10px] font-mono text-muted-foreground/40 tabular-nums">{filteredSessions.length} sessions</span>
+            <span className="ml-auto text-[10px] font-mono text-muted-foreground/40 tabular-nums">
+              {filteredSessions.length} sessions
+            </span>
           </div>
         </div>
       </div>
@@ -203,13 +273,19 @@ export function SessionSidebar({
             onClick={() => onSelect(s.id)}
             className={cn(
               "px-4 py-3 cursor-pointer transition-colors border-l-2 border-b border-border/50",
-              selectedID === s.id ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/70",
+              selectedID === s.id
+                ? "border-l-primary bg-primary/5"
+                : "border-l-transparent hover:bg-muted/70",
             )}
           >
             <p
               className={cn(
                 "text-[13px] font-medium leading-snug truncate mb-1",
-                selectedID === s.id ? "text-primary" : s.archived ? "text-muted-foreground/40 italic" : "text-foreground/80",
+                selectedID === s.id
+                  ? "text-primary"
+                  : s.archived
+                    ? "text-muted-foreground/40 italic"
+                    : "text-foreground/80",
               )}
             >
               {s.title || "Untitled"}
