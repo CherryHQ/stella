@@ -14,7 +14,6 @@ const BINARY_EXTS = new Set([
   "bz2",
   "7z",
   "rar",
-  "pdf",
   "woff",
   "woff2",
   "ttf",
@@ -43,6 +42,10 @@ function extOf(path: string): string {
 
 function isImage(path: string): boolean {
   return IMAGE_EXTS.has(extOf(path));
+}
+
+function isPdf(path: string): boolean {
+  return extOf(path) === "pdf";
 }
 
 function isBinary(path: string): boolean {
@@ -120,7 +123,7 @@ export function FileViewer({
   }, [path]);
 
   useEffect(() => {
-    if (loading || editing || isImage(path) || isBinary(path)) return;
+    if (loading || editing || isImage(path) || isPdf(path) || isBinary(path)) return;
     if (isMarkdown(language)) {
       setHighlightReady(true);
       return;
@@ -207,7 +210,7 @@ export function FileViewer({
         {language && (
           <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">{language}</span>
         )}
-        {!loading && !isBinary(path) && !isImage(path) && (
+        {!loading && !isBinary(path) && !isImage(path) && !isPdf(path) && (
           <>
             {editing ? (
               <>
@@ -266,6 +269,14 @@ export function FileViewer({
               }}
             />
           </div>
+        )}
+
+        {!loading && isPdf(path) && (
+          <iframe
+            src={`/api/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`}
+            className="w-full h-full border-0"
+            title={fileName}
+          />
         )}
 
         {!loading && isBinary(path) && (
