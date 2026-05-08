@@ -1,24 +1,17 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import browserCollections from "collections/browser";
-import { DocsLayout } from "fumadocs-ui/layouts/docs";
-import { SidebarTrigger } from "fumadocs-ui/components/sidebar/base";
-import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/layouts/docs/page";
-import { Menu } from "lucide-react";
-import { Suspense } from "react";
-import { useMDXComponents } from "@/components/docs/mdx";
-import { DocsProvider } from "@/components/docs/DocsProvider";
+import { useState } from "react";
+import { Menu, X } from "lucide-react";
 import { SiteHeader } from "@/components/SiteHeader";
-import { baseOptions } from "@/lib/docs/layout.shared";
-import { i18n } from "@/lib/docs/i18n";
-import { source } from "@/lib/docs/source";
-
-type Lang = (typeof i18n)["languages"][number];
+import { DocsSidebar } from "@/components/docs/DocsSidebar";
+import { mdxComponents } from "@/components/docs/mdx-components";
+import { getPage, getSidebar } from "@/lib/docs/docs";
+import { i18n, type Lang } from "@/lib/docs/i18n";
 
 function parseLang(splat: string | undefined) {
   const segments = splat?.split("/").filter(Boolean) ?? [];
   if (
     segments[0] &&
-    i18n.languages.includes(segments[0] as Lang) &&
+    (i18n.languages as readonly string[]).includes(segments[0]) &&
     segments[0] !== i18n.defaultLanguage
   ) {
     return { lang: segments[0] as Lang, slugs: segments.slice(1) };
@@ -28,65 +21,73 @@ function parseLang(splat: string | undefined) {
 
 export const Route = createFileRoute("/docs/$")({
   component: Page,
-  loader: async ({ params }) => {
+  loader: ({ params }) => {
     const { lang, slugs } = parseLang(params._splat);
-    const page = source.getPage(slugs, lang);
+    const page = getPage(slugs, lang);
     if (!page) throw notFound();
-
-    await clientLoader.preload(page.path);
-    return {
-      lang,
-      path: page.path,
-      pageTree: source.getPageTree(lang),
-    };
+    return { lang, page };
   },
 });
-
-const clientLoader = browserCollections.docs.createClientLoader({
-  component({ toc, frontmatter, default: MDX }) {
-    return (
-      <DocsPage toc={toc}>
-        <DocsTitle>{frontmatter.title}</DocsTitle>
-        <DocsDescription>{frontmatter.description}</DocsDescription>
-        <DocsBody>
-          {/* biome-ignore lint/correctness/useHookAtTopLevel: fumadocs clientLoader component pattern */}
-          <MDX components={useMDXComponents()} />
-        </DocsBody>
-      </DocsPage>
-    );
-  },
-});
-
-function DocsMobileNav() {
-  return (
-    <div className="[grid-area:header] flex items-center px-4 h-10 md:hidden border-b bg-fd-background/80 backdrop-blur-sm">
-      <SidebarTrigger className="p-1.5 rounded-md text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-foreground transition-colors">
-        <Menu className="size-5" />
-      </SidebarTrigger>
-    </div>
-  );
-}
 
 function Page() {
-  const { lang, path, pageTree } = Route.useLoaderData();
-  const opts = baseOptions();
+  const { lang, page } = Route.useLoaderData();
+  const sidebar = getSidebar(lang);
+  const MDXContent = page.default;
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <>
+    <div className="flex flex-col h-dvh">
       <SiteHeader variant="docs" />
-      <DocsProvider lang={lang}>
-        <DocsLayout
-          {...opts}
-          tree={pageTree}
-          nav={{ ...opts.nav, component: <DocsMobileNav /> }}
-          containerProps={{
-            className: "max-md:[--fd-header-height:2.5rem]",
-            style: { "--fd-docs-height": "calc(100dvh - 3.5rem)" } as React.CSSProperties,
-          }}
-        >
-          <Suspense>{clientLoader.useContent(path)}</Suspense>
-        </DocsLayout>
-      </DocsProvider>
-    </>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Desktop sidebar */}
+        <aside className="hidden md:block w-64 shrink-0 border-r border-border overflow-y-auto p-4">
+          <DocsSidebar groups={sidebar} />
+        </aside>
+
+        {/* Mobile sidebar overlay */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
+            <aside className="absolute left-0 top-0 bottom-0 w-72 bg-background border-r border-border overflow-y-auto p-4 shadow-lg">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+              <DocsSidebar groups={sidebar} />
+            </aside>
+          </div>
+        )}
+
+        {/* Content */}
+        <main className="flex-1 overflow-y-auto">
+          {/* Mobile sidebar trigger */}
+          <div className="md:hidden sticky top-0 z-10 flex items-center px-4 h-10 border-b border-border bg-background/80 backdrop-blur-sm">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <Menu className="size-5" />
+            </button>
+            <span className="ml-3 text-sm font-medium text-foreground truncate">
+              {page.frontmatter?.title}
+            </span>
+          </div>
+
+          <article className="max-w-3xl mx-auto px-6 py-8 md:px-8">
+            {page.frontmatter?.title && (
+              <h1 className="text-3xl font-bold text-foreground mb-2">{page.frontmatter.title}</h1>
+            )}
+            {page.frontmatter?.description && (
+              <p className="text-lg text-muted-foreground mb-8">{page.frontmatter.description}</p>
+            )}
+            <MDXContent components={mdxComponents} />
+          </article>
+        </main>
+      </div>
+    </div>
   );
 }

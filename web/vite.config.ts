@@ -1,6 +1,8 @@
 import { defineConfig } from "vite-plus";
-import mdx from "fumadocs-mdx/vite";
-import * as sourceConfig from "./source.config.ts";
+import mdx from "@mdx-js/rollup";
+import remarkGfm from "remark-gfm";
+import remarkFrontmatter from "remark-frontmatter";
+import remarkMdxFrontmatter from "remark-mdx-frontmatter";
 import tanstackRouter from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,14 +10,16 @@ import path from "node:path";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["src/components/ui/**", ".source"],
+    ignorePatterns: ["src/components/ui/**", "content/**"],
   },
   lint: {
-    ignorePatterns: ["src/components/ui/**", ".source"],
+    ignorePatterns: ["src/components/ui/**", "content/**"],
     options: { typeAware: true, typeCheck: true },
   },
   plugins: [
-    mdx(sourceConfig),
+    mdx({
+      remarkPlugins: [remarkGfm, remarkFrontmatter, remarkMdxFrontmatter],
+    }),
     tanstackRouter({
       routesDirectory: "./src/routes",
       generatedRouteTree: "./src/routeTree.gen.ts",
@@ -31,7 +35,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
-      collections: path.resolve(import.meta.dirname, ".source"),
       "node:path": "pathe",
     },
   },

@@ -1,9 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { HomeLayout } from "fumadocs-ui/layouts/home";
-import { baseOptions } from "@/lib/docs/layout.shared";
 import { t } from "@/lib/docs/translations";
 import { i18n } from "@/lib/docs/i18n";
-import { DocsProvider } from "@/components/docs/DocsProvider";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -23,16 +20,15 @@ function Home() {
   const lang = i18n.defaultLanguage;
 
   return (
-    <DocsProvider>
-      <HomeLayout {...baseOptions()} nav={{ component: <SiteHeader variant="landing" /> }}>
-        <div className="home-page">
-          <HeroSection lang={lang} />
-          <FeaturesSection lang={lang} />
-          <MeetAnnaSection lang={lang} />
-          <FooterCTA lang={lang} />
-        </div>
-      </HomeLayout>
-    </DocsProvider>
+    <>
+      <SiteHeader variant="landing" />
+      <main className="home-page">
+        <HeroSection lang={lang} />
+        <FeaturesSection lang={lang} />
+        <MeetAnnaSection lang={lang} />
+        <FooterCTA lang={lang} />
+      </main>
+    </>
   );
 }
 
@@ -47,7 +43,7 @@ function HeroSection({ lang }: { lang: string }) {
               {tr.heroTag}
             </p>
           </div>
-          <h1 className="animate-fade-up stagger-2 text-5xl md:text-6xl lg:text-[4.5rem] tracking-tight text-fd-foreground leading-[0.92] mb-10">
+          <h1 className="animate-fade-up stagger-2 text-5xl md:text-6xl lg:text-[4.5rem] tracking-tight text-foreground leading-[0.92] mb-10">
             {tr.heroTitle1}
             <br />
             {tr.heroTitle2}
@@ -55,7 +51,7 @@ function HeroSection({ lang }: { lang: string }) {
             <span className="italic text-[var(--color-terra)]">{tr.heroTitle3}</span>
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
-            <p className="text-fd-muted-foreground text-base leading-relaxed mb-12">
+            <p className="text-muted-foreground text-base leading-relaxed mb-12">
               {tr.heroDescription}
             </p>
           </div>
@@ -72,7 +68,7 @@ function HeroSection({ lang }: { lang: string }) {
               href="https://github.com/vaayne/anna"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-fd-muted-foreground text-sm font-medium underline underline-offset-4 decoration-fd-border hover:text-fd-foreground hover:decoration-fd-foreground transition-colors"
+              className="inline-flex items-center gap-2 text-muted-foreground text-sm font-medium underline underline-offset-4 decoration-border hover:text-foreground hover:decoration-foreground transition-colors"
             >
               {tr.sourceOnGithub}
             </a>
@@ -117,8 +113,8 @@ function FeaturesSection({ lang }: { lang: string }) {
   ];
 
   return (
-    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
-      <h2 className="text-3xl md:text-4xl tracking-tight text-fd-foreground mb-20">
+    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
+      <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-20">
         {tr.featuresTitle}
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-20 gap-y-16">
@@ -136,8 +132,8 @@ function FeatureItem({ label, title, body }: { label: string; title: string; bod
       <span className="text-[11px] font-medium tracking-[0.15em] text-[var(--color-terra)] uppercase mb-3 block font-[family-name:var(--font-mono)]">
         {label}
       </span>
-      <h3 className="text-xl md:text-2xl tracking-tight text-fd-foreground mb-3">{title}</h3>
-      <p className="text-fd-muted-foreground text-sm leading-relaxed">{body}</p>
+      <h3 className="text-xl md:text-2xl tracking-tight text-foreground mb-3">{title}</h3>
+      <p className="text-muted-foreground text-sm leading-relaxed">{body}</p>
     </div>
   );
 }
@@ -145,19 +141,19 @@ function FeatureItem({ label, title, body }: { label: string; title: string; bod
 function MeetAnnaSection({ lang }: { lang: string }) {
   const tr = t(lang);
   return (
-    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
+    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
         <div>
           <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-6 font-[family-name:var(--font-mono)]">
             {tr.meetAnna}
           </p>
-          <h2 className="text-3xl md:text-4xl tracking-tight text-fd-foreground mb-6">
+          <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-6">
             {tr.meetAnnaTitle}
           </h2>
-          <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-4">
+          <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-4">
             {tr.meetAnnaBody1}
           </p>
-          <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-8">
+          <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-8">
             {tr.meetAnnaBody2}
           </p>
           <Link
@@ -184,14 +180,14 @@ function FooterCTA({ lang }: { lang: string }) {
   const tr = t(lang);
   return (
     <section className="px-6 pt-16 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-      <div className="border-t border-fd-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
+      <div className="border-t border-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl md:text-3xl tracking-tight text-fd-foreground mb-3">
+          <h2 className="text-2xl md:text-3xl tracking-tight text-foreground mb-3">
             {tr.getStarted}
           </h2>
-          <p className="text-fd-muted-foreground text-sm">{tr.getStartedBody}</p>
+          <p className="text-muted-foreground text-sm">{tr.getStartedBody}</p>
         </div>
-        <code className="text-[13px] font-[family-name:var(--font-mono)] bg-fd-muted px-4 py-2.5 rounded-md text-fd-foreground whitespace-nowrap shrink-0">
+        <code className="text-[13px] font-[family-name:var(--font-mono)] bg-muted px-4 py-2.5 rounded-md text-foreground whitespace-nowrap shrink-0">
           go install github.com/vaayne/anna@latest
         </code>
       </div>
