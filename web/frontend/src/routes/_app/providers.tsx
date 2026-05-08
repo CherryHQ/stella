@@ -1,0 +1,11 @@
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { ProvidersPage } from '@/components/providers/ProvidersPage'
+import { meQueryOptions } from '@/lib/queries/me'
+
+export const Route = createFileRoute('/_app/providers')({
+  beforeLoad: async ({ context: { queryClient } }) => {
+    const me = queryClient.getQueryData(meQueryOptions.queryKey)
+    if (!me?.is_admin) throw redirect({ to: '/agents' })
+  },
+  component: ProvidersPage,
+})
