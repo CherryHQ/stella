@@ -192,6 +192,23 @@ export function WorkspacePanel({
 
   const fileCount = workspace?.paths?.length ?? 0;
 
+  if (!sessionID) {
+    return (
+      <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border flex-shrink-0">
+          <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+            Workspace
+          </span>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-xs text-muted-foreground/50 font-mono">
+            Select a session to see its workspace
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full flex flex-col overflow-hidden bg-background h-full">
       {/* Header */}
@@ -345,7 +362,7 @@ export function WorkspacePanel({
       {/* Context menu */}
       {ctxMenu.show && (
         <div
-          className="fixed bg-background border border-border rounded-lg shadow-lg py-1 min-w-36 text-sm z-[9999]"
+          className="fixed bg-background border border-border rounded-lg py-1 min-w-36 text-sm z-[9999]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={() => setCtxMenu((m) => ({ ...m, show: false }))}
           onMouseLeave={() => setCtxMenu((m) => ({ ...m, show: false }))}

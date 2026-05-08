@@ -64,7 +64,7 @@ export function AccountPage() {
   }, [currentPassword, newPassword, confirmPassword, showToast]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12 w-full">
+    <div>
       <div className="mb-6">
         <h1 className="font-serif text-3xl tracking-tight">Account</h1>
         <p className="text-muted-foreground text-sm mt-1">Manage your account settings.</p>

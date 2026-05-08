@@ -46,37 +46,37 @@ export function AppLayout() {
 
             {/* Desktop nav */}
             <nav className="hidden sm:flex items-baseline gap-1 text-sm">
-            {visibleNavItems.map((item, i) => (
-              <React.Fragment key={item.id}>
-                {i > 0 && <span className="text-muted-foreground mx-2">/</span>}
-                <Link
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  to={item.href as any}
-                  className="py-1 font-medium transition-colors"
-                  activeProps={{ className: "text-primary py-1 font-medium transition-colors" }}
-                  inactiveProps={{
-                    className:
-                      "text-muted-foreground hover:text-foreground py-1 font-medium transition-colors",
-                  }}
-                >
-                  {item.label}
-                </Link>
-              </React.Fragment>
-            ))}
-          </nav>
+              {visibleNavItems.map((item, i) => (
+                <React.Fragment key={item.id}>
+                  {i > 0 && <span className="text-muted-foreground mx-2">/</span>}
+                  <Link
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    to={item.href as any}
+                    className="py-1 font-medium transition-colors"
+                    activeProps={{ className: "text-primary py-1 font-medium transition-colors" }}
+                    inactiveProps={{
+                      className:
+                        "text-muted-foreground hover:text-foreground py-1 font-medium transition-colors",
+                    }}
+                  >
+                    {item.label}
+                  </Link>
+                </React.Fragment>
+              ))}
+            </nav>
 
-          {/* Mobile nav */}
-          <select
-            className="sm:hidden text-sm border border-border rounded-md px-2 py-1 bg-background"
-            value={pathname}
-            onChange={handleMobileNav}
-          >
-            {visibleNavItems.map((item) => (
-              <option key={item.id} value={item.href}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+            {/* Mobile nav */}
+            <select
+              className="sm:hidden text-sm border border-border rounded-md px-2 py-1 bg-background"
+              value={pathname}
+              onChange={handleMobileNav}
+            >
+              {visibleNavItems.map((item) => (
+                <option key={item.id} value={item.href}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* User menu */}
@@ -99,7 +99,7 @@ export function AppLayout() {
                   <Separator className="my-2" />
                   <Link
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    to={"/account" as any}
+                    to={"/settings/account" as any}
                     className="flex w-full items-center rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
                   >
                     Account settings

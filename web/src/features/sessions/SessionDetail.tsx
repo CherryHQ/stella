@@ -289,9 +289,50 @@ export function SessionDetail({
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-muted-foreground">
-            Select a session to inspect its transcript.
+        <div className="flex-shrink-0 px-5 py-3.5 border-b border-border bg-background flex items-center justify-between">
+          <button
+            onClick={onToggleLeft}
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            title="Toggle sessions"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.8"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm6 0v16.5"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={onToggleRight}
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            title="Toggle workspace"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.8"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
+              />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-2">
+          <p className="text-sm text-muted-foreground">Select a session from the sidebar</p>
+          <p className="text-xs text-muted-foreground/50 font-mono">
+            or create a new one with + New
           </p>
         </div>
       </div>
@@ -480,7 +521,7 @@ export function SessionDetail({
                 ~{Math.round(systemPrompt.length / 4)} tokens
               </span>
             </div>
-            <div className="max-h-40 overflow-y-auto border-l-2 border-primary/25 pl-3">
+            <div className="max-h-40 overflow-y-auto bg-muted/50 rounded-lg p-3">
               <pre className="text-[10px] font-mono text-muted-foreground/60 whitespace-pre-wrap leading-relaxed">
                 {systemPrompt}
               </pre>
@@ -502,7 +543,7 @@ export function SessionDetail({
         <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-background border-t border-border">
           <div
             className={cn(
-              "relative rounded-2xl border bg-background transition-colors shadow-sm",
+              "relative rounded-2xl border bg-background transition-colors",
               isStreaming ? "border-primary/40" : "border-border focus-within:border-primary/60",
             )}
           >

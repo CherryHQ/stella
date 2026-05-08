@@ -94,7 +94,12 @@ export function SessionSidebar({
           <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
             Sessions
           </span>
-          <Button size="xs" disabled={!selectedAgent} onClick={handleCreate}>
+          <Button
+            size="xs"
+            disabled={!selectedAgent}
+            onClick={handleCreate}
+            title={selectedAgent ? "Create new session" : "Select an agent first"}
+          >
             <svg
               className="w-3 h-3 shrink-0"
               fill="none"
@@ -137,7 +142,6 @@ export function SessionSidebar({
         {/* Agent switcher */}
         <div className="px-3 py-2.5 border-b border-border space-y-2">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
             <select
               value={selectedAgent}
               onChange={(e) => setSelectedAgent(e.target.value)}
@@ -198,10 +202,8 @@ export function SessionSidebar({
             key={s.id}
             onClick={() => onSelect(s.id)}
             className={cn(
-              "px-4 py-3 cursor-pointer transition-colors border-l-2 border-b border-border/50",
-              selectedID === s.id
-                ? "border-l-primary bg-primary/5"
-                : "border-l-transparent hover:bg-muted/70",
+              "px-4 py-3 cursor-pointer transition-colors border-b border-border/50",
+              selectedID === s.id ? "bg-primary/5" : "hover:bg-muted/70",
             )}
           >
             <p
