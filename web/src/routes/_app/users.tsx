@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { UsersPage } from "@/components/users/UsersPage";
+import { UsersPage } from "@/features/users/UsersPage";
 import { meQueryOptions } from "@/lib/queries/me";
 
 export const Route = createFileRoute("/_app/users")({

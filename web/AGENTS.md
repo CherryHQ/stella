@@ -18,11 +18,13 @@ web/
 │   │   ├── __root.tsx          # Root route — bare <Outlet>, no providers
 │   │   ├── login.tsx           # /login — unauthenticated; redirects to /agents if authed
 │   │   ├── _app.tsx            # Authenticated layout route — runs meQuery loader
-│   │   └── _app/               # Page routes (all require auth via _app parent)
+│   │   └── _app/               # Thin page route files (all require auth via _app parent)
 │   ├── components/
-│   │   ├── layout/AppLayout.tsx  # Navbar + <Outlet> shell
-│   │   ├── ui/                   # CossUI components (Button, Separator, etc.)
-│   │   └── {page}/               # One directory per page
+│   │   └── ui/                 # Shared reusable UI components (CossUI: Button, Separator, etc.)
+│   ├── features/
+│   │   └── {feature}/          # Feature/page-specific screens, components, hooks, and helpers
+│   ├── layouts/
+│   │   └── AppLayout.tsx       # Navbar + <Outlet> app shell and other structural layouts
 │   ├── lib/
 │   │   ├── queryClient.ts        # Singleton QueryClient
 │   │   └── queries/me.ts         # meQueryOptions — auth query
@@ -39,17 +41,24 @@ Auth state lives in the TanStack Query cache via `meQueryOptions` (`src/lib/quer
 - Components: `useQuery(meQueryOptions)` — reads from same cache entry, no extra request
 - Admin guards: `queryClient.getQueryData(meQueryOptions.queryKey)` — sync cache read (parent loader already fetched)
 
+### Frontend organization
+
+- `src/routes/`: TanStack Router file-based route definitions. Keep route files thin: URL/search params/loaders/guards should live here; full screen UI should be imported from `features/`.
+- `src/features/{feature}/`: Page-level screens and feature-specific components, hooks, and helpers. Put full pages such as `AgentsPage` or `CredentialsPage` here instead of `components/`.
+- `src/components/`: Shared reusable UI that is not tied to one page or feature. `src/components/ui/` is reserved for CossUI primitives.
+- `src/layouts/`: Structural app shells such as `AppLayout`, auth layouts, or dashboard layouts. Layouts are components, but they define page structure/navigation and should be easy to find separately from reusable UI widgets.
+
 ### Adding a new page
 
-1. Create `src/components/mypage/MyPage.tsx` — React component
+1. Create `src/features/mypage/MyPage.tsx` — page-level React component
 2. Create `src/routes/_app/mypage.tsx`:
    ```typescript
    import { createFileRoute } from "@tanstack/react-router";
-   import { MyPage } from "@/components/mypage/MyPage";
+   import { MyPage } from "@/features/mypage/MyPage";
    export const Route = createFileRoute("/_app/mypage")({ component: MyPage });
    ```
    For admin-only pages, add a `beforeLoad` that checks `queryClient.getQueryData(meQueryOptions.queryKey)?.is_admin` and throws `redirect({ to: '/agents' })` if false.
-3. Add the nav link to `src/components/layout/AppLayout.tsx` → `navItems` array
+3. Add the nav link to `src/layouts/AppLayout.tsx` → `navItems` array
 4. Run `pnpm build` — router plugin regenerates `src/routeTree.gen.ts` automatically
 
 No Go server changes needed — the wildcard `GET /{path...}` already serves all page routes.

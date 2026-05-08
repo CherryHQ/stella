@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { PluginsPage } from "@/components/plugins/PluginsPage";
+import { PluginsPage } from "@/features/plugins/PluginsPage";
 import { meQueryOptions } from "@/lib/queries/me";
 
 export const Route = createFileRoute("/_app/plugins")({

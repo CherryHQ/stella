@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ChannelsPage } from "@/components/channels/ChannelsPage";
+import { ChannelsPage } from "@/features/channels/ChannelsPage";
 
 export const Route = createFileRoute("/_app/channels")({
   component: ChannelsPage,

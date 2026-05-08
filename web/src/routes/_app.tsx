@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { meQueryOptions } from "@/lib/queries/me";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { AppLayout } from "@/layouts/AppLayout";
 
 export const Route = createFileRoute("/_app")({
   loader: async ({ context: { queryClient } }) => {

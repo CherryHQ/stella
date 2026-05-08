@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { ProvidersPage } from "@/components/providers/ProvidersPage";
+import { ProvidersPage } from "@/features/providers/ProvidersPage";
 import { meQueryOptions } from "@/lib/queries/me";
 
 export const Route = createFileRoute("/_app/providers")({
