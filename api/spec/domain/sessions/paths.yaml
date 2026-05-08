@@ -201,12 +201,19 @@ paths:
           required: true
           schema: { type: string }
           description: Relative path of the file within the workspace
+        - name: raw
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+            application/octet-stream:
+              schema: { type: string, format: binary }
         "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }

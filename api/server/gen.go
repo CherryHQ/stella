@@ -417,6 +417,9 @@ type GetSessionWorkspaceParams struct {
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
 	Path string `form:"path" json:"path"`
+
+	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
 }
 
 // UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
@@ -4529,6 +4532,19 @@ func (siw *ServerInterfaceWrapper) GetWorkspaceFileContent(w http.ResponseWriter
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "raw" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "raw", r.URL.Query(), &params.Raw, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "raw"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "raw", Err: err})
 		}
 		return
 	}

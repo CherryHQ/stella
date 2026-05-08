@@ -642,6 +642,10 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "path is a directory")
 		return
 	}
+	if params.Raw != nil && *params.Raw {
+		http.ServeFile(w, r, abs)
+		return
+	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

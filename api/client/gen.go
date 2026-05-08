@@ -419,6 +419,9 @@ type GetSessionWorkspaceParams struct {
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
 	Path string `form:"path" json:"path"`
+
+	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
 }
 
 // UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
@@ -7721,6 +7724,18 @@ func NewGetWorkspaceFileContentRequest(server string, sessionID string, params *
 			for _, qp := range strings.Split(queryFrag, "&") {
 				rawQueryFragments = append(rawQueryFragments, qp)
 			}
+		}
+
+		if params.Raw != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "raw", *params.Raw, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -19523,6 +19538,9 @@ func ParseGetWorkspaceFileContentResponse(rsp *http.Response) (*GetWorkspaceFile
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case rsp.StatusCode == 200:
+		// Content-type (application/octet-stream) unsupported
 
 	}
 
