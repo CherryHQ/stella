@@ -24,6 +24,9 @@ const { provider } = defineI18nUI(i18n, {
   },
 });
 
-export function DocsProvider({ children }: { children: ReactNode }) {
-  return <RootProvider i18n={provider(i18n.defaultLanguage)}>{children}</RootProvider>;
+export function DocsProvider({
+  lang = i18n.defaultLanguage,
+  children,
+}: { lang?: string; children: ReactNode }) {
+  return <RootProvider i18n={provider(lang)}>{children}</RootProvider>;
 }

@@ -14,17 +14,28 @@ import { baseOptions } from "@/lib/docs/layout.shared";
 import { i18n } from "@/lib/docs/i18n";
 import { source } from "@/lib/docs/source";
 
+type Lang = (typeof i18n)["languages"][number];
+
+function parseLang(splat: string | undefined) {
+  const segments = splat?.split("/").filter(Boolean) ?? [];
+  if (segments[0] && i18n.languages.includes(segments[0] as Lang) && segments[0] !== i18n.defaultLanguage) {
+    return { lang: segments[0] as Lang, slugs: segments.slice(1) };
+  }
+  return { lang: i18n.defaultLanguage, slugs: segments };
+}
+
 export const Route = createFileRoute("/docs/$")({
   component: Page,
   loader: async ({ params }) => {
-    const slugs = params._splat?.split("/").filter(Boolean) ?? [];
-    const page = source.getPage(slugs, i18n.defaultLanguage);
+    const { lang, slugs } = parseLang(params._splat);
+    const page = source.getPage(slugs, lang);
     if (!page) throw notFound();
 
     await clientLoader.preload(page.path);
     return {
+      lang,
       path: page.path,
-      pageTree: source.getPageTree(i18n.defaultLanguage),
+      pageTree: source.getPageTree(lang),
     };
   },
 });
@@ -45,10 +56,10 @@ const clientLoader = browserCollections.docs.createClientLoader({
 });
 
 function Page() {
-  const { path, pageTree } = Route.useLoaderData();
+  const { lang, path, pageTree } = Route.useLoaderData();
 
   return (
-    <DocsProvider>
+    <DocsProvider lang={lang}>
       <DocsLayout {...baseOptions()} tree={pageTree}>
         <Suspense>{clientLoader.useContent(path)}</Suspense>
       </DocsLayout>
