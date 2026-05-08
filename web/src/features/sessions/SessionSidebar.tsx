@@ -33,11 +33,20 @@ export function SessionSidebar({
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const filteredSessions = useMemo(
     () =>
       sessions.filter((s) => {
+        if (!showArchived && s.archived) return false;
+        if (
+          !showScheduler &&
+          s.id &&
+          (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:"))
+        )
+          return false;
         if (selectedAgent && s.agent_id !== selectedAgent) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -49,7 +58,7 @@ export function SessionSidebar({
         }
         return true;
       }),
-    [sessions, selectedAgent, searchQuery],
+    [sessions, selectedAgent, showArchived, showScheduler, searchQuery],
   );
 
   const handleScroll = useCallback(() => {
@@ -126,23 +135,59 @@ export function SessionSidebar({
         </div>
 
         {/* Agent switcher */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
-          <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
-            className="flex-1 text-xs font-mono border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:border-primary/60 transition-colors"
-          >
-            <option value="">All agents</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.id}
-              </option>
-            ))}
-          </select>
-          <span className="text-[10px] font-mono text-muted-foreground/40 tabular-nums">
-            {filteredSessions.length}
-          </span>
+        <div className="px-3 py-2.5 border-b border-border space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+            <select
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
+              className="flex-1 text-xs font-mono border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:border-primary/60 transition-colors"
+            >
+              <option value="">All agents</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name || a.id}
+                </option>
+              ))}
+            </select>
+            <span className="text-[10px] font-mono text-muted-foreground/40 tabular-nums">
+              {filteredSessions.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showScheduler}
+                onChange={(e) => setShowScheduler(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-mono select-none",
+                  showScheduler ? "text-muted-foreground" : "text-muted-foreground/50",
+                )}
+              >
+                Scheduled
+              </span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-mono select-none",
+                  showArchived ? "text-muted-foreground" : "text-muted-foreground/50",
+                )}
+              >
+                Archived
+              </span>
+            </label>
+          </div>
         </div>
       </div>
 
