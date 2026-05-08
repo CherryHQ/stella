@@ -23,6 +23,7 @@ export function baseOptions(locale: string = i18n.defaultLanguage): BaseLayoutPr
     links: [
       { text: tr.about, url: `/${locale}/about` },
       { text: tr.docs, url: `/${locale}/docs` },
+      { text: 'API Playground', url: `/${locale}/api-playground` },
     ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

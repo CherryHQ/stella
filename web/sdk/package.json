@@ -3,6 +3,12 @@
   "version": "0.0.1",
   "type": "module",
   "private": true,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts",
+    "./@tanstack/react-query": "./src/@tanstack/react-query.gen.ts"
+  },
   "scripts": {
     "generate": "openapi-ts"
   },

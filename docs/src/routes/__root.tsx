@@ -1,8 +1,11 @@
 import { createRootRoute, HeadContent, Outlet, Scripts, useParams } from '@tanstack/react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RootProvider } from 'fumadocs-ui/provider/tanstack';
 import { defineI18nUI } from 'fumadocs-ui/i18n';
 import appCss from '@/styles/app.css?url';
 import { i18n } from '@/lib/i18n';
+
+const queryClient = new QueryClient();
 
 export const Route = createRootRoute({
   head: () => ({
@@ -75,9 +78,11 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="flex flex-col min-h-screen">
-        <RootProvider i18n={provider(lang)}>
-          <Outlet />
-        </RootProvider>
+        <QueryClientProvider client={queryClient}>
+          <RootProvider i18n={provider(lang)}>
+            <Outlet />
+          </RootProvider>
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>

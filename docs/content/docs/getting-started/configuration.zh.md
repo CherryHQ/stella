@@ -27,29 +27,29 @@ title: 配置
 
 每个 agent 一行。
 
-| 列              | 类型    | 描述                                                                        |
-| --------------- | ------- | --------------------------------------------------------------------------- |
-| `id`            | TEXT    | Agent 标识（例如 `anna`）                                                   |
-| `name`          | TEXT    | 显示名称                                                                    |
-| `model`         | TEXT    | 默认模型，格式为 `provider/model`                                           |
-| `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model`                                       |
-| `model_fast`    | TEXT    | 快速层级模型，格式为 `provider/model`                                       |
-| `system_prompt` | TEXT    | 自定义系统提示（绕过默认构建器）                                            |
-| `workspace`     | TEXT    | Agent 工作空间目录的绝对路径                                              |
-| `sandbox`       | TEXT    | Agent 的 JSON 沙箱配置（`backend`、`network.mode`、`network.allowlist`）   |
-| `enabled`       | INTEGER | 1 = 启用，0 = 禁用                                                          |
+| 列              | 类型    | 描述                                                                     |
+| --------------- | ------- | ------------------------------------------------------------------------ |
+| `id`            | TEXT    | Agent 标识（例如 `anna`）                                                |
+| `name`          | TEXT    | 显示名称                                                                 |
+| `model`         | TEXT    | 默认模型，格式为 `provider/model`                                        |
+| `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model`                                    |
+| `model_fast`    | TEXT    | 快速层级模型，格式为 `provider/model`                                    |
+| `system_prompt` | TEXT    | 自定义系统提示（绕过默认构建器）                                         |
+| `workspace`     | TEXT    | Agent 工作空间目录的绝对路径                                             |
+| `sandbox`       | TEXT    | Agent 的 JSON 沙箱配置（`backend`、`network.mode`、`network.allowlist`） |
+| `enabled`       | INTEGER | 1 = 启用，0 = 禁用                                                       |
 
 ### settings_channels
 
 每个通道实例一行。多行可以共享相同的平台 `type`，例如多个飞书机器人实例。
 
-| 列         | 类型    | 描述                                                       |
-| ---------- | ------- | ---------------------------------------------------------- |
-| `id`       | TEXT    | 通道实例标识符，例如 `telegram` 或 `feishu-coder`         |
-| `type`     | TEXT    | 平台类型：`telegram`、`qq`、`feishu` 或 `weixin`          |
-| `agent_id` | TEXT    | 此通道实例的可选专属 agent                                 |
-| `enabled`  | INTEGER | 1 = 启用，0 = 禁用                                         |
-| `config`   | TEXT    | 包含平台特定设置的 JSON 数据（见下文）                     |
+| 列         | 类型    | 描述                                              |
+| ---------- | ------- | ------------------------------------------------- |
+| `id`       | TEXT    | 通道实例标识符，例如 `telegram` 或 `feishu-coder` |
+| `type`     | TEXT    | 平台类型：`telegram`、`qq`、`feishu` 或 `weixin`  |
+| `agent_id` | TEXT    | 此通道实例的可选专属 agent                        |
+| `enabled`  | INTEGER | 1 = 启用，0 = 禁用                                |
+| `config`   | TEXT    | 包含平台特定设置的 JSON 数据（见下文）            |
 
 ### settings_users
 
@@ -67,12 +67,12 @@ title: 配置
 
 将特定群聊路由到特定 agent。
 
-| 列         | 类型 | 描述                           |
-| ---------- | ---- | ------------------------------ |
-| `channel_id` | TEXT | 通道实例标识符                 |
-| `platform`   | TEXT | 平台标识符                     |
-| `chat_id`    | TEXT | 平台上的群组或聊天 ID          |
-| `agent_id`   | TEXT | 外键到 `settings_agents.id`    |
+| 列           | 类型 | 描述                        |
+| ------------ | ---- | --------------------------- |
+| `channel_id` | TEXT | 通道实例标识符              |
+| `platform`   | TEXT | 平台标识符                  |
+| `chat_id`    | TEXT | 平台上的群组或聊天 ID       |
+| `agent_id`   | TEXT | 外键到 `settings_agents.id` |
 
 组合主键：`(channel_id, chat_id)`。
 
@@ -80,14 +80,14 @@ title: 配置
 
 存储在 `settings` 表中，键为 `runner`，值为 JSON 对象。
 
-| 字段                    | 默认值  | 描述                                                                                                                  |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `type`                  | `go`    | Runner 实现（目前仅支持 `go`）                                                                                        |
-| `system`                | `""`    | 自定义系统提示（绕过默认构建器）                                                                                      |
-| `idle_timeout`          | `10`    | 回收空闲 runners 前的分钟数                                                                                           |
-| `subagent_timeout`      | `15`    | `agent` 工具每次子 agent 运行的默认挂钟超时（分钟）。各预设可通过 front-matter 的 `timeout:` 字段单独覆盖此值。       |
-| `compaction.max_tokens` | `80000` | 当历史记录超过此值时自动压缩                                                                                          |
-| `compaction.keep_tail`  | `20`    | 压缩后保留 N 条最近消息                                                                                               |
+| 字段                    | 默认值  | 描述                                                                                                            |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `type`                  | `go`    | Runner 实现（目前仅支持 `go`）                                                                                  |
+| `system`                | `""`    | 自定义系统提示（绕过默认构建器）                                                                                |
+| `idle_timeout`          | `10`    | 回收空闲 runners 前的分钟数                                                                                     |
+| `subagent_timeout`      | `15`    | `agent` 工具每次子 agent 运行的默认挂钟超时（分钟）。各预设可通过 front-matter 的 `timeout:` 字段单独覆盖此值。 |
+| `compaction.max_tokens` | `80000` | 当历史记录超过此值时自动压缩                                                                                    |
+| `compaction.keep_tail`  | `20`    | 压缩后保留 N 条最近消息                                                                                         |
 
 ## Channel 配置数据
 
@@ -137,18 +137,18 @@ title: 配置
 
 ## 目录结构
 
-| 路径                                         | 用途                                       | 类别 |
-| -------------------------------------------- | ------------------------------------------ | ---- |
-| `~/.anna/anna.db`                            | SQLite 数据库（配置、记忆、调度器）        | 数据 |
-| `~/.anna/plugins/bundled/`                   | 捆绑的运行时插件清单                       | 数据 |
-| `~/.anna/plugins/installed/`                  | 用户安装的运行时插件                       | 数据 |
-| `~/.anna/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能                      | 数据 |
-| `~/.anna/workspaces/{agent-id}/anna.log`     | 每个 agent 的日志文件                      | 数据 |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                        | 数据 |
-| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                         | 数据 |
-| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                                   | 数据 |
-| `~/.anna/cache/`                             | 模型缓存（可安全删除）                     | 缓存 |
-| `~/.anna/cache/sandbox/`                     | 沙箱会话暂存/预检状态                      | 缓存 |
+| 路径                                         | 用途                                | 类别 |
+| -------------------------------------------- | ----------------------------------- | ---- |
+| `~/.anna/anna.db`                            | SQLite 数据库（配置、记忆、调度器） | 数据 |
+| `~/.anna/plugins/bundled/`                   | 捆绑的运行时插件清单                | 数据 |
+| `~/.anna/plugins/installed/`                 | 用户安装的运行时插件                | 数据 |
+| `~/.anna/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能               | 数据 |
+| `~/.anna/workspaces/{agent-id}/anna.log`     | 每个 agent 的日志文件               | 数据 |
+| `~/.anna/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                 | 数据 |
+| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                  | 数据 |
+| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                            | 数据 |
+| `~/.anna/cache/`                             | 模型缓存（可安全删除）              | 缓存 |
+| `~/.anna/cache/sandbox/`                     | 沙箱会话暂存/预检状态               | 缓存 |
 
 - **anna.db** 是所有配置、记忆和调度器数据的唯一真实来源。
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。

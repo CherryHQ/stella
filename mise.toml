@@ -30,7 +30,7 @@ run = "templ generate && sqlc generate"
 
 [tasks."generate:ts-sdk"]
 description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
-run = "cd web/sdk && npm install && npm run generate"
+run = "cd web/sdk && npx --yes @hey-api/openapi-ts"
 
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"

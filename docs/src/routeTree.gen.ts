@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LangIndexRouteImport } from './routes/$lang/index'
 import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
+import { Route as LangApiPlaygroundRouteImport } from './routes/$lang/api-playground'
 import { Route as LangAboutRouteImport } from './routes/$lang/about'
 import { Route as LlmsDotmdxDocsSplatRouteImport } from './routes/llms[.]mdx.docs.$'
 import { Route as LangDocsSplatRouteImport } from './routes/$lang/docs/$'
@@ -49,6 +50,11 @@ const ApiSearchRoute = ApiSearchRouteImport.update({
   path: '/api/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LangApiPlaygroundRoute = LangApiPlaygroundRouteImport.update({
+  id: '/$lang/api-playground',
+  path: '/$lang/api-playground',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LangAboutRoute = LangAboutRouteImport.update({
   id: '/$lang/about',
   path: '/$lang/about',
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/llms-full.txt': typeof LlmsFullDottxtRoute
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
+  '/$lang/api-playground': typeof LangApiPlaygroundRoute
   '/api/search': typeof ApiSearchRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/$lang/': typeof LangIndexRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/llms-full.txt': typeof LlmsFullDottxtRoute
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
+  '/$lang/api-playground': typeof LangApiPlaygroundRoute
   '/api/search': typeof ApiSearchRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/$lang': typeof LangIndexRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/llms-full.txt': typeof LlmsFullDottxtRoute
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
+  '/$lang/api-playground': typeof LangApiPlaygroundRoute
   '/api/search': typeof ApiSearchRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/$lang/': typeof LangIndexRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/llms-full.txt'
     | '/llms.txt'
     | '/$lang/about'
+    | '/$lang/api-playground'
     | '/api/search'
     | '/oauth/callback'
     | '/$lang/'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/llms-full.txt'
     | '/llms.txt'
     | '/$lang/about'
+    | '/$lang/api-playground'
     | '/api/search'
     | '/oauth/callback'
     | '/$lang'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/llms-full.txt'
     | '/llms.txt'
     | '/$lang/about'
+    | '/$lang/api-playground'
     | '/api/search'
     | '/oauth/callback'
     | '/$lang/'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   LlmsFullDottxtRoute: typeof LlmsFullDottxtRoute
   LlmsDottxtRoute: typeof LlmsDottxtRoute
   LangAboutRoute: typeof LangAboutRoute
+  LangApiPlaygroundRoute: typeof LangApiPlaygroundRoute
   ApiSearchRoute: typeof ApiSearchRoute
   OauthCallbackRoute: typeof OauthCallbackRoute
   LangIndexRoute: typeof LangIndexRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$lang/api-playground': {
+      id: '/$lang/api-playground'
+      path: '/$lang/api-playground'
+      fullPath: '/$lang/api-playground'
+      preLoaderRoute: typeof LangApiPlaygroundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$lang/about': {
       id: '/$lang/about'
       path: '/$lang/about'
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   LlmsFullDottxtRoute: LlmsFullDottxtRoute,
   LlmsDottxtRoute: LlmsDottxtRoute,
   LangAboutRoute: LangAboutRoute,
+  LangApiPlaygroundRoute: LangApiPlaygroundRoute,
   ApiSearchRoute: ApiSearchRoute,
   OauthCallbackRoute: OauthCallbackRoute,
   LangIndexRoute: LangIndexRoute,

@@ -80,14 +80,14 @@ Composite primary key: `(channel_id, chat_id)`.
 
 Stored in the `settings` table under the `runner` key as a JSON object.
 
-| Field                   | Default | Description                                                                                 |
-| ----------------------- | ------- | ------------------------------------------------------------------------------------------- |
-| `type`                  | `go`    | Runner implementation (only `go` currently)                                                 |
-| `system`                | `""`    | Custom system prompt (bypasses default builder)                                             |
-| `idle_timeout`          | `10`    | Minutes before reaping idle runners                                                         |
+| Field                   | Default | Description                                                                                                                                                        |
+| ----------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type`                  | `go`    | Runner implementation (only `go` currently)                                                                                                                        |
+| `system`                | `""`    | Custom system prompt (bypasses default builder)                                                                                                                    |
+| `idle_timeout`          | `10`    | Minutes before reaping idle runners                                                                                                                                |
 | `subagent_timeout`      | `15`    | Default wall-clock timeout (minutes) for each subagent run spawned by the `agent` tool. Individual presets can override this with a `timeout:` front-matter field. |
-| `compaction.max_tokens` | `80000` | Auto-compact when history exceeds this                                                      |
-| `compaction.keep_tail`  | `20`    | Keep N recent messages after compaction                                                     |
+| `compaction.max_tokens` | `80000` | Auto-compact when history exceeds this                                                                                                                             |
+| `compaction.keep_tail`  | `20`    | Keep N recent messages after compaction                                                                                                                            |
 
 ## Channel Config Blobs
 

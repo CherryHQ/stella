@@ -8,11 +8,11 @@ Skills are reusable playbooks — markdown files that tell the agent how to perf
 
 Anna supports three skill scopes:
 
-| Scope       | Location                              | Who can write   |
-| ----------- | ------------------------------------- | --------------- |
-| **project** | `{PROJECT_ROOT}/.agents/skills/`      | Git (read-only) |
-| **user**    | DB, encrypted per user                | User            |
-| **agent**   | DB, scoped to a specific agent        | User            |
+| Scope       | Location                         | Who can write   |
+| ----------- | -------------------------------- | --------------- |
+| **project** | `{PROJECT_ROOT}/.agents/skills/` | Git (read-only) |
+| **user**    | DB, encrypted per user           | User            |
+| **agent**   | DB, scoped to a specific agent   | User            |
 
 Project skills ship with the repository and take precedence over user/agent skills of the same name.
 
@@ -41,9 +41,9 @@ Anna also automatically falls back to the CN mirror (`cn.clawhub-mirror.com`) on
 
 **Environment variables**
 
-| Variable        | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `CLAWHUB_TOKEN` | Bearer token for authenticated access          |
+| Variable        | Purpose                                              |
+| --------------- | ---------------------------------------------------- |
+| `CLAWHUB_TOKEN` | Bearer token for authenticated access                |
 | `CLAWHUB_URL`   | Override the registry base URL (default: clawhub.ai) |
 
 ### skills.sh
@@ -72,16 +72,16 @@ skills action=install source="./relative/path"
 
 ## Managing skills
 
-| Action      | Example                                              |
-| ----------- | ---------------------------------------------------- |
-| Search      | `skills action=search query=git`                     |
-| Install     | `skills action=install source="clawhub:git-helper"`  |
-| List        | `skills action=list`                                 |
-| Load        | `skills action=load name=git-helper`                 |
-| Remove      | `skills action=remove name=git-helper`               |
-| Create      | `skills action=create name=my-skill description=...` |
-| Patch       | `skills action=patch name=my-skill status=active`    |
-| Deprecate   | `skills action=deprecate name=my-skill`              |
+| Action    | Example                                              |
+| --------- | ---------------------------------------------------- |
+| Search    | `skills action=search query=git`                     |
+| Install   | `skills action=install source="clawhub:git-helper"`  |
+| List      | `skills action=list`                                 |
+| Load      | `skills action=load name=git-helper`                 |
+| Remove    | `skills action=remove name=git-helper`               |
+| Create    | `skills action=create name=my-skill description=...` |
+| Patch     | `skills action=patch name=my-skill status=active`    |
+| Deprecate | `skills action=deprecate name=my-skill`              |
 
 Use `scope=agent` on install/remove/create to target the current agent scope instead of the default user scope.
 
@@ -103,9 +103,9 @@ Instructions for the agent go here.
 
 **Frontmatter fields**
 
-| Field                      | Required | Description                                      |
-| -------------------------- | -------- | ------------------------------------------------ |
-| `name`                     | Yes      | Lowercase, hyphens only, max 64 chars            |
-| `description`              | Yes      | Shown in `list` and `search` output              |
-| `status`                   | No       | `draft` / `active` (default) / `deprecated`      |
+| Field                      | Required | Description                                                    |
+| -------------------------- | -------- | -------------------------------------------------------------- |
+| `name`                     | Yes      | Lowercase, hyphens only, max 64 chars                          |
+| `description`              | Yes      | Shown in `list` and `search` output                            |
+| `status`                   | No       | `draft` / `active` (default) / `deprecated`                    |
 | `disable-model-invocation` | No       | If `true`, skill is injected but model cannot call it directly |
