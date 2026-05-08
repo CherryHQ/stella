@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Session } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+} from "@/components/ui/menu";
 
 function channelLabel(ch: string | null | undefined): string {
   if (!ch) return "";
@@ -81,10 +89,19 @@ export function SessionSidebar({
     }
   }, [sessions.length, filteredSessions.length, sessionsHasMore, sessionsLoading, onLoadMore]);
 
-  const handleCreate = useCallback(async () => {
-    if (!selectedAgent) return;
-    await onCreateSession(selectedAgent);
-  }, [selectedAgent, onCreateSession]);
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = useCallback(
+    async (agentID: string) => {
+      setCreating(true);
+      try {
+        await onCreateSession(agentID);
+      } finally {
+        setCreating(false);
+      }
+    },
+    [onCreateSession],
+  );
 
   return (
     <aside className="flex flex-col overflow-hidden w-full h-full border-r border-border">
@@ -94,23 +111,38 @@ export function SessionSidebar({
           <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
             Sessions
           </span>
-          <Button
-            size="xs"
-            disabled={!selectedAgent}
-            onClick={handleCreate}
-            title={selectedAgent ? "Create new session" : "Select an agent first"}
-          >
-            <svg
-              className="w-3 h-3 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="2.5"
-              stroke="currentColor"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              disabled={agents.length === 0 || creating}
+              className={cn(buttonVariants({ size: "xs" }), "cursor-pointer")}
+              title={agents.length === 0 ? "No agents available" : "Create new session"}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            New
-          </Button>
+              <svg
+                className="w-3 h-3 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth="2.5"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              {creating ? "Creating…" : "New"}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end" sideOffset={4}>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Select agent</DropdownMenuLabel>
+                {agents.map((a) => (
+                  <DropdownMenuItem
+                    key={a.id}
+                    onClick={() => handleCreate(a.id)}
+                    className="text-xs font-mono cursor-pointer"
+                  >
+                    {a.name || a.id}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Search */}

@@ -92,6 +92,8 @@ export type SendMessageRequest = ComponentsSendMessageRequest;
 
 export type SystemPromptResponse = ComponentsSystemPromptResponse;
 
+export type WorkspaceUploadResponse = ComponentsWorkspaceUploadResponse;
+
 export type SandboxNetworkConfig = ComponentsSandboxNetworkConfig;
 
 export type SandboxConfig = ComponentsSandboxConfig;
@@ -995,6 +997,13 @@ export type WorkspaceUpdateContentRequest = {
   content: string;
 };
 
+export type ComponentsWorkspaceUploadResponse = {
+  /**
+   * Relative path of the uploaded file within the workspace
+   */
+  path: string;
+};
+
 /**
  * ANNA_TOKEN bearer token (generated via vault)
  */
@@ -1133,6 +1142,8 @@ export type _1Api1Sessions1SessionId1Workspace = unknown;
 export type _1Api1Sessions1SessionId1Workspace1FileContent = unknown;
 
 export type _1Api1Sessions1SessionId1Workspace1Files = unknown;
+
+export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
 
 export type _1Api1Auth1Profile1Skills = unknown;
 
@@ -4441,6 +4452,59 @@ export type UpdateWorkspaceFileContentResponses = {
 
 export type UpdateWorkspaceFileContentResponse =
   UpdateWorkspaceFileContentResponses[keyof UpdateWorkspaceFileContentResponses];
+
+export type UploadWorkspaceFileData = {
+  body: {
+    /**
+     * The file to upload
+     */
+    file: Blob | File;
+  };
+  path: {
+    sessionID: string;
+  };
+  query?: never;
+  url: "/api/sessions/{sessionID}/workspace/upload";
+};
+
+export type UploadWorkspaceFileErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type UploadWorkspaceFileError = UploadWorkspaceFileErrors[keyof UploadWorkspaceFileErrors];
+
+export type UploadWorkspaceFileResponses = {
+  /**
+   * uploaded
+   */
+  201: ComponentsWorkspaceUploadResponse;
+};
+
+export type UploadWorkspaceFileResponse =
+  UploadWorkspaceFileResponses[keyof UploadWorkspaceFileResponses];
 
 export type GetSessionSystemPromptData = {
   body?: never;

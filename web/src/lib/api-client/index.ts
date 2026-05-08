@@ -131,6 +131,7 @@ export {
   updateWorkspaceFileContent,
   uploadAgentSkill,
   uploadProfileSkill,
+  uploadWorkspaceFile,
 } from "./sdk.gen";
 export type {
   _1Api1Agents,
@@ -211,6 +212,7 @@ export type {
   _1Api1Sessions1SessionId1Workspace,
   _1Api1Sessions1SessionId1Workspace1FileContent,
   _1Api1Sessions1SessionId1Workspace1Files,
+  _1Api1Sessions1SessionId1Workspace1Upload,
   _1Api1Skills,
   _1Api1Skills1Id,
   _1Api1Skills1Id1File,
@@ -344,6 +346,7 @@ export type {
   ComponentsVaultEntryValue,
   ComponentsWeixinQrCode,
   ComponentsWeixinQrStatus,
+  ComponentsWorkspaceUploadResponse,
   CreateAgentData,
   CreateAgentError,
   CreateAgentErrors,
@@ -1050,6 +1053,11 @@ export type {
   UploadProfileSkillErrors,
   UploadProfileSkillResponse,
   UploadProfileSkillResponses,
+  UploadWorkspaceFileData,
+  UploadWorkspaceFileError,
+  UploadWorkspaceFileErrors,
+  UploadWorkspaceFileResponse,
+  UploadWorkspaceFileResponses,
   UserMemory,
   VaultEntry,
   VaultEntryValue,
@@ -1060,4 +1068,5 @@ export type {
   WorkspaceFileContent,
   WorkspaceMoveRequest,
   WorkspaceUpdateContentRequest,
+  WorkspaceUploadResponse,
 } from "./types.gen";

@@ -30,9 +30,13 @@ export function SessionDetail({
   const [activePanel, setActivePanel] = useState<"tools" | "prompt" | null>(null);
   const [userInput, setUserInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [attachments, setAttachments] = useState<
+    { name: string; path: string; uploading: boolean }[]
+  >([]);
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
 
@@ -53,6 +57,7 @@ export function SessionDetail({
       setLiveMessages([]);
       setSystemPrompt("");
       setActivePanel(null);
+      setAttachments([]);
       return;
     }
     sessionIDRef.current = session.id;
@@ -122,10 +127,51 @@ export function SessionDetail({
     [tools.length, loadTools],
   );
 
+  const handleFileSelect = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0 || !session) return;
+      for (const file of Array.from(files)) {
+        const placeholder = { name: file.name, path: "", uploading: true };
+        setAttachments((prev) => [...prev, placeholder]);
+        try {
+          const form = new FormData();
+          form.append("file", file);
+          const res = await api<{ path: string }>(
+            "POST",
+            `/api/sessions/${enc}/workspace/upload`,
+            form,
+          );
+          setAttachments((prev) =>
+            prev.map((a) => (a === placeholder ? { ...a, path: res.path, uploading: false } : a)),
+          );
+        } catch (e) {
+          console.error("upload failed:", e);
+          setAttachments((prev) => prev.filter((a) => a !== placeholder));
+        }
+      }
+    },
+    [session, enc],
+  );
+
+  const removeAttachment = useCallback((idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
   const sendMessage = useCallback(async () => {
-    if (!userInput.trim() || isStreaming || !session) return;
-    const content = userInput.trim();
+    if ((!userInput.trim() && attachments.length === 0) || isStreaming || !session) return;
+    const uploading = attachments.some((a) => a.uploading);
+    if (uploading) return;
+
+    const filePaths = attachments.filter((a) => a.path).map((a) => a.path);
+    const parts: string[] = [];
+    for (const p of filePaths) {
+      parts.push(`[file: ${p}]`);
+    }
+    if (userInput.trim()) parts.push(userInput.trim());
+    const content = parts.join("\n");
+
     setUserInput("");
+    setAttachments([]);
     setLiveMessages((prev) => [
       ...prev,
       { role: "user", content, timestamp: new Date().toISOString() },
@@ -279,7 +325,7 @@ export function SessionDetail({
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [userInput, isStreaming, session, enc]);
+  }, [userInput, isStreaming, session, enc, attachments]);
 
   const copyID = useCallback(async () => {
     if (!session?.id) return;
@@ -541,12 +587,73 @@ export function SessionDetail({
       {/* Message input */}
       {session.user_id === currentUserID && (
         <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-background border-t border-border">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              handleFileSelect(e.target.files).catch(console.error);
+              e.target.value = "";
+            }}
+          />
           <div
             className={cn(
               "relative rounded-2xl border bg-background transition-colors",
               isStreaming ? "border-primary/40" : "border-border focus-within:border-primary/60",
             )}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isStreaming) handleFileSelect(e.dataTransfer.files).catch(console.error);
+            }}
           >
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+                {attachments.map((a, i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      "inline-flex items-center gap-1 text-[11px] font-mono rounded-lg px-2 py-1 max-w-48 border",
+                      a.uploading
+                        ? "bg-muted/50 text-muted-foreground/50 border-border"
+                        : "bg-primary/5 text-primary border-primary/20",
+                    )}
+                  >
+                    {a.uploading ? (
+                      <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
+                    ) : (
+                      <svg
+                        className="w-3 h-3 shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth="2"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                        />
+                      </svg>
+                    )}
+                    <span className="truncate">{a.name}</span>
+                    {!a.uploading && (
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0"
+                      >
+                        x
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
@@ -561,8 +668,18 @@ export function SessionDetail({
                 el.style.height = "auto";
                 el.style.height = Math.min(el.scrollHeight, 160) + "px";
               }}
+              onPaste={(e) => {
+                const files = e.clipboardData.files;
+                if (files.length > 0 && !isStreaming) {
+                  e.preventDefault();
+                  handleFileSelect(files).catch(console.error);
+                }
+              }}
               placeholder="Message…"
-              className="w-full px-4 pt-3 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto"
+              className={cn(
+                "w-full px-4 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto",
+                attachments.length > 0 ? "pt-2" : "pt-3",
+              )}
               style={{ minHeight: 52, maxHeight: 160 }}
               rows={1}
               disabled={isStreaming}
@@ -579,6 +696,29 @@ export function SessionDetail({
                 </span>
               )}
               <div className="flex items-center gap-1 pointer-events-auto">
+                {!isStreaming && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-muted-foreground rounded-lg"
+                    title="Attach files"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth="1.8"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                      />
+                    </svg>
+                  </Button>
+                )}
                 {isStreaming && (
                   <Button
                     size="xs"
@@ -592,7 +732,10 @@ export function SessionDetail({
                 {!isStreaming && (
                   <Button
                     size="sm"
-                    disabled={!userInput.trim()}
+                    disabled={
+                      (!userInput.trim() && attachments.length === 0) ||
+                      attachments.some((a) => a.uploading)
+                    }
                     onClick={() => sendMessage().catch(console.error)}
                     className="rounded-xl gap-1.5"
                   >

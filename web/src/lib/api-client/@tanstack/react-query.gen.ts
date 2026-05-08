@@ -139,6 +139,7 @@ import {
   updateWorkspaceFileContent,
   uploadAgentSkill,
   uploadProfileSkill,
+  uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
   AssignAgentUserData,
@@ -523,6 +524,9 @@ import type {
   UploadProfileSkillData,
   UploadProfileSkillError,
   UploadProfileSkillResponse,
+  UploadWorkspaceFileData,
+  UploadWorkspaceFileError,
+  UploadWorkspaceFileResponse,
 } from "../types.gen";
 
 /**
@@ -2652,6 +2656,33 @@ export const updateWorkspaceFileContentMutation = (
   > = {
     mutationFn: async (fnOptions) => {
       const { data } = await updateWorkspaceFileContent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Upload a file to the session workspace assets directory
+ */
+export const uploadWorkspaceFileMutation = (
+  options?: Partial<Options<UploadWorkspaceFileData>>,
+): UseMutationOptions<
+  UploadWorkspaceFileResponse,
+  UploadWorkspaceFileError,
+  Options<UploadWorkspaceFileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UploadWorkspaceFileResponse,
+    UploadWorkspaceFileError,
+    Options<UploadWorkspaceFileData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await uploadWorkspaceFile({
         ...options,
         ...fnOptions,
         throwOnError: true,

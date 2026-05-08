@@ -395,6 +395,9 @@ import type {
   UploadProfileSkillData,
   UploadProfileSkillErrors,
   UploadProfileSkillResponses,
+  UploadWorkspaceFileData,
+  UploadWorkspaceFileErrors,
+  UploadWorkspaceFileResponses,
 } from "./types.gen";
 
 export type Options<
@@ -1633,6 +1636,27 @@ export const updateWorkspaceFileContent = <ThrowOnError extends boolean = false>
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Upload a file to the session workspace assets directory
+ */
+export const uploadWorkspaceFile = <ThrowOnError extends boolean = false>(
+  options: Options<UploadWorkspaceFileData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    UploadWorkspaceFileResponses,
+    UploadWorkspaceFileErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/sessions/{sessionID}/workspace/upload",
+    ...options,
+    headers: {
+      "Content-Type": null,
       ...options.headers,
     },
   });
