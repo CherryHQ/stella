@@ -100,8 +100,8 @@ func upsertBinaryState(state *ManifestState, pluginID string, install BinaryInst
 
 // Reconcile processes all enabled plugins in the manifest, downloading any binaries
 // that are not already at the correct version according to the state file.
-func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResult {
-	statePath := StatePath(annaHome)
+func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileResult {
+	statePath := StatePath(stellaHome)
 	state, err := LoadState(statePath)
 	if err != nil {
 		slog.Error("manifest plugin reconcile: failed to load state", "error", err)
@@ -123,7 +123,7 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 	}
 
 	// Ensure mise is available before processing any plugin binaries.
-	if bootstrapErr := bootstrapMise(ctx, annaHome); bootstrapErr != nil {
+	if bootstrapErr := bootstrapMise(ctx, stellaHome); bootstrapErr != nil {
 		slog.Error("manifest plugin reconcile: mise bootstrap failed", "error", bootstrapErr)
 	}
 
@@ -162,7 +162,7 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 				"binary", binary.Name,
 				"version", binary.Version)
 
-			installedVersion, installErr := installBinaryWithMise(ctx, binary, annaHome)
+			installedVersion, installErr := installBinaryWithMise(ctx, binary, stellaHome)
 			if installErr != nil {
 				slog.Error("manifest binary install failed",
 					"plugin", plugin.ID,

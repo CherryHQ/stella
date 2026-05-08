@@ -3,8 +3,8 @@ package skills
 import (
 	"path/filepath"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const PluginID = "tool/skills"
@@ -30,7 +30,7 @@ func init() {
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return NewTool(
 					ctx.Platform.SkillStore(),
-					ctx.Paths.AnnaHome,
+					ctx.Paths.StellaHome,
 					ctx.Paths.AgentRoot,
 					ctx.Paths.ProjectRoot,
 					userSkillsDir(ctx.Paths.UserRoot),

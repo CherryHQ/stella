@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ToolSetFromRegistry builds a ToolSet from a tools.Registry.

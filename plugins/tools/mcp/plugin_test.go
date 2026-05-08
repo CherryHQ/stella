@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {

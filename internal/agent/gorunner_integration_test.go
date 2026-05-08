@@ -7,31 +7,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func integrationConfig(t *testing.T) GoRunnerConfig {
 	t.Helper()
 	skipWithoutAnthropicKey(t)
-	model := os.Getenv("ANNA_GO_MODEL")
+	model := os.Getenv("STELLA_GO_MODEL")
 	if model == "" {
 		model = "claude-sonnet-4-20250514"
 	}
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	return GoRunnerConfig{
-		API:       "anthropic",
-		Model:     model,
-		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
-		AnnaHome:  annaHome,
-		AgentRoot: workspace,
-		UserRoot:  userRoot,
-		Providers: integrationProviderRegistryBuilder,
+		API:        "anthropic",
+		Model:      model,
+		APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
+		BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
+		StellaHome: stellaHome,
+		AgentRoot:  workspace,
+		UserRoot:   userRoot,
+		Providers:  integrationProviderRegistryBuilder,
 	}
 }
 

@@ -4,7 +4,7 @@ title: Sandbox Backend Abstraction
 
 ## Status
 
-Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. A `none` backend is also available for fully trusted workloads — it runs the agent directly on the host with the current user's permissions and no isolation of any kind. Anna's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
+Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. A `none` backend is also available for fully trusted workloads — it runs the agent directly on the host with the current user's permissions and no isolation of any kind. Stella's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
 
 ## Purpose
 
@@ -39,7 +39,7 @@ File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePat
 
 ### Docker (recommended)
 
-Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. Anna contacts it at session-create time and fails closed if it is unavailable:
+Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. Stella contacts it at session-create time and fails closed if it is unavailable:
 
 - missing or unreachable Docker daemon → session creation fails, runner does not start
 - unsupported policy → `PolicyCompatibilityError`, runner does not start
@@ -59,7 +59,7 @@ The local backend runs commands directly on the host OS. It is intended for envi
 | Filesystem + network isolation | Linux    | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, `/tmp`/`/var/tmp`/`/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
 | No additional local isolation  | macOS    | Commands run directly on the host OS; filesystem and network policy are not enforced                                                                                                                                                           |
 
-The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. Local sandbox processes do not inherit the full host environment; Anna injects only runner-managed session variables plus a small locale/terminal/proxy allowlist. On macOS, no extra sandboxing tool is currently applied.
+The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. Local sandbox processes do not inherit the full host environment; Stella injects only runner-managed session variables plus a small locale/terminal/proxy allowlist. On macOS, no extra sandboxing tool is currently applied.
 
 #### Installing dependencies
 
@@ -151,7 +151,7 @@ Remote MCP HTTP/SSE/StreamableHTTP transport is currently treated as a separate 
 
 ## Fail-Closed Behavior
 
-Anna prefers explicit denial over silent downgrade:
+Stella prefers explicit denial over silent downgrade:
 
 - Docker unavailable at session-create time → runner fails to start
 - unsupported policies → `PolicyCompatibilityError`, runner fails to start

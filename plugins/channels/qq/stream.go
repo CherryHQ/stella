@@ -5,8 +5,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/pkg/channel"
 )
 
 const streamEditInterval = time.Second

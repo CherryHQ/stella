@@ -6,7 +6,7 @@ title: Skills（技能）
 
 Skills（技能）是可复用的操作手册——以 Markdown 文件的形式告诉 Agent 如何完成某项任务。对话中可按需加载，支持从外部注册表安装或在本地创建。
 
-Anna 支持三种技能作用域：
+Stella 支持三种技能作用域：
 
 | 作用域      | 位置                             | 可写权限    |
 | ----------- | -------------------------------- | ----------- |
@@ -37,7 +37,7 @@ skills action=install source="clawhub:<slug>@<版本>"
    /config CLAWHUB_TOKEN <你的token>
    ```
 
-Anna 在遇到 429 时会自动切换到国内镜像（`cn.clawhub-mirror.com`），大多数用户无需设置 Token。
+Stella 在遇到 429 时会自动切换到国内镜像（`cn.clawhub-mirror.com`），大多数用户无需设置 Token。
 
 **环境变量**
 

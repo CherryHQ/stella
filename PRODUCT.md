@@ -10,7 +10,7 @@ Self-hosters and small teams running their own AI assistant. Technical users who
 
 ## Product Purpose
 
-Anna is a self-hosted AI assistant with persistent memory (LCM), multi-agent support, multi-channel messaging, and a scheduler. The web admin panel provides session inspection, agent configuration, workspace file management, and real-time chat with agents. Success: the admin panel feels like a capable IDE-adjacent tool, not a consumer chat app.
+Stella is a self-hosted AI assistant with persistent memory (LCM), multi-agent support, multi-channel messaging, and a scheduler. The web admin panel provides session inspection, agent configuration, workspace file management, and real-time chat with agents. Success: the admin panel feels like a capable IDE-adjacent tool, not a consumer chat app.
 
 ## Brand Personality
 

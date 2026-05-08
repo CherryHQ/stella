@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	"github.com/containerd/errdefs"
 	jsonstream "github.com/moby/moby/api/types/jsonstream"
 	mobyclient "github.com/moby/moby/client"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
 // fakePreflightAPI is a minimal dockerclient.API stub that satisfies the

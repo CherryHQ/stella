@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 // levelTrace is below slog.LevelDebug. When enabled, memory traces include
@@ -72,26 +72,26 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	st.mu.Unlock()
 
 	spanAttrs := []attribute.KeyValue{
-		attribute.Float64("anna.memory.duration_s", hctx.Duration.Seconds()),
-		attribute.String("anna.memory.op", string(hctx.Op)),
-		attribute.String("anna.memory.session_id", hctx.SessionID),
+		attribute.Float64("stella.memory.duration_s", hctx.Duration.Seconds()),
+		attribute.String("stella.memory.op", string(hctx.Op)),
+		attribute.String("stella.memory.session_id", hctx.SessionID),
 		attribute.Int64("user_id", hctx.UserID),
 		attribute.String("agent_id", hctx.AgentID),
 	}
 	if hctx.MessageCount > 0 {
-		spanAttrs = append(spanAttrs, attribute.Int("anna.memory.message_count", hctx.MessageCount))
+		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.message_count", hctx.MessageCount))
 	}
 	if hctx.TokenCount > 0 {
-		spanAttrs = append(spanAttrs, attribute.Int("anna.memory.token_count", hctx.TokenCount))
+		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.token_count", hctx.TokenCount))
 	}
 	if hctx.TokenDelta != 0 {
-		spanAttrs = append(spanAttrs, attribute.Int("anna.memory.token_delta", hctx.TokenDelta))
+		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.token_delta", hctx.TokenDelta))
 	}
 	if hctx.SummaryCount > 0 {
-		spanAttrs = append(spanAttrs, attribute.Int("anna.memory.summary_count", hctx.SummaryCount))
+		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.summary_count", hctx.SummaryCount))
 	}
 	if hctx.ResultCount > 0 {
-		spanAttrs = append(spanAttrs, attribute.Int("anna.memory.result_count", hctx.ResultCount))
+		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.result_count", hctx.ResultCount))
 	}
 
 	_, span := h.tracer.Start(parentCtx, fmt.Sprintf("memory.%s", hctx.Op),

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestWithSystemOverride(t *testing.T) {

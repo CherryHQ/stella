@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 type captureHandler struct {
@@ -332,9 +332,9 @@ func TestRandomFileKey(t *testing.T) {
 func TestRandomClientID(t *testing.T) {
 	t.Parallel()
 
-	id := RandomClientID("anna-weixin")
+	id := RandomClientID("stella-weixin")
 
-	if !strings.HasPrefix(id, "anna-weixin:") {
+	if !strings.HasPrefix(id, "stella-weixin:") {
 		t.Errorf("RandomClientID %q doesn't have expected prefix", id)
 	}
 
@@ -362,7 +362,7 @@ func TestRandomClientID(t *testing.T) {
 	}
 
 	// Uniqueness.
-	id2 := RandomClientID("anna-weixin")
+	id2 := RandomClientID("stella-weixin")
 	if id == id2 {
 		t.Error("two consecutive RandomClientID calls returned the same value")
 	}

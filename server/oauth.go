@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vaayne/anna/internal/credentials"
+	"github.com/CherryHQ/stella/internal/credentials"
 )
 
 // flowStatusJSON is the wire representation of an in-flight OAuth flow.

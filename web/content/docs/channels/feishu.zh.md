@@ -2,7 +2,7 @@
 title: Feishu Bot
 ---
 
-anna 内置了通过 WebSocket 连接的 Feishu（Lark）机器人，因此不需要公网 webhook。现在 Feishu 集成只负责聊天通道：消息、流式回复、线程、群聊和通知仍然由 anna 处理；日历、文档、任务等工作区自动化已经迁移到 `lark-cli`。
+stella 内置了通过 WebSocket 连接的 Feishu（Lark）机器人，因此不需要公网 webhook。现在 Feishu 集成只负责聊天通道：消息、流式回复、线程、群聊和通知仍然由 stella 处理；日历、文档、任务等工作区自动化已经迁移到 `lark-cli`。
 
 ## 设置
 
@@ -12,18 +12,18 @@ anna 内置了通过 WebSocket 连接的 Feishu（Lark）机器人，因此不�
    - `im.message.receive_v1`
    - 如果需要表情事件，再添加 `im.message.reaction.created_v1`
 4. 复制 App ID、App Secret、Encrypt Key 和 Verification Token。
-5. 运行 `anna --open`，在管理面板里配置 Feishu 频道。
-6. 启动 anna：
+5. 运行 `stella --open`，在管理面板里配置 Feishu 频道。
+6. 启动 stella：
 
 ```bash
-anna
+stella
 ```
 
 ## Lark 工作区自动化
 
 旧的内置 `feishu_*` 工具和 `/auth` 流程已经移除。
 
-anna 现在会内置生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
+stella 现在会内置生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
 
 常见初始化流程：
 
@@ -38,22 +38,22 @@ lark-cli auth status
 
 ## 自动注册用户
 
-为某个 Feishu 频道实例开启后，anna 会在该机器人的租户员工第一次发消息时，自动为其创建 Anna 账号，无需手动注册或执行 `/link`。
+为某个 Feishu 频道实例开启后，stella 会在该机器人的租户员工第一次发消息时，自动为其创建 Stella 账号，无需手动注册或执行 `/link`。
 
 ### 工作原理
 
 1. 用户发送消息。
 2. 自动注册只会在机器人实际处理这条消息时触发。在群聊里，默认 `group_mode` 是 `mention`，所以用户必须先 `@` 机器人；除非你把频道或群组覆盖配置改成 `always`。
-3. Anna 确定机器人的租户键：
+3. Stella 确定机器人的租户键：
    - 如果显式配置了 `tenant_key`，就使用该值。
-   - 否则 anna 会在启动时通过 Feishu tenant API 自动探测。
-4. 如果消息事件里带有 `tenant_key`，且它与机器人租户不一致，anna 会跳过该发送者的自动注册。
-5. Anna 调用飞书联系人 API（`contact.v3.user.get`）获取用户的 `union_id`、显示名称和邮箱。
-6. 以邮箱本地部分作为用户名创建 Anna 账号（例如 `alice@corp.com` → `alice`），无邮箱时回退到 `feishu-<union_id[:8]>`。用户名冲突时加 `-2`、`-3` 等后缀。
+   - 否则 stella 会在启动时通过 Feishu tenant API 自动探测。
+4. 如果消息事件里带有 `tenant_key`，且它与机器人租户不一致，stella 会跳过该发送者的自动注册。
+5. Stella 调用飞书联系人 API（`contact.v3.user.get`）获取用户的 `union_id`、显示名称和邮箱。
+6. 以邮箱本地部分作为用户名创建 Stella 账号（例如 `alice@corp.com` → `alice`），无邮箱时回退到 `feishu-<union_id[:8]>`。用户名冲突时加 `-2`、`-3` 等后缀。
 7. 自动创建的用户没有密码，可以立即与机器人对话，但在管理员设置密码前无法登录管理面板。
 8. 自动注册的用户角色为 `user`，默认使用系统默认 agent。
 
-自动注册是 best-effort 的：如果租户探测失败，或联系人 API 查询失败，消息仍然会按正常通道流程继续处理，但不会创建 Anna 用户。
+自动注册是 best-effort 的：如果租户探测失败，或联系人 API 查询失败，消息仍然会按正常通道流程继续处理，但不会创建 Stella 用户。
 
 ### 所需应用权限
 
@@ -66,7 +66,7 @@ lark-cli auth status
 
 登录飞书管理后台，进入 **企业信息**，找到 **企业标识（Tenant Key）**。
 
-当前实现里 `tenant_key` 不是必填项，因为 anna 可以在启动时自动探测；但仍然建议显式填写，这样可以减少一种失败路径，让自动注册行为更稳定、更可预期。
+当前实现里 `tenant_key` 不是必填项，因为 stella 可以在启动时自动探测；但仍然建议显式填写，这样可以减少一种失败路径，让自动注册行为更稳定、更可预期。
 
 ### 配置示例
 
@@ -79,7 +79,7 @@ lark-cli auth status
 }
 ```
 
-> **注意：** 共享群中的外部访客不会被自动注册。如果他们的 tenant_key 与机器人租户不一致，anna 会跳过账号创建。这是预期行为。
+> **注意：** 共享群中的外部访客不会被自动注册。如果他们的 tenant_key 与机器人租户不一致，stella 会跳过账号创建。这是预期行为。
 
 > **注意：** 若系统中尚无管理员账号，自动注册会被拒绝，直到第一个管理员通过管理面板完成注册。这样可以防止全新部署陷入无管理员的困境。
 
@@ -114,11 +114,11 @@ lark-cli auth status
 
 ## 原生线程
 
-如果用户在 Feishu 线程中发消息，anna 会在线程内回复，并把会话作用域绑定到该线程根消息。线程外消息仍然使用父聊天会话。
+如果用户在 Feishu 线程中发消息，stella 会在线程内回复，并把会话作用域绑定到该线程根消息。线程外消息仍然使用父聊天会话。
 
 ## 群组行为
 
-`group_mode` 控制 anna 在群聊中的响应方式：
+`group_mode` 控制 stella 在群聊中的响应方式：
 
 - `mention`：只有被 @ 时才回复
 - `always`：回复所有消息
@@ -167,8 +167,8 @@ Feishu 支持标准聊天命令：
 | `verification_token` | 可选的事件校验 token                                             |
 | `group_mode`         | 默认群聊行为：`mention`、`always` 或 `disabled`                  |
 | `enable_notify`      | 允许调度器和 `notify` 输出发送到 Feishu                          |
-| `tenant_key`         | 企业 Tenant Key。可选：anna 可在启动时自动探测，但仍建议显式配置 |
-| `auto_provision`     | 自动为这个 Feishu 频道实例实际处理到的用户创建 Anna 账号         |
+| `tenant_key`         | 企业 Tenant Key。可选：stella 可在启动时自动探测，但仍建议显式配置 |
+| `auto_provision`     | 自动为这个 Feishu 频道实例实际处理到的用户创建 Stella 账号         |
 | `groups`             | 按 Feishu `chat_id` 配置的群级覆盖项                             |
 
 ## 自动注册排障
@@ -181,9 +181,9 @@ Feishu 支持标准聊天命令：
 4. **Feishu 应用是否具备以下权限：**
    - `contact:user.base:readonly`
    - `contact:user.id:readonly`
-5. **Anna 中是否已经至少存在一个管理员。** 全新部署在第一个管理员创建前会拒绝自动注册。
+5. **Stella 中是否已经至少存在一个管理员。** 全新部署在第一个管理员创建前会拒绝自动注册。
 6. **发送者是否是内部租户成员。** 外部访客本来就不会被自动注册。
-7. **修改配置后是否重启了 anna。**
+7. **修改配置后是否重启了 stella。**
 
 一个更稳妥的配置示例是：
 

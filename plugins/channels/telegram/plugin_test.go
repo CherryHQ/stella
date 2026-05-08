@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	internalnotify "github.com/vaayne/anna/internal/notify"
-	"github.com/vaayne/anna/internal/pluginhost"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	internalnotify "github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {

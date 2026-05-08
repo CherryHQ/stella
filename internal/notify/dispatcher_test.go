@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type mockChannel struct {

@@ -26,9 +26,9 @@ func TestRequestOriginFallsBackToRequestHost(t *testing.T) {
 func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/auth/profile/oauth/feishu/callback", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-Host", "anna.example.com")
+	req.Header.Set("X-Forwarded-Host", "stella.example.com")
 
-	if got := requestOrigin(req); got != "https://anna.example.com" {
-		t.Fatalf("requestOrigin = %q, want https://anna.example.com", got)
+	if got := requestOrigin(req); got != "https://stella.example.com" {
+		t.Fatalf("requestOrigin = %q, want https://stella.example.com", got)
 	}
 }

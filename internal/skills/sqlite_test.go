@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 // newTestStore opens a fresh in-tmpdir SQLite DB and returns a Store.

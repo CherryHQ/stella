@@ -530,8 +530,8 @@ export function PluginsPage() {
                 <div>
                   <p className="text-sm font-medium">Add Tool</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Declare a GitHub release binary. Anna writes it to{" "}
-                    <code className="font-mono">$ANNA_HOME/plugins.yaml</code> and syncs
+                    Declare a GitHub release binary. Stella writes it to{" "}
+                    <code className="font-mono">$STELLA_HOME/plugins.yaml</code> and syncs
                     automatically.
                   </p>
                 </div>

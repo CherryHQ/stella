@@ -59,7 +59,7 @@ func TestEditTool_ResolvesRelativePathFromProjectRoot(t *testing.T) {
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path":       "nested/file.txt",
 		"old_string": "world",
-		"new_string": "Anna",
+		"new_string": "Stella",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestEditTool_ResolvesRelativePathFromProjectRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "hello Anna" {
+	if string(data) != "hello Stella" {
 		t.Fatalf("expected edited content, got %q", string(data))
 	}
 }

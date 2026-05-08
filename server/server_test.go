@@ -12,24 +12,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/notify"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/internal/pluginstate"
-	"github.com/vaayne/anna/internal/skills"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	_ "github.com/vaayne/anna/plugins/channels/feishu"
-	_ "github.com/vaayne/anna/plugins/channels/qq"
-	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
-	_ "github.com/vaayne/anna/plugins/channels/weixin"
-	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
-	reflectplugin "github.com/vaayne/anna/plugins/reflect"
-	mcp "github.com/vaayne/anna/plugins/tools/mcp"
-	"github.com/vaayne/anna/server"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/skills"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
+	_ "github.com/CherryHQ/stella/plugins/channels/qq"
+	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
+	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
+	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
+	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
+	mcp "github.com/CherryHQ/stella/plugins/tools/mcp"
+	"github.com/CherryHQ/stella/server"
 )
 
 type testEnv struct {
@@ -316,8 +316,8 @@ func TestListAgents(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("expected at least one agent")
 	}
-	if agents[0].ID != "anna" {
-		t.Errorf("agent ID = %q, want %q", agents[0].ID, "anna")
+	if agents[0].ID != "stella" {
+		t.Errorf("agent ID = %q, want %q", agents[0].ID, "stella")
 	}
 }
 
@@ -834,13 +834,13 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		t.Fatalf("UpsertChannel feishu: %v", err)
 	}
 	if err := env.store.UpsertChannel(context.Background(), config.Channel{
-		ID:      "feishu-anna",
+		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
-		AgentID: "anna",
+		AgentID: "stella",
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
-		t.Fatalf("UpsertChannel feishu-anna: %v", err)
+		t.Fatalf("UpsertChannel feishu-stella: %v", err)
 	}
 	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
@@ -885,7 +885,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
 	}
-	if _, ok := byID["feishu-anna"]; ok {
+	if _, ok := byID["feishu-stella"]; ok {
 		t.Fatalf("dedicated instances should not appear in public channels: %#v", channels)
 	}
 }

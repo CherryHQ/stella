@@ -9,31 +9,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	providerapi "github.com/vaayne/anna/pkg/providers"
-	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
-	openaiprovider "github.com/vaayne/anna/plugins/providers/openai"
-	openairesponseprovider "github.com/vaayne/anna/plugins/providers/openai-response"
+	"github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	providerapi "github.com/CherryHQ/stella/pkg/providers"
+	anthropicprovider "github.com/CherryHQ/stella/plugins/providers/anthropic"
+	openaiprovider "github.com/CherryHQ/stella/plugins/providers/openai"
+	openairesponseprovider "github.com/CherryHQ/stella/plugins/providers/openai-response"
 )
 
 func skipWithoutAPIKey(t *testing.T) string {
 	t.Helper()
-	key := os.Getenv("ANNA_API_KEY")
+	key := os.Getenv("STELLA_API_KEY")
 	if key == "" {
-		t.Skip("ANNA_API_KEY not set, skipping integration test")
+		t.Skip("STELLA_API_KEY not set, skipping integration test")
 	}
 	return key
 }
 
 func TestIntegrationToolUseAllProviders(t *testing.T) {
 	apiKey := skipWithoutAPIKey(t)
-	baseURL := os.Getenv("ANNA_BASE_URL")
+	baseURL := os.Getenv("STELLA_BASE_URL")
 	if baseURL == "" {
 		baseURL = "https://cc2.vaayne.com"
 	}
 
-	model := os.Getenv("ANNA_TEST_MODEL")
+	model := os.Getenv("STELLA_TEST_MODEL")
 	if model == "" {
 		model = "gpt-5.4"
 	}

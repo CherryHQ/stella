@@ -1,10 +1,10 @@
-// Package version exposes the anna binary version.
+// Package version exposes the stella binary version.
 //
-// The Version variable is set via -ldflags="-X github.com/vaayne/anna/internal/version.Version=..."
+// The Version variable is set via -ldflags="-X github.com/CherryHQ/stella/internal/version.Version=..."
 // during release builds. At dev-build time it defaults to "dev".
 package version
 
-// Version is the anna build version. Set via ldflags.
+// Version is the stella build version. Set via ldflags.
 var Version = "dev"
 
 // IsDev reports whether the current build is a dev build (not a tagged release).

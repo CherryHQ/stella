@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/sandbox"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/CherryHQ/stella/internal/sandbox"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 func fakeRunnerSession(_ string, sess sandbox.Session) *runnerSession {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
 )

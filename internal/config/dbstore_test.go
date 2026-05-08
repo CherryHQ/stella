@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	appdb "github.com/vaayne/anna/internal/db"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func setupDBStore(t *testing.T) *DBStore {
@@ -49,11 +49,11 @@ func TestSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
-	if len(agents) != 1 || agents[0].ID != "anna" {
-		t.Errorf("expected 1 anna agent, got %v", agents)
+	if len(agents) != 1 || agents[0].ID != "stella" {
+		t.Errorf("expected 1 stella agent, got %v", agents)
 	}
 	if !agents[0].Enabled {
-		t.Error("anna agent should be enabled")
+		t.Error("stella agent should be enabled")
 	}
 }
 
@@ -68,7 +68,7 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	agent, err := store.GetAgent(ctx, "anna")
+	agent, err := store.GetAgent(ctx, "stella")
 	if err != nil {
 		t.Fatalf("GetAgent: %v", err)
 	}
@@ -408,12 +408,12 @@ func TestSnapshot(t *testing.T) {
 	_ = store.SeedDefaults(ctx)
 	_ = store.UpdateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
 	_ = store.UpdateAgent(ctx, Agent{
-		ID:           "anna",
-		Name:         "Anna",
+		ID:           "stella",
+		Name:         "Stella",
 		Model:        "anthropic/claude-sonnet-4-6",
 		ModelStrong:  "anthropic/claude-opus-4-6",
-		SystemPrompt: "You are Anna.",
-		Workspace:    "/tmp/anna",
+		SystemPrompt: "You are Stella.",
+		Workspace:    "/tmp/stella",
 		Sandbox: SandboxConfig{
 			Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll},
 		},
@@ -432,7 +432,7 @@ func TestSnapshot(t *testing.T) {
 		Config:  map[string]any{"mode": "test"},
 	})
 
-	snap, err := store.Snapshot(ctx, "anna")
+	snap, err := store.Snapshot(ctx, "stella")
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestSnapshot(t *testing.T) {
 	if snap.APIKey != "sk-test" {
 		t.Errorf("APIKey = %q", snap.APIKey)
 	}
-	if snap.SystemPrompt != "You are Anna." {
+	if snap.SystemPrompt != "You are Stella." {
 		t.Errorf("SystemPrompt = %q", snap.SystemPrompt)
 	}
 	if snap.Runner.Type != "go" {
@@ -485,11 +485,11 @@ func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
 	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude", APIKey: "sk-claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := store.CreateAgent(ctx, Agent{ID: "anna", Name: "Anna", Model: "anthropic/claude-sonnet-4-6", Enabled: true}); err != nil {
+	if err := store.CreateAgent(ctx, Agent{ID: "stella", Name: "Stella", Model: "anthropic/claude-sonnet-4-6", Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	snap, err := store.Snapshot(ctx, "anna")
+	snap, err := store.Snapshot(ctx, "stella")
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}

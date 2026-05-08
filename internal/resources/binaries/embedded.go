@@ -22,11 +22,11 @@ var (
 	ensureStates = make(map[string]*ensureState)
 )
 
-// EnsureTools extracts all embedded tool binaries to annaHome/bin/.
+// EnsureTools extracts all embedded tool binaries to stellaHome/bin/.
 // Gzip-compressed binaries in the embed FS are decompressed on extraction.
 // Already-extracted binaries are skipped. Safe for concurrent calls.
-func EnsureTools(annaHome string) error {
-	destDir := BinDir(annaHome)
+func EnsureTools(stellaHome string) error {
+	destDir := BinDir(stellaHome)
 
 	ensureMu.Lock()
 	state := ensureStates[destDir]
@@ -43,13 +43,13 @@ func EnsureTools(annaHome string) error {
 }
 
 // BinDir returns the tool binaries directory path.
-func BinDir(annaHome string) string {
-	return filepath.Join(annaHome, "bin")
+func BinDir(stellaHome string) string {
+	return filepath.Join(stellaHome, "bin")
 }
 
 // ToolPath returns the full path to a named tool binary, or empty if not embedded.
-func ToolPath(annaHome, name string) string {
-	p := filepath.Join(BinDir(annaHome), name)
+func ToolPath(stellaHome, name string) string {
+	p := filepath.Join(BinDir(stellaHome), name)
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}
@@ -73,25 +73,25 @@ func ToolNames() []string {
 }
 
 // VerifyTools checks that every tool present in the embedded FS was successfully
-// extracted to annaHome/bin. If the embedded FS has no tool archives (e.g. a
+// extracted to stellaHome/bin. If the embedded FS has no tool archives (e.g. a
 // dev build where pre-build dependency sync was not run), the check is skipped and nil is
 // returned — the missing-binary error surfaces later when the tool is actually
 // needed. Returns an error only when the FS is non-empty but one or more
 // binaries are missing on disk after extraction.
-func VerifyTools(annaHome string) error {
+func VerifyTools(stellaHome string) error {
 	names := ToolNames()
 	if len(names) == 0 {
 		return nil // no tools embedded; skip verification
 	}
 	var missing []string
 	for _, name := range names {
-		if ToolPath(annaHome, name) == "" {
+		if ToolPath(stellaHome, name) == "" {
 			missing = append(missing, name)
 		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("embedded tools missing in %s after extraction: %s",
-			BinDir(annaHome), strings.Join(missing, ", "))
+			BinDir(stellaHome), strings.Join(missing, ", "))
 	}
 	return nil
 }

@@ -14,7 +14,7 @@ type config struct {
 func loadConfig() config {
 	cfg := config{
 		Enabled:     os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "",
-		ServiceName: "anna",
+		ServiceName: "stella",
 		SampleRate:  1.0,
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // mockProvider implements ProviderAdapter for testing.

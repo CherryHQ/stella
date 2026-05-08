@@ -61,7 +61,7 @@ server/
 
 ```bash
 mise run build      # Build binary (runs generate first)
-anna --open         # Start admin panel at localhost:8080
+stella --open         # Start admin panel at localhost:8080
 ```
 
 ### Adding a new page

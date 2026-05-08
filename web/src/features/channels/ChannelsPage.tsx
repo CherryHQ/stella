@@ -328,9 +328,9 @@ export function ChannelsPage() {
   const platformDescription = (channel: Channel) => {
     if (!channel) return "";
     if (isLinked(channel.type))
-      return `Your ${channel.label} account is linked and ready to use with Anna.`;
+      return `Your ${channel.label} account is linked and ready to use with Stella.`;
     if (channel.type === "weixin") return "Link your Weixin account by scanning a QR code.";
-    return `Link your ${channel.label} account once to chat with Anna on this platform.`;
+    return `Link your ${channel.label} account once to chat with Stella on this platform.`;
   };
 
   const linkedAgentLabel = (channel: Channel) => {
@@ -758,7 +758,7 @@ export function ChannelsPage() {
           <div className="rounded-lg border border-border bg-card shadow-md mt-4 p-4">
             <div>
               <p className="font-medium">
-                Send this command to Anna on {platformLabel(linkPlatform)}:
+                Send this command to Stella on {platformLabel(linkPlatform)}:
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">

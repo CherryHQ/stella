@@ -7,8 +7,8 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 var oauthInputSchemaBase = func() map[string]any {

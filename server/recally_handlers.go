@@ -15,9 +15,9 @@ import (
 
 	"github.com/mmcdole/gofeed"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/recally"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/recally"
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
@@ -181,7 +181,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 	// caller is updating an existing article without supplying new content, we
 	// rewrite the existing file with the refreshed frontmatter so it stays in
 	// sync with DB metadata.
-	annaHome := config.AnnaHome()
+	stellaHome := config.StellaHome()
 	var filePath string
 	switch {
 	case isNew:
@@ -189,7 +189,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 	case existing != nil && existing.FilePath != "":
 		filePath = existing.FilePath
 		if !filepath.IsAbs(filePath) {
-			filePath = filepath.Join(annaHome, filePath)
+			filePath = filepath.Join(stellaHome, filePath)
 		}
 		if content == "" {
 			body2, readErr := h.files.ReadArticle(filePath)
@@ -320,7 +320,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 	if article.FilePath != "" {
 		path := article.FilePath
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(config.AnnaHome(), path)
+			path = filepath.Join(config.StellaHome(), path)
 		}
 		_ = h.files.DeleteArticle(path)
 	}
@@ -628,7 +628,7 @@ func (h *recallyHandlers) readArticleBody(article *recally.Article) (string, err
 	}
 	path := article.FilePath
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(config.AnnaHome(), path)
+		path = filepath.Join(config.StellaHome(), path)
 	}
 	return h.files.ReadArticle(path)
 }
@@ -639,7 +639,7 @@ func (h *recallyHandlers) rewriteArticleFile(article *recally.Article, newConten
 	}
 	path := article.FilePath
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(config.AnnaHome(), path)
+		path = filepath.Join(config.StellaHome(), path)
 	}
 	body := newContent
 	if body == "" {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {

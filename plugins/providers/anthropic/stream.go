@@ -1,10 +1,10 @@
 package anthropic
 
 import (
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
 )
 
 // consumeStream reads SSE events from the Anthropic message stream.

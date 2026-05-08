@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (

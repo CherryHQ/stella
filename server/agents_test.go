@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // createTestAgent creates an agent via POST and returns its auto-generated ID.
@@ -32,7 +32,7 @@ func TestCreateAgentFromTemplate(t *testing.T) {
 
 	body := map[string]any{
 		"name":        "Template-built",
-		"template_id": "anna",
+		"template_id": "stella",
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
 	if rr.Code != http.StatusCreated {
@@ -53,7 +53,7 @@ func TestCreateAgentUserOverridesTemplate(t *testing.T) {
 
 	body := map[string]any{
 		"name":          "Override-me",
-		"template_id":   "anna",
+		"template_id":   "stella",
 		"system_prompt": "CUSTOM PROMPT",
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
@@ -98,8 +98,8 @@ func TestAgentScopeInCreateAndGet(t *testing.T) {
 func TestAgentScopeDefaultsToSystem(t *testing.T) {
 	env := setupAdmin(t)
 
-	// The seeded "anna" agent should have system scope.
-	rr := doRequest(t, env, "GET", "/api/agents/anna", nil)
+	// The seeded "stella" agent should have system scope.
+	rr := doRequest(t, env, "GET", "/api/agents/stella", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -116,20 +116,20 @@ func TestAgentScopeDefaultsToSystem(t *testing.T) {
 func TestAgentScopeInUpdate(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Update anna to restricted scope.
+	// Update stella to restricted scope.
 	body := config.Agent{
-		Name:    "Anna",
+		Name:    "Stella",
 		Model:   "anthropic/claude-sonnet-4-6",
 		Scope:   "restricted",
 		Enabled: true,
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/anna", body)
+	rr := doRequest(t, env, "PUT", "/api/agents/stella", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify scope persisted.
-	rr = doRequest(t, env, "GET", "/api/agents/anna", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/stella", nil)
 	resp := parseResponse(t, rr)
 	var a config.Agent
 	_ = json.Unmarshal(resp.Data, &a)
@@ -172,12 +172,12 @@ func TestAgentInvalidSandboxOnUpdate(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := config.Agent{
-		Name:    "Anna",
+		Name:    "Stella",
 		Model:   "anthropic/claude-sonnet-4-6",
 		Enabled: true,
 		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/anna", body)
+	rr := doRequest(t, env, "PUT", "/api/agents/stella", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -267,7 +267,7 @@ func TestAgentUserAssignmentNonAdminDenied(t *testing.T) {
 	})
 
 	// Non-admin cannot access agent user APIs.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/anna/users", nil)
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/stella/users", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
@@ -296,7 +296,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		ExpiresAt: time.Now().Add(auth.SessionDuration),
 	})
 
-	// Non-admin listing agents should see "anna" (system scope) but not the restricted agent.
+	// Non-admin listing agents should see "stella" (system scope) but not the restricted agent.
 	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list agents: status = %d", rr.Code)
@@ -305,18 +305,18 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	var agents []config.Agent
 	_ = json.Unmarshal(resp.Data, &agents)
 
-	foundAnna := false
+	foundStella := false
 	foundPrivate := false
 	for _, a := range agents {
-		if a.ID == "anna" {
-			foundAnna = true
+		if a.ID == "stella" {
+			foundStella = true
 		}
 		if a.ID == agentID {
 			foundPrivate = true
 		}
 	}
-	if !foundAnna {
-		t.Error("expected non-admin to see system-scoped 'anna' agent")
+	if !foundStella {
+		t.Error("expected non-admin to see system-scoped 'stella' agent")
 	}
 	if foundPrivate {
 		t.Error("non-admin should not see restricted agent")
@@ -365,9 +365,9 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	})
 
 	// Non-admin can get system agent.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/anna", nil)
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/stella", nil)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("get anna: status = %d, want %d", rr.Code, http.StatusOK)
+		t.Fatalf("get stella: status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Non-admin cannot get restricted agent they're not assigned to.

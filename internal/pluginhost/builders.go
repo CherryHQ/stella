@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	pluginhooks "github.com/vaayne/anna/plugins/hooks"
-	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
+	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContext) []tools.Tool {
@@ -99,7 +99,7 @@ func (h *Host) BuildProviderRegistry(name string, stateConfig map[string]any) (*
 	return reg, nil
 }
 
-func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
+func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, stellaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
 	h.mu.RLock()
 	reg, ok := h.memoryRegs[name]
 	h.mu.RUnlock()
@@ -113,7 +113,7 @@ func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHom
 		Platform:     h.platform(reg.PluginID),
 		State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
 		DB:           db,
-		AnnaHome:     annaHome,
+		StellaHome:   stellaHome,
 		SummarizerFn: summarizerFn,
 	})
 }

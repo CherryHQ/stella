@@ -4,7 +4,7 @@ title: 架构
 
 ## 系统概述
 
-anna 的结构是一组松耦合的包，在 `main.go` 中组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
+stella 的结构是一组松耦合的包，在 `main.go` 中组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
 
 1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）
@@ -34,7 +34,7 @@ LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
 ## 包布局
 
 ```
-cmd/anna/              入口点，CLI 命令，服务组装
+cmd/stella/              入口点，CLI 命令，服务组装
 internal/
   config/              Store 接口、DBStore（SQLite）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
@@ -89,7 +89,7 @@ plugins/
 
 ## 提供商
 
-LLM 提供商采用插件模式。Anna 内置三种提供商：
+LLM 提供商采用插件模式。Stella 内置三种提供商：
 
 | 提供商            | API                  | 使用场景                                      |
 | ----------------- | -------------------- | --------------------------------------------- |
@@ -126,7 +126,7 @@ type Tool interface {
 
 | 工具       | 描述                                              |
 | ---------- | ------------------------------------------------- |
-| `mcp`      | 通过一个通用 Anna MCP 工具代理已配置的 MCP 服务器 |
+| `mcp`      | 通过一个通用 Stella MCP 工具代理已配置的 MCP 服务器 |
 | `webfetch` | 获取网页内容                                      |
 
 核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
@@ -159,7 +159,7 @@ type Tool interface {
 
 ### 平台要求
 
-Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Anna 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto`、`boxsh` 或 `Relaxed` 模式。
+Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Stella 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto`、`boxsh` 或 `Relaxed` 模式。
 
 ### 网络策略配置
 
@@ -170,7 +170,7 @@ Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都�
 | `disabled`  | 无出站网络访问（默认） | 不可信代码的最大安全性 |
 | `allow_all` | 无限制的出站访问       | 需要完整网络的可信代理 |
 
-Anna 在会话创建时验证网络模式，如果 Docker 后端无法强制执行则失败关闭。
+Stella 在会话创建时验证网络模式，如果 Docker 后端无法强制执行则失败关闭。
 
 ### 失败行为
 
@@ -184,7 +184,7 @@ Runner 启动在以下情况下失败关闭：
 
 ### 显式例外边界
 
-沙盒保证适用于 Anna 拥有的本地执行路径。远程 MCP 传输目前被视为独立的信任边界：
+沙盒保证适用于 Stella 拥有的本地执行路径。远程 MCP 传输目前被视为独立的信任边界：
 
 - 本地 MCP stdio 生成使用 `Session.StartProcess`，通过活跃的 Runner 会话进行调解
 - 远程 MCP HTTP/SSE/StreamableHTTP 拨号目前不由 `ToolRuntime` 调解
@@ -238,7 +238,7 @@ type Channel interface {
 }
 ```
 
-共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。聊天轮次按解析的 Anna 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
+共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。聊天轮次按解析的 Stella 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
 
 ## Admin API
 

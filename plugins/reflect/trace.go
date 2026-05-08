@@ -10,14 +10,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var tracer = otel.Tracer("anna/reflect")
+var tracer = otel.Tracer("stella/reflect")
 
 // startCycleSpan starts a span covering one full review cycle across all agents.
 func startCycleSpan(ctx context.Context, agentCount int) (context.Context, trace.Span) {
 	ctx, span := tracer.Start(ctx, "reflect.cycle",
 		trace.WithAttributes(
-			attribute.String("anna.reflect.operation", "cycle"),
-			attribute.Int("anna.reflect.agent_count", agentCount),
+			attribute.String("stella.reflect.operation", "cycle"),
+			attribute.Int("stella.reflect.agent_count", agentCount),
 		),
 	)
 	return ctx, span
@@ -40,7 +40,7 @@ func startConversationSpan(ctx context.Context, c candidate) (context.Context, t
 			attribute.String("gen_ai.conversation.id", c.session.ID),
 			attribute.String("agent_id", c.session.AgentID),
 			attribute.Int64("user_id", c.session.UserID),
-			attribute.String("anna.chat.channel", c.session.Channel),
+			attribute.String("stella.chat.channel", c.session.Channel),
 		),
 	)
 	return ctx, span

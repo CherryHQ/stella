@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestFactory_basics(t *testing.T) {

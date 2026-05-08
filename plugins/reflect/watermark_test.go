@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/pluginstate"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/pluginstate"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func newTestWatermarkStore(t *testing.T) *watermarkStore {

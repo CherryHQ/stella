@@ -4,7 +4,7 @@ title: Plugin System
 
 ## Overview
 
-Anna uses a compiled-in plugin system. Plugins are built into the `anna` binary and registered at startup through Go package initialization.
+Stella uses a compiled-in plugin system. Plugins are built into the `stella` binary and registered at startup through Go package initialization.
 
 The final public design is intentionally small:
 
@@ -40,7 +40,7 @@ Examples in the current tree:
 
 The host now has one public mental model instead of multiple overlapping registration APIs.
 
-That gives Anna:
+That gives Stella:
 
 - plugin-scoped access to host services
 - cleaner ownership boundaries
@@ -49,7 +49,7 @@ That gives Anna:
 
 ## Built-In Plugin Areas
 
-Anna ships built-in plugins across several areas:
+Stella ships built-in plugins across several areas:
 
 | Kind     | Examples                                 |
 | -------- | ---------------------------------------- |

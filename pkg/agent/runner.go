@@ -5,9 +5,9 @@ import (
 	"errors"
 	"maps"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // Runner is a configured agent loop executor. It is safe for concurrent use.

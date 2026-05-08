@@ -99,7 +99,7 @@ func TestHandleAgentCommandList(t *testing.T) {
 	HandleAgentCommand(AgentCommandHandler{
 		Reply: func(s string) { reply = s },
 		ListAgents: func(context.Context, IncomingMessage) ([]AgentInfo, string, error) {
-			return []AgentInfo{{ID: "anna", Name: "Anna"}}, "anna", nil
+			return []AgentInfo{{ID: "stella", Name: "Stella"}}, "stella", nil
 		},
 		SwitchAgent: func(context.Context, IncomingMessage, string) error {
 			t.Fatal("switch agent should not be called")
@@ -107,7 +107,7 @@ func TestHandleAgentCommandList(t *testing.T) {
 		},
 	})
 
-	if !strings.Contains(reply, "Anna") {
+	if !strings.Contains(reply, "Stella") {
 		t.Fatalf("unexpected reply: %q", reply)
 	}
 }

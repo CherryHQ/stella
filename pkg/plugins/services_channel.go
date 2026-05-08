@@ -3,7 +3,7 @@ package plugins
 import (
 	"context"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // ChannelRegistry exposes channel registration needed by managed channel runtimes.

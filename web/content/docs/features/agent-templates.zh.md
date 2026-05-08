@@ -4,7 +4,7 @@ title: Agent 模板与内置资源
 
 ## 概述
 
-Anna 自带一套**内置资源目录**，让全新安装即开即用，无需手动编写每一段提示。资源存放于 `plugins/tools/builtin/`，在构建期间被嵌入二进制。
+Stella 自带一套**内置资源目录**，让全新安装即开即用，无需手动编写每一段提示。资源存放于 `plugins/tools/builtin/`，在构建期间被嵌入二进制。
 
 共有四种内置资源：
 
@@ -12,7 +12,7 @@ Anna 自带一套**内置资源目录**，让全新安装即开即用，无需�
 | ----------------------- | --------------------------------------------- | ------------------------------------- |
 | **Skill（技能）**       | 可按需加载的知识或操作手册                    | 启动时同步进 `skills(scope='system')` |
 | **Soul（灵魂）**        | 融入系统提示的个性/语气片段                   | 在创建 agent 时被复制进去             |
-| **Sub-agent（子代理）** | 受限工具集的任务工作者，供 `agent` 工具委派   | 启动时释放到 `$ANNA_HOME/agents/`     |
+| **Sub-agent（子代理）** | 受限工具集的任务工作者，供 `agent` 工具委派   | 启动时释放到 `$STELLA_HOME/agents/`     |
 | **Template（模板）**    | 完整的 agent 初始化方案（模型 + 提示 + soul） | 创建时读取一次，之后不再保留关联      |
 
 ## 模板（Templates）
@@ -41,7 +41,7 @@ Soul 是可复用的人格片段。它们不单独存于数据库 — 选择后�
 
 ## Sub-agent
 
-Sub-agent 预设定义了 `agent` 委派工具使用的受限工作者（调研、代码评审、写作、编码）。启动时 runner 会把它们释放到 `$ANNA_HOME/agents/`，项目内的 `.agents/agents/` 可以通过同名文件覆盖。
+Sub-agent 预设定义了 `agent` 委派工具使用的受限工作者（调研、代码评审、写作、编码）。启动时 runner 会把它们释放到 `$STELLA_HOME/agents/`，项目内的 `.agents/agents/` 可以通过同名文件覆盖。
 
 附带的 sub-agent：`coder`、`researcher`、`reviewer`、`writer`。
 

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 )
 
 // PolicyCompatibilityTests verify fail-closed behavior for unsupported policy/backend combinations.

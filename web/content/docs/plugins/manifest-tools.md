@@ -1,35 +1,35 @@
 ---
 title: Manifest Tool Plugins
-description: File-driven CLI tool integrations loaded from $ANNA_HOME/plugins.yaml.
+description: File-driven CLI tool integrations loaded from $STELLA_HOME/plugins.yaml.
 ---
 
 ## Overview
 
-Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file or add it from the Plugins admin UI, and Anna reconciles the binary download automatically.
+Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file or add it from the Plugins admin UI, and Stella reconciles the binary download automatically.
 
-Anna ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You can override or extend them in `$ANNA_HOME/plugins.yaml` or from the admin UI.
+Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You can override or extend them in `$STELLA_HOME/plugins.yaml` or from the admin UI.
 
 ## How It Works
 
-At startup, Anna:
+At startup, Stella:
 
 1. Loads the embedded built-in manifest (`builtin_plugins.yaml`)
-2. Loads your user manifest (`$ANNA_HOME/plugins.yaml`) if it exists
+2. Loads your user manifest (`$STELLA_HOME/plugins.yaml`) if it exists
 3. Merges them: user entries override built-in entries per plugin ID
 4. Registers enabled manifest plugins into the plugin host
-5. Starts binary reconciliation in the background: downloads missing binaries into `$ANNA_HOME/bin`
+5. Starts binary reconciliation in the background: downloads missing binaries into `$STELLA_HOME/bin`
 
-Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$ANNA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
+Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$STELLA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
 
 ## Docker sandbox CLI availability
 
-Do not treat host `$ANNA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, manifest sync can install host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
+Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, manifest sync can install host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
 
 For Docker:
 
-- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Anna release, so one release image can contain the built-in tool set for that Anna version. Keep the Docker image tool list in `plugins/sandbox/docker/_mise.toml` aligned with built-in CLI plugin declarations in `internal/manifestplugins/builtin_plugins.yaml`.
-- `$ANNA_HOME/plugins.yaml` remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
-- User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$ANNA_HOME/bin`.
+- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. Keep the Docker image tool list in `plugins/sandbox/docker/_mise.toml` aligned with built-in CLI plugin declarations in `internal/manifestplugins/builtin_plugins.yaml`.
+- `$STELLA_HOME/plugins.yaml` remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
+- User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
 A safe Docker loading design for user-configured CLIs is:
 
@@ -39,11 +39,11 @@ A safe Docker loading design for user-configured CLIs is:
 4. Mount that cache into sandbox sessions at a container-only path and prepend it to the in-container `PATH`.
 5. Rebuild or refresh the cache when the enabled user plugin set or binary versions change.
 
-This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$ANNA_HOME/bin` is not part of Docker executable resolution.
+This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution.
 
 ## The manifest file format
 
-`$ANNA_HOME/plugins.yaml`:
+`$STELLA_HOME/plugins.yaml`:
 
 ```yaml
 plugins:
@@ -74,7 +74,7 @@ plugins:
 | `display_name`                | No          | Human-readable label shown in the admin UI                                         |
 | `description`                 | No          | Short description shown in the admin UI                                            |
 | `enabled`                     | No          | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries`                    | No          | CLI binaries to download and place in `$ANNA_HOME/bin`                             |
+| `binaries`                    | No          | CLI binaries to download and place in `$STELLA_HOME/bin`                             |
 | `session_env`                 | No          | Environment variables to inject into sandbox sessions                              |
 | `oauth_provider`              | No          | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
 | `oauth_provider_config_field` | No          | Plugin config field that dynamically selects the OAuth provider, such as `brand`   |
@@ -88,7 +88,7 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 
 | Field              | Required | Description                                                                                   |
 | ------------------ | -------- | --------------------------------------------------------------------------------------------- |
-| `name`             | Yes      | Binary filename placed in `$ANNA_HOME/bin` (without extension)                                |
+| `name`             | Yes      | Binary filename placed in `$STELLA_HOME/bin` (without extension)                                |
 | `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
 | `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
 | `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
@@ -185,11 +185,11 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 | `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
 | `oauth.brand`        | Injects the connected provider bundle's brand, when present |
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Anna's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the admin panel.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the admin panel.
 
 ## State and caching
 
-Anna tracks installed binary versions in `$ANNA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change the `version` field in `plugins.yaml` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Anna also terminates any child processes spawned by the installer.
+Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change the `version` field in `plugins.yaml` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Stella also terminates any child processes spawned by the installer.
 
 ## Overriding built-in plugins
 
@@ -247,7 +247,7 @@ Manifest-backed plugins are shown once, in the tab that matches their kind:
 
 Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the YAML-backed plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, such as Lark CLI credentials and `brand`, the row also shows **Configure**.
 
-The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$ANNA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
+The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$STELLA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
 
 ## Limitations in v1
 

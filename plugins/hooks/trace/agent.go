@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext) {
@@ -27,10 +27,10 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 		st.chatSpan.SetAttributes(
 			attribute.Int64("user_id", hctx.UserID),
 			attribute.String("agent_id", hctx.AgentID),
-			attribute.Int("anna.chat.message_len", hctx.MessageLen),
+			attribute.Int("stella.chat.message_len", hctx.MessageLen),
 		)
 		if hctx.Channel != "" {
-			st.chatSpan.SetAttributes(attribute.String("anna.chat.channel", hctx.Channel))
+			st.chatSpan.SetAttributes(attribute.String("stella.chat.channel", hctx.Channel))
 		}
 		st.mu.Unlock()
 		h.mu.Unlock()
@@ -66,8 +66,8 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 	st.mu.Lock()
 	// Set final attributes before closing the session.
 	st.chatSpan.SetAttributes(
-		attribute.Float64("anna.chat.duration_s", hctx.Duration.Seconds()),
-		attribute.Int("anna.chat.turn_count", st.turnNum),
+		attribute.Float64("stella.chat.duration_s", hctx.Duration.Seconds()),
+		attribute.Int("stella.chat.turn_count", st.turnNum),
 	)
 	if hctx.Error != nil {
 		st.chatSpan.RecordError(hctx.Error)

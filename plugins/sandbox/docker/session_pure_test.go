@@ -3,8 +3,8 @@ package docker
 import (
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 func TestMergeEnv(t *testing.T) {
@@ -35,7 +35,7 @@ func TestMergeEnv(t *testing.T) {
 }
 
 func TestBuildMountTable(t *testing.T) {
-	table := buildMountTable("/host/ws", "/container/ws", "/host/.anna", "/home/anna/.anna")
+	table := buildMountTable("/host/ws", "/container/ws", "/host/.stella", "/home/stella/.stella")
 	if len(table) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(table))
 	}
@@ -45,11 +45,11 @@ func TestBuildMountTable(t *testing.T) {
 	if table[0].ReadOnly {
 		t.Fatal("workspace should be read-write")
 	}
-	if table[1].HostPath != "/host/.anna" || table[1].ContainerPath != "/home/anna/.anna" || !table[1].ReadOnly {
-		t.Fatalf("unexpected anna home synthetic mount: %+v", table[1])
+	if table[1].HostPath != "/host/.stella" || table[1].ContainerPath != "/home/stella/.stella" || !table[1].ReadOnly {
+		t.Fatalf("unexpected stella home synthetic mount: %+v", table[1])
 	}
-	if table[2].HostPath != "/host/.anna/skills" || table[2].ContainerPath != "/home/anna/.anna/skills" || !table[2].ReadOnly {
-		t.Fatalf("unexpected anna skills mount: %+v", table[2])
+	if table[2].HostPath != "/host/.stella/skills" || table[2].ContainerPath != "/home/stella/.stella/skills" || !table[2].ReadOnly {
+		t.Fatalf("unexpected stella skills mount: %+v", table[2])
 	}
 }
 
@@ -72,22 +72,22 @@ func TestMapNetworkMode(t *testing.T) {
 
 func TestInjectToolPaths_PrependedWhenSet(t *testing.T) {
 	env := map[string]string{"PATH": "/usr/bin:/bin"}
-	got := injectToolPaths(env, []string{"/home/anna/.anna-tools/bin"})
-	want := "/home/anna/.anna-tools/bin:/usr/bin:/bin"
+	got := injectToolPaths(env, []string{"/home/stella/.stella-tools/bin"})
+	want := "/home/stella/.stella-tools/bin:/usr/bin:/bin"
 	if got["PATH"] != want {
 		t.Errorf("PATH = %q, want %q", got["PATH"], want)
 	}
 }
 
 func TestInjectToolPaths_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
-	got := injectToolPaths(map[string]string{}, []string{"/home/anna/.anna-tools/bin"})
+	got := injectToolPaths(map[string]string{}, []string{"/home/stella/.stella-tools/bin"})
 	if got["PATH"] == "" {
 		t.Fatal("PATH should not be empty when tool paths are set")
 	}
-	if got["PATH"][:len("/home/anna/.anna-tools/bin:")] != "/home/anna/.anna-tools/bin:" {
+	if got["PATH"][:len("/home/stella/.stella-tools/bin:")] != "/home/stella/.stella-tools/bin:" {
 		t.Errorf("PATH does not start with user tool bin: %q", got["PATH"])
 	}
-	if len(got["PATH"]) <= len("/home/anna/.anna-tools/bin:") {
+	if len(got["PATH"]) <= len("/home/stella/.stella-tools/bin:") {
 		t.Error("PATH should include containerDefaultPATH after user tool bin")
 	}
 }

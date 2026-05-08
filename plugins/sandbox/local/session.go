@@ -19,14 +19,14 @@ import (
 	"strings"
 	"sync"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // sandboxEnvDenyList is the set of host environment variable names that must
 // never be copied into a sandbox environment, even when InheritEnv is true.
 // These variables hold host-level secrets that sandboxed processes must not
 // access.
-var sandboxEnvDenyList = []string{"ANNA_VAULT_KEY"}
+var sandboxEnvDenyList = []string{"STELLA_VAULT_KEY"}
 
 // Factory creates local sandbox sessions that run directly on the host OS.
 type Factory struct{}
@@ -68,7 +68,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 type localSession struct {
 	id          string
 	policy      sandboxpkg.Policy
-	realRoot    string // actual host path (e.g. /home/anna/.anna-dev/...)
+	realRoot    string // actual host path (e.g. /home/stella/.stella-dev/...)
 	sandboxRoot string // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
 	done        chan struct{}
 	doneOnce    sync.Once

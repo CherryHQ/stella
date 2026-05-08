@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	appdb "github.com/vaayne/anna/internal/db"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func testDB(t *testing.T) *sql.DB {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 	_ "github.com/vaayne/mcphub/pkg/skills/providers"
 )

@@ -1,6 +1,6 @@
 ---
 title: Changelog
-description: All notable changes to anna.
+description: All notable changes to stella.
 icon: History
 ---
 
@@ -15,29 +15,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Features
 
-- **Sessions**: React islands POC — Vite + Coss UI + streamdown for the sessions page ([#151](https://github.com/vaayne/anna/pull/151))
+- **Sessions**: React islands POC — Vite + Coss UI + streamdown for the sessions page ([#151](https://github.com/CherryHQ/stella/pull/151))
 
-**Full Changelog**: [v0.24.0...v0.25.0](https://github.com/vaayne/anna/compare/v0.24.0...v0.25.0)
+**Full Changelog**: [v0.24.0...v0.25.0](https://github.com/CherryHQ/stella/compare/v0.24.0...v0.25.0)
 
 ## [0.24.0] - 2026-05-07
 
 ### ✨ Features
 
-- **Email**: Add multi-account email CLI with IMAP/SMTP support ([#149](https://github.com/vaayne/anna/pull/149))
+- **Email**: Add multi-account email CLI with IMAP/SMTP support ([#149](https://github.com/CherryHQ/stella/pull/149))
 - **Feishu**: Add emoji reaction status indicators
 
 ### ♻️ Refactoring
 
 - **Feishu**: Split feishu.go and handler.go into focused files
 
-**Full Changelog**: [v0.23.0...v0.24.0](https://github.com/vaayne/anna/compare/v0.23.0...v0.24.0)
+**Full Changelog**: [v0.23.0...v0.24.0](https://github.com/CherryHQ/stella/compare/v0.23.0...v0.24.0)
 
 ## [0.23.0] - 2026-05-07
 
 ### ✨ Features
 
 - **Scheduler**: Add worth-reading tier to RSS notification
-- **API**: OpenAPI spec as single source of truth for all /api/\* routes ([#148](https://github.com/vaayne/anna/pull/148))
+- **API**: OpenAPI spec as single source of truth for all /api/\* routes ([#148](https://github.com/CherryHQ/stella/pull/148))
 
 ### 🐛 Bug Fixes
 
@@ -46,12 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Web**: Move UI layer from internal/admin/ui/ to top-level web/ ([#147](https://github.com/vaayne/anna/pull/147))
+- **Web**: Move UI layer from internal/admin/ui/ to top-level web/ ([#147](https://github.com/CherryHQ/stella/pull/147))
 - **Server**: Move internal/admin/ to top-level server/ package
 - **Scheduler**: Soften worth-reading tier labels
 - **Recally**: Restructure skill into focused reference files
 
-**Full Changelog**: [v0.22.0...v0.23.0](https://github.com/vaayne/anna/compare/v0.22.0...v0.23.0)
+**Full Changelog**: [v0.22.0...v0.23.0](https://github.com/CherryHQ/stella/compare/v0.22.0...v0.23.0)
 
 ## [0.22.0] - 2026-05-06
 
@@ -70,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Skills**: Rename lark skill to lark-cli
 
-**Full Changelog**: [v0.21.1...v0.22.0](https://github.com/vaayne/anna/compare/v0.21.1...v0.22.0)
+**Full Changelog**: [v0.21.1...v0.22.0](https://github.com/CherryHQ/stella/compare/v0.21.1...v0.22.0)
 
 ## [0.21.1] - 2026-05-06
 
@@ -78,20 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Anthropic**: Use empty map for nil tool call arguments
 
-**Full Changelog**: [v0.21.0...v0.21.1](https://github.com/vaayne/anna/compare/v0.21.0...v0.21.1)
+**Full Changelog**: [v0.21.0...v0.21.1](https://github.com/CherryHQ/stella/compare/v0.21.0...v0.21.1)
 
 ## [0.21.0] - 2026-05-06
 
 ### ✨ Features
 
-- **Scheduler**: Redesign job runtime with ExecScope and all_users fan-out ([#146](https://github.com/vaayne/anna/pull/146))
-- **Scheduler**: Add job run history tracking and manual trigger ([#146](https://github.com/vaayne/anna/pull/146))
+- **Scheduler**: Redesign job runtime with ExecScope and all_users fan-out ([#146](https://github.com/CherryHQ/stella/pull/146))
+- **Scheduler**: Add job run history tracking and manual trigger ([#146](https://github.com/CherryHQ/stella/pull/146))
 - **Scheduler**: Builtin job registry with RSS polling job
-- **Scheduler**: Convert scheduler from builtin tool to builtin skill ([#145](https://github.com/vaayne/anna/pull/145))
+- **Scheduler**: Convert scheduler from builtin tool to builtin skill ([#145](https://github.com/CherryHQ/stella/pull/145))
 
 ### 🐛 Bug Fixes
 
-- **Scheduler**: Per-user builtin jobs with correct session links ([#146](https://github.com/vaayne/anna/pull/146))
+- **Scheduler**: Per-user builtin jobs with correct session links ([#146](https://github.com/CherryHQ/stella/pull/146))
 
 ### 💄 Style
 
@@ -101,20 +101,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Agent**: Refine agent meta prompts
 
-**Full Changelog**: [v0.20.0...v0.21.0](https://github.com/vaayne/anna/compare/v0.20.0...v0.21.0)
+**Full Changelog**: [v0.20.0...v0.21.0](https://github.com/CherryHQ/stella/compare/v0.20.0...v0.21.0)
 
 ## [0.20.0] - 2026-05-05
 
 ### ✨ Features
 
-- **LCM**: Compact tool results in compaction and assembly ([#144](https://github.com/vaayne/anna/pull/144))
-- **Recally**: Add recally reading assistant ([#139](https://github.com/vaayne/anna/pull/139))
-- **Recally**: API-first refactor — recally CLI talks HTTP to anna server ([#142](https://github.com/vaayne/anna/pull/142))
+- **LCM**: Compact tool results in compaction and assembly ([#144](https://github.com/CherryHQ/stella/pull/144))
+- **Recally**: Add recally reading assistant ([#139](https://github.com/CherryHQ/stella/pull/139))
+- **Recally**: API-first refactor — recally CLI talks HTTP to stella server ([#142](https://github.com/CherryHQ/stella/pull/142))
 - **Admin**: Paginated sessions UI with infinite scroll
-- **Auth**: Authenticate requests with `ANNA_TOKEN` ([#140](https://github.com/vaayne/anna/pull/140))
-- **Vault**: Auto-provision anna token in vault
+- **Auth**: Authenticate requests with `STELLA_TOKEN` ([#140](https://github.com/CherryHQ/stella/pull/140))
+- **Vault**: Auto-provision stella token in vault
 
-**Full Changelog**: [v0.19.1...v0.20.0](https://github.com/vaayne/anna/compare/v0.19.1...v0.20.0)
+**Full Changelog**: [v0.19.1...v0.20.0](https://github.com/CherryHQ/stella/compare/v0.19.1...v0.20.0)
 
 ## [0.19.1] - 2026-04-29
 
@@ -122,13 +122,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Notifications**: Route notifications through dedicated agent channels
 
-**Full Changelog**: [v0.19.0...v0.19.1](https://github.com/vaayne/anna/compare/v0.19.0...v0.19.1)
+**Full Changelog**: [v0.19.0...v0.19.1](https://github.com/CherryHQ/stella/compare/v0.19.0...v0.19.1)
 
 ## [0.19.0] - 2026-04-29
 
 ### ✨ Features
 
-- **Admin**: Improve skill management UI ([#138](https://github.com/vaayne/anna/pull/138))
+- **Admin**: Improve skill management UI ([#138](https://github.com/CherryHQ/stella/pull/138))
 - **Agent**: Add unix timestamp prefix to user messages for LLM context
 
 ### 🐛 Bug Fixes
@@ -146,37 +146,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Agent**: Add memory usage guide to system prompt template
 - **Agent**: Promote top-level sections to h1 in system prompt template
 
-**Full Changelog**: [v0.18.0...v0.19.0](https://github.com/vaayne/anna/compare/v0.18.0...v0.19.0)
+**Full Changelog**: [v0.18.0...v0.19.0](https://github.com/CherryHQ/stella/compare/v0.18.0...v0.19.0)
 
 ## [0.18.0] - 2026-04-29
 
 ### ✨ Features
 
-- **Memory**: Redesign memory system ([#137](https://github.com/vaayne/anna/pull/137))
-- **Sandbox**: Add none sandbox backend for trusted host execution ([#136](https://github.com/vaayne/anna/pull/136))
-- **Plugins**: Migrate plugins to YAML manifest with dedicated Plugins prompt section ([#135](https://github.com/vaayne/anna/pull/135))
+- **Memory**: Redesign memory system ([#137](https://github.com/CherryHQ/stella/pull/137))
+- **Sandbox**: Add none sandbox backend for trusted host execution ([#136](https://github.com/CherryHQ/stella/pull/136))
+- **Plugins**: Migrate plugins to YAML manifest with dedicated Plugins prompt section ([#135](https://github.com/CherryHQ/stella/pull/135))
 
-**Full Changelog**: [v0.17.0...v0.18.0](https://github.com/vaayne/anna/compare/v0.17.0...v0.18.0)
+**Full Changelog**: [v0.17.0...v0.18.0](https://github.com/CherryHQ/stella/compare/v0.17.0...v0.18.0)
 
 ## [0.17.0] - 2026-04-28
 
 ### ✨ Features
 
-- **Admin**: Add chat panel to admin sessions UI ([#132](https://github.com/vaayne/anna/pull/132))
+- **Admin**: Add chat panel to admin sessions UI ([#132](https://github.com/CherryHQ/stella/pull/132))
 - **Admin**: Redesign sessions page UI
-- **Feishu**: Support file uploads in channel messages ([#133](https://github.com/vaayne/anna/pull/133))
-- **Plugins**: Support advanced mise backend options for ManifestBinary ([#130](https://github.com/vaayne/anna/pull/130))
-- **Skills**: Add clawhub.ai skill search and install support ([#134](https://github.com/vaayne/anna/pull/134))
+- **Feishu**: Support file uploads in channel messages ([#133](https://github.com/CherryHQ/stella/pull/133))
+- **Plugins**: Support advanced mise backend options for ManifestBinary ([#130](https://github.com/CherryHQ/stella/pull/130))
+- **Skills**: Add clawhub.ai skill search and install support ([#134](https://github.com/CherryHQ/stella/pull/134))
 
 ### 🐛 Bug Fixes
 
-- **Docker**: Install user CLIs in Docker cache layer ([#126](https://github.com/vaayne/anna/pull/126))
+- **Docker**: Install user CLIs in Docker cache layer ([#126](https://github.com/CherryHQ/stella/pull/126))
 
 ### ♻️ Refactoring
 
-- **Agent**: Merge `internal/agent/runner` into `internal/agent` ([#131](https://github.com/vaayne/anna/pull/131))
+- **Agent**: Merge `internal/agent/runner` into `internal/agent` ([#131](https://github.com/CherryHQ/stella/pull/131))
 
-**Full Changelog**: [v0.16.7...v0.17.0](https://github.com/vaayne/anna/compare/v0.16.7...v0.17.0)
+**Full Changelog**: [v0.16.7...v0.17.0](https://github.com/CherryHQ/stella/compare/v0.16.7...v0.17.0)
 
 ## [0.16.7] - 2026-04-27
 
@@ -184,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Feishu**: Fix notify tool not delivering to users linked via auto-provision (union_id routing used wrong `receive_id_type`)
 
-**Full Changelog**: [v0.16.6...v0.16.7](https://github.com/vaayne/anna/compare/v0.16.6...v0.16.7)
+**Full Changelog**: [v0.16.6...v0.16.7](https://github.com/CherryHQ/stella/compare/v0.16.6...v0.16.7)
 
 ## [0.16.6] - 2026-04-26
 
@@ -193,19 +193,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OAuth**: Expand lark/feishu pre-authorized scopes to match lark-cli domain coverage (approval, base, calendar, contact, docs, drive, im, mail, sheets, slides, task, wiki — 138 scopes)
 - **OAuth**: Add Feishu/Lark device-code flow support in channel chat
 
-**Full Changelog**: [v0.16.5...v0.16.6](https://github.com/vaayne/anna/compare/v0.16.5...v0.16.6)
+**Full Changelog**: [v0.16.5...v0.16.6](https://github.com/CherryHQ/stella/compare/v0.16.5...v0.16.6)
 
 ## [0.16.5] - 2026-04-25
 
 ### 🐛 Bug Fixes
 
-- **Sandbox**: Require bubblewrap on Linux local sandbox, remove fallbacks ([#129](https://github.com/vaayne/anna/pull/129))
+- **Sandbox**: Require bubblewrap on Linux local sandbox, remove fallbacks ([#129](https://github.com/CherryHQ/stella/pull/129))
 - **Sandbox**: Require bubblewrap on Linux local sandbox, remove unshare/unconfined fallbacks
 - **Sandbox**: Skip Docker preflight checks when local sandbox backend is selected
 - **Sandbox**: Remove redundant `--dir /workspace` from bwrap args
 - **Sandbox**: Fix bwrap bind ordering — bind `/workspace` before `--ro-bind / /`
 - **Sandbox**: Harden local sandbox root directory security
-- **OAuth**: Fix token refresh and session environment injection ([#128](https://github.com/vaayne/anna/pull/128))
+- **OAuth**: Fix token refresh and session environment injection ([#128](https://github.com/CherryHQ/stella/pull/128))
 
 ### ✅ Testing
 
@@ -217,7 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clarify Feishu auto-provision setup instructions
 
-**Full Changelog**: [v0.16.4...v0.16.5](https://github.com/vaayne/anna/compare/v0.16.4...v0.16.5)
+**Full Changelog**: [v0.16.4...v0.16.5](https://github.com/CherryHQ/stella/compare/v0.16.4...v0.16.5)
 
 ## [0.16.4] - 2026-04-24
 
@@ -226,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sandbox**: Default backend changed from Docker to Local; Plugins page selection now correctly honoured
 - **Feishu**: Run auto-provision synchronously before identity lookup
 
-**Full Changelog**: [v0.16.3...v0.16.4](https://github.com/vaayne/anna/compare/v0.16.3...v0.16.4)
+**Full Changelog**: [v0.16.3...v0.16.4](https://github.com/CherryHQ/stella/compare/v0.16.3...v0.16.4)
 
 ## [0.16.3] - 2026-04-24
 
@@ -247,7 +247,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgrade GitHub Actions runner
 
-**Full Changelog**: [v0.16.2...v0.16.3](https://github.com/vaayne/anna/compare/v0.16.2...v0.16.3)
+**Full Changelog**: [v0.16.2...v0.16.3](https://github.com/CherryHQ/stella/compare/v0.16.2...v0.16.3)
 
 ## [0.16.2] - 2026-04-24
 
@@ -256,7 +256,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Plugins**: Fix default mise table versions not being set correctly
 - **Plugins**: Isolate manifest binary installer to prevent cross-plugin interference
 
-**Full Changelog**: [v0.16.1...v0.16.2](https://github.com/vaayne/anna/compare/v0.16.1...v0.16.2)
+**Full Changelog**: [v0.16.1...v0.16.2](https://github.com/CherryHQ/stella/compare/v0.16.1...v0.16.2)
 
 ## [0.16.1] - 2026-04-24
 
@@ -268,30 +268,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Resolve 9 GitHub Dependabot security alerts in docs dependencies
 
-**Full Changelog**: [v0.16.0...v0.16.1](https://github.com/vaayne/anna/compare/v0.16.0...v0.16.1)
+**Full Changelog**: [v0.16.0...v0.16.1](https://github.com/CherryHQ/stella/compare/v0.16.0...v0.16.1)
 
 ## [0.16.0] - 2026-04-24
 
 ### ✨ Features
 
-- **Plugins**: Add runtime manifest tool plugins — file-driven path for CLI tool integrations via `$ANNA_HOME/plugins.yaml` with two-layer merge, binary provisioning, version-based caching, and admin UI ([#124](https://github.com/vaayne/anna/pull/124))
-- **OAuth**: Add generic OAuth registry/broker framework integrated into runtime, admin, and plugin host paths; add manifest validation for OAuth providers ([#125](https://github.com/vaayne/anna/pull/125))
-- **Plugins**: Unify `gh`, `lark-cli`, `tap-web`, and `mise` under a first-class CLI-backed tool plugin pattern with plugin-owned binary, wrapper, session env, bundled-skill, and prompt registrations ([#123](https://github.com/vaayne/anna/pull/123))
+- **Plugins**: Add runtime manifest tool plugins — file-driven path for CLI tool integrations via `$STELLA_HOME/plugins.yaml` with two-layer merge, binary provisioning, version-based caching, and admin UI ([#124](https://github.com/CherryHQ/stella/pull/124))
+- **OAuth**: Add generic OAuth registry/broker framework integrated into runtime, admin, and plugin host paths; add manifest validation for OAuth providers ([#125](https://github.com/CherryHQ/stella/pull/125))
+- **Plugins**: Unify `gh`, `lark-cli`, `tap-web`, and `mise` under a first-class CLI-backed tool plugin pattern with plugin-owned binary, wrapper, session env, bundled-skill, and prompt registrations ([#123](https://github.com/CherryHQ/stella/pull/123))
 
 ### ♻️ Refactoring
 
-- **Plugins**: Consolidate and simplify embedded tool and bundle management internals; remove legacy OAuth bundles and unused vault/token management code ([#125](https://github.com/vaayne/anna/pull/125))
-- **Auth**: Migrate legacy auth rows into `tool/gh` and `tool/lark-cli` plugins; remove old auth plugin packages ([#123](https://github.com/vaayne/anna/pull/123))
+- **Plugins**: Consolidate and simplify embedded tool and bundle management internals; remove legacy OAuth bundles and unused vault/token management code ([#125](https://github.com/CherryHQ/stella/pull/125))
+- **Auth**: Migrate legacy auth rows into `tool/gh` and `tool/lark-cli` plugins; remove old auth plugin packages ([#123](https://github.com/CherryHQ/stella/pull/123))
 
-**Full Changelog**: [v0.15.0...v0.16.0](https://github.com/vaayne/anna/compare/v0.15.0...v0.16.0)
+**Full Changelog**: [v0.15.0...v0.16.0](https://github.com/CherryHQ/stella/compare/v0.15.0...v0.16.0)
 
 ## [0.15.0] - 2026-04-22
 
 ### ✨ Features
 
-- **Vault**: Add per-user encrypted secret storage with age envelope encryption; secrets injected as env vars into sandbox sessions ([#120](https://github.com/vaayne/anna/pull/120))
-- **Credentials**: Unified credentials tool with shared backend service ([#122](https://github.com/vaayne/anna/pull/122))
-- **OAuth**: Device-flow OAuth for gh and lark-cli ([#121](https://github.com/vaayne/anna/pull/121))
+- **Vault**: Add per-user encrypted secret storage with age envelope encryption; secrets injected as env vars into sandbox sessions ([#120](https://github.com/CherryHQ/stella/pull/120))
+- **Credentials**: Unified credentials tool with shared backend service ([#122](https://github.com/CherryHQ/stella/pull/122))
+- **OAuth**: Device-flow OAuth for gh and lark-cli ([#121](https://github.com/CherryHQ/stella/pull/121))
 - **Tools**: Embed the GitHub CLI (`gh`) in prebuilt sandbox tool bundles
 - **Admin**: Redesign plugins page with tabbed navigation and split account/credentials UI
 
@@ -305,38 +305,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Sandbox**: Simplify to docker-only backend ([#118](https://github.com/vaayne/anna/pull/118))
-- **Build**: Sync embedded deps and system skills before build ([#119](https://github.com/vaayne/anna/pull/119))
+- **Sandbox**: Simplify to docker-only backend ([#118](https://github.com/CherryHQ/stella/pull/118))
+- **Build**: Sync embedded deps and system skills before build ([#119](https://github.com/CherryHQ/stella/pull/119))
 - **Auth**: Decouple auth provisioning from vault and merge oauthcli into credentials
 
 ### ✅ Testing
 
 - Harden refactor coverage
 
-**Full Changelog**: [v0.14.0...v0.15.0](https://github.com/vaayne/anna/compare/v0.14.0...v0.15.0)
+**Full Changelog**: [v0.14.0...v0.15.0](https://github.com/CherryHQ/stella/compare/v0.14.0...v0.15.0)
 
 ## [0.14.0] - 2026-04-21
 
 ### ✨ Features
 
-- **Resources**: Add builtin resource catalog and agent templates ([#117](https://github.com/vaayne/anna/pull/117))
-- **Feishu**: Add Feishu auto-provisioning ([#116](https://github.com/vaayne/anna/pull/116))
+- **Resources**: Add builtin resource catalog and agent templates ([#117](https://github.com/CherryHQ/stella/pull/117))
+- **Feishu**: Add Feishu auto-provisioning ([#116](https://github.com/CherryHQ/stella/pull/116))
 
-**Full Changelog**: [v0.13.0...v0.14.0](https://github.com/vaayne/anna/compare/v0.13.0...v0.14.0)
+**Full Changelog**: [v0.13.0...v0.14.0](https://github.com/CherryHQ/stella/compare/v0.13.0...v0.14.0)
 
 ## [0.13.0] - 2026-04-20
 
 ### ✨ Features
 
-- **Sandbox**: Add `docker` as a third sandbox backend alongside `boxsh` and `local` ([#115](https://github.com/vaayne/anna/pull/115))
-- **Skills**: Move skills storage from filesystem to SQLite for reliability ([#114](https://github.com/vaayne/anna/pull/114))
-- **Tooling**: On-demand CLI tool downloads — tools fetched only when needed ([#111](https://github.com/vaayne/anna/pull/111))
-- **Sandbox**: Sync sandbox session files back to source after each chat turn ([#112](https://github.com/vaayne/anna/pull/112))
+- **Sandbox**: Add `docker` as a third sandbox backend alongside `boxsh` and `local` ([#115](https://github.com/CherryHQ/stella/pull/115))
+- **Skills**: Move skills storage from filesystem to SQLite for reliability ([#114](https://github.com/CherryHQ/stella/pull/114))
+- **Tooling**: On-demand CLI tool downloads — tools fetched only when needed ([#111](https://github.com/CherryHQ/stella/pull/111))
+- **Sandbox**: Sync sandbox session files back to source after each chat turn ([#112](https://github.com/CherryHQ/stella/pull/112))
 - **Admin UI**: Add sandbox backend selector to admin panel
 
 ### 🐛 Bug Fixes
 
-- **Sandbox**: Persist sandbox session changes and clean up orphaned session dirs ([#112](https://github.com/vaayne/anna/pull/112))
+- **Sandbox**: Persist sandbox session changes and clean up orphaned session dirs ([#112](https://github.com/CherryHQ/stella/pull/112))
 - **Tools**: Use exact release asset URLs for embedded tools
 - **Tools**: Use `gh release download` for cross-platform tool fetching
 
@@ -349,20 +349,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📦 Dependencies
 
-- Bump `github.com/go-git/go-git/v5` from 5.17.1 to 5.18.0 ([#113](https://github.com/vaayne/anna/pull/113))
+- Bump `github.com/go-git/go-git/v5` from 5.17.1 to 5.18.0 ([#113](https://github.com/CherryHQ/stella/pull/113))
 
-**Full Changelog**: [v0.12.0...v0.13.0](https://github.com/vaayne/anna/compare/v0.12.0...v0.13.0)
+**Full Changelog**: [v0.12.0...v0.13.0](https://github.com/CherryHQ/stella/compare/v0.12.0...v0.13.0)
 
 ## [0.12.0] - 2026-04-16
 
 ### ✨ Features
 
-- **Tooling**: Prepare embedded mise and tap tooling for sandbox runtimes ([#109](https://github.com/vaayne/anna/pull/109))
+- **Tooling**: Prepare embedded mise and tap tooling for sandbox runtimes ([#109](https://github.com/CherryHQ/stella/pull/109))
 - **Docker**: Add docker dev task for local development workflows
 
 ### 🐛 Bug Fixes
 
-- **Sandbox**: Harden scheduler runtime stability ([#110](https://github.com/vaayne/anna/pull/110))
+- **Sandbox**: Harden scheduler runtime stability ([#110](https://github.com/CherryHQ/stella/pull/110))
 - **Docker**: Keep docker binary outside mounted workspace
 - **Docker**: Align docker build with release flow
 - **Docker**: Use debian runtime for embedded sandbox tools
@@ -377,34 +377,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📦 Dependencies
 
-- Bump `vite-plus` from 0.1.12 to 0.1.18 in docs ([#108](https://github.com/vaayne/anna/pull/108))
+- Bump `vite-plus` from 0.1.12 to 0.1.18 in docs ([#108](https://github.com/CherryHQ/stella/pull/108))
 
-**Full Changelog**: [v0.11.1...v0.12.0](https://github.com/vaayne/anna/compare/v0.11.1...v0.12.0)
+**Full Changelog**: [v0.11.1...v0.12.0](https://github.com/CherryHQ/stella/compare/v0.11.1...v0.12.0)
 
 ## [0.11.1] - 2026-04-15
 
 ### ✨ Features
 
-- **CLI**: Add short-message command intent routing and improve built-in help output ([#106](https://github.com/vaayne/anna/pull/106))
+- **CLI**: Add short-message command intent routing and improve built-in help output ([#106](https://github.com/CherryHQ/stella/pull/106))
 
 ### 🐛 Bug Fixes
 
-- **Sandbox**: Diagnose boxsh sandbox startup failures and improve failure handling ([#107](https://github.com/vaayne/anna/pull/107))
+- **Sandbox**: Diagnose boxsh sandbox startup failures and improve failure handling ([#107](https://github.com/CherryHQ/stella/pull/107))
 
-**Full Changelog**: [v0.11.0...v0.11.1](https://github.com/vaayne/anna/compare/v0.11.0...v0.11.1)
+**Full Changelog**: [v0.11.0...v0.11.1](https://github.com/CherryHQ/stella/compare/v0.11.0...v0.11.1)
 
 ## [0.11.0] - 2026-04-15
 
 ### ✨ Features
 
-- **Channels**: Queue channel messages per session and add `/abort` support for in-flight session control ([#104](https://github.com/vaayne/anna/pull/104))
-- **Builtin Tools**: Make memory, scheduler, and skills available as builtin tools ([#105](https://github.com/vaayne/anna/pull/105))
+- **Channels**: Queue channel messages per session and add `/abort` support for in-flight session control ([#104](https://github.com/CherryHQ/stella/pull/104))
+- **Builtin Tools**: Make memory, scheduler, and skills available as builtin tools ([#105](https://github.com/CherryHQ/stella/pull/105))
 
 ### ♻️ Refactoring
 
 - **Workflows**: Move GitHub Actions workflows to Node 24 actions
-- **Skills**: Make skill install scope explicit ([#103](https://github.com/vaayne/anna/pull/103))
-- **Sandbox**: Align sandbox user root with skill path layers ([#102](https://github.com/vaayne/anna/pull/102))
+- **Skills**: Make skill install scope explicit ([#103](https://github.com/CherryHQ/stella/pull/103))
+- **Sandbox**: Align sandbox user root with skill path layers ([#102](https://github.com/CherryHQ/stella/pull/102))
 
 ### 🐛 Bug Fixes
 
@@ -414,7 +414,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sandbox**: Document Linux boxsh prerequisites
 
-**Full Changelog**: [v0.10.2...v0.11.0](https://github.com/vaayne/anna/compare/v0.10.2...v0.11.0)
+**Full Changelog**: [v0.10.2...v0.11.0](https://github.com/CherryHQ/stella/compare/v0.10.2...v0.11.0)
 
 ## [0.10.2] - 2026-04-15
 
@@ -426,25 +426,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Config**: Centralize default agent model selection and derive the seeded anna agent model from configured provider instances instead of hardcoding a provider ID
+- **Config**: Centralize default agent model selection and derive the seeded stella agent model from configured provider instances instead of hardcoding a provider ID
 
-**Full Changelog**: [v0.10.1...v0.10.2](https://github.com/vaayne/anna/compare/v0.10.1...v0.10.2)
+**Full Changelog**: [v0.10.1...v0.10.2](https://github.com/CherryHQ/stella/compare/v0.10.1...v0.10.2)
 
 ## [0.10.1] - 2026-04-14
 
 ### ♻️ Refactoring
 
-- **Paths**: Simplify the runner and sandbox path model, flatten tool path context handling, and remove `file_path` from core file tools ([#99](https://github.com/vaayne/anna/pull/99), [#100](https://github.com/vaayne/anna/pull/100), [#101](https://github.com/vaayne/anna/pull/101))
+- **Paths**: Simplify the runner and sandbox path model, flatten tool path context handling, and remove `file_path` from core file tools ([#99](https://github.com/CherryHQ/stella/pull/99), [#100](https://github.com/CherryHQ/stella/pull/100), [#101](https://github.com/CherryHQ/stella/pull/101))
 
-**Full Changelog**: [v0.10.0...v0.10.1](https://github.com/vaayne/anna/compare/v0.10.0...v0.10.1)
+**Full Changelog**: [v0.10.0...v0.10.1](https://github.com/CherryHQ/stella/compare/v0.10.0...v0.10.1)
 
 ## [0.10.0] - 2026-04-14
 
 ### ✨ Features
 
-- **Channels**: Add multi-instance channel support with dedicated channel binding from agent settings and a simplified linking flow ([#93](https://github.com/vaayne/anna/pull/93))
-- **Sandbox**: Add the boxsh sandbox foundation and wire runner/config support through the sandbox backend ([#95](https://github.com/vaayne/anna/pull/95), [#97](https://github.com/vaayne/anna/pull/97))
-- **Tools**: Mediate sandbox-aware tools through hostfs for sandbox runtime execution ([#94](https://github.com/vaayne/anna/pull/94))
+- **Channels**: Add multi-instance channel support with dedicated channel binding from agent settings and a simplified linking flow ([#93](https://github.com/CherryHQ/stella/pull/93))
+- **Sandbox**: Add the boxsh sandbox foundation and wire runner/config support through the sandbox backend ([#95](https://github.com/CherryHQ/stella/pull/95), [#97](https://github.com/CherryHQ/stella/pull/97))
+- **Tools**: Mediate sandbox-aware tools through hostfs for sandbox runtime execution ([#94](https://github.com/CherryHQ/stella/pull/94))
 - **Providers**: Improve provider editor, type selection, model schema, and local build speed
 
 ### 🐛 Bug Fixes
@@ -455,17 +455,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Sandbox**: Promote the sandbox tool runtime redesign and expose runtime capabilities across the tool stack ([#98](https://github.com/vaayne/anna/pull/98))
+- **Sandbox**: Promote the sandbox tool runtime redesign and expose runtime capabilities across the tool stack ([#98](https://github.com/CherryHQ/stella/pull/98))
 - **Channels**: Make channel instances the single source of truth and merge channel link/config UI
 - **Identity**: Add sender identity abstraction, flatten channel sender identity handling, and align core tool path arguments
 - **Tooling**: Harden tool output truncation
 
 ### 📝 Documentation
 
-- Add sandbox backend rollout documentation and align sandbox docs with the runtime API ([#96](https://github.com/vaayne/anna/pull/96))
+- Add sandbox backend rollout documentation and align sandbox docs with the runtime API ([#96](https://github.com/CherryHQ/stella/pull/96))
 - Add Lark CLI skill notes
 
-**Full Changelog**: [v0.9.1...v0.10.0](https://github.com/vaayne/anna/compare/v0.9.1...v0.10.0)
+**Full Changelog**: [v0.9.1...v0.10.0](https://github.com/CherryHQ/stella/compare/v0.9.1...v0.10.0)
 
 ## [0.9.1] - 2026-04-10
 
@@ -473,39 +473,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release**: Skip optional embedded tool downloads when an upstream asset is unavailable, allowing cross-platform releases to continue when `rtk` is missing for a target platform
 
-**Full Changelog**: [v0.9.0...v0.9.1](https://github.com/vaayne/anna/compare/v0.9.0...v0.9.1)
+**Full Changelog**: [v0.9.0...v0.9.1](https://github.com/CherryHQ/stella/compare/v0.9.0...v0.9.1)
 
 ## [0.9.0] - 2026-04-10
 
 ### ✨ Features
 
 - **Plugins**: Introduce a unified plugin host runtime and migrate channels, tools, providers, MCP, and memory integrations onto the host-backed platform
-- **Plugins**: Add MCP tool plugin runtime with admin config editor and prompt integration ([#85](https://github.com/vaayne/anna/pull/85))
-- **Plugins**: Add typed plugin hook system and extension-owned prompt contributions ([#78](https://github.com/vaayne/anna/pull/78))
-- **Providers**: Make AI providers a first-class plugin type ([#79](https://github.com/vaayne/anna/pull/79))
-- **Memory**: Introduce pluggable memory providers with LCM and simple memory plugins, plus dynamic tool generation ([#82](https://github.com/vaayne/anna/pull/82))
-- **Tracing**: Add optional OpenTelemetry tracing with chat, tool, provider, and memory lifecycle coverage ([#84](https://github.com/vaayne/anna/pull/84))
-- **Automation**: Add self-improvement system for autonomous skill extraction ([#75](https://github.com/vaayne/anna/pull/75))
-- **Agent Tool**: Add presets, concurrency limits, context passing, and observability improvements ([#74](https://github.com/vaayne/anna/pull/74))
-- **Channels**: Add WeChat (weixin) iLink Bot channel ([#69](https://github.com/vaayne/anna/pull/69))
-- **Channels**: Enhance Feishu channel with Lark workspace tools ([#68](https://github.com/vaayne/anna/pull/68))
-- **Auth**: Add RBAC + ABAC permission system for multi-agent multi-user deployments ([#67](https://github.com/vaayne/anna/pull/67))
+- **Plugins**: Add MCP tool plugin runtime with admin config editor and prompt integration ([#85](https://github.com/CherryHQ/stella/pull/85))
+- **Plugins**: Add typed plugin hook system and extension-owned prompt contributions ([#78](https://github.com/CherryHQ/stella/pull/78))
+- **Providers**: Make AI providers a first-class plugin type ([#79](https://github.com/CherryHQ/stella/pull/79))
+- **Memory**: Introduce pluggable memory providers with LCM and simple memory plugins, plus dynamic tool generation ([#82](https://github.com/CherryHQ/stella/pull/82))
+- **Tracing**: Add optional OpenTelemetry tracing with chat, tool, provider, and memory lifecycle coverage ([#84](https://github.com/CherryHQ/stella/pull/84))
+- **Automation**: Add self-improvement system for autonomous skill extraction ([#75](https://github.com/CherryHQ/stella/pull/75))
+- **Agent Tool**: Add presets, concurrency limits, context passing, and observability improvements ([#74](https://github.com/CherryHQ/stella/pull/74))
+- **Channels**: Add WeChat (weixin) iLink Bot channel ([#69](https://github.com/CherryHQ/stella/pull/69))
+- **Channels**: Enhance Feishu channel with Lark workspace tools ([#68](https://github.com/CherryHQ/stella/pull/68))
+- **Auth**: Add RBAC + ABAC permission system for multi-agent multi-user deployments ([#67](https://github.com/CherryHQ/stella/pull/67))
 - **Gateway**: Add host and port flags for gateway startup
 - **Plugins**: Add schema-driven plugin config editor and plugin-owned scheduler capabilities
 
 ### 🐛 Bug Fixes
 
 - **Plugins**: Preserve plugin hooks across runtime switches
-- **Channels**: Improve initialization reliability and decouple startup failures ([#76](https://github.com/vaayne/anna/pull/76))
+- **Channels**: Improve initialization reliability and decouple startup failures ([#76](https://github.com/CherryHQ/stella/pull/76))
 - **Tracing**: Fix span lifecycle, context propagation, and race issues across memory and provider instrumentation
 - **Admin**: Fix plugin and channel configuration regressions during the host-backed migration
 
 ### ♻️ Refactoring
 
-- **Plugins**: Unify the plugin system around a single subprocess model ([#72](https://github.com/vaayne/anna/pull/72))
-- **Plugins**: Complete unified plugin host cleanup and remove legacy host surfaces ([#89](https://github.com/vaayne/anna/pull/89))
-- **Channels**: Extract shared channel runtime infrastructure into `pkg/channel` and convert channel implementations into thin adapters ([#80](https://github.com/vaayne/anna/pull/80))
-- **Agent**: Move the agent engine to `pkg/agent` with a Runner abstraction ([#81](https://github.com/vaayne/anna/pull/81))
+- **Plugins**: Unify the plugin system around a single subprocess model ([#72](https://github.com/CherryHQ/stella/pull/72))
+- **Plugins**: Complete unified plugin host cleanup and remove legacy host surfaces ([#89](https://github.com/CherryHQ/stella/pull/89))
+- **Channels**: Extract shared channel runtime infrastructure into `pkg/channel` and convert channel implementations into thin adapters ([#80](https://github.com/CherryHQ/stella/pull/80))
+- **Agent**: Move the agent engine to `pkg/agent` with a Runner abstraction ([#81](https://github.com/CherryHQ/stella/pull/81))
 - **Architecture**: Simplify command wiring, gateway control flow, and legacy channel lifecycle code
 
 ### 📝 Documentation
@@ -516,24 +516,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📦 Dependencies
 
-- Bump `github.com/go-git/go-git/v5` to `v5.17.1` ([#73](https://github.com/vaayne/anna/pull/73))
-- Bump `github.com/modelcontextprotocol/go-sdk` to `v1.4.1` ([#87](https://github.com/vaayne/anna/pull/87))
-- Bump `go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp` to `v0.19.0` ([#86](https://github.com/vaayne/anna/pull/86))
-- Bump `go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp` to `v1.43.0` ([#88](https://github.com/vaayne/anna/pull/88))
+- Bump `github.com/go-git/go-git/v5` to `v5.17.1` ([#73](https://github.com/CherryHQ/stella/pull/73))
+- Bump `github.com/modelcontextprotocol/go-sdk` to `v1.4.1` ([#87](https://github.com/CherryHQ/stella/pull/87))
+- Bump `go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp` to `v0.19.0` ([#86](https://github.com/CherryHQ/stella/pull/86))
+- Bump `go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp` to `v1.43.0` ([#88](https://github.com/CherryHQ/stella/pull/88))
 
-**Full Changelog**: [v0.8.1...v0.9.0](https://github.com/vaayne/anna/compare/v0.8.1...v0.9.0)
+**Full Changelog**: [v0.8.1...v0.9.0](https://github.com/CherryHQ/stella/compare/v0.8.1...v0.9.0)
 
 ## [0.8.1] - 2026-03-18
 
 ### ✨ Features
 
-- **Runner**: Embed rtk, fd, rg binaries and wrap bash with rtk ([#66](https://github.com/vaayne/anna/pull/66))
-- **Admin**: Migrate admin UI to templ + daisyUI 5 + Alpine.js ESM ([#65](https://github.com/vaayne/anna/pull/65))
+- **Runner**: Embed rtk, fd, rg binaries and wrap bash with rtk ([#66](https://github.com/CherryHQ/stella/pull/66))
+- **Admin**: Migrate admin UI to templ + daisyUI 5 + Alpine.js ESM ([#65](https://github.com/CherryHQ/stella/pull/65))
   - Settings, providers, agents, channels, users, scheduler, and sessions pages
   - Shared daisyUI components (PageHeader, EmptyState, Badge, FormField)
   - Delete old SPA UI files
 - **Admin**: Use models cache for agent model autocomplete
-- **Docs**: Add i18n support (en, zh, ja) ([#63](https://github.com/vaayne/anna/pull/63))
+- **Docs**: Add i18n support (en, zh, ja) ([#63](https://github.com/CherryHQ/stella/pull/63))
 
 ### 🐛 Bug Fixes
 
@@ -543,20 +543,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Admin**: Split admin UI into modular files ([#64](https://github.com/vaayne/anna/pull/64))
+- **Admin**: Split admin UI into modular files ([#64](https://github.com/CherryHQ/stella/pull/64))
 
 ### 📝 Documentation
 
 - Add admin UI CLAUDE.md and update root CLAUDE.md
 - Add i18n section to CLAUDE.md files
 
-**Full Changelog**: [v0.8.0...v0.8.1](https://github.com/vaayne/anna/compare/v0.8.0...v0.8.1)
+**Full Changelog**: [v0.8.0...v0.8.1](https://github.com/CherryHQ/stella/compare/v0.8.0...v0.8.1)
 
 ## [0.8.0] - 2026-03-17
 
 ### ✨ Features
 
-- **Multi-user multi-agent**: Full multi-user × multi-agent support across all channels (Telegram, QQ, Feishu) with DB-backed config, per-user memory, agent routing, and `/agent` command ([#61](https://github.com/vaayne/anna/pull/61))
+- **Multi-user multi-agent**: Full multi-user × multi-agent support across all channels (Telegram, QQ, Feishu) with DB-backed config, per-user memory, agent routing, and `/agent` command ([#61](https://github.com/CherryHQ/stella/pull/61))
 - **Admin UI**: Redesigned admin panel with user management, agent memory, session detail views, and system prompt viewer
 - **Skills**: Add `load_skill` tool; add Twitter/X posting script to social-content skill
 
@@ -587,9 +587,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📝 Documentation
 
 - Update all docs for multi-user multi-agent architecture
-- Update builtin anna skill with user-facing changes
+- Update builtin stella skill with user-facing changes
 
-**Full Changelog**: [v0.7.1...v0.8.0](https://github.com/vaayne/anna/compare/v0.7.1...v0.8.0)
+**Full Changelog**: [v0.7.1...v0.8.0](https://github.com/CherryHQ/stella/compare/v0.7.1...v0.8.0)
 
 ## [0.7.1] - 2026-03-17
 
@@ -598,23 +598,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docs**: Migrate docs site to Vite+ unified toolchain
 - **Docs**: Migrate docs CI workflow to Vite+ setup action
 
-**Full Changelog**: [v0.7.0...v0.7.1](https://github.com/vaayne/anna/compare/v0.7.0...v0.7.1)
+**Full Changelog**: [v0.7.0...v0.7.1](https://github.com/CherryHQ/stella/compare/v0.7.0...v0.7.1)
 
 ## [0.7.0] - 2026-03-16
 
 ### ✨ Features
 
-- **Plugin**: Add plugin core framework with JS runtime ([#57](https://github.com/vaayne/anna/pull/57))
+- **Plugin**: Add plugin core framework with JS runtime ([#57](https://github.com/CherryHQ/stella/pull/57))
 - **Agent**: Improve tool result quality for LLM consumption
-- **Website**: Add About Anna page, persona section, and full icon pack ([#62](https://github.com/vaayne/anna/pull/62))
-- **Website**: Add avatar as favicon, nav logo, and README header ([#60](https://github.com/vaayne/anna/pull/60))
+- **Website**: Add About Stella page, persona section, and full icon pack ([#62](https://github.com/CherryHQ/stella/pull/62))
+- **Website**: Add avatar as favicon, nav logo, and README header ([#60](https://github.com/CherryHQ/stella/pull/60))
 - **Skills**: Add social content skill and references
 
 ### 🐛 Bug Fixes
 
 - **Plugin**: Prevent SSRF DNS rebinding in plugin fetch
 - **Plugin**: Store absolute path when adding plugins
-- **Plugin**: Use `config.AnnaHome()` for plugin path sandboxing
+- **Plugin**: Use `config.StellaHome()` for plugin path sandboxing
 - **Plugin**: Address plugin system review issues
 
 ### ♻️ Refactoring
@@ -625,13 +625,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Plugin**: Add plugin system documentation with example plugins
 
-**Full Changelog**: [v0.6.2...v0.7.0](https://github.com/vaayne/anna/compare/v0.6.2...v0.7.0)
+**Full Changelog**: [v0.6.2...v0.7.0](https://github.com/CherryHQ/stella/compare/v0.6.2...v0.7.0)
 
 ## [0.6.2] - 2026-03-14
 
 ### ✨ Features
 
-- **Agent**: Add delegate tool for subagent delegation ([#55](https://github.com/vaayne/anna/pull/55))
+- **Agent**: Add delegate tool for subagent delegation ([#55](https://github.com/CherryHQ/stella/pull/55))
 
 ### 🐛 Bug Fixes
 
@@ -640,20 +640,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ♻️ Refactoring
 
-- **Scheduler**: Rename cron package to scheduler and migrate storage from file to database ([#53](https://github.com/vaayne/anna/pull/53))
+- **Scheduler**: Rename cron package to scheduler and migrate storage from file to database ([#53](https://github.com/CherryHQ/stella/pull/53))
 - **Skills**: Replace custom search HTTP client with `mcphub/pkg/skills.Search`, removing duplicate code
 
 ### 📦 Dependencies
 
 - Update `github.com/vaayne/mcphub` to v0.2.4
 
-**Full Changelog**: [v0.6.1...v0.6.2](https://github.com/vaayne/anna/compare/v0.6.1...v0.6.2)
+**Full Changelog**: [v0.6.1...v0.6.2](https://github.com/CherryHQ/stella/compare/v0.6.1...v0.6.2)
 
 ## [0.6.1] - 2026-03-13
 
 ### ♻️ Refactoring
 
-- **Skills**: Replace internal installer with `mcphub/pkg/skills` for multi-source support ([#52](https://github.com/vaayne/anna/pull/52))
+- **Skills**: Replace internal installer with `mcphub/pkg/skills` for multi-source support ([#52](https://github.com/CherryHQ/stella/pull/52))
   - Now supports GitHub/GitLab URLs, local paths, and shorthand formats
   - Backward compatible with existing `owner/repo@skill-name#ref` syntax
 
@@ -662,13 +662,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update Go to 1.25
 - Add `github.com/vaayne/mcphub` v0.2.3
 
-**Full Changelog**: [v0.6.0...v0.6.1](https://github.com/vaayne/anna/compare/v0.6.0...v0.6.1)
+**Full Changelog**: [v0.6.0...v0.6.1](https://github.com/CherryHQ/stella/compare/v0.6.0...v0.6.1)
 
 ## [0.6.0] - 2026-03-13
 
 ### ♻️ Refactoring
 
-- **Packages**: Move all packages under `internal/` for app-private encapsulation ([#50](https://github.com/vaayne/anna/pull/50))
+- **Packages**: Move all packages under `internal/` for app-private encapsulation ([#50](https://github.com/CherryHQ/stella/pull/50))
 
 ### ✅ Testing
 
@@ -676,54 +676,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📝 Documentation
 
-- Add Fumadocs documentation site on Cloudflare Workers ([#51](https://github.com/vaayne/anna/pull/51))
+- Add Fumadocs documentation site on Cloudflare Workers ([#51](https://github.com/CherryHQ/stella/pull/51))
 
-**Full Changelog**: [v0.5.0...v0.6.0](https://github.com/vaayne/anna/compare/v0.5.0...v0.6.0)
+**Full Changelog**: [v0.5.0...v0.6.0](https://github.com/CherryHQ/stella/compare/v0.5.0...v0.6.0)
 
 ## [0.5.0] - 2026-03-13
 
 ### ✨ Features
 
-- **Memory**: Add Lossless Context Management (LCM) — DAG-based memory system with identity files, semantic retrieval tools, and session-scoped context ([#46](https://github.com/vaayne/anna/pull/46))
+- **Memory**: Add Lossless Context Management (LCM) — DAG-based memory system with identity files, semantic retrieval tools, and session-scoped context ([#46](https://github.com/CherryHQ/stella/pull/46))
 
 ### ♻️ Refactoring
 
-- **Database**: Restructure database layer with Atlas and sqlc ([#46](https://github.com/vaayne/anna/pull/46))
-- **Database**: Remove `store.Store` + `RPCEvent` — SQLite-only persistence with `ai.Message` ([#47](https://github.com/vaayne/anna/pull/47))
-- **Database**: Replace hardcoded migrations with Atlas-generated SQL files ([#48](https://github.com/vaayne/anna/pull/48))
-- **Cron**: Merge `heartbeat/` package into `internal/cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/vaayne/anna/pull/49))
+- **Database**: Restructure database layer with Atlas and sqlc ([#46](https://github.com/CherryHQ/stella/pull/46))
+- **Database**: Remove `store.Store` + `RPCEvent` — SQLite-only persistence with `ai.Message` ([#47](https://github.com/CherryHQ/stella/pull/47))
+- **Database**: Replace hardcoded migrations with Atlas-generated SQL files ([#48](https://github.com/CherryHQ/stella/pull/48))
+- **Cron**: Merge `heartbeat/` package into `internal/cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/CherryHQ/stella/pull/49))
 
 ### 📝 Documentation
 
 - Rewrite README as marketing-oriented product page
 - Add MIT license
 - Rewrite memory system docs to match LCM implementation
-- Sync builtin anna skill with new README
+- Sync builtin stella skill with new README
 
-**Full Changelog**: [v0.4.2...v0.5.0](https://github.com/vaayne/anna/compare/v0.4.2...v0.5.0)
+**Full Changelog**: [v0.4.2...v0.5.0](https://github.com/CherryHQ/stella/compare/v0.4.2...v0.5.0)
 
 ## [0.4.2] - 2026-03-12
 
 ### ✨ Features
 
-- **Channels**: Add /whoami command to all channels ([#44](https://github.com/vaayne/anna/pull/44))
+- **Channels**: Add /whoami command to all channels ([#44](https://github.com/CherryHQ/stella/pull/44))
 
-**Full Changelog**: [v0.4.1...v0.4.2](https://github.com/vaayne/anna/compare/v0.4.1...v0.4.2)
+**Full Changelog**: [v0.4.1...v0.4.2](https://github.com/CherryHQ/stella/compare/v0.4.1...v0.4.2)
 
 ## [0.4.1] - 2026-03-11
 
 ### ♻️ Refactoring
 
-- Flatten packages, split large files, and improve structure ([#43](https://github.com/vaayne/anna/pull/43))
+- Flatten packages, split large files, and improve structure ([#43](https://github.com/CherryHQ/stella/pull/43))
 
-**Full Changelog**: [v0.4.0...v0.4.1](https://github.com/vaayne/anna/compare/v0.4.0...v0.4.1)
+**Full Changelog**: [v0.4.0...v0.4.1](https://github.com/CherryHQ/stella/compare/v0.4.0...v0.4.1)
 
 ## [0.4.0] - 2026-03-11
 
 ### ✨ Features
 
-- **CLI**: Add `version` and self-upgrade commands ([#41](https://github.com/vaayne/anna/pull/41))
-- **Gateway**: Add heartbeat support for gateway channels ([#40](https://github.com/vaayne/anna/pull/40))
+- **CLI**: Add `version` and self-upgrade commands ([#41](https://github.com/CherryHQ/stella/pull/41))
+- **Gateway**: Add heartbeat support for gateway channels ([#40](https://github.com/CherryHQ/stella/pull/40))
 - **Config**: Add `enabled` and `enable_notify` toggles for channels
 
 ### 🐛 Bug Fixes
@@ -736,41 +736,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CLI**: Document version and upgrade commands
 
-**Full Changelog**: [v0.3.0...v0.4.0](https://github.com/vaayne/anna/compare/v0.3.0...v0.4.0)
+**Full Changelog**: [v0.3.0...v0.4.0](https://github.com/CherryHQ/stella/compare/v0.3.0...v0.4.0)
 
 ## [0.3.0] - 2026-03-10
 
 ### ✨ Features
 
-- **Feishu**: Add Feishu (Lark) bot channel with WebSocket, streaming cards, image I/O, rich text, and group support ([#39](https://github.com/vaayne/anna/pull/39))
-- **Skills**: Add builtin anna skill embedded in binary ([#37](https://github.com/vaayne/anna/pull/37))
+- **Feishu**: Add Feishu (Lark) bot channel with WebSocket, streaming cards, image I/O, rich text, and group support ([#39](https://github.com/CherryHQ/stella/pull/39))
+- **Skills**: Add builtin stella skill embedded in binary ([#37](https://github.com/CherryHQ/stella/pull/37))
 
 ### ♻️ Refactoring
 
-- Add Channel interface and extract shared command/util logic ([#38](https://github.com/vaayne/anna/pull/38))
+- Add Channel interface and extract shared command/util logic ([#38](https://github.com/CherryHQ/stella/pull/38))
 
-**Full Changelog**: [v0.2.0...v0.3.0](https://github.com/vaayne/anna/compare/v0.2.0...v0.3.0)
+**Full Changelog**: [v0.2.0...v0.3.0](https://github.com/CherryHQ/stella/compare/v0.2.0...v0.3.0)
 
 ## [0.2.0] - 2026-03-09
 
 ### ✨ Features
 
-- **QQ Bot**: Add QQ Bot channel support ([#33](https://github.com/vaayne/anna/pull/33))
-- **Onboard**: Add onboard subcommand with web-based setup UI ([#36](https://github.com/vaayne/anna/pull/36))
-- **Telegram**: Image input support ([#35](https://github.com/vaayne/anna/pull/35))
-- **Telegram**: Tool summary with history, timing, and result status ([#32](https://github.com/vaayne/anna/pull/32))
-- **Tools**: Add webfetch tool for fetching web pages as markdown ([#28](https://github.com/vaayne/anna/pull/28))
+- **QQ Bot**: Add QQ Bot channel support ([#33](https://github.com/CherryHQ/stella/pull/33))
+- **Onboard**: Add onboard subcommand with web-based setup UI ([#36](https://github.com/CherryHQ/stella/pull/36))
+- **Telegram**: Image input support ([#35](https://github.com/CherryHQ/stella/pull/35))
+- **Telegram**: Tool summary with history, timing, and result status ([#32](https://github.com/CherryHQ/stella/pull/32))
+- **Tools**: Add webfetch tool for fetching web pages as markdown ([#28](https://github.com/CherryHQ/stella/pull/28))
 
 ### 🐛 Bug Fixes
 
-- **Telegram**: Use channel-scoped UUID sessions for /new command ([#31](https://github.com/vaayne/anna/pull/31))
+- **Telegram**: Use channel-scoped UUID sessions for /new command ([#31](https://github.com/CherryHQ/stella/pull/31))
 
 ### ♻️ Refactoring
 
-- Flatten package structure and merge runner packages ([#27](https://github.com/vaayne/anna/pull/27))
-- Flatten config structure and move workspace to ~/.anna ([#26](https://github.com/vaayne/anna/pull/26))
+- Flatten package structure and merge runner packages ([#27](https://github.com/CherryHQ/stella/pull/27))
+- Flatten config structure and move workspace to ~/.stella ([#26](https://github.com/CherryHQ/stella/pull/26))
 
-**Full Changelog**: [v0.1.0...v0.2.0](https://github.com/vaayne/anna/compare/v0.1.0...v0.2.0)
+**Full Changelog**: [v0.1.0...v0.2.0](https://github.com/CherryHQ/stella/compare/v0.1.0...v0.2.0)
 
 ## [0.1.0] - 2026-03-07
 
@@ -816,4 +816,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump github.com/cloudflare/circl from 1.6.1 to 1.6.3 (#24)
 
-**Full Changelog**: [v0.1.0](https://github.com/vaayne/anna/commits/v0.1.0)
+**Full Changelog**: [v0.1.0](https://github.com/CherryHQ/stella/commits/v0.1.0)

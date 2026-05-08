@@ -14,7 +14,7 @@ Post Tweet — X API v2
 Posts a tweet using OAuth2 PKCE (User Context) via the xdk SDK.
 
 Required env vars: X_CLIENT_ID, X_CLIENT_SECRET
-Token cache: ~/.anna/x_tokens.json (auto-refreshed on expiry)
+Token cache: ~/.stella/x_tokens.json (auto-refreshed on expiry)
 """
 
 import json
@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN_PATH = Path.home() / ".anna" / "x_tokens.json"
+TOKEN_PATH = Path.home() / ".stella" / "x_tokens.json"
 REDIRECT_URI = "https://example.com"
 SCOPES = ["tweet.read", "tweet.write", "users.read", "offline.access"]
 

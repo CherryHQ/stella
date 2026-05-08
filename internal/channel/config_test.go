@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 type mockPluginStore struct {

@@ -9,12 +9,12 @@ import (
 func TestSetupWorkspace(t *testing.T) {
 	base := t.TempDir()
 
-	dir, err := SetupWorkspace("anna", base)
+	dir, err := SetupWorkspace("stella", base)
 	if err != nil {
 		t.Fatalf("SetupWorkspace: %v", err)
 	}
 
-	want := filepath.Join(base, "workspaces", "anna")
+	want := filepath.Join(base, "workspaces", "stella")
 	if dir != want {
 		t.Errorf("dir = %q, want %q", dir, want)
 	}
@@ -33,12 +33,12 @@ func TestSetupWorkspace(t *testing.T) {
 func TestSetupWorkspaceIdempotent(t *testing.T) {
 	base := t.TempDir()
 
-	dir1, err := SetupWorkspace("anna", base)
+	dir1, err := SetupWorkspace("stella", base)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 
-	dir2, err := SetupWorkspace("anna", base)
+	dir2, err := SetupWorkspace("stella", base)
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
 )
 
 // onReaction handles incoming Feishu reaction events.

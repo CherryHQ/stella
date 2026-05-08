@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {

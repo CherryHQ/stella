@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ToolSpec declares a tool capability owned by a plugin.

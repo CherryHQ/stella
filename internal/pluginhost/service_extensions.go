@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/skills"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // WithNotificationService injects the narrow notification service available to plugins.

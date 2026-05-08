@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const dumpLLMContextEnv = "ANNA_DUMP_LLM_CONTEXT"
+const dumpLLMContextEnv = "STELLA_DUMP_LLM_CONTEXT"
 
 type dumpedLLMRequest struct {
 	CreatedAt string              `json:"created_at"`
@@ -95,13 +95,13 @@ func llmDumpDir() (string, bool) {
 	if value != "1" && !strings.EqualFold(value, "true") {
 		return value, true
 	}
-	annaHome := os.Getenv("ANNA_HOME")
-	if annaHome == "" {
+	stellaHome := os.Getenv("STELLA_HOME")
+	if stellaHome == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			annaHome = filepath.Join(home, ".anna")
+			stellaHome = filepath.Join(home, ".stella")
 		}
 	}
-	return filepath.Join(annaHome, "debug", "llm-requests"), true
+	return filepath.Join(stellaHome, "debug", "llm-requests"), true
 }
 
 func dumpMessages(messages []ai.Message) []dumpedMessage {

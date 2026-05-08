@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: anna API Components
+  title: stella API Components
   version: "1"
   description: Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT
 paths: {}
@@ -9,7 +9,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: ANNA_TOKEN bearer token (generated via vault)
+      description: STELLA_TOKEN bearer token (generated via vault)
   responses:
     Unauthorized:
       description: missing or invalid bearer token

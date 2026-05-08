@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/notify"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/notify"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 type chatCall struct {

@@ -8,7 +8,7 @@ title: 密钥库
 
 ## 配置
 
-密钥库需要通过环境变量 `ANNA_VAULT_KEY` 提供一个主密钥。未设置该变量时，密钥库接口返回 `503`，且密钥不会被注入。
+密钥库需要通过环境变量 `STELLA_VAULT_KEY` 提供一个主密钥。未设置该变量时，密钥库接口返回 `503`，且密钥不会被注入。
 
 ### 生成主密钥
 
@@ -20,18 +20,18 @@ age-keygen
 
 ### 配置方法
 
-在启动 anna 前设置环境变量：
+在启动 stella 前设置环境变量：
 
 ```bash
-export ANNA_VAULT_KEY="AGE-SECRET-KEY-1..."
-anna server
+export STELLA_VAULT_KEY="AGE-SECRET-KEY-1..."
+stella server
 ```
 
 > **请备份主密钥。** 一旦丢失，所有已存储的密钥将永久无法恢复。建议将其保存在密码管理器或密钥管理服务中。
 
 ### 启动时自动初始化
 
-anna 启动时会自动为所有尚未拥有 age 密钥对的用户生成密钥对，无需手动初始化。
+stella 启动时会自动为所有尚未拥有 age 密钥对的用户生成密钥对，无需手动初始化。
 
 ## 使用方法
 
@@ -53,13 +53,13 @@ Agent 可通过调用 `credentials add_secret` 请求存储密钥，该操作会
 /config 密钥名称 <值>
 ```
 
-Anna 会将值写入密钥库，而不会将其暴露给模型或对话历史记录。写入成功后，Agent 会以经过脱敏处理的续接消息自动恢复任务。`credentials` 工具同样支持列出和删除密钥库条目（`credentials list`、`credentials delete`）。
+Stella 会将值写入密钥库，而不会将其暴露给模型或对话历史记录。写入成功后，Agent 会以经过脱敏处理的续接消息自动恢复任务。`credentials` 工具同样支持列出和删除密钥库条目（`credentials list`、`credentials delete`）。
 
 ## 密钥注入
 
 沙盒会话启动时，系统会解密当前用户的所有密钥库条目，并以环境变量的形式注入会话。例如，名为 `GITHUB_TOKEN` 的条目在沙盒中可通过 `$GITHUB_TOKEN` 访问。
 
-Anna 还会在沙盒环境注入前确保每位用户都有一个 `ANNA_TOKEN`。该 token 由 Anna 生成，作为加密密钥库存储供沙盒使用，也可通过 `Authorization: Bearer <token>` 认证管理 API 请求。
+Stella 还会在沙盒环境注入前确保每位用户都有一个 `STELLA_TOKEN`。该 token 由 Stella 生成，作为加密密钥库存储供沙盒使用，也可通过 `Authorization: Bearer <token>` 认证管理 API 请求。
 
 每次会话启动时重新加载密钥，新增或修改的条目在下次会话中生效。
 
@@ -68,14 +68,14 @@ Anna 还会在沙盒环境注入前确保每位用户都有一个 `ANNA_TOKEN`�
 密钥库条目名称遵循 POSIX 环境变量命名规则，并附加以下保留名称限制：
 
 - 必须匹配 `^[A-Z][A-Z0-9_]{0,127}$`——仅大写字母、数字和下划线，首字符必须为字母，最长 128 个字符。
-- 不得以 `ANNA_`、`LC_` 或 `XDG_` 开头，但 Anna 管理的 `ANNA_TOKEN` 例外。
+- 不得以 `STELLA_`、`LC_` 或 `XDG_` 开头，但 Stella 管理的 `STELLA_TOKEN` 例外。
 - 不得等于或以 `PATH_`、`HOME_`、`USER_`、`SHELL_`、`LANG_`、`TERM_`、`TMPDIR_` 开头。
 
 ## 安全模型
 
-Anna 使用**信封加密**方案：
+Stella 使用**信封加密**方案：
 
-1. 启动时从 `ANNA_VAULT_KEY` 加载主 X25519 密钥对。
+1. 启动时从 `STELLA_VAULT_KEY` 加载主 X25519 密钥对。
 2. 每位用户拥有独立的 X25519 密钥对，用户私钥使用主公钥加密后存储在数据库中。
 3. 存储密钥时，使用**用户自己的**公钥加密。
 4. 沙盒会话加载密钥时，主密钥先解密用户私钥，再由用户私钥解密各条目。

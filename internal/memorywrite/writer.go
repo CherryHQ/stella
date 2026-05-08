@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // SetProfile writes a profile update within a transaction.

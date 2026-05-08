@@ -7,8 +7,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // Start runs the review loop. Blocks until ctx is cancelled.
@@ -69,7 +69,7 @@ func (s *Service) runCycle(ctx context.Context) {
 		totalReviewed += n
 	}
 
-	span.SetAttributes(attribute.Int("anna.reflect.sessions_reviewed", totalReviewed))
+	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
 }
 
@@ -88,7 +88,7 @@ func (s *Service) reviewAgent(ctx context.Context, snap *pkgplugins.ReflectSnaps
 		return 0, fmt.Errorf("list unreviewed: %w", err)
 	}
 
-	span.SetAttributes(attribute.Int("anna.reflect.candidate_count", len(candidates)))
+	span.SetAttributes(attribute.Int("stella.reflect.candidate_count", len(candidates)))
 
 	reviewed := 0
 	for _, c := range candidates {
@@ -99,6 +99,6 @@ func (s *Service) reviewAgent(ctx context.Context, snap *pkgplugins.ReflectSnaps
 		reviewed++
 	}
 
-	span.SetAttributes(attribute.Int("anna.reflect.sessions_reviewed", reviewed))
+	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", reviewed))
 	return reviewed, nil
 }

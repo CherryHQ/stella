@@ -10,11 +10,11 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 type testStores struct {
@@ -191,8 +191,8 @@ func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
-	if agentID != "anna" {
-		t.Errorf("agentID = %q, want %q", agentID, "anna")
+	if agentID != "stella" {
+		t.Errorf("agentID = %q, want %q", agentID, "stella")
 	}
 }
 

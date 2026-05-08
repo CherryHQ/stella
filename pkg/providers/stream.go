@@ -3,7 +3,7 @@ package providers
 import (
 	"sync"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // AssistantEventStream provides ordered assistant events.

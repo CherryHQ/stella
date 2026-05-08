@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // NewCoreTools returns the unified host-backed core tools.

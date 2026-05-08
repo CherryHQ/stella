@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // ListModels returns enabled models from provider config + fetched cache,
 // filtered to only include models whose provider instance is enabled.
-// No provider API calls — reads only from the DB and ~/.anna/cache/models.json.
+// No provider API calls — reads only from the DB and ~/.stella/cache/models.json.
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {

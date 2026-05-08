@@ -8,19 +8,19 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/ai"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
 // A per-session message queue ensures that only one chat turn runs at a time
-// per resolved Anna session; later messages are serialised in arrival order.
+// per resolved Stella session; later messages are serialised in arrival order.
 type Coordinator struct {
 	poolManager      *agent.PoolManager
 	store            config.Store
@@ -369,7 +369,7 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	if err != nil {
 		return "", fmt.Errorf("resolve user root: %w", err)
 	}
-	userDir, err := agent.SetupUserWorkspace(rc.AgentID, config.AnnaHome(), rc.User.ID)
+	userDir, err := agent.SetupUserWorkspace(rc.AgentID, config.StellaHome(), rc.User.ID)
 	if err != nil {
 		return "", fmt.Errorf("setup user workspace: %w", err)
 	}

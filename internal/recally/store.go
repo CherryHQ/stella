@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/oklog/ulid/v2"
-	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // Store provides database operations for the recally package.

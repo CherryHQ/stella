@@ -1,10 +1,10 @@
 package openairesponse
 
 import (
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
 )
 
 // consumeStream reads SSE events from the OpenAI Responses stream.

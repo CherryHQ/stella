@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const (

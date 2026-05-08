@@ -17,27 +17,27 @@ func TestTranslateToDaemonPath(t *testing.T) {
 		},
 		{
 			name: "exact prefix match swaps whole path",
-			cfg:  Config{ContainerPathPrefix: "/container/anna", HostPathPrefix: "/host/anna"},
-			in:   "/container/anna",
-			want: "/host/anna",
+			cfg:  Config{ContainerPathPrefix: "/container/stella", HostPathPrefix: "/host/stella"},
+			in:   "/container/stella",
+			want: "/host/stella",
 		},
 		{
 			name: "subpath rewrites to host prefix",
-			cfg:  Config{ContainerPathPrefix: "/container/anna", HostPathPrefix: "/host/anna"},
-			in:   "/container/anna/work/file.txt",
-			want: "/host/anna/work/file.txt",
+			cfg:  Config{ContainerPathPrefix: "/container/stella", HostPathPrefix: "/host/stella"},
+			in:   "/container/stella/work/file.txt",
+			want: "/host/stella/work/file.txt",
 		},
 		{
 			name: "unrelated path unchanged",
-			cfg:  Config{ContainerPathPrefix: "/container/anna", HostPathPrefix: "/host/anna"},
+			cfg:  Config{ContainerPathPrefix: "/container/stella", HostPathPrefix: "/host/stella"},
 			in:   "/other/path",
 			want: "/other/path",
 		},
 		{
 			name: "prefix-like but not a directory boundary unchanged",
-			cfg:  Config{ContainerPathPrefix: "/container/anna", HostPathPrefix: "/host/anna"},
-			in:   "/container/annax/file",
-			want: "/container/annax/file",
+			cfg:  Config{ContainerPathPrefix: "/container/stella", HostPathPrefix: "/host/stella"},
+			in:   "/container/stellax/file",
+			want: "/container/stellax/file",
 		},
 	}
 	for _, tc := range cases {

@@ -1,10 +1,10 @@
 package openai
 
 import (
+	"github.com/CherryHQ/stella/pkg/ai"
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
-	"github.com/vaayne/anna/pkg/ai"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.ChatCompletionNewParams {

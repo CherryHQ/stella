@@ -4,20 +4,20 @@ title: 调度器系统
 
 ## 状态
 
-已实现——`internal/scheduler/` 包,包含 gocron/v2 调度器、SQLite 持久化、管理面板 CRUD 和通过 `anna scheduler` CLI 命令支持的内置技能。
+已实现——`internal/scheduler/` 包,包含 gocron/v2 调度器、SQLite 持久化、管理面板 CRUD 和通过 `stella scheduler` CLI 命令支持的内置技能。
 
 ## 概述
 
-Anna 支持定时任务执行,让代理可以设置提醒、运行周期性任务和自动化重复性工作。调度器系统将所有调度委托给 [gocron/v2](https://github.com/go-co-op/gocron),并在其之上添加了持久化、多代理路由和面向代理的工具。
+Stella 支持定时任务执行,让代理可以设置提醒、运行周期性任务和自动化重复性工作。调度器系统将所有调度委托给 [gocron/v2](https://github.com/go-co-op/gocron),并在其之上添加了持久化、多代理路由和面向代理的工具。
 
 ## 架构
 
 ```
-Agent (via skill + anna scheduler CLI)
+Agent (via skill + stella scheduler CLI)
     |
     |  add / list / remove
     v
-anna scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
+stella scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
                                     |
                                     v
                               Scheduler Service
@@ -43,7 +43,7 @@ anna scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
 | `internal/scheduler/service.go`                       | `Service`——gocron 包装器,调度,任务 CRUD  |
 | `internal/scheduler/heartbeat.go`                     | 心跳轮询——通过 LLM 决策/执行/通知        |
 | `internal/scheduler/persistence.go`                   | 数据库持久化(加载/保存/迁移任务)         |
-| `internal/resources/skills/system/scheduler/SKILL.md` | 内置技能——记录 `anna scheduler` CLI 命令 |
+| `internal/resources/skills/system/scheduler/SKILL.md` | 内置技能——记录 `stella scheduler` CLI 命令 |
 
 ### 关键类型
 
@@ -80,7 +80,7 @@ type Job struct {
 
 ### 持久化
 
-任务存储在共享 SQLite 数据库(`~/.anna/anna.db`)的 `sched_jobs` 表中。每次变更(添加/删除)都是单独的 INSERT/DELETE——没有完整文件重写。
+任务存储在共享 SQLite 数据库(`~/.stella/stella.db`)的 `sched_jobs` 表中。每次变更(添加/删除)都是单独的 INSERT/DELETE——没有完整文件重写。
 
 首次启动时,如果存在旧版 `jobs.json` 文件(来自数据库之前的版本),任务会自动迁移到数据库,文件会被删除。
 
@@ -92,7 +92,7 @@ type Job struct {
 
 - `at` 字段必须是带时区偏移的有效 RFC3339 时间戳
 - 创建时会拒绝过去的时间戳
-- 如果 Anna 重启且一次性任务的时间戳已过,任务会被静默跳过(不调度),但会保留在数据库中直到手动删除
+- 如果 Stella 重启且一次性任务的时间戳已过,任务会被静默跳过(不调度),但会保留在数据库中直到手动删除
 - 成功执行时,清理操作异步运行以避免阻塞调度器
 
 ### 会话模型
@@ -124,9 +124,9 @@ type Job struct {
 
 ## 代理技能
 
-`scheduler` 内置技能自动加载。它记录代理通过 Bash 调用的 `anna scheduler` CLI 命令。
+`scheduler` 内置技能自动加载。它记录代理通过 Bash 调用的 `stella scheduler` CLI 命令。
 
-### `anna scheduler add`——创建任务
+### `stella scheduler add`——创建任务
 
 标志:
 
@@ -141,26 +141,26 @@ type Job struct {
 示例(重复):
 
 ```bash
-anna scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
+stella scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
 ```
 
 示例(一次性):
 
 ```bash
-anna scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
+stella scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
 ```
 
-### `anna scheduler list`——列出所有任务
+### `stella scheduler list`——列出所有任务
 
 ```bash
-anna scheduler list --json   # JSON 输出用于脚本
-anna scheduler list          # 人类可读表格
+stella scheduler list --json   # JSON 输出用于脚本
+stella scheduler list          # 人类可读表格
 ```
 
-### `anna scheduler remove`——删除任务
+### `stella scheduler remove`——删除任务
 
 ```bash
-anna scheduler remove <job-id>
+stella scheduler remove <job-id>
 ```
 
 ## 心跳
@@ -185,7 +185,7 @@ anna scheduler remove <job-id>
 - **every**——轮询间隔,作为 Go duration(例如 `10m`)
 - **file**——心跳文件路径,相对于工作空间,除非是绝对路径(例如 `HEARTBEAT.md`)
 
-心跳仅在 `anna` 守护进程模式下运行。快速模型用于门控决策以最小化成本。
+心跳仅在 `stella` 守护进程模式下运行。快速模型用于门控决策以最小化成本。
 
 ## 连接
 

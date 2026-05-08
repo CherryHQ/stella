@@ -9,17 +9,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	coreagent "github.com/vaayne/anna/pkg/agent"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	pluginhooks "github.com/vaayne/anna/plugins/hooks"
-	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
+	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 // BuiltinToolsFactory creates agent-specific builtin tools given a snapshot.
@@ -147,7 +147,7 @@ func WithVaultEnvLoader(v VaultEnvLoader) PoolManagerOption {
 	}
 }
 
-// WithTokenService sets the auth token service for ANNA_TOKEN lifecycle.
+// WithTokenService sets the auth token service for STELLA_TOKEN lifecycle.
 func WithTokenService(ts *auth.TokenService) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.tokenService = ts
@@ -241,7 +241,7 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v VaultEnvLoader) 
 	}
 }
 
-// SetTokenService sets the token service and rebuilds all pool factories so new runners ensure ANNA_TOKEN.
+// SetTokenService sets the token service and rebuilds all pool factories so new runners ensure STELLA_TOKEN.
 func (pm *PoolManager) SetTokenService(ctx context.Context, ts *auth.TokenService) {
 	pm.mu.Lock()
 	pm.tokenService = ts
@@ -496,7 +496,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
 		}
 		promptBuild := pkgplugins.SystemPromptContext{
-			AnnaHome:            config.AnnaHome(),
+			StellaHome:          config.StellaHome(),
 			HomeDir:             homeDir,
 			AgentRoot:           snap.Workspace,
 			UserID:              userID,
@@ -517,7 +517,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			Memory:            pm.mem,
 			UserID:            userID,
 			AgentID:           agentID,
-			AnnaHome:          config.AnnaHome(),
+			StellaHome:        config.StellaHome(),
 			AgentRoot:         snap.Workspace,
 			SnapshotVersion:   memSnap.Version,
 			SnapshotUpdatedAt: memSnap.UpdatedAt,
@@ -534,7 +534,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 
 // loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
-	workspace, err := SetupWorkspace(agentID, config.AnnaHome())
+	workspace, err := SetupWorkspace(agentID, config.StellaHome())
 	if err != nil {
 		return nil, "", fmt.Errorf("setup workspace for agent %q: %w", agentID, err)
 	}

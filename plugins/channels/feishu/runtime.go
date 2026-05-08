@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type FeishuRuntimeDeps struct {
@@ -137,7 +137,7 @@ func configSchema() map[string]any {
 			},
 			"auto_provision": map[string]any{
 				"type":        "boolean",
-				"description": "Automatically create Anna accounts for members of the bot's Feishu tenant.",
+				"description": "Automatically create Stella accounts for members of the bot's Feishu tenant.",
 				"default":     false,
 			},
 		},

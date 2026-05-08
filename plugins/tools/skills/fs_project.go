@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // ListProjectSkills walks {root}/.agents/skills/ and returns skill metadata structs

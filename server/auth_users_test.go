@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 func TestListAuthUsers(t *testing.T) {
@@ -170,7 +170,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	}
 
 	// Assign agent.
-	body := map[string]any{"agent_ids": []string{"anna"}}
+	body := map[string]any{"agent_ids": []string{"stella"}}
 	rr = doRequest(t, env, "PUT", "/api/auth/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -180,8 +180,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
 	resp = parseResponse(t, rr)
 	_ = json.Unmarshal(resp.Data, &agentIDs)
-	if len(agentIDs) != 1 || agentIDs[0] != "anna" {
-		t.Errorf("expected [anna], got %v", agentIDs)
+	if len(agentIDs) != 1 || agentIDs[0] != "stella" {
+		t.Errorf("expected [stella], got %v", agentIDs)
 	}
 
 	// Remove by setting empty.

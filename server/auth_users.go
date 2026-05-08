@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 // --- Auth User Management API (admin-only) ---

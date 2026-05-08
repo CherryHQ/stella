@@ -6,7 +6,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // DB is the minimal database interface the vault Service requires.
@@ -27,7 +27,7 @@ type Service struct {
 }
 
 // NewService creates a vault Service. masterIdentityStr is the raw age secret
-// key string (typically from the ANNA_VAULT_KEY environment variable).
+// key string (typically from the STELLA_VAULT_KEY environment variable).
 func NewService(db DB, masterIdentityStr string) (*Service, error) {
 	id, recipient, err := ParseMasterIdentity(masterIdentityStr)
 	if err != nil {

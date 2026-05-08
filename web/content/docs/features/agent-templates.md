@@ -4,7 +4,7 @@ title: Agent Templates & Builtin Resources
 
 ## Overview
 
-Anna ships with a curated catalog of **builtin resources** so a fresh install is useful on day one without hand-editing every prompt. The catalog lives in `plugins/tools/builtin/` and is embedded into the binary at build time.
+Stella ships with a curated catalog of **builtin resources** so a fresh install is useful on day one without hand-editing every prompt. The catalog lives in `plugins/tools/builtin/` and is embedded into the binary at build time.
 
 Four resource kinds are shipped:
 
@@ -12,7 +12,7 @@ Four resource kinds are shipped:
 | ------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
 | **Skill**     | Reusable knowledge/playbook the agent can load on demand          | DB-synced into `skills(scope='system')` on startup |
 | **Soul**      | Persona/tone fragment layered into the agent's system prompt      | Copied into an agent at creation time              |
-| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$ANNA_HOME/agents/` on startup       |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$STELLA_HOME/agents/` on startup       |
 | **Template**  | Full agent bootstrap (model + system prompt + soul)               | Read once at agent creation; no persistent link    |
 
 ## Templates
@@ -41,7 +41,7 @@ The `default` soul replaced the previously hardcoded `template/soul.md` — `run
 
 ## Sub-agents
 
-Sub-agent presets describe tool-restricted workers for the `agent` delegation tool (research, review, writing, coding). The runner extracts them into `$ANNA_HOME/agents/` on startup so project-local overrides (`.agents/agents/`) can shadow them with the same filename.
+Sub-agent presets describe tool-restricted workers for the `agent` delegation tool (research, review, writing, coding). The runner extracts them into `$STELLA_HOME/agents/` on startup so project-local overrides (`.agents/agents/`) can shadow them with the same filename.
 
 Shipped sub-agents: `coder`, `researcher`, `reviewer`, `writer`.
 

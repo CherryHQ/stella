@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
@@ -518,7 +518,7 @@ func TestHandleLocalCommandHelp(t *testing.T) {
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
-	if !strings.Contains(reply, "Anna") {
+	if !strings.Contains(reply, "Stella") {
 		t.Errorf("unexpected reply: %s", reply)
 	}
 }

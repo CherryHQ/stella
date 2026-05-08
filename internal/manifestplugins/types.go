@@ -17,7 +17,7 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	// Name is the binary name written to $ANNA_HOME/bin/.
+	// Name is the binary name written to $STELLA_HOME/bin/.
 	Name string `json:"name" yaml:"name"`
 
 	// Tool is the mise tool key in "backend:identifier" format, e.g.:

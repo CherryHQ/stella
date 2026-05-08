@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func setupAdminStore(t *testing.T) config.Store {
@@ -26,9 +26,9 @@ func setupAdminStore(t *testing.T) config.Store {
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {
-	config.ResetAnnaHome()
-	t.Setenv("ANNA_HOME", t.TempDir())
-	t.Cleanup(config.ResetAnnaHome)
+	config.ResetStellaHome()
+	t.Setenv("STELLA_HOME", t.TempDir())
+	t.Cleanup(config.ResetStellaHome)
 
 	store := setupAdminStore(t)
 	ctx := context.Background()

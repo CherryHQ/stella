@@ -11,8 +11,8 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 

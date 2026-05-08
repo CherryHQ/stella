@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
-	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/CherryHQ/stella/internal/auth"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func setupSeedStore(t *testing.T) auth.AuthStore {

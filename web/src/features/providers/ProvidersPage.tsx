@@ -1019,7 +1019,7 @@ export function ProvidersPage() {
       <div className="mb-8">
         <h1 className="font-serif text-2xl tracking-tight mb-1">LLM connections</h1>
         <p className="text-sm text-muted-foreground">
-          API keys and endpoints for each model provider Anna can use.
+          API keys and endpoints for each model provider Stella can use.
         </p>
       </div>
 
@@ -1073,7 +1073,7 @@ export function ProvidersPage() {
         {providers.length === 0 && (
           <div className="py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              No providers yet. Add one above to connect Anna to an LLM API.
+              No providers yet. Add one above to connect Stella to an LLM API.
             </p>
           </div>
         )}

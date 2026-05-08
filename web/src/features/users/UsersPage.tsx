@@ -607,7 +607,7 @@ export function UsersPage() {
           </div>
           {legacyUsers.length === 0 && (
             <div className="py-12 text-center text-sm text-muted-foreground">
-              No channel users yet — they appear after someone messages Anna.
+              No channel users yet — they appear after someone messages Stella.
             </div>
           )}
         </div>

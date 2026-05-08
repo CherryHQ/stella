@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 // PreflightConfig configures a Preflight check.
 type PreflightConfig struct {
-	AnnaHome string
-	Docker   Config
+	StellaHome string
+	Docker     Config
 }
 
 // sharedClient is a package-level cached client.

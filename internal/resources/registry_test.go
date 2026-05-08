@@ -11,22 +11,22 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Fatalf("Default(): %v", err)
 	}
 
-	anna, ok := r.Get(KindSkill, "anna")
+	stella, ok := r.Get(KindSkill, "stella")
 	if !ok {
-		t.Fatal("expected builtin skill 'anna' to be loaded")
+		t.Fatal("expected builtin skill 'stella' to be loaded")
 	}
-	if anna.Name != "anna" {
-		t.Errorf("skill name = %q, want %q", anna.Name, "anna")
+	if stella.Name != "stella" {
+		t.Errorf("skill name = %q, want %q", stella.Name, "stella")
 	}
-	if anna.Hash == "" {
+	if stella.Hash == "" {
 		t.Error("skill hash is empty")
 	}
 
-	if _, ok := r.Get(KindSoul, "anna"); !ok {
-		t.Error("expected builtin soul 'anna'")
+	if _, ok := r.Get(KindSoul, "stella"); !ok {
+		t.Error("expected builtin soul 'stella'")
 	}
-	if _, ok := r.Get(KindTemplate, "anna"); !ok {
-		t.Error("expected builtin template 'anna'")
+	if _, ok := r.Get(KindTemplate, "stella"); !ok {
+		t.Error("expected builtin template 'stella'")
 	}
 	for _, id := range []string{"coder"} {
 		if _, ok := r.Get(KindSubAgent, id); !ok {

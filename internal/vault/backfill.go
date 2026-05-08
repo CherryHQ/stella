@@ -7,7 +7,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // BackfillDB is the minimal database interface required by BackfillUserKeys.
@@ -17,7 +17,7 @@ type BackfillDB interface {
 }
 
 // BackfillUserKeys generates age keypairs for any users that don't have them yet.
-// Called at startup when ANNA_VAULT_KEY is configured.
+// Called at startup when STELLA_VAULT_KEY is configured.
 // Returns the number of users updated.
 func BackfillUserKeys(ctx context.Context, db BackfillDB, masterRecipient *age.X25519Recipient) (int, error) {
 	users, err := db.ListAuthUsers(ctx)

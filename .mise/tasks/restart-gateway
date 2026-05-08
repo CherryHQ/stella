@@ -5,7 +5,7 @@ set -euo pipefail
 
 find_gateway_pids() {
   ps -axo pid=,command= | awk '
-    /mise run:gateway|(^|[[:space:]])\.\/bin\/anna gateway([[:space:]]|$)|(^|[[:space:]])bin\/anna gateway([[:space:]]|$)/ {
+    /mise run:gateway|(^|[[:space:]])\.\/bin\/stella gateway([[:space:]]|$)|(^|[[:space:]])bin\/stella gateway([[:space:]]|$)/ {
       if ($0 !~ /awk/ && $0 !~ /restart-gateway/) print $1
     }
   '
@@ -14,7 +14,7 @@ find_gateway_pids() {
 PIDS="$(find_gateway_pids)"
 
 if [[ -n "$PIDS" ]]; then
-  echo "Stopping existing anna gateway process(es):"
+  echo "Stopping existing stella gateway process(es):"
   echo "$PIDS"
   kill $PIDS || true
 
@@ -32,12 +32,12 @@ if [[ -n "$PIDS" ]]; then
     fi
   done
 else
-  echo "No running anna gateway process found."
+  echo "No running stella gateway process found."
 fi
 
-echo "Starting anna gateway..."
+echo "Starting stella gateway..."
 mkdir -p .agents/workspace
-nohup ./bin/anna gateway > .agents/workspace/anna-gateway.log 2>&1 &
+nohup ./bin/stella gateway > .agents/workspace/stella-gateway.log 2>&1 &
 
-echo "Started. Logs: $(pwd)/.agents/workspace/anna-gateway.log"
+echo "Started. Logs: $(pwd)/.agents/workspace/stella-gateway.log"
 echo "New PID: $!"

@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/pkg/memory/memorytest"
-	"github.com/vaayne/anna/plugins/memory/simple"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/memory/memorytest"
+	"github.com/CherryHQ/stella/plugins/memory/simple"
 )
 
 func TestConformance(t *testing.T) {

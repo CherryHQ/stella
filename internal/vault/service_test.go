@@ -7,9 +7,9 @@ import (
 
 	"filippo.io/age"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // testService sets up a vault Service backed by a real SQLite database. It
@@ -100,7 +100,7 @@ func TestSetValidation(t *testing.T) {
 		"lowercase",
 		"123START",
 		"HAS SPACE",
-		"ANNA_SECRET",
+		"STELLA_SECRET",
 		"PATH",
 		"HOME",
 		"LC_ALL",
@@ -200,7 +200,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 }
 
-func TestLoadEnvDoesNotAutoCreateAnnaToken(t *testing.T) {
+func TestLoadEnvDoesNotAutoCreateStellaToken(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
 	ctx := context.Background()
@@ -209,8 +209,8 @@ func TestLoadEnvDoesNotAutoCreateAnnaToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEnv: %v", err)
 	}
-	if _, ok := env[vault.AnnaTokenName]; ok {
-		t.Fatalf("LoadEnv included %q; token service should create it", vault.AnnaTokenName)
+	if _, ok := env[vault.StellaTokenName]; ok {
+		t.Fatalf("LoadEnv included %q; token service should create it", vault.StellaTokenName)
 	}
 }
 

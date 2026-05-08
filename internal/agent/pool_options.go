@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // PoolOption configures a Pool.

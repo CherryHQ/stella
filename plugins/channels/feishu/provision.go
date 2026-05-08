@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 const provisionCacheTTL = time.Hour
@@ -95,7 +95,7 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 	return profile
 }
 
-// maybeAutoProvision provisions an Anna user for the sender if auto-provisioning
+// maybeAutoProvision provisions an Stella user for the sender if auto-provisioning
 // is enabled and the sender belongs to the configured tenant.
 //
 // tenantKey is the sender's tenant key from the event (empty string if unavailable,
@@ -151,7 +151,7 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 	}
 
 	// Refuse to provision with an empty external ID: every user missing union_id
-	// would be stored as (feishu, "") and resolve to the same Anna account.
+	// would be stored as (feishu, "") and resolve to the same Stella account.
 	if unionID == "" {
 		logger().Warn("auto-provision: skipping user with empty union_id", "open_id", openID)
 		return

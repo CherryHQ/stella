@@ -5,19 +5,19 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/sandbox"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // ToolPaths is the tool-facing session path surface.
 // UserRoot is the writable execution root and process HOME.
 // ProjectRoot is the tool-facing current-project directory; relative paths in project-aware tools
-// resolve against it. AnnaHome and AgentRoot are discovery roots.
+// resolve against it. StellaHome and AgentRoot are discovery roots.
 type ToolPaths struct {
 	UserRoot    string
 	ToolsBinDir string
-	AnnaHome    string
+	StellaHome  string
 	AgentRoot   string
 	ProjectRoot string // tool-facing project root for relative path resolution
 }
@@ -56,7 +56,7 @@ type MemoryContext struct {
 	Platform     Platform
 	State        PluginState
 	DB           *sql.DB
-	AnnaHome     string
+	StellaHome   string
 	SummarizerFn func(context.Context, string) (string, error)
 }
 
@@ -83,7 +83,7 @@ type PromptInventoryContext struct {
 type SystemPromptContext struct {
 	Platform    Platform
 	State       PluginState
-	AnnaHome    string
+	StellaHome  string
 	HomeDir     string
 	AgentRoot   string
 	ProjectRoot string

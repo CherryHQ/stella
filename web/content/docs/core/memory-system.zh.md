@@ -4,7 +4,7 @@ title: 记忆系统
 
 ## 概述
 
-Anna 的记忆系统是在插件化对话存储之上构建的四个逻辑空间：
+Stella 的记忆系统是在插件化对话存储之上构建的四个逻辑空间：
 
 | 空间                     | 用途                                                         | 底层存储                                                                             |
 | ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
@@ -15,7 +15,7 @@ Anna 的记忆系统是在插件化对话存储之上构建的四个逻辑空间
 
 这四个空间不是四套独立引擎。设计目标是继续保持 LCM/Simple 记忆插件、ProfileStore、Reflect 和 SkillStore 的松耦合，同时在它们周围增加版本历史和会话快照。
 
-Anna 内置两个记忆插件：
+Stella 内置两个记忆插件：
 
 | 插件       | 包路径                   | 默认启用 | 说明                                                 |
 | ---------- | ------------------------ | -------- | ---------------------------------------------------- |
@@ -24,11 +24,11 @@ Anna 内置两个记忆插件：
 
 ### 切换插件
 
-记忆插件的管理方式与其他插件相同。在管理面板或通过 `anna plugin` 命令：
+记忆插件的管理方式与其他插件相同。在管理面板或通过 `stella plugin` 命令：
 
 ```bash
-anna plugin disable memory/lcm
-anna plugin enable memory/simple
+stella plugin disable memory/lcm
+stella plugin enable memory/simple
 ```
 
 同时只能启用一个记忆插件。两者使用相同的底层 `ctx_messages` 表，因此切换插件会保留已存储的消息。
@@ -120,7 +120,7 @@ changelog 记录：
 
 约束以 JSON 数组形式存储在 `ctx_agent_memory.constraints`。每条包含 ID、文本和创建时间。
 
-约束适合保存用户明确希望 Anna 长期遵守的规则，例如：
+约束适合保存用户明确希望 Stella 长期遵守的规则，例如：
 
 - “删除文件前先询问。”
 - “未经我批准，不要运行生产数据库迁移。”
@@ -132,13 +132,13 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 会话快照用于防止后台记忆更新在活跃对话中途改变行为。
 
-第一次聊天时，Anna 会为 `(session_id, user_id, agent_id)` 在 `memory_snapshots` 中保存冻结的 `ctx_agent_memory.version`。每一轮对话前，Pool 使用该快照版本重建系统提示，并通过 per-run system override 注入。
+第一次聊天时，Stella 会为 `(session_id, user_id, agent_id)` 在 `memory_snapshots` 中保存冻结的 `ctx_agent_memory.version`。每一轮对话前，Pool 使用该快照版本重建系统提示，并通过 per-run system override 注入。
 
 可见性规则：
 
 | 写入路径                             | 当前会话是否可见？ | 原因                                              |
 | ------------------------------------ | ------------------ | ------------------------------------------------- |
-| 用户通过记忆工具要求 Anna 记住某事   | 是，从下一轮开始   | 记忆工具会推进当前会话快照                        |
+| 用户通过记忆工具要求 Stella 记住某事   | 是，从下一轮开始   | 记忆工具会推进当前会话快照                        |
 | 用户通过记忆工具添加/删除约束        | 是，从下一轮开始   | 前台写入后推进 snapshot                           |
 | Reflect 在后台更新 profile/knowledge | 否                 | Reflect 没有活跃 session context，不推进 snapshot |
 | 新会话开始                           | 是                 | 新会话会快照最新记忆版本                          |
@@ -231,7 +231,7 @@ Simple 插件使用滑动窗口方式：
 
 ## 数据库
 
-- **位置：** `~/.anna/anna.db`
+- **位置：** `~/.stella/stella.db`
 - **驱动：** `modernc.org/sqlite`（纯 Go，无 CGO）
 - **模式：** WAL，启用外键
 - **迁移：** Atlas 生成，通过 `MigrationsFS` 嵌入，启动时自动应用。
@@ -262,4 +262,4 @@ Simple 插件使用滑动窗口方式：
 
 ## Agent 工作区
 
-每个 agent 在 `$ANNA_HOME/workspaces/{agent_id}/` 有自己的工作区，用于文件覆盖、技能和每 agent 数据。
+每个 agent 在 `$STELLA_HOME/workspaces/{agent_id}/` 有自己的工作区，用于文件覆盖、技能和每 agent 数据。

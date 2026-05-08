@@ -8,21 +8,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	builtinres "github.com/vaayne/anna/internal/resources"
-	"github.com/vaayne/anna/internal/resources/binaries"
-	coreagent "github.com/vaayne/anna/pkg/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-	plugintools "github.com/vaayne/anna/plugins/tools"
-	agenttool "github.com/vaayne/anna/plugins/tools/agent"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	builtinres "github.com/CherryHQ/stella/internal/resources"
+	"github.com/CherryHQ/stella/internal/resources/binaries"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
+	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
+	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 )
 
 // maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
@@ -44,7 +44,7 @@ type GoRunnerConfig struct {
 	APIKey           string
 	BaseURL          string // optional provider base URL override
 	AgentRoot        string // agent root directory
-	AnnaHome         string // anna home directory (e.g. ~/.anna)
+	StellaHome       string // stella home directory (e.g. ~/.stella)
 	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
 	System           string // optional system prompt override (bypasses default prompt building)
 	PluginPrompts    []pkgplugins.SystemPromptSection
@@ -60,7 +60,7 @@ type GoRunnerConfig struct {
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 	UserID           int64                            // auth user ID; used for vault secret injection
 	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
-	TokenService     *auth.TokenService               // optional; if set, ensures ANNA_TOKEN before vault env injection
+	TokenService     *auth.TokenService               // optional; if set, ensures STELLA_TOKEN before vault env injection
 	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
 	SubagentTimeout  time.Duration                    // default wall-clock timeout per subagent (0 = 15m)
 }
@@ -125,7 +125,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-			AnnaHome:       paths.AnnaHome,
+			StellaHome:     paths.StellaHome,
 			AgentRoot:      paths.AgentRoot,
 			ProjectRoot:    paths.ProjectRoot,
 			UserRoot:       paths.UserRoot,
@@ -219,7 +219,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	paths := resolveRunnerPaths(cfg)
-	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
+	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 
@@ -235,7 +235,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
 			ToolsBinDir: toolsBinDir,
-			AnnaHome:    paths.AnnaHome,
+			StellaHome:  paths.StellaHome,
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,
 		},
@@ -249,7 +249,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
 	// session and must win over any plugin tool of the same name. Plugin
-	// versions run in the anna process, which would bypass the sandbox.
+	// versions run in the stella process, which would bypass the sandbox.
 	coreNames := make(map[string]struct{}, len(coreTools))
 	for _, t := range coreTools {
 		coreNames[t.Definition().Name] = struct{}{}
@@ -301,11 +301,11 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
-	if err := builtinres.ExtractSubAgents(paths.annaAgentsDir()); err != nil {
+	if err := builtinres.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:    paths.AnnaHome,
+		StellaHome:  paths.StellaHome,
 		AgentRoot:   paths.AgentRoot,
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: paths.ProjectRoot,
@@ -314,10 +314,10 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 
 func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	paths := resolveRunnerPaths(cfg)
-	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
+	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := builtinres.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
+	if err := builtinres.EnsureBuiltinSkills(paths.stellaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 
@@ -333,10 +333,10 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 		if err != nil {
 			return fmt.Errorf("go runner: %w", err)
 		}
-		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
+		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
 		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-			AnnaHome: paths.AnnaHome,
-			Docker:   dockerCfg,
+			StellaHome: paths.StellaHome,
+			Docker:     dockerCfg,
 		}); err != nil {
 			if config.SandboxDockerImageIsDev() {
 				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())

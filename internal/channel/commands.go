@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // HandleCommand processes common bot commands shared across all channels.

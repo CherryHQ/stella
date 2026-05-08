@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 func TestRateLimiterIPBasic(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/pkg/memory/memorytest"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory/memorytest"
 )
 
 func TestBuildSystemPrompt_ConstraintsInjected(t *testing.T) {
@@ -24,7 +24,7 @@ func TestBuildSystemPrompt_ConstraintsInjected(t *testing.T) {
 	}
 
 	prompt := BuildSystemPromptFromDB(ctx, DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 		Memory:       fake,
 		UserID:       1,
 		AgentID:      "agent1",
@@ -45,7 +45,7 @@ func TestBuildSystemPrompt_NoConstraints_SectionAbsent(t *testing.T) {
 	fake := memorytest.New()
 
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 		Memory:       fake,
 		UserID:       1,
 		AgentID:      "agent1",
@@ -66,7 +66,7 @@ func TestBuildSystemPrompt_ConstraintsBefore_AgentSoul(t *testing.T) {
 	}
 
 	prompt := BuildSystemPromptFromDB(ctx, DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 		Memory:       fake,
 		UserID:       1,
 		AgentID:      "agent1",
@@ -89,7 +89,7 @@ func TestBuildSystemPrompt_ConstraintsBefore_AgentSoul(t *testing.T) {
 func TestBuildSystemPrompt_WithoutMemoryProvider(t *testing.T) {
 	// When no memory provider is given, Constraints should be nil and section absent.
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 	})
 
 	if strings.Contains(prompt, "## Constraints") {

@@ -31,7 +31,7 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 
 // seedState writes a ManifestState JSON to the state file path so Reconcile
 // treats the binary as already installed.
-func seedState(t *testing.T, annaHome, pluginID, binaryName, version string) {
+func seedState(t *testing.T, stellaHome, pluginID, binaryName, version string) {
 	t.Helper()
 	s := &ManifestState{
 		UpdatedAt: time.Now(),
@@ -52,7 +52,7 @@ func seedState(t *testing.T, annaHome, pluginID, binaryName, version string) {
 	if err != nil {
 		t.Fatalf("marshal seed state: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(annaHome, "plugin-manifest-state.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stellaHome, "plugin-manifest-state.json"), data, 0o644); err != nil {
 		t.Fatalf("write seed state: %v", err)
 	}
 }
@@ -60,17 +60,17 @@ func seedState(t *testing.T, annaHome, pluginID, binaryName, version string) {
 // TestReconcile_CacheHit verifies that a binary already present in the state file
 // is not re-downloaded and is reported as a cache hit.
 func TestReconcile_CacheHit(t *testing.T) {
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 	const (
 		pluginID   = "test-plugin"
 		binaryName = "mytool"
 		version    = "1.2.3"
 	)
 
-	seedState(t, annaHome, pluginID, binaryName, version)
+	seedState(t, stellaHome, pluginID, binaryName, version)
 
 	m := makeMinimalManifest(pluginID, true, binaryName, version)
-	result := Reconcile(context.Background(), m, annaHome)
+	result := Reconcile(context.Background(), m, stellaHome)
 
 	if result.EnabledCount != 1 {
 		t.Errorf("EnabledCount = %d, want 1", result.EnabledCount)
@@ -103,7 +103,7 @@ func TestReconcile_CacheHit(t *testing.T) {
 // TestReconcile_DisabledPlugin verifies that disabled plugins are skipped entirely
 // and do not appear in the result map.
 func TestReconcile_DisabledPlugin(t *testing.T) {
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 	const (
 		pluginID   = "disabled-plugin"
 		binaryName = "sometool"
@@ -111,7 +111,7 @@ func TestReconcile_DisabledPlugin(t *testing.T) {
 	)
 
 	m := makeMinimalManifest(pluginID, false, binaryName, version)
-	result := Reconcile(context.Background(), m, annaHome)
+	result := Reconcile(context.Background(), m, stellaHome)
 
 	if result.EnabledCount != 0 {
 		t.Errorf("EnabledCount = %d, want 0", result.EnabledCount)
@@ -124,10 +124,10 @@ func TestReconcile_DisabledPlugin(t *testing.T) {
 
 // TestReconcile_EnabledCount verifies that EnabledCount reflects only enabled plugins.
 func TestReconcile_EnabledCount(t *testing.T) {
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 
 	// Seed state for the enabled plugin so no download is attempted.
-	seedState(t, annaHome, "enabled-plugin", "tool-a", "0.1.0")
+	seedState(t, stellaHome, "enabled-plugin", "tool-a", "0.1.0")
 
 	m := &Manifest{
 		Plugins: []ManifestPlugin{
@@ -167,7 +167,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 		},
 	}
 
-	result := Reconcile(context.Background(), m, annaHome)
+	result := Reconcile(context.Background(), m, stellaHome)
 
 	if result.EnabledCount != 1 {
 		t.Errorf("EnabledCount = %d, want 1", result.EnabledCount)
@@ -241,8 +241,8 @@ func TestSaveAndLoadState(t *testing.T) {
 
 // TestStatePath verifies the helper returns the expected path.
 func TestStatePath(t *testing.T) {
-	want := filepath.Join("/home/user/.anna", "plugin-manifest-state.json")
-	got := StatePath("/home/user/.anna")
+	want := filepath.Join("/home/user/.stella", "plugin-manifest-state.json")
+	got := StatePath("/home/user/.stella")
 	if got != want {
 		t.Errorf("StatePath = %q, want %q", got, want)
 	}

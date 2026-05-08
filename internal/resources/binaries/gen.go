@@ -76,7 +76,7 @@ func main() {
 	fileName := strings.ReplaceAll(spec.file, "{ver}", ver)
 	url := fmt.Sprintf("https://github.com/jdx/mise/releases/download/%s/%s", ver, fileName)
 
-	tmpDir, err := os.MkdirTemp("", "anna-mise-gen-*")
+	tmpDir, err := os.MkdirTemp("", "stella-mise-gen-*")
 	if err != nil {
 		fatalf("create temp dir: %v", err)
 	}

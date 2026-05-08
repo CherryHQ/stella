@@ -1,4 +1,4 @@
-module github.com/vaayne/anna
+module github.com/CherryHQ/stella
 
 go 1.25.0
 

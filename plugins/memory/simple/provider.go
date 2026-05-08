@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/memorywrite"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memorywrite"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // Compile-time interface checks.

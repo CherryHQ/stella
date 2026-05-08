@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type Tool struct {

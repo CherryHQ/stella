@@ -4,20 +4,20 @@ title: Scheduler System
 
 ## Status
 
-Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, admin panel CRUD, and a builtin skill backed by `anna scheduler` CLI commands.
+Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, admin panel CRUD, and a builtin skill backed by `stella scheduler` CLI commands.
 
 ## Overview
 
-Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence, multi-agent routing, plugin-owned job reconciliation, and an agent-facing tool on top.
+Stella supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence, multi-agent routing, plugin-owned job reconciliation, and an agent-facing tool on top.
 
 ## Architecture
 
 ```
-Agent (via skill + anna scheduler CLI)
+Agent (via skill + stella scheduler CLI)
     |
     |  add / list / remove
     v
-anna scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
+stella scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
                                     |
                                     v
                               Scheduler Service
@@ -43,7 +43,7 @@ Top-level package (under `internal/`). Five files:
 | `internal/scheduler/service.go`                       | `Service` -- gocron wrapper, scheduling, job CRUD        |
 | `internal/scheduler/heartbeat.go`                     | Heartbeat polling -- decide/execute/notify via LLM       |
 | `internal/scheduler/persistence.go`                   | Database persistence (load/save/migrate jobs)            |
-| `internal/resources/skills/system/scheduler/SKILL.md` | Builtin skill -- documents `anna scheduler` CLI commands |
+| `internal/resources/skills/system/scheduler/SKILL.md` | Builtin skill -- documents `stella scheduler` CLI commands |
 
 ### Key Types
 
@@ -89,7 +89,7 @@ User-owned jobs carry `agent_id` and `user_id` so the scheduler can route each j
 
 ### Persistence
 
-Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each row now stores first-class ownership metadata, structured plugin payload, and execution status fields such as `last_run_at` and `last_error`.
+Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.stella/stella.db`). Each row now stores first-class ownership metadata, structured plugin payload, and execution status fields such as `last_run_at` and `last_error`.
 
 On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed. Older plugin-owned jobs that were encoded through a reserved scheduler message envelope are migrated at runtime into the first-class ownership columns.
 
@@ -101,7 +101,7 @@ Behavior details:
 
 - The `at` field must be a valid RFC3339 timestamp with timezone offset
 - Timestamps in the past are rejected at creation time
-- If Anna restarts and a one-time job's timestamp has already passed, the job is silently skipped (not scheduled) but remains in the database until manually removed
+- If Stella restarts and a one-time job's timestamp has already passed, the job is silently skipped (not scheduled) but remains in the database until manually removed
 - On successful execution, the cleanup runs asynchronously to avoid blocking the scheduler
 
 ### Session Model
@@ -115,7 +115,7 @@ Each scheduled job's session behavior is controlled by its `session_mode`:
 
 Scheduler configuration is managed through the admin panel. Settings are stored in the `settings` table in the database. Enable or disable the scheduler and configure its behavior from the admin panel UI.
 
-Scheduler is only active in server mode (`anna`) when:
+Scheduler is only active in server mode (`stella`) when:
 
 - The scheduler is enabled in the admin panel settings
 - `runner.type` is `go` (the Pi runner does not support custom tools)
@@ -152,9 +152,9 @@ This gives plugins declarative enable/disable semantics:
 
 ## Agent Skill
 
-The `scheduler` builtin skill is loaded automatically. It documents `anna scheduler` CLI commands that the agent calls via Bash. Only user-owned jobs are exposed; plugin-owned jobs are hidden from `list`.
+The `scheduler` builtin skill is loaded automatically. It documents `stella scheduler` CLI commands that the agent calls via Bash. Only user-owned jobs are exposed; plugin-owned jobs are hidden from `list`.
 
-### `anna scheduler add` -- Create a job
+### `stella scheduler add` -- Create a job
 
 Flags:
 
@@ -169,26 +169,26 @@ Flags:
 Example (recurring):
 
 ```bash
-anna scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
+stella scheduler add --name "email-check" --message "Check my email and summarize new messages" --every 30m
 ```
 
 Example (one-time):
 
 ```bash
-anna scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
+stella scheduler add --name "weather-reminder" --message "Check Beijing weather and send a summary" --at "2024-01-15T14:40:00+08:00"
 ```
 
-### `anna scheduler list` -- List all jobs
+### `stella scheduler list` -- List all jobs
 
 ```bash
-anna scheduler list --json   # JSON output for scripting
-anna scheduler list          # human-readable table
+stella scheduler list --json   # JSON output for scripting
+stella scheduler list          # human-readable table
 ```
 
-### `anna scheduler remove` -- Delete a job
+### `stella scheduler remove` -- Delete a job
 
 ```bash
-anna scheduler remove <job-id>
+stella scheduler remove <job-id>
 ```
 
 ## Heartbeat
@@ -213,7 +213,7 @@ Heartbeat settings are configured through the admin panel. The following paramet
 - **every** -- poll interval as a Go duration (e.g. `10m`)
 - **file** -- path to the heartbeat file, relative to workspace unless absolute (e.g. `HEARTBEAT.md`)
 
-Heartbeat only runs in server mode (`anna`). The fast model is used for the gate decision to minimize cost.
+Heartbeat only runs in server mode (`stella`). The fast model is used for the gate decision to minimize cost.
 
 ## Wiring
 

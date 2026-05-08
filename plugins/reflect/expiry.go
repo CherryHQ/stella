@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 const (

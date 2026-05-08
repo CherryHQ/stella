@@ -230,7 +230,7 @@ export function CredentialsPage() {
         <h2 className="font-serif text-xl mb-4">OAuth CLI Credentials</h2>
         <div className="rounded-xl border border-border bg-card p-6">
           <p className="text-sm text-muted-foreground">
-            Connect your GitHub or Lark/Feishu account so anna can act on your behalf in CLI tools
+            Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools
             and runners.
           </p>
           <div className="mt-4 flex flex-col gap-4">
@@ -271,7 +271,7 @@ export function CredentialsPage() {
                 </div>
                 {oauthFlow[p.provider] && (
                   <div className="mt-2 rounded-lg border border-info/36 bg-info/8 p-4 text-sm">
-                    <p className="font-medium">Authorize anna:</p>
+                    <p className="font-medium">Authorize stella:</p>
                     <a
                       href={oauthFlow[p.provider]!.verification_uri}
                       target="_blank"

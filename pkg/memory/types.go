@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 type contextKey string

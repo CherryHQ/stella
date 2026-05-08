@@ -86,7 +86,7 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 ## 3. Save
 
 ```bash
-anna recally save \
+stella recally save \
     --content-file $f \
     --url "<url>" \
     --title "..." --author "..." --summary "$(cat $sf)" \

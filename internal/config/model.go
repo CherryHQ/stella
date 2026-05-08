@@ -1,6 +1,6 @@
 package config
 
-import "github.com/vaayne/anna/pkg/ai"
+import "github.com/CherryHQ/stella/pkg/ai"
 
 // Model tier constants.
 const (

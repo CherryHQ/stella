@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // pointToUnreachableDaemon steers the moby SDK at a socket path that cannot
@@ -12,7 +12,7 @@ import (
 // none of them override DOCKER_HOST.
 func pointToUnreachableDaemon(t *testing.T) {
 	t.Helper()
-	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/stella-test-docker.sock")
 	t.Setenv("DOCKER_TLS_VERIFY", "")
 	t.Setenv("DOCKER_CERT_PATH", "")
 }

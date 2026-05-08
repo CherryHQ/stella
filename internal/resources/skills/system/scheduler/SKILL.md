@@ -3,22 +3,22 @@ name: scheduler
 description: |
     Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), and one-time (at) jobs.
 metadata:
-    author: vaayne/anna
+    author: CherryHQ/stella
     owner_plugin: system/scheduler
     version: "1.0"
 ---
 
 # Scheduler
 
-**Environment**: The CLI talks HTTP to the running anna server. `ANNA_TOKEN` is
-auto-set; the agent process inherits a reachable `ANNA_SERVER_URL` (default
-`http://127.0.0.1:25678`). Scheduler is enabled only when the anna server is
+**Environment**: The CLI talks HTTP to the running stella server. `STELLA_TOKEN` is
+auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
+`http://127.0.0.1:25678`). Scheduler is enabled only when the stella server is
 configured with `scheduler.enabled = true`.
 
 ## Add a Job
 
 ```bash
-anna scheduler add \
+stella scheduler add \
     --name "job-name" \
     --message "Prompt or instruction to execute on schedule" \
     --every 1h \
@@ -45,7 +45,7 @@ Output (JSON): job record with `id`, `name`, `message`, `session_mode`, `enabled
 ## List Jobs
 
 ```bash
-anna scheduler list --json
+stella scheduler list --json
 ```
 
 Human-readable format omits `--json`. Use `--json` when you need to parse IDs.
@@ -53,7 +53,7 @@ Human-readable format omits `--json`. Use `--json` when you need to parse IDs.
 ## Remove a Job
 
 ```bash
-anna scheduler remove <job-id>
+stella scheduler remove <job-id>
 ```
 
 ## Check Before Adding
@@ -61,7 +61,7 @@ anna scheduler remove <job-id>
 Always list first to avoid duplicates:
 
 ```bash
-anna scheduler list --json
+stella scheduler list --json
 ```
 
 Look for a job with the target name. If found, skip creation and report the existing job to the user.
@@ -71,7 +71,7 @@ Look for a job with the target name. If found, skip creation and report the exis
 ### Recurring task (cron)
 
 ```bash
-anna scheduler add \
+stella scheduler add \
     --name "daily-digest" \
     --message "Run the daily digest and summarize for the user." \
     --cron "0 8 * * *" \
@@ -81,7 +81,7 @@ anna scheduler add \
 ### Recurring task (interval)
 
 ```bash
-anna scheduler add \
+stella scheduler add \
     --name "hourly-check" \
     --message "Check for new items and notify the user if found." \
     --every 1h \
@@ -91,7 +91,7 @@ anna scheduler add \
 ### One-time reminder
 
 ```bash
-anna scheduler add \
+stella scheduler add \
     --name "meeting-reminder" \
     --message "Remind the user about their 3pm meeting." \
     --at "2024-01-15T14:45:00+08:00"

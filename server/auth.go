@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/vault"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 // Register handles POST /api/auth/register.

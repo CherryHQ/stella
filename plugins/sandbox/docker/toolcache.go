@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/pelletier/go-toml/v2"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 )
 
 const (
-	containerUserToolsRoot = "/home/anna/.anna-tools"
+	containerUserToolsRoot = "/home/stella/.stella-tools"
 	containerUserToolsBin  = containerUserToolsRoot + "/bin"
 )
 
@@ -87,16 +87,16 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 	}
 
 	hash := userToolCacheHash(cfg.Image, cfg.UserToolBinaries)
-	volumeName := "anna-tools-" + hash[:16]
-	installerName := "anna-tool-cache-" + hash[:16]
+	volumeName := "stella-tools-" + hash[:16]
+	installerName := "stella-tool-cache-" + hash[:16]
 	cache := &userToolCache{VolumeName: volumeName, BinPath: containerUserToolsBin}
 
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
 		Name: volumeName,
 		Labels: map[string]string{
-			"anna.tool_cache": "true",
-			"anna.image":      cfg.Image,
-			"anna.hash":       hash,
+			"stella.tool_cache": "true",
+			"stella.image":      cfg.Image,
+			"stella.hash":       hash,
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("docker user tool cache: create volume %s: %w", volumeName, err)
@@ -118,8 +118,8 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 			},
 		},
 		Labels: map[string]string{
-			"anna.tool_cache_helper": "true",
-			"anna.tool_cache":        volumeName,
+			"stella.tool_cache_helper": "true",
+			"stella.tool_cache":        volumeName,
 		},
 		Name: installerName,
 	})
@@ -338,15 +338,15 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	script.WriteString("set -eu\n")
 	script.WriteString("ROOT=" + shellQuote(containerUserToolsRoot) + "\n")
 	script.WriteString("HASH=" + shellQuote(hash) + "\n")
-	script.WriteString("if [ -f \"$ROOT/.anna-tools-ready\" ] && [ \"$(cat \"$ROOT/.anna-tools-ready\")\" = \"$HASH\" ]; then exit 0; fi\n")
-	script.WriteString("rm -rf \"$ROOT/bin\" \"$ROOT/mise-data\" \"$ROOT/mise.toml\" \"$ROOT/.anna-tools-ready\"\n")
+	script.WriteString("if [ -f \"$ROOT/.stella-tools-ready\" ] && [ \"$(cat \"$ROOT/.stella-tools-ready\")\" = \"$HASH\" ]; then exit 0; fi\n")
+	script.WriteString("rm -rf \"$ROOT/bin\" \"$ROOT/mise-data\" \"$ROOT/mise.toml\" \"$ROOT/.stella-tools-ready\"\n")
 	script.WriteString("mkdir -p \"$ROOT/bin\" \"$ROOT/mise-data\"\n")
-	script.WriteString("cat > \"$ROOT/mise.toml\" <<'ANNA_MISE_TOML'\n")
+	script.WriteString("cat > \"$ROOT/mise.toml\" <<'STELLA_MISE_TOML'\n")
 	script.WriteString(miseTOML)
 	if !strings.HasSuffix(miseTOML, "\n") {
 		script.WriteByte('\n')
 	}
-	script.WriteString("ANNA_MISE_TOML\n")
+	script.WriteString("STELLA_MISE_TOML\n")
 	script.WriteString("cd \"$ROOT\"\n")
 	script.WriteString("MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise trust -y \"$ROOT/mise.toml\" >/dev/null 2>&1 || true\n")
 	script.WriteString("MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise install\n")
@@ -365,7 +365,7 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 		script.WriteString("cp \"$src\" \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 		script.WriteString("chmod 0755 \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 	}
-	script.WriteString("printf '%s' \"$HASH\" > \"$ROOT/.anna-tools-ready\"\n")
+	script.WriteString("printf '%s' \"$HASH\" > \"$ROOT/.stella-tools-ready\"\n")
 	return script.String()
 }
 

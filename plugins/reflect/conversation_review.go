@@ -9,12 +9,12 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/vaayne/anna/pkg/ai"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
 
 func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.ReflectSnapshot, c candidate) error {
@@ -43,7 +43,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 		return fmt.Errorf("build review context: %w", err)
 	}
 	if text == "" {
-		span.SetAttributes(attribute.Bool("anna.reflect.skipped", true))
+		span.SetAttributes(attribute.Bool("stella.reflect.skipped", true))
 		return s.wm.set(ctx, c.session.ID, watermark)
 	}
 
@@ -63,8 +63,8 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 	}
 
 	span.SetAttributes(
-		attribute.Int("anna.reflect.skills_mutated", result.SkillsMutated),
-		attribute.Bool("anna.reflect.memory_updated", result.MemoryUpdated),
+		attribute.Int("stella.reflect.skills_mutated", result.SkillsMutated),
+		attribute.Bool("stella.reflect.memory_updated", result.MemoryUpdated),
 	)
 
 	if err := s.wm.set(ctx, c.session.ID, watermark); err != nil {

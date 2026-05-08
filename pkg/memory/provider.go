@@ -2,14 +2,14 @@
 //
 // Every memory plugin implements [Provider] as its core interface.
 // Optional capabilities are discovered via type assertion at runtime,
-// following the same pattern as [github.com/vaayne/anna/pkg/hooks].
+// following the same pattern as [github.com/CherryHQ/stella/pkg/hooks].
 package memory
 
 import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // SessionStats contains basic statistics about a session's memory state.

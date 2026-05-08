@@ -1,35 +1,35 @@
 ---
 title: 清单工具插件
-description: 从 $ANNA_HOME/plugins.yaml 加载的文件驱动 CLI 工具集成。
+description: 从 $STELLA_HOME/plugins.yaml 加载的文件驱动 CLI 工具集成。
 ---
 
 ## 概览
 
-清单工具插件是一种轻量替代方案，无需编写 Go 包，只需在 YAML 文件中声明工具，或从 Plugins 管理界面添加工具，Anna 会自动协调二进制文件的下载。
+清单工具插件是一种轻量替代方案，无需编写 Go 包，只需在 YAML 文件中声明工具，或从 Plugins 管理界面添加工具，Stella 会自动协调二进制文件的下载。
 
-Anna 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`tap-web`、`gh`、`lark-cli`、`rtk`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你可以在 `$ANNA_HOME/plugins.yaml` 或管理界面中覆盖或扩展这些配置。
+Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`tap-web`、`gh`、`lark-cli`、`rtk`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你可以在 `$STELLA_HOME/plugins.yaml` 或管理界面中覆盖或扩展这些配置。
 
 ## 工作原理
 
-启动时，Anna 会：
+启动时，Stella 会：
 
 1. 加载内嵌的内置清单（`builtin_plugins.yaml`）
-2. 如果存在，加载用户清单（`$ANNA_HOME/plugins.yaml`）
+2. 如果存在，加载用户清单（`$STELLA_HOME/plugins.yaml`）
 3. 合并两者：用户条目按插件 ID 覆盖内置条目
 4. 将已启用的清单插件注册到插件主机
-5. 在后台启动二进制协调：将缺失的二进制文件下载到 `$ANNA_HOME/bin`
+5. 在后台启动二进制协调：将缺失的二进制文件下载到 `$STELLA_HOME/bin`
 
-启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。对于本地沙箱会话，二进制文件通过 `$ANNA_HOME/bin` 提供。Docker 沙箱会话需要单独处理，因为宿主机二进制可能面向宿主机 OS/架构，而不是 Linux。
+启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。对于本地沙箱会话，二进制文件通过 `$STELLA_HOME/bin` 提供。Docker 沙箱会话需要单独处理，因为宿主机二进制可能面向宿主机 OS/架构，而不是 Linux。
 
 ## Docker 沙箱中的 CLI 可用性
 
-不要把宿主机 `$ANNA_HOME/bin` 当作 Docker 沙箱可执行文件的来源。在 macOS 和 Windows 上，清单同步可能安装宿主机平台的二进制文件，它们无法在 Linux 容器中运行。把该目录绑定挂载进 Docker 也会模糊宿主机工具管理和容器运行时之间的边界。
+不要把宿主机 `$STELLA_HOME/bin` 当作 Docker 沙箱可执行文件的来源。在 macOS 和 Windows 上，清单同步可能安装宿主机平台的二进制文件，它们无法在 Linux 容器中运行。把该目录绑定挂载进 Docker 也会模糊宿主机工具管理和容器运行时之间的边界。
 
 对于 Docker：
 
-- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Anna release 绑定，因此一个 release 镜像可以包含该 Anna 版本对应的内置工具集合。保持 Docker 镜像工具列表 `plugins/sandbox/docker/_mise.toml` 与内置 CLI 插件声明 `internal/manifestplugins/builtin_plugins.yaml` 对齐。
-- `$ANNA_HOME/plugins.yaml` 仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
-- 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$ANNA_HOME/bin` 复制。
+- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。保持 Docker 镜像工具列表 `plugins/sandbox/docker/_mise.toml` 与内置 CLI 插件声明 `internal/manifestplugins/builtin_plugins.yaml` 对齐。
+- `$STELLA_HOME/plugins.yaml` 仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
+- 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
 
 一种用于用户配置 CLI 的安全 Docker 加载设计是：
 
@@ -39,11 +39,11 @@ Anna 内置了一个默认清单，声明了默认由清单管理的 CLI 集成�
 4. 将该缓存挂载到沙箱会话中的容器专用路径，并前置到容器内 `PATH`。
 5. 当已启用的用户插件集合或二进制版本变化时，重建或刷新缓存。
 
-这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$ANNA_HOME/bin` 不参与 Docker 可执行文件解析。
+这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$STELLA_HOME/bin` 不参与 Docker 可执行文件解析。
 
 ## 清单文件格式
 
-`$ANNA_HOME/plugins.yaml`：
+`$STELLA_HOME/plugins.yaml`：
 
 ```yaml
 plugins:
@@ -74,7 +74,7 @@ plugins:
 | `display_name`                | 否       | 在管理界面显示的人类可读标签                                          |
 | `description`                 | 否       | 在管理界面显示的简短描述                                              |
 | `enabled`                     | 否       | 插件是否激活，默认为 false。内置插件默认为 true。                     |
-| `binaries`                    | 否       | 需要下载并放置到 `$ANNA_HOME/bin` 的 CLI 二进制文件                   |
+| `binaries`                    | 否       | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                   |
 | `session_env`                 | 否       | 要注入沙箱会话的环境变量                                              |
 | `oauth_provider`              | 否       | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
 | `oauth_provider_config_field` | 否       | 用于动态选择 OAuth provider 的插件配置字段，例如 `brand`              |
@@ -88,7 +88,7 @@ plugins:
 
 | 字段               | 必填 | 描述                                                            |
 | ------------------ | ---- | --------------------------------------------------------------- |
-| `name`             | 是   | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名）            |
+| `name`             | 是   | 放置到 `$STELLA_HOME/bin` 的二进制文件名（不含扩展名）            |
 | `tool`             | 是   | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
 | `version`          | 否   | 要安装的版本，默认为 `latest`。                                 |
 | `strip_components` | 否   | 解压归档时去除的前导目录层数，大多数布局可自动检测。            |
@@ -185,11 +185,11 @@ binaries:
 | `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID       |
 | `oauth.brand`        | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
 
-`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Anna 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。飞书/Lark 来源仍需要先在管理面板中配置 Lark CLI 插件凭据。
+`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。飞书/Lark 来源仍需要先在管理面板中配置 Lark CLI 插件凭据。
 
 ## 状态与缓存
 
-Anna 在 `$ANNA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。后续启动时，版本正确的二进制文件会被跳过。修改 `plugins.yaml` 中的 `version` 字段可触发重新下载。启动时的协调会在后台运行，并会在关闭时取消；Anna 也会终止安装器派生出的子进程。
+Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。后续启动时，版本正确的二进制文件会被跳过。修改 `plugins.yaml` 中的 `version` 字段可触发重新下载。启动时的协调会在后台运行，并会在关闭时取消；Stella 也会终止安装器派生出的子进程。
 
 ## 覆盖内置插件
 
@@ -243,7 +243,7 @@ session_env:
 
 由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑 YAML 支持的插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，例如 Lark CLI 的凭据和 `brand`，该行也会显示 **Configure**。
 
-**Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会写入 `$ANNA_HOME/plugins.yaml`，注册插件，并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
+**Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会写入 `$STELLA_HOME/plugins.yaml`，注册插件，并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
 
 ## v1 的限制
 

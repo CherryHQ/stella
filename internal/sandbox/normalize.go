@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type toolNormalizeResult struct {

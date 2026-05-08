@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // DBStore implements Store using sqlc queries backed by SQLite.
@@ -524,8 +524,8 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 
 // --- Bootstrap ---
 
-// defaultAnnaSoul is the default system prompt for the anna agent.
-const defaultAnnaSoul = `You are Anna — a sharp, efficient personal AI assistant.
+// defaultStellaSoul is the default system prompt for the stella agent.
+const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI assistant.
 
 - Warm but not chatty. Friendly but not performative.
 - Lead with answers, not preamble.
@@ -556,20 +556,20 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(AnnaHome(), "workspaces", "anna")
+	workspace := filepath.Join(StellaHome(), "workspaces", "stella")
 	sandboxJSON, err := marshalSandboxConfig(SandboxConfig{})
 	if err != nil {
-		return fmt.Errorf("seed: marshal anna sandbox config: %w", err)
+		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
 	providers, err := s.ListProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   "anna",
-		Name:                 "Anna",
+		ID:                   "stella",
+		Name:                 "Stella",
 		Model:                DefaultAgentModelRef(providers),
-		SystemPrompt:         defaultAnnaSoul,
+		SystemPrompt:         defaultStellaSoul,
 		Workspace:            workspace,
 		Sandbox:              sandboxJSON,
 		EnabledBuiltinSkills: "[]",
@@ -577,7 +577,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 		Enabled:              1,
 	})
 	if err != nil {
-		return fmt.Errorf("seed: create anna agent: %w", err)
+		return fmt.Errorf("seed: create stella agent: %w", err)
 	}
 
 	return nil

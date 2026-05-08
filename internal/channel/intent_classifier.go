@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 type Intent string

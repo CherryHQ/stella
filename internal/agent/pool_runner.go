@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // getOrCreateRunner returns the session and its runner, creating both if needed.

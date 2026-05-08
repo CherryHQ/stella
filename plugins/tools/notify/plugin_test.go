@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/memory"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 type mockNotifier struct {

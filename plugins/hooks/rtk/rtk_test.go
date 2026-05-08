@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 func TestNewHook(t *testing.T) {

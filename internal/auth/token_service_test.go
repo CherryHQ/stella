@@ -119,13 +119,13 @@ func TestTokenHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateToken: %v", err)
 	}
-	if len(token) <= len("anna_") || token[:5] != "anna_" {
-		t.Fatalf("generateToken = %q, want anna_ prefix", token)
+	if len(token) <= len("stella_") || token[:5] != "stella_" {
+		t.Fatalf("generateToken = %q, want stella_ prefix", token)
 	}
 	if hashToken(token) == hashToken(token+"x") {
 		t.Fatal("hashToken collision for distinct inputs")
 	}
-	if got := tokenPrefix("anna_1234567890"); got != "anna_12345678" {
+	if got := tokenPrefix("stella_1234567890"); got != "stella_12345678" {
 		t.Fatalf("tokenPrefix = %q", got)
 	}
 }
@@ -141,14 +141,14 @@ func TestTokenServiceEnsureAutoTokenCreatesAndReuses(t *testing.T) {
 	if err := svc.EnsureAutoToken(ctx, 1); err != nil {
 		t.Fatalf("EnsureAutoToken create: %v", err)
 	}
-	first := vault.env[1][AnnaTokenName]
+	first := vault.env[1][StellaTokenName]
 	if first == "" || vault.sets != 1 {
 		t.Fatalf("vault token = %q, sets = %d", first, vault.sets)
 	}
 	if err := svc.EnsureAutoToken(ctx, 1); err != nil {
 		t.Fatalf("EnsureAutoToken reuse: %v", err)
 	}
-	if vault.env[1][AnnaTokenName] != first || vault.sets != 1 {
+	if vault.env[1][StellaTokenName] != first || vault.sets != 1 {
 		t.Fatal("EnsureAutoToken rewrote stable token before rotate threshold")
 	}
 }
@@ -158,7 +158,7 @@ func TestTokenServiceEnsureAutoTokenBackfillsVaultToken(t *testing.T) {
 	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
 	store := newFakeTokenStore(func() time.Time { return now })
 	vault := newFakeVault()
-	vault.env[1] = map[string]string{AnnaTokenName: "anna_existing"}
+	vault.env[1] = map[string]string{StellaTokenName: "stella_existing"}
 	svc := NewTokenService(store, vault)
 	svc.now = func() time.Time { return now }
 
@@ -168,7 +168,7 @@ func TestTokenServiceEnsureAutoTokenBackfillsVaultToken(t *testing.T) {
 	if vault.sets != 0 {
 		t.Fatalf("backfill wrote vault %d times, want 0", vault.sets)
 	}
-	if _, err := store.GetActiveUserTokenByHash(ctx, hashToken("anna_existing")); err != nil {
+	if _, err := store.GetActiveUserTokenByHash(ctx, hashToken("stella_existing")); err != nil {
 		t.Fatalf("backfilled token lookup: %v", err)
 	}
 }
@@ -184,13 +184,13 @@ func TestTokenServiceEnsureAutoTokenRotates(t *testing.T) {
 	if err := svc.EnsureAutoToken(ctx, 1); err != nil {
 		t.Fatalf("EnsureAutoToken create: %v", err)
 	}
-	first := vault.env[1][AnnaTokenName]
+	first := vault.env[1][StellaTokenName]
 	now = now.Add(autoTokenRotateAfter + time.Hour)
 	if err := svc.EnsureAutoToken(ctx, 1); err != nil {
 		t.Fatalf("EnsureAutoToken rotate: %v", err)
 	}
-	if vault.env[1][AnnaTokenName] == first || vault.sets != 2 {
-		t.Fatalf("rotation failed, first=%q current=%q sets=%d", first, vault.env[1][AnnaTokenName], vault.sets)
+	if vault.env[1][StellaTokenName] == first || vault.sets != 2 {
+		t.Fatalf("rotation failed, first=%q current=%q sets=%d", first, vault.env[1][StellaTokenName], vault.sets)
 	}
 }
 
@@ -205,18 +205,18 @@ func TestTokenServiceAuthenticate(t *testing.T) {
 	if err := svc.EnsureAutoToken(ctx, 1); err != nil {
 		t.Fatalf("EnsureAutoToken: %v", err)
 	}
-	user, err := svc.Authenticate(ctx, vault.env[1][AnnaTokenName])
+	user, err := svc.Authenticate(ctx, vault.env[1][StellaTokenName])
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
 	if user.ID != 1 {
 		t.Fatalf("Authenticate user ID = %d, want 1", user.ID)
 	}
-	if _, err := svc.Authenticate(ctx, "anna_wrong"); err == nil {
+	if _, err := svc.Authenticate(ctx, "stella_wrong"); err == nil {
 		t.Fatal("Authenticate accepted wrong token")
 	}
 	store.users[1] = AuthUser{ID: 1, Username: "alice", IsActive: false}
-	if _, err := svc.Authenticate(ctx, vault.env[1][AnnaTokenName]); err == nil {
+	if _, err := svc.Authenticate(ctx, vault.env[1][StellaTokenName]); err == nil {
 		t.Fatal("Authenticate accepted inactive user")
 	}
 }

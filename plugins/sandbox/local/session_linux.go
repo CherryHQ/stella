@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // setSysProcAttr places the child in its own process group so that
@@ -140,12 +140,12 @@ func appendLinuxRuntimeMounts(args []string) []string {
 	return args
 }
 
-func appendAnnaHomeMounts(args []string, annaHome string) []string {
-	if annaHome == "" {
+func appendStellaHomeMounts(args []string, stellaHome string) []string {
+	if stellaHome == "" {
 		return args
 	}
 	for _, name := range []string{"bin", "skills"} {
-		hostPath := filepath.Join(annaHome, name)
+		hostPath := filepath.Join(stellaHome, name)
 		args = appendRoBindIfExists(args, hostPath, hostPath)
 	}
 	return args
@@ -219,7 +219,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 		"--dir", "/run",
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
-	bwrapArgs = appendAnnaHomeMounts(bwrapArgs, policy.Env["ANNA_HOME"])
+	bwrapArgs = appendStellaHomeMounts(bwrapArgs, policy.Env["STELLA_HOME"])
 	bwrapArgs = append(bwrapArgs,
 		"--dir", "/workspace",
 		"--bind", realRoot, "/workspace",

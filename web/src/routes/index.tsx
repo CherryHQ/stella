@@ -6,12 +6,12 @@ import { SiteHeader } from "@/components/SiteHeader";
 export const Route = createFileRoute("/")({ component: Home });
 
 const terminalLines = [
-  { prompt: true, text: "anna --open" },
+  { prompt: true, text: "stella --open" },
   { prompt: false, text: "Admin panel running at http://localhost:8787" },
-  { prompt: true, text: "anna" },
+  { prompt: true, text: "stella" },
   { prompt: false, text: "Daemon started (bots + scheduler)" },
   { prompt: false, text: 'you: "summarize yesterday\'s conversation"' },
-  { prompt: false, text: "anna: Yesterday you discussed migrating the" },
+  { prompt: false, text: "stella: Yesterday you discussed migrating the" },
   { prompt: false, text: "      auth service to JWT tokens. Key decisions:" },
   { prompt: false, text: "      1. RS256 signing with key rotation ..." },
 ];
@@ -25,7 +25,7 @@ function Home() {
       <main className="home-page">
         <HeroSection lang={lang} />
         <FeaturesSection lang={lang} />
-        <MeetAnnaSection lang={lang} />
+        <MeetStellaSection lang={lang} />
         <FooterCTA lang={lang} />
       </main>
     </>
@@ -65,7 +65,7 @@ function HeroSection({ lang }: { lang: string }) {
               <span aria-hidden="true">&rarr;</span>
             </Link>
             <a
-              href="https://github.com/vaayne/anna"
+              href="https://github.com/CherryHQ/stella"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-muted-foreground text-sm font-medium underline underline-offset-4 decoration-border hover:text-foreground hover:decoration-foreground transition-colors"
@@ -138,36 +138,36 @@ function FeatureItem({ label, title, body }: { label: string; title: string; bod
   );
 }
 
-function MeetAnnaSection({ lang }: { lang: string }) {
+function MeetStellaSection({ lang }: { lang: string }) {
   const tr = t(lang);
   return (
     <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
         <div>
           <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-6 font-[family-name:var(--font-mono)]">
-            {tr.meetAnna}
+            {tr.meetStella}
           </p>
           <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-6">
-            {tr.meetAnnaTitle}
+            {tr.meetStellaTitle}
           </h2>
           <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-4">
-            {tr.meetAnnaBody1}
+            {tr.meetStellaBody1}
           </p>
           <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-8">
-            {tr.meetAnnaBody2}
+            {tr.meetStellaBody2}
           </p>
           <Link
             to="/about"
             className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
           >
-            {tr.learnMoreAboutAnna}
+            {tr.learnMoreAboutStella}
             <span aria-hidden="true">&rarr;</span>
           </Link>
         </div>
         <div className="flex justify-center lg:justify-end">
           <img
             src="/avatar.png"
-            alt="Anna — AI assistant"
+            alt="Stella — AI assistant"
             className="w-48 h-48 md:w-56 md:h-56 rounded-2xl object-cover ring-1 ring-white/[0.08]"
           />
         </div>
@@ -188,7 +188,7 @@ function FooterCTA({ lang }: { lang: string }) {
           <p className="text-muted-foreground text-sm">{tr.getStartedBody}</p>
         </div>
         <code className="text-[13px] font-[family-name:var(--font-mono)] bg-muted px-4 py-2.5 rounded-md text-foreground whitespace-nowrap shrink-0">
-          go install github.com/vaayne/anna@latest
+          go install github.com/CherryHQ/stella@latest
         </code>
       </div>
     </section>

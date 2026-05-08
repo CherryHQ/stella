@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var sandboxTracer = otel.Tracer("anna/sandbox")
+var sandboxTracer = otel.Tracer("stella/sandbox")
 
 func recordSandboxError(span trace.Span, err error) {
 	if span == nil || err == nil {

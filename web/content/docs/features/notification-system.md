@@ -8,7 +8,7 @@ Implemented -- `internal/channel/notifier.go`, `internal/channel/notify_tool.go`
 
 ## Overview
 
-Anna supports proactive notifications so the agent, scheduled jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, WeChat, with Slack/Discord planned).
+Stella supports proactive notifications so the agent, scheduled jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, WeChat, with Slack/Discord planned).
 
 ## Architecture
 

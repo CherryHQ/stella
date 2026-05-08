@@ -7,39 +7,39 @@ import (
 	"testing"
 )
 
-func TestAnnaHome(t *testing.T) {
-	t.Setenv("ANNA_HOME", "")
-	ResetAnnaHome()
-	dir := AnnaHome()
-	if !strings.HasSuffix(dir, ".anna") {
-		t.Errorf("AnnaHome() = %q, want suffix .anna", dir)
+func TestStellaHome(t *testing.T) {
+	t.Setenv("STELLA_HOME", "")
+	ResetStellaHome()
+	dir := StellaHome()
+	if !strings.HasSuffix(dir, ".stella") {
+		t.Errorf("StellaHome() = %q, want suffix .stella", dir)
 	}
 }
 
-func TestAnnaHomeEnv(t *testing.T) {
-	t.Setenv("ANNA_HOME", "/custom/anna")
-	ResetAnnaHome()
-	dir := AnnaHome()
-	if dir != "/custom/anna" {
-		t.Errorf("AnnaHome() = %q, want %q", dir, "/custom/anna")
+func TestStellaHomeEnv(t *testing.T) {
+	t.Setenv("STELLA_HOME", "/custom/stella")
+	ResetStellaHome()
+	dir := StellaHome()
+	if dir != "/custom/stella" {
+		t.Errorf("StellaHome() = %q, want %q", dir, "/custom/stella")
 	}
 }
 
 func TestCachePath(t *testing.T) {
-	t.Setenv("ANNA_HOME", "/test/anna")
-	ResetAnnaHome()
+	t.Setenv("STELLA_HOME", "/test/stella")
+	ResetStellaHome()
 	p := CachePath()
-	if p != "/test/anna/cache" {
-		t.Errorf("CachePath() = %q, want %q", p, "/test/anna/cache")
+	if p != "/test/stella/cache" {
+		t.Errorf("CachePath() = %q, want %q", p, "/test/stella/cache")
 	}
 }
 
 func TestDBPath(t *testing.T) {
-	t.Setenv("ANNA_HOME", "/test/anna")
-	ResetAnnaHome()
+	t.Setenv("STELLA_HOME", "/test/stella")
+	ResetStellaHome()
 	p := DBPath()
-	if p != "/test/anna/anna.db" {
-		t.Errorf("DBPath() = %q, want %q", p, "/test/anna/anna.db")
+	if p != "/test/stella/stella.db" {
+		t.Errorf("DBPath() = %q, want %q", p, "/test/stella/stella.db")
 	}
 }
 
@@ -242,11 +242,11 @@ func TestParseModelRef(t *testing.T) {
 }
 
 func TestSnapshotPaths(t *testing.T) {
-	snap := Snapshot{Workspace: "/home/user/.anna/workspaces/anna"}
-	if snap.SkillsPath() != "/home/user/.anna/workspaces/anna/.agents/skills" {
+	snap := Snapshot{Workspace: "/home/user/.stella/workspaces/stella"}
+	if snap.SkillsPath() != "/home/user/.stella/workspaces/stella/.agents/skills" {
 		t.Errorf("SkillsPath() = %q", snap.SkillsPath())
 	}
-	if snap.LogPath() != "/home/user/.anna/workspaces/anna/anna.log" {
+	if snap.LogPath() != "/home/user/.stella/workspaces/stella/stella.log" {
 		t.Errorf("LogPath() = %q", snap.LogPath())
 	}
 }

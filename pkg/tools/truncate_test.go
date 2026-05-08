@@ -158,7 +158,7 @@ func TestTruncateStillReturnsTruncatedContentWhenTempSaveFails(t *testing.T) {
 }
 
 func TestMaxLinesEnvVar(t *testing.T) {
-	t.Setenv("ANNA_TOOL_MAX_LINES", "100")
+	t.Setenv("STELLA_TOOL_MAX_LINES", "100")
 	got := maxLines()
 	if got != 100 {
 		t.Errorf("expected 100 from env, got %d", got)
@@ -166,7 +166,7 @@ func TestMaxLinesEnvVar(t *testing.T) {
 }
 
 func TestMaxLinesDefault(t *testing.T) {
-	t.Setenv("ANNA_TOOL_MAX_LINES", "")
+	t.Setenv("STELLA_TOOL_MAX_LINES", "")
 	got := maxLines()
 	if got != defaultMaxLines {
 		t.Errorf("expected default %d, got %d", defaultMaxLines, got)
@@ -174,7 +174,7 @@ func TestMaxLinesDefault(t *testing.T) {
 }
 
 func TestMaxBytesEnvVar(t *testing.T) {
-	t.Setenv("ANNA_TOOL_MAX_BYTES", "1024")
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "1024")
 	got := maxBytes()
 	if got != 1024 {
 		t.Errorf("expected 1024 from env, got %d", got)
@@ -182,7 +182,7 @@ func TestMaxBytesEnvVar(t *testing.T) {
 }
 
 func TestMaxBytesDefault(t *testing.T) {
-	t.Setenv("ANNA_TOOL_MAX_BYTES", "")
+	t.Setenv("STELLA_TOOL_MAX_BYTES", "")
 	got := maxBytes()
 	if got != defaultMaxBytes {
 		t.Errorf("expected default %d, got %d", defaultMaxBytes, got)
@@ -190,7 +190,7 @@ func TestMaxBytesDefault(t *testing.T) {
 }
 
 func TestMaxLinesInvalidEnvVar(t *testing.T) {
-	t.Setenv("ANNA_TOOL_MAX_LINES", "notanumber")
+	t.Setenv("STELLA_TOOL_MAX_LINES", "notanumber")
 	got := maxLines()
 	if got != defaultMaxLines {
 		t.Errorf("expected default for invalid env, got %d", got)

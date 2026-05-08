@@ -3,7 +3,7 @@ package feishu
 import (
 	"context"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // threadReplyTarget returns rootID if non-empty (thread reply), otherwise messageID.

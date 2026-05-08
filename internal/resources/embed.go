@@ -1,5 +1,5 @@
 // Package builtin bundles embedded resources (skills, souls, sub-agents, templates)
-// that Anna ships with its binary. Runtime code accesses them through Registry,
+// that Stella ships with its binary. Runtime code accesses them through Registry,
 // not by walking the filesystem directly.
 package resources
 

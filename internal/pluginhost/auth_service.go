@@ -3,8 +3,8 @@ package pluginhost
 import (
 	"context"
 
-	"github.com/vaayne/anna/internal/auth"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/auth"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type authService struct {

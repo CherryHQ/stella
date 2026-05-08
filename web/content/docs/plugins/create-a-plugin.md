@@ -1,6 +1,6 @@
 ---
 title: Create A Plugin
-description: Step-by-step guide for adding a new built-in plugin to Anna.
+description: Step-by-step guide for adding a new built-in plugin to Stella.
 ---
 
 ## Start With The Plugin ID
@@ -38,7 +38,7 @@ The minimal shape looks like this:
 package mytool
 
 import (
-    pkgplugins "github.com/vaayne/anna/pkg/plugins"
+    pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 const PluginID = "tool/mytool"
@@ -115,7 +115,7 @@ host.AddAdmin(pkgplugins.AdminSpec{
 
 Built-in plugins are registered through blank imports. Add your package to the existing startup imports so the `init()` function runs.
 
-Look at `cmd/anna/plugins_imports.go` and follow the established pattern.
+Look at `cmd/stella/plugins_imports.go` and follow the established pattern.
 
 Without that import, the plugin package compiles but never registers itself.
 
@@ -185,7 +185,7 @@ host.SetInfo(pkgplugins.PluginInfo{
     Kind:        "tool",
     Name:        "notify",
     DisplayName: "Notify",
-    Description: "Send notifications through Anna's configured notification routes.",
+    Description: "Send notifications through Stella's configured notification routes.",
     Capabilities: []string{
         pkgplugins.CapabilityTool,
     },

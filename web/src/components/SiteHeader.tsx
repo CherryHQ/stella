@@ -33,8 +33,8 @@ export function SiteHeader() {
   return (
     <header className="border-b border-border h-14 flex items-center px-6 bg-background shrink-0 relative z-30">
       <Link to="/" className="flex items-center gap-2 shrink-0">
-        <img src="/anna-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        <span className="font-serif italic text-xl tracking-tight select-none">anna</span>
+        <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
+        <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
       </Link>
 
       {/* Desktop nav — app items first, then utility */}
@@ -88,13 +88,13 @@ export function SiteHeader() {
             <SheetHeader>
               <Link to="/" className="flex items-center gap-2" onClick={() => setSheetOpen(false)}>
                 <img
-                  src="/anna-monogram.svg"
+                  src="/stella-monogram.svg"
                   alt=""
                   width={24}
                   height={24}
                   className="rounded-sm"
                 />
-                <span className="font-serif italic text-xl tracking-tight select-none">anna</span>
+                <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
               </Link>
             </SheetHeader>
             <nav className="flex flex-col px-4 pb-4">
@@ -181,7 +181,7 @@ function MobileNavLink({
 function GithubLink() {
   return (
     <a
-      href="https://github.com/vaayne/anna"
+      href="https://github.com/CherryHQ/stella"
       target="_blank"
       rel="noopener noreferrer"
       className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

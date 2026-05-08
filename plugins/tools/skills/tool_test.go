@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/google/uuid"
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
@@ -213,7 +213,7 @@ func ctxWithUser(userID int64, agentID string) context.Context {
 }
 
 func TestDefinition(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	def := tool.Definition()
 
 	if def.Name != "skills" {
@@ -228,7 +228,7 @@ func TestDefinition(t *testing.T) {
 }
 
 func TestExecuteUnknownAction(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "bogus"})
 	if err == nil {
 		t.Error("expected error for unknown action")
@@ -236,7 +236,7 @@ func TestExecuteUnknownAction(t *testing.T) {
 }
 
 func TestExecuteDispatch(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "search"})
 	if err == nil {
 		t.Error("expected error for search without query")
@@ -252,7 +252,7 @@ func TestExecuteDispatch(t *testing.T) {
 }
 
 func TestSearchMissingQuery(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.search(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing query")
@@ -260,7 +260,7 @@ func TestSearchMissingQuery(t *testing.T) {
 }
 
 func TestInstallMissingSource(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.install(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing source")
@@ -268,7 +268,7 @@ func TestInstallMissingSource(t *testing.T) {
 }
 
 func TestRemoveMissingName(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.remove(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing name")
@@ -276,7 +276,7 @@ func TestRemoveMissingName(t *testing.T) {
 }
 
 func TestRemoveInvalidName(t *testing.T) {
-	tool := NewTool(nil, "/tmp/anna", "/tmp/agents", "", "")
+	tool := NewTool(nil, "/tmp/stella", "/tmp/agents", "", "")
 	_, err := tool.remove(context.Background(), map[string]any{"name": "../../../etc"})
 	if err == nil {
 		t.Error("expected error for path traversal name")
@@ -288,7 +288,7 @@ func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
 	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
 
-	tool := NewTool(nil, "/tmp/anna", agentWS, filepath.Join(base, "project"), userSkillsDir)
+	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
 	scope, got, err := tool.targetSkillsDir(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -306,7 +306,7 @@ func TestTargetSkillsDirAgentScope(t *testing.T) {
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
 	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
 
-	tool := NewTool(nil, "/tmp/anna", agentWS, filepath.Join(base, "project"), userSkillsDir)
+	tool := NewTool(nil, "/tmp/stella", agentWS, filepath.Join(base, "project"), userSkillsDir)
 	scope, got, err := tool.targetSkillsDir(context.Background(), "agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -324,7 +324,7 @@ func TestInstallProjectScopeIsRejected(t *testing.T) {
 	store, _, _ := newTestSkillStore(t)
 	userSkillsDir := t.TempDir()
 
-	tool := NewTool(store, "/tmp/anna", t.TempDir(), t.TempDir(), userSkillsDir)
+	tool := NewTool(store, "/tmp/stella", t.TempDir(), t.TempDir(), userSkillsDir)
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  "project",
@@ -339,7 +339,7 @@ func TestInstallProjectScopeIsRejected(t *testing.T) {
 
 func TestInstallRejectsNonStringScope(t *testing.T) {
 	// scope parse happens before store check
-	tool := NewTool(nil, "/tmp/anna", t.TempDir(), t.TempDir(), t.TempDir())
+	tool := NewTool(nil, "/tmp/stella", t.TempDir(), t.TempDir(), t.TempDir())
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  1,

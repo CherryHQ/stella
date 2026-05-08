@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/vaayne/anna/pkg/sandbox"
 )
 
 func TestToolListAndGet(t *testing.T) {

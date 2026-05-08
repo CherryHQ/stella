@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestSplitMessage_ShortText(t *testing.T) {
@@ -95,7 +95,7 @@ func TestParseSlashCommand(t *testing.T) {
 		wantArgs string
 	}{
 		{text: "/model openai/gpt-4", wantCmd: "/model", wantArgs: "openai/gpt-4"},
-		{text: " /Agent anna ", wantCmd: "/agent", wantArgs: "anna"},
+		{text: " /Agent stella ", wantCmd: "/agent", wantArgs: "stella"},
 		{text: "hello", wantCmd: "", wantArgs: ""},
 	}
 

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
-	"github.com/vaayne/anna/pkg/ai"
 )
 
 func convertMessages(ctx ai.Context) []sdk.ChatCompletionMessageParamUnion {

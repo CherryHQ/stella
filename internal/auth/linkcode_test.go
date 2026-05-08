@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
-	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/CherryHQ/stella/internal/auth"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func TestLinkCodeGenerate(t *testing.T) {

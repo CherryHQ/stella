@@ -1,8 +1,8 @@
 package plugintools
 
 import (
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/sandbox"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // BuildContext carries per-session configuration for tool construction.

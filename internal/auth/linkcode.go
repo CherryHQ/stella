@@ -29,7 +29,7 @@ type linkCodeEntry struct {
 
 // LinkCodeStore manages single-use link codes for channel account linking.
 // Codes expire after 5 minutes. The default constructor keeps them in-memory;
-// the shared constructor persists them to the Anna DB for cross-process use.
+// the shared constructor persists them to the Stella DB for cross-process use.
 type LinkCodeStore struct {
 	codes sync.Map // string -> linkCodeEntry
 	db    *sql.DB
@@ -40,7 +40,7 @@ func NewLinkCodeStore() *LinkCodeStore {
 	return &LinkCodeStore{}
 }
 
-// NewSharedLinkCodeStore creates a link code store backed by the shared Anna DB
+// NewSharedLinkCodeStore creates a link code store backed by the shared Stella DB
 // so admin and channel subprocesses can exchange codes across processes.
 func NewSharedLinkCodeStore(ctx context.Context, db *sql.DB) (*LinkCodeStore, error) {
 	if db == nil {

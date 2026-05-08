@@ -82,7 +82,7 @@ export function LoginPage() {
       <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-sm p-8">
         <div className="text-center mb-6">
           <span className="font-serif italic text-primary text-3xl tracking-tight select-none">
-            anna
+            stella
           </span>
           <p className="text-muted-foreground text-sm mt-1">Admin Panel</p>
         </div>

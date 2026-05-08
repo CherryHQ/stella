@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/vaayne/anna/internal/skills"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // skillStoreAdapter adapts internal/skills.Store to pkg/plugins.SkillStore.

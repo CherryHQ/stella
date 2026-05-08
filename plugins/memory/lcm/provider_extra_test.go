@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/plugins/memory/lcm"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/plugins/memory/lcm"
 )
 
 func newLCMTestDB(t *testing.T) *sql.DB {

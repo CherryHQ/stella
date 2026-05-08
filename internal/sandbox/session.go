@@ -1,6 +1,6 @@
 package sandbox
 
-import sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+import sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 
 type (
 	Session        = sandboxpkg.Session

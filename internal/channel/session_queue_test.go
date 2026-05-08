@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // makeStream builds a ChatStream whose Events channel emits the provided events

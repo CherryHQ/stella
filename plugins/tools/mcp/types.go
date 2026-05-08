@@ -2,7 +2,7 @@ package mcp
 
 import "time"
 
-// ToolInfo is Anna's cached normalized view of one MCP tool.
+// ToolInfo is Stella's cached normalized view of one MCP tool.
 type ToolInfo struct {
 	ID           string         `json:"id"`
 	ServerName   string         `json:"server_name"`

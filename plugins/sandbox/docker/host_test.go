@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 // TestToContainerPath verifies host→container path translation.
@@ -115,7 +115,7 @@ func TestDockerHostResolvePath(t *testing.T) {
 // TestDockerHostResolvePath_RejectsSymlinks verifies that any symlink in
 // the resolved path is rejected, closing the escape where an agent
 // creates a symlink in the workspace (via the sandbox-routed bash tool)
-// and then reads/writes/edits through it from the anna-process side.
+// and then reads/writes/edits through it from the stella-process side.
 func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 	workspace := t.TempDir()
 	outside := t.TempDir()
@@ -202,14 +202,14 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
-		{HostPath: "/host/.anna", ContainerPath: "/home/anna/.anna", ReadOnly: true},
-		{HostPath: "/host/.anna/skills", ContainerPath: "/home/anna/.anna/skills", ReadOnly: true},
+		{HostPath: "/host/.stella", ContainerPath: "/home/stella/.stella", ReadOnly: true},
+		{HostPath: "/host/.stella/skills", ContainerPath: "/home/stella/.stella/skills", ReadOnly: true},
 	}
 
 	env := map[string]string{
 		"PATH":        "/host/tools/bin:/usr/bin", // host-only — should drop
 		"HOME":        "/host/workspace",          // host-only — should drop even if mounted
-		"ANNA_HOME":   "/host/.anna",              // mounted — should translate
+		"STELLA_HOME": "/host/.stella",            // mounted — should translate
 		"WORKING_DIR": "/host/workspace",          // mounted — should translate
 		"TERM":        "xterm-256color",           // non-path — pass through
 		"LANG":        "en_US.UTF-8",              // non-path — pass through
@@ -222,8 +222,8 @@ func TestTranslateEnvPaths(t *testing.T) {
 			t.Errorf("%s should be dropped, got %q", k, v)
 		}
 	}
-	if got["ANNA_HOME"] != "/home/anna/.anna" {
-		t.Errorf("ANNA_HOME: got %q, want /home/anna/.anna", got["ANNA_HOME"])
+	if got["STELLA_HOME"] != "/home/stella/.stella" {
+		t.Errorf("STELLA_HOME: got %q, want /home/stella/.stella", got["STELLA_HOME"])
 	}
 	if got["WORKING_DIR"] != "/workspace" {
 		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])

@@ -1,8 +1,8 @@
 package sandbox
 
 import (
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
-	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 )
 
 type (

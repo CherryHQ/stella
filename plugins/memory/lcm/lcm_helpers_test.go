@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestToInt(t *testing.T) {

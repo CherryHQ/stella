@@ -45,7 +45,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// ConfigureDB enables the SQLite connection policy Anna relies on.
+// ConfigureDB enables the SQLite connection policy Stella relies on.
 // Connection-level pragmas are safe here because OpenDB constrains each handle
 // to a single long-lived underlying connection.
 func ConfigureDB(db *sql.DB) error {

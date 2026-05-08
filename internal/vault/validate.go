@@ -10,7 +10,7 @@ var nameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 
 // reservedPrefixes are env var name prefixes that vault entries must not use.
 var reservedPrefixes = []string{
-	"ANNA_",
+	"STELLA_",
 	"LC_",
 	"XDG_",
 }
@@ -28,8 +28,8 @@ var reservedWordPrefixes = []string{
 	"TMPDIR",
 }
 
-// AnnaTokenName is the per-user service token exposed to sandbox sessions.
-const AnnaTokenName = "ANNA_TOKEN"
+// StellaTokenName is the per-user service token exposed to sandbox sessions.
+const StellaTokenName = "STELLA_TOKEN"
 
 // ValidateName checks that a vault entry name is a valid env var name
 // and is not reserved.
@@ -41,10 +41,10 @@ func ValidateName(name string) error {
 		return fmt.Errorf("vault: name %q is invalid: must match ^[A-Z][A-Z0-9_]{0,127}$", name)
 	}
 
-	// Check reserved prefixes (ANNA_, LC_, XDG_), with ANNA_TOKEN as the
-	// only supported Anna-managed credential exposed to sandbox sessions.
+	// Check reserved prefixes (STELLA_, LC_, XDG_), with STELLA_TOKEN as the
+	// only supported Stella-managed credential exposed to sandbox sessions.
 	for _, prefix := range reservedPrefixes {
-		if strings.HasPrefix(name, prefix) && name != AnnaTokenName {
+		if strings.HasPrefix(name, prefix) && name != StellaTokenName {
 			return fmt.Errorf("vault: name %q is reserved: must not start with %q", name, prefix)
 		}
 	}

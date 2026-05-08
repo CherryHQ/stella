@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 // ToolFunc executes one tool invocation.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestHandlerFunc(t *testing.T) {

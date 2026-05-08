@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/httpclient"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.

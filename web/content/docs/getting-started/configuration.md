@@ -2,9 +2,9 @@
 title: Configuration
 ---
 
-All configuration is stored in a single SQLite database at `~/.anna/anna.db`. There are no YAML config files. To set up or modify your configuration, run `anna --open` to open the web admin panel.
+All configuration is stored in a single SQLite database at `~/.stella/stella.db`. There are no YAML config files. To set up or modify your configuration, run `stella --open` to open the web admin panel.
 
-The home directory defaults to `~/.anna` and can be changed by setting the `ANNA_HOME` environment variable.
+The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
 ## Database Tables
 
@@ -29,7 +29,7 @@ One row per agent.
 
 | Column          | Type    | Description                                                                        |
 | --------------- | ------- | ---------------------------------------------------------------------------------- |
-| `id`            | TEXT    | Agent slug (e.g. `anna`)                                                           |
+| `id`            | TEXT    | Agent slug (e.g. `stella`)                                                           |
 | `name`          | TEXT    | Display name                                                                       |
 | `model`         | TEXT    | Default model in `provider/model` format                                           |
 | `model_strong`  | TEXT    | Strong-tier model in `provider/model` format                                       |
@@ -139,20 +139,20 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 
 | Path                                         | Purpose                                     | Category |
 | -------------------------------------------- | ------------------------------------------- | -------- |
-| `~/.anna/anna.db`                            | SQLite database (config, memory, scheduler) | Data     |
-| `~/.anna/plugins/bundled/`                   | Bundled runtime plugin manifests            | Data     |
-| `~/.anna/plugins/installed/`                 | User-installed runtime plugins              | Data     |
-| `~/.anna/workspaces/{agent-id}/skills/`      | Per-agent installed skills                  | Data     |
-| `~/.anna/workspaces/{agent-id}/anna.log`     | Per-agent log file                          | Data     |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`      | Optional soul/identity override             | Data     |
-| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override             | Data     |
-| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                      | Data     |
-| `~/.anna/cache/`                             | Model cache (safe to delete)                | Cache    |
-| `~/.anna/cache/sandbox/`                     | Sandbox session scratch/preflight state     | Cache    |
+| `~/.stella/stella.db`                            | SQLite database (config, memory, scheduler) | Data     |
+| `~/.stella/plugins/bundled/`                   | Bundled runtime plugin manifests            | Data     |
+| `~/.stella/plugins/installed/`                 | User-installed runtime plugins              | Data     |
+| `~/.stella/workspaces/{agent-id}/skills/`      | Per-agent installed skills                  | Data     |
+| `~/.stella/workspaces/{agent-id}/stella.log`     | Per-agent log file                          | Data     |
+| `~/.stella/workspaces/{agent-id}/SOUL.md`      | Optional soul/identity override             | Data     |
+| `~/.stella/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override             | Data     |
+| `~/.stella/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                      | Data     |
+| `~/.stella/cache/`                             | Model cache (safe to delete)                | Cache    |
+| `~/.stella/cache/sandbox/`                     | Sandbox session scratch/preflight state     | Cache    |
 
-- **anna.db** is the single source of truth for all configuration, memory, and scheduler data.
+- **stella.db** is the single source of truth for all configuration, memory, and scheduler data.
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
-- **cache/** contains regenerable data. Run `anna models update` to rebuild.
+- **cache/** contains regenerable data. Run `stella models update` to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). The agent form edits network policy; backend can also be set in the stored JSON.
   - `backend`: `auto` (default), `boxsh`, or `docker`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
@@ -160,10 +160,10 @@ Each platform stores its own JSON structure in the `config` column of `settings_
   - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
   - `auto` selects `boxsh` on Linux/macOS; on other platforms it fails closed — configure `docker` explicitly.
   - Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
-  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the anna binary: dev builds use a local `anna-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/vaayne/anna-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
-  - The docker backend takes no per-agent knobs. The image, the in-container user (`anna`, UID 1000), and bind-mount layout are all fixed by the shipped image. When anna itself runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker), set the `ANNA_HOME_HOST` environment variable — anna auto-derives the path translation from it.
+  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the stella binary: dev builds use a local `stella-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/cherryhq/stella-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
+  - The docker backend takes no per-agent knobs. The image, the in-container user (`stella`, UID 1000), and bind-mount layout are all fixed by the shipped image. When stella itself runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker), set the `STELLA_HOME_HOST` environment variable — stella auto-derives the path translation from it.
   - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
-  - Docker bind-mounts the workspace root at `/home/anna/workspace` and each read-only path at `/home/anna/readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
+  - Docker bind-mounts the workspace root at `/home/stella/workspace` and each read-only path at `/home/stella/readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
 
 Example JSON for a docker-backed agent's `sandbox` field:
 
@@ -176,18 +176,18 @@ Example JSON for a docker-backed agent's `sandbox` field:
 
 ## Environment Variables
 
-The old `ANNA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
+The old `STELLA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
 
 | Variable             | Purpose                                                                                                                                                                  |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ANNA_HOME`          | Override the home directory (default `~/.anna`)                                                                                                                          |
-| `ANNA_HOME_HOST`     | Host-side path of `ANNA_HOME` when anna runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
+| `STELLA_HOME`          | Override the home directory (default `~/.stella`)                                                                                                                          |
+| `STELLA_HOME_HOST`     | Host-side path of `STELLA_HOME` when stella runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
 | `ANTHROPIC_API_KEY`  | Fallback API key for the Anthropic provider                                                                                                                              |
 | `ANTHROPIC_BASE_URL` | Fallback base URL for the Anthropic provider                                                                                                                             |
 | `OPENAI_API_KEY`     | Fallback API key for the OpenAI provider                                                                                                                                 |
 | `OPENAI_BASE_URL`    | Fallback base URL for the OpenAI provider                                                                                                                                |
 
-All other configuration must be set through the admin panel (`anna --open`) or directly in the database.
+All other configuration must be set through the admin panel (`stella --open`) or directly in the database.
 
 ## Memory Defaults
 
@@ -201,7 +201,7 @@ Lossless Context Management settings are currently hardcoded defaults. They will
 
 ## Heartbeat
 
-Heartbeat only runs in server mode (`anna`). Configuration is stored in the `settings` table under the `heartbeat` key. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier. Instructions are read from the agent's `HEARTBEAT.md` file.
+Heartbeat only runs in server mode (`stella`). Configuration is stored in the `settings` table under the `heartbeat` key. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier. Instructions are read from the agent's `HEARTBEAT.md` file.
 
 ## Plugins
 
@@ -231,4 +231,4 @@ Subprocess plugin bindings are stored separately under the `runtime_plugins` key
 }
 ```
 
-These bindings control which runtime plugin ID handles each built-in tool or channel slot. If a slot has no explicit override, anna falls back to the bundled first-party plugin for that slot. Use `anna plugin runtime list` to inspect the effective bindings and `anna plugin runtime bind ...` to change them.
+These bindings control which runtime plugin ID handles each built-in tool or channel slot. If a slot has no explicit override, stella falls back to the bundled first-party plugin for that slot. Use `stella plugin runtime list` to inspect the effective bindings and `stella plugin runtime bind ...` to change them.

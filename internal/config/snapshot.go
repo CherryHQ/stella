@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // ProviderCreds holds credentials for a single provider.
@@ -124,5 +124,5 @@ func (s *Snapshot) SkillsPath() string {
 
 // LogPath returns the log file path inside the workspace.
 func (s *Snapshot) LogPath() string {
-	return filepath.Join(s.Workspace, "anna.log")
+	return filepath.Join(s.Workspace, "stella.log")
 }

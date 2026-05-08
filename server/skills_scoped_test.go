@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 // newNonAdmin creates a non-admin user with an active session and returns
@@ -214,7 +214,7 @@ func TestAgentSkills_InstallAdminOnly(t *testing.T) {
 
 	_, creatorSID := newNonAdmin(t, env, "creator-install")
 	agentID := createAgentAsUser(t, env, creatorSID, "install-agent")
-	source, err := filepath.Abs("../internal/resources/skills/system/anna")
+	source, err := filepath.Abs("../internal/resources/skills/system/stella")
 	if err != nil {
 		t.Fatalf("abs path: %v", err)
 	}
@@ -283,12 +283,12 @@ func TestAgentSkills_DuplicateBuiltinAdminOnly(t *testing.T) {
 	_, creatorSID := newNonAdmin(t, env, "creator-duplicate")
 	agentID := createAgentAsUser(t, env, creatorSID, "duplicate-agent")
 
-	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/from-builtin/anna", nil)
+	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/from-builtin/stella", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("creator duplicate status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/from-builtin/anna", nil)
+	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/from-builtin/stella", nil)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("admin duplicate status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -334,7 +334,7 @@ func TestProfileSkills_InstallSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	u, sid := newNonAdmin(t, env, "user-install")
-	source, err := filepath.Abs("../internal/resources/skills/system/anna")
+	source, err := filepath.Abs("../internal/resources/skills/system/stella")
 	if err != nil {
 		t.Fatalf("abs path: %v", err)
 	}

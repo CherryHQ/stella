@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/sandbox"
+	"github.com/CherryHQ/stella/internal/sandbox"
 )
 
 func readPromptFile(host sandbox.Host, path string) (string, bool) {

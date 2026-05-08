@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/vaayne/anna/pkg/sandbox"
 )
 
-// Session is the subset of MCP client session behavior used by Anna's runtime.
+// Session is the subset of MCP client session behavior used by Stella's runtime.
 type Session interface {
 	Close() error
 	Wait() error
@@ -37,7 +37,7 @@ func defaultDial(ctx context.Context, server ServerConfig, runtime sandbox.Sessi
 		connectCtx, cancel = context.WithTimeout(ctx, time.Duration(server.TimeoutSeconds)*time.Second)
 		defer cancel()
 	}
-	client := officialmcp.NewClient(&officialmcp.Implementation{Name: "anna", Version: "dev"}, nil)
+	client := officialmcp.NewClient(&officialmcp.Implementation{Name: "stella", Version: "dev"}, nil)
 	return client.Connect(connectCtx, transport, nil)
 }
 

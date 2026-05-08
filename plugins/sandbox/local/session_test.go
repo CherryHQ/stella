@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestFactory_basics(t *testing.T) {
@@ -173,17 +173,17 @@ func TestResolvePath_acceptsInsideRoot(t *testing.T) {
 func TestToRealPath(t *testing.T) {
 	s := &localSession{
 		sandboxRoot: "/workspace",
-		realRoot:    "/home/anna/.anna-dev/workspaces/1",
+		realRoot:    "/home/stella/.stella-dev/workspaces/1",
 	}
 
 	tests := []struct {
 		in   string
 		want string
 	}{
-		{"/workspace/foo.go", "/home/anna/.anna-dev/workspaces/1/foo.go"},
-		{"/workspace/sub/dir/file.go", "/home/anna/.anna-dev/workspaces/1/sub/dir/file.go"},
+		{"/workspace/foo.go", "/home/stella/.stella-dev/workspaces/1/foo.go"},
+		{"/workspace/sub/dir/file.go", "/home/stella/.stella-dev/workspaces/1/sub/dir/file.go"},
 		// Exact root
-		{"/workspace", "/home/anna/.anna-dev/workspaces/1"},
+		{"/workspace", "/home/stella/.stella-dev/workspaces/1"},
 		// Outside sandboxRoot — returned unchanged
 		{"/etc/passwd", "/etc/passwd"},
 	}
@@ -275,11 +275,11 @@ func TestResolveCwd_rejectsOutsideRoot(t *testing.T) {
 	}
 }
 
-// TestBuildEnv_denyListFiltersVaultKey verifies that ANNA_VAULT_KEY is never
+// TestBuildEnv_denyListFiltersVaultKey verifies that STELLA_VAULT_KEY is never
 // copied from the host environment into the sandbox env, even when InheritEnv
 // is true, while other env vars (e.g. PATH) remain present.
 func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
-	t.Setenv("ANNA_VAULT_KEY", "age-secret-key-1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("STELLA_VAULT_KEY", "age-secret-key-1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
@@ -291,11 +291,11 @@ func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 
 	env := buildEnv(policy, nil)
 
-	// ANNA_VAULT_KEY must not appear in the sandbox env.
+	// STELLA_VAULT_KEY must not appear in the sandbox env.
 	for _, kv := range env {
 		key, _, _ := strings.Cut(kv, "=")
-		if key == "ANNA_VAULT_KEY" {
-			t.Fatalf("ANNA_VAULT_KEY must not be present in sandbox env, but got: %q", kv)
+		if key == "STELLA_VAULT_KEY" {
+			t.Fatalf("STELLA_VAULT_KEY must not be present in sandbox env, but got: %q", kv)
 		}
 	}
 

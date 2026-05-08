@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/vaayne/anna/internal/config"
-	builtinres "github.com/vaayne/anna/internal/resources"
+	"github.com/CherryHQ/stella/internal/config"
+	builtinres "github.com/CherryHQ/stella/internal/resources"
 )
 
 // createAgentRequest wraps config.Agent to accept an optional template_id

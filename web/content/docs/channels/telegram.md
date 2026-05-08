@@ -2,20 +2,20 @@
 title: Telegram Bot
 ---
 
-anna includes a Telegram bot that runs via long polling -- no webhook or public IP needed.
+stella includes a Telegram bot that runs via long polling -- no webhook or public IP needed.
 
 ## Setup
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
-2. Run `anna --open` to launch the admin panel
+2. Run `stella --open` to launch the admin panel
 3. In the admin panel: add an AI provider, then go to the Channels page and configure a Telegram channel instance with your bot token
 4. Start the daemon:
 
 ```bash
-anna
+stella
 ```
 
-All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. You can create multiple Telegram channel instances if you have multiple bots. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. You can create multiple Telegram channel instances if you have multiple bots. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -127,7 +127,7 @@ Users can switch models mid-conversation via an inline keyboard triggered by the
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`anna --open`).
+All settings below are managed through the admin panel (`stella --open`).
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

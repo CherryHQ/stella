@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // filterAccessibleAgents returns only agents the user can access (system scope + assigned).

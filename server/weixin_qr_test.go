@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/notify"
-	"github.com/vaayne/anna/internal/pluginhost"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
-	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
+	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 )
 
 type testWeixinHandler struct{}

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type stubProvider struct{}
@@ -45,21 +45,21 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	return reg, nil
 }
 
-func testRunnerPaths(t *testing.T) (annaHome, workspace, userRoot string) {
+func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
 	t.Helper()
-	annaHome = t.TempDir()
+	stellaHome = t.TempDir()
 	workspace = t.TempDir()
 	userRoot = filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	return annaHome, workspace, userRoot
+	return stellaHome, workspace, userRoot
 }
 
 func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	t.Helper()
-	annaHome, workspace, userRoot := testRunnerPaths(t)
-	cfg.AnnaHome = annaHome
+	stellaHome, workspace, userRoot := testRunnerPaths(t)
+	cfg.StellaHome = stellaHome
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
 	return cfg
@@ -69,7 +69,7 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 	// Point the SDK at a unix socket path that cannot exist, so client.Ping
 	// via Version() fails during Preflight regardless of the host's real
 	// docker state.
-	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/stella-test-docker.sock")
 	t.Setenv("DOCKER_TLS_VERIFY", "")
 	t.Setenv("DOCKER_CERT_PATH", "")
 
@@ -80,7 +80,7 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 	}
 
 	cfg := GoRunnerConfig{
-		AnnaHome:         t.TempDir(),
+		StellaHome:       t.TempDir(),
 		AgentRoot:        workspace,
 		UserRoot:         userRoot,
 		Sandbox:          config.SandboxConfig{},

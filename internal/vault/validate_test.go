@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/vault"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 func TestValidateName(t *testing.T) {
@@ -17,7 +17,7 @@ func TestValidateName(t *testing.T) {
 		"API_KEY_2",
 		"Z9",
 		"MY_VAR_123",
-		vault.AnnaTokenName,
+		vault.StellaTokenName,
 	}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestValidateName(t *testing.T) {
 		name  string
 		input string
 	}{
-		{"ANNA_HOME", "ANNA_HOME"},
+		{"STELLA_HOME", "STELLA_HOME"},
 		{"PATH", "PATH"},
 		{"HOME", "HOME"},
 		{"LC_ALL", "LC_ALL"},
