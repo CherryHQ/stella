@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-05-08
+
+### 🐛 Bug Fixes
+
+- **CI**: Fix Docker image build broken by anna→stella rename — add `node:22-slim` web-builder stage, include `pnpm-workspace.yaml`, commit `routeTree.gen.ts`, fix broken `/about` route reference
+- **Web**: Use `all:static` embed directive so `web/static/.gitkeep` is included on fresh checkouts without a prior `vp build`
+- **Web**: `SPAHandler` returns 404 instead of panicking when `static/dist` is absent from the embed
+- **Auth**: Fix `tokenPrefixLength` and slice index left at `anna_` prefix length after rename
+- **Server**: Remove unused `adminOnlyMiddleware`, fix unchecked `file.Close()` defer (lint)
+
+### ♻️ Refactoring
+
+- **Rename**: anna → stella project-wide ([#153](https://github.com/CherryHQ/stella/pull/153))
+
+**Full Changelog**: [v0.25.1...v0.25.2](https://github.com/CherryHQ/stella/compare/v0.25.1...v0.25.2)
+
 ## [0.25.0] - 2026-05-08
 
 ### ✨ Features

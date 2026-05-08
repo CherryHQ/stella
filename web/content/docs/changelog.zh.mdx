@@ -11,6 +11,22 @@ icon: History
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-05-08
+
+### 🐛 修复
+
+- **CI**: 修复 anna→stella 重命名后 Docker 镜像构建失败 — 新增 `node:22-slim` web 构建阶段，补充 `pnpm-workspace.yaml`，提交 `routeTree.gen.ts`，修复失效的 `/about` 路由引用
+- **Web**: 使用 `all:static` embed 指令，确保 `web/static/.gitkeep` 在未执行 `vp build` 的新检出中也能被包含
+- **Web**: `SPAHandler` 在 embed 中缺少 `static/dist` 时返回 404 而非 panic
+- **Auth**: 修复重命名后遗留的 `tokenPrefixLength` 和切片索引错误（仍按 `anna_` 前缀长度计算）
+- **Server**: 删除未使用的 `adminOnlyMiddleware`，修复未检查的 `file.Close()` defer（lint）
+
+### ♻️ 重构
+
+- **重命名**: anna → stella 全项目重命名 ([#153](https://github.com/CherryHQ/stella/pull/153))
+
+**完整变更日志**：[v0.25.1...v0.25.2](https://github.com/CherryHQ/stella/compare/v0.25.1...v0.25.2)
+
 ## [0.25.0] - 2026-05-08
 
 ### ✨ 功能
