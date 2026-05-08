@@ -157,7 +157,7 @@ function MeetStellaSection({ lang }: { lang: string }) {
             {tr.meetStellaBody2}
           </p>
           <Link
-            to="/about"
+            to="/docs/$"
             className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
           >
             {tr.learnMoreAboutStella}
