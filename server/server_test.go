@@ -1044,19 +1044,23 @@ func TestPageRoutes(t *testing.T) {
 			if len(body) == 0 {
 				t.Fatal("empty body")
 			}
-			if !strings.Contains(body, "Anna Admin") {
-				t.Error("body missing page title")
+			if !strings.Contains(body, "app-root") {
+				t.Error("body missing SPA mount point")
 			}
 		})
 	}
 }
 
-func TestUnknownPathReturns404(t *testing.T) {
+func TestUnknownPathReturnsSPA(t *testing.T) {
 	env := setupAdmin(t)
 
+	// The SPA wildcard handler serves the app shell for all unknown paths.
 	rr := doRequest(t, env, "GET", "/nonexistent", nil)
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !strings.Contains(rr.Body.String(), "app-root") {
+		t.Error("body missing SPA mount point")
 	}
 }
 
@@ -1137,18 +1141,9 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
 
-	// Admin-only page should redirect to /agents.
+	// All page routes serve the SPA shell regardless of admin status;
+	// access control is enforced client-side and via the API.
 	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/providers", nil)
-	if rr.Code != http.StatusFound {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
-	}
-	loc := rr.Header().Get("Location")
-	if loc != "/agents" {
-		t.Errorf("Location = %q, want %q", loc, "/agents")
-	}
-
-	// Non-admin page should be accessible.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
