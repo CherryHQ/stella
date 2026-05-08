@@ -44,14 +44,18 @@ go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 # ============================================================================
 
 [tasks.dev]
-description = "Start anna server (admin panel + channels)"
+description = "Start anna server (web + api)"
+depends = ["dev:ui", "dev:api"]
+
+[tasks."dev:ui"]
+description = "Start anna webui"
+dir = "web"
+run = 'vp dev'
+
+[tasks."dev:api"]
+description = "Start anna API server"
 depends = ["build"]
 run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME'
-
-[tasks.chat]
-description = "Run interactive CLI chat"
-depends = ["build"]
-run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME chat'
 
 # ============================================================================
 # Code Quality

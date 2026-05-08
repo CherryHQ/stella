@@ -1,14 +1,11 @@
 {
-  "name": "frontend",
+  "name": "web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vp dev",
     "build": "tsc && vp build",
-    "preview": "vp preview",
-    "lint": "vp check",
-    "format": "vp check --fix"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
