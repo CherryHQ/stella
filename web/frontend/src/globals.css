@@ -1,4 +1,12 @@
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+}
 
 @custom-variant dark (&:is(.dark *));
 
