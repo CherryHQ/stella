@@ -1,41 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Agent, Session } from "@/lib/types";
 import { SessionSidebar } from "./SessionSidebar";
 import { SessionDetail } from "./SessionDetail";
 
 export function SessionsPage() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [, setSessionsOffset] = useState(0);
-  const [sessionsHasMore, setSessionsHasMore] = useState(false);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const queryClient = useQueryClient();
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [currentUserID, setCurrentUserID] = useState<number>(0);
 
-  const offsetRef = useRef(0);
-  const loadingRef = useRef(false);
+  const sessionsQuery = useInfiniteQuery({
+    queryKey: ["sessions"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api<Session[]>("GET", `/api/sessions?limit=10&offset=${pageParam}`),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === 10 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+  });
 
-  const loadSessions = useCallback(async (reset = false) => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setSessionsLoading(true);
-    const offset = reset ? 0 : offsetRef.current;
-    try {
-      const batch = (await api<Session[]>("GET", `/api/sessions?limit=10&offset=${offset}`)) ?? [];
-      setSessions((prev) => (offset === 0 ? batch : [...prev, ...batch]));
-      const newOffset = offset + batch.length;
-      offsetRef.current = newOffset;
-      setSessionsOffset(newOffset);
-      setSessionsHasMore(batch.length === 10);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      loadingRef.current = false;
-      setSessionsLoading(false);
-    }
-  }, []);
+  const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
   const openSession = useCallback(async (sessionID: string, pushState = true) => {
     if (pushState) {
@@ -52,18 +38,15 @@ export function SessionsPage() {
   const createSession = useCallback(
     async (agentID: string) => {
       const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentID });
-      setSessions((prev) => [sess, ...prev]);
-      setSessionsOffset((o) => o + 1);
-      offsetRef.current += 1;
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
       await openSession(sess.id);
     },
-    [openSession],
+    [openSession, queryClient],
   );
 
   useEffect(() => {
     const init = async () => {
       await Promise.all([
-        loadSessions(true),
         api<Agent[]>("GET", "/api/agents")
           .then((r) => setAgents(r ?? []))
           .catch(() => {}),
@@ -81,7 +64,7 @@ export function SessionsPage() {
       }
     };
     void init();
-  }, [loadSessions, openSession]);
+  }, [openSession]);
 
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
@@ -99,14 +82,13 @@ export function SessionsPage() {
   const deleteSession = useCallback(
     async (id: string) => {
       await api("DELETE", `/api/sessions/${encodeURIComponent(id)}`);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      offsetRef.current = Math.max(0, offsetRef.current - 1);
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
       if (sessionDetail?.id === id) {
         setSessionDetail(null);
         history.pushState(null, "", "/sessions");
       }
     },
-    [sessionDetail],
+    [queryClient, sessionDetail],
   );
 
   return (
@@ -116,12 +98,12 @@ export function SessionsPage() {
     >
       <SessionSidebar
         sessions={sessions}
-        sessionsLoading={sessionsLoading}
-        sessionsHasMore={sessionsHasMore}
+        sessionsLoading={sessionsQuery.isFetchingNextPage || sessionsQuery.isLoading}
+        sessionsHasMore={!!sessionsQuery.hasNextPage}
         selectedID={sessionDetail?.id}
         agents={agents}
         onSelect={openSession}
-        onLoadMore={() => loadSessions(false)}
+        onLoadMore={() => sessionsQuery.fetchNextPage()}
         onCreateSession={createSession}
         onDeleteSession={deleteSession}
         hidden={!!sessionDetail}

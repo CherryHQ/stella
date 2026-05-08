@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Message, Session, Tool, Workspace } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -16,10 +17,7 @@ interface Props {
 }
 
 export function SessionDetail({ session, currentUserID, onBack }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messagesSkip, setMessagesSkip] = useState(0);
-  const [messagesHasMore, setMessagesHasMore] = useState(false);
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
@@ -40,10 +38,20 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const messagesLoadingRef = useRef(false);
   const sessionIDRef = useRef<string | null>(null);
+  const initialScrollSessionRef = useRef<string | null>(null);
 
   const enc = session ? encodeURIComponent(session.id) : "";
+  const messagesQuery = useInfiniteQuery({
+    queryKey: ["session-messages", session?.id],
+    enabled: !!session,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api<Message[]>("GET", `/api/sessions/${enc}/messages?limit=20&skip=${pageParam}`),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+  });
+  const messages = [...(messagesQuery.data?.pages ?? [])].reverse().flat().concat(liveMessages);
 
   const loadWorkspace = useCallback(async (sid: string) => {
     setWorkspaceLoading(true);
@@ -62,79 +70,52 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
 
   useEffect(() => {
     if (!session) {
-      setMessages([]);
-      setMessagesSkip(0);
-      setMessagesHasMore(false);
+      setLiveMessages([]);
       setSystemPrompt("");
       setWorkspace(null);
       setActivePanel(null);
       return;
     }
     sessionIDRef.current = session.id;
-    setMessages([]);
-    setMessagesSkip(0);
-    setMessagesHasMore(false);
-    setMessagesLoading(true);
-    messagesLoadingRef.current = true;
+    initialScrollSessionRef.current = null;
+    setLiveMessages([]);
 
     const load = async () => {
       const e = encodeURIComponent(session.id);
-      const [msgs, pr] = await Promise.all([
-        api<Message[]>("GET", `/api/sessions/${e}/messages?limit=20`),
-        api<{ system_prompt: string }>("GET", `/api/sessions/${e}/system-prompt`).catch(() => null),
-      ]);
+      const pr = await api<{ system_prompt: string }>(
+        "GET",
+        `/api/sessions/${e}/system-prompt`,
+      ).catch(() => null);
       if (sessionIDRef.current !== session.id) return;
-      setMessages(msgs ?? []);
-      setMessagesSkip((msgs ?? []).length);
-      setMessagesHasMore((msgs ?? []).length === 20);
       if (pr?.system_prompt) setSystemPrompt(pr.system_prompt);
-      setTimeout(() => {
-        if (transcriptRef.current)
-          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-      }, 0);
     };
-    load()
-      .catch(console.error)
-      .finally(() => {
-        messagesLoadingRef.current = false;
-        setMessagesLoading(false);
-      });
-  }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    load().catch(console.error);
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!session || !messagesQuery.isSuccess || initialScrollSessionRef.current === session.id)
+      return;
+    initialScrollSessionRef.current = session.id;
+    setTimeout(() => {
+      if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }, 0);
+  }, [session, messagesQuery.isSuccess]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!session || messagesLoadingRef.current || !transcriptRef.current) return;
+    if (!session || !transcriptRef.current || !messagesQuery.hasNextPage || messagesQuery.isFetching)
+      return;
     const el = transcriptRef.current;
     if (el.scrollTop > 60) return;
-    messagesLoadingRef.current = true;
-    setMessagesLoading(true);
     const prevHeight = el.scrollHeight;
-    try {
-      const e = encodeURIComponent(session.id);
-      const older = await api<Message[]>(
-        `GET`,
-        `/api/sessions/${e}/messages?limit=20&skip=${messagesSkip}`,
-      );
-      if (!older?.length) {
-        setMessagesHasMore(false);
-        return;
-      }
-      setMessages((prev) => [...older, ...prev]);
-      setMessagesSkip((s) => s + older.length);
-      setMessagesHasMore(older.length === 20);
-      setTimeout(() => {
-        if (el) el.scrollTop = el.scrollHeight - prevHeight;
-      }, 0);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      messagesLoadingRef.current = false;
-      setMessagesLoading(false);
-    }
-  }, [session, messagesSkip]);
+    await messagesQuery.fetchNextPage();
+    setTimeout(() => {
+      if (el) el.scrollTop = el.scrollHeight - prevHeight;
+    }, 0);
+  }, [session, messagesQuery]);
 
   const handleTranscriptScroll = useCallback(() => {
-    if (messagesHasMore) loadOlderMessages().catch(console.error);
-  }, [messagesHasMore, loadOlderMessages]);
+    void loadOlderMessages();
+  }, [loadOlderMessages]);
 
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
@@ -162,7 +143,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
     if (!userInput.trim() || isStreaming || !session) return;
     const content = userInput.trim();
     setUserInput("");
-    setMessages((prev) => [
+    setLiveMessages((prev) => [
       ...prev,
       { role: "user", content, timestamp: new Date().toISOString() },
     ]);
@@ -207,7 +188,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
 
         if (event === "text") {
           const text = (data.text as string) || "";
-          setMessages((prev) => {
+          setLiveMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === "assistant" && last._streaming) {
               const blocks = [...(last.blocks ?? [])];
@@ -232,7 +213,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
           scrollToBottom();
         } else if (event === "tool_use") {
           if ((data.type as string) === "tool_call") {
-            setMessages((prev) => {
+            setLiveMessages((prev) => {
               const last = prev[prev.length - 1];
               const newBlock = {
                 type: "tool_call" as const,
@@ -259,7 +240,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
             });
             scrollToBottom();
           } else if ((data.type as string) === "tool_result") {
-            setMessages((prev) =>
+            setLiveMessages((prev) =>
               prev.map((msg) => {
                 if (msg.role !== "assistant") return msg;
                 const blocks = (msg.blocks ?? []).map((block) => {
@@ -299,14 +280,14 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
           }
         }
       }
-      setMessages((prev) => {
+      setLiveMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?._streaming) return [...prev.slice(0, -1), { ...last, _streaming: undefined }];
         return prev;
       });
     } catch (e) {
       if ((e as Error).name !== "AbortError") console.error(e);
-      setMessages((prev) => {
+      setLiveMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?._streaming) return [...prev.slice(0, -1), { ...last, _streaming: undefined }];
         return prev;
@@ -526,7 +507,7 @@ export function SessionDetail({ session, currentUserID, onBack }: Props) {
         <Transcript
           ref={transcriptRef}
           messages={messages}
-          messagesLoading={messagesLoading}
+          messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
           onScroll={handleTranscriptScroll}
         />
 

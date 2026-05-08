@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Session } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -90,6 +90,18 @@ export function SessionSidebar({
       onLoadMore();
     }
   }, [sessionsHasMore, sessionsLoading, onLoadMore]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!sessionsHasMore || sessionsLoading) return;
+    if (sessions.length > 0 && filteredSessions.length === 0) {
+      onLoadMore();
+      return;
+    }
+    if (el && el.scrollHeight <= el.clientHeight) {
+      onLoadMore();
+    }
+  }, [sessions.length, filteredSessions.length, sessionsHasMore, sessionsLoading, onLoadMore]);
 
   const handleCreate = useCallback(async () => {
     if (!newSessionAgentID) return;
