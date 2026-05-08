@@ -4,7 +4,7 @@ title: Memory System
 
 ## Overview
 
-Anna's memory system has four logical spaces on top of a plugin-based conversation store:
+Stella's memory system has four logical spaces on top of a plugin-based conversation store:
 
 | Space            | Purpose                                                                                             | Backing store                                                                        |
 | ---------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -15,7 +15,7 @@ Anna's memory system has four logical spaces on top of a plugin-based conversati
 
 The physical storage is intentionally not four separate engines. The design keeps LCM/Simple memory plugins, ProfileStore, Reflect, and SkillStore loosely coupled while adding version history and session snapshots around them.
 
-Two built-in memory plugins ship with Anna:
+Two built-in memory plugins ship with Stella:
 
 | Plugin     | Package                  | Default | Description                                                                 |
 | ---------- | ------------------------ | ------- | --------------------------------------------------------------------------- |
@@ -24,11 +24,11 @@ Two built-in memory plugins ship with Anna:
 
 ### Switching Plugins
 
-Memory plugins are managed like other plugins. In the admin panel or via `anna plugin`:
+Memory plugins are managed like other plugins. In the admin panel or via `stella plugin`:
 
 ```bash
-anna plugin disable memory/lcm
-anna plugin enable memory/simple
+stella plugin disable memory/lcm
+stella plugin enable memory/simple
 ```
 
 Only one memory plugin should be enabled at a time. Both use the same underlying `ctx_messages` table, so switching preserves stored messages.
@@ -120,7 +120,7 @@ This enables `profile_history`, `profile_rollback`, auditability, and versioned 
 
 Constraints are stored as a JSON array in `ctx_agent_memory.constraints`. Each entry has an ID, text, and creation timestamp.
 
-Constraints are intended for rules the user explicitly wants Anna to preserve, for example:
+Constraints are intended for rules the user explicitly wants Stella to preserve, for example:
 
 - “Ask before deleting files.”
 - “Never run production database migrations unless I approve.”
@@ -132,13 +132,13 @@ Reflect is explicitly instructed not to add, remove, or edit constraints. The cu
 
 Session snapshots prevent background memory updates from changing an active conversation mid-stream.
 
-On the first chat turn, Anna stores a frozen `ctx_agent_memory.version` in `memory_snapshots` for `(session_id, user_id, agent_id)`. On every turn, the pool rebuilds the system prompt at that snapshot version and injects it with a per-run system override.
+On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `memory_snapshots` for `(session_id, user_id, agent_id)`. On every turn, the pool rebuilds the system prompt at that snapshot version and injects it with a per-run system override.
 
 Visibility rules:
 
 | Write path                                           | Current session sees it? | Why                                                                  |
 | ---------------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
-| User asks Anna to remember something via memory tool | Yes, from the next turn  | The memory tool advances the current session snapshot                |
+| User asks Stella to remember something via memory tool | Yes, from the next turn  | The memory tool advances the current session snapshot                |
 | User adds/removes a constraint via memory tool       | Yes, from the next turn  | The snapshot advances after the foreground write                     |
 | Reflect updates profile/knowledge in the background  | No                       | Reflect has no active session context and does not advance snapshots |
 | A new session starts                                 | Yes                      | It snapshots the latest memory version                               |
@@ -231,7 +231,7 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ## Database
 
-- **Location:** `~/.anna/anna.db`
+- **Location:** `~/.stella/stella.db`
 - **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
 - **Mode:** WAL, foreign keys enabled
 - **Migrations:** Atlas-generated, embedded via `MigrationsFS`, auto-applied on startup.
@@ -262,4 +262,4 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ## Agent Workspaces
 
-Each agent has its own workspace at `$ANNA_HOME/workspaces/{agent_id}/` for file overrides, skills, and per-agent data.
+Each agent has its own workspace at `$STELLA_HOME/workspaces/{agent_id}/` for file overrides, skills, and per-agent data.

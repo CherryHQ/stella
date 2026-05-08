@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vaayne/anna/internal/email"
+	"github.com/CherryHQ/stella/internal/email"
 )
 
 func repeat(s string, n int) string {

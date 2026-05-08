@@ -227,13 +227,13 @@ func TestInstallBinaryWithMiseIsolatesHostEnvAndTargetsTool(t *testing.T) {
 		t.Skip("fake mise script uses POSIX shell")
 	}
 
-	annaHome := t.TempDir()
-	binDir := filepath.Join(annaHome, "bin")
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("create bin dir: %v", err)
 	}
 
-	logPath := filepath.Join(annaHome, "mise.log")
+	logPath := filepath.Join(stellaHome, "mise.log")
 	fakeMise := filepath.Join(binDir, "mise")
 	fake := `#!/bin/sh
 set -eu
@@ -292,7 +292,7 @@ esac
 		Name:    "mytool",
 		Tool:    "github:owner/repo",
 		Version: "1.2.3",
-	}, annaHome)
+	}, stellaHome)
 	if err != nil {
 		t.Fatalf("installBinaryWithMise: %v", err)
 	}
@@ -318,11 +318,11 @@ esac
 		t.Fatalf("host mise env leaked into installer; log:\n%s", log)
 	}
 
-	wantData := "MISE_DATA_DIR=" + filepath.Join(annaHome, ".mise-tools")
+	wantData := "MISE_DATA_DIR=" + filepath.Join(stellaHome, ".mise-tools")
 	if !strings.Contains(log, wantData) {
 		t.Fatalf("isolated data dir not used, want %q in log:\n%s", wantData, log)
 	}
-	wantConfig := "MISE_CONFIG_DIR=" + filepath.Join(annaHome, ".mise-tools", "config")
+	wantConfig := "MISE_CONFIG_DIR=" + filepath.Join(stellaHome, ".mise-tools", "config")
 	if !strings.Contains(log, wantConfig) {
 		t.Fatalf("isolated config dir not used, want %q in log:\n%s", wantConfig, log)
 	}

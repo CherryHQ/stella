@@ -8,18 +8,18 @@ import (
 
 	"filippo.io/age"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/credentials"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/internal/recally"
-	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/credentials"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/recally"
+	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // Server provides HTTP handlers for the admin API and templ-rendered pages.
@@ -77,7 +77,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		log:         slog.With("component", "admin"),
 		corsOriginV: corsOrigin,
 		credSvc:     credSvc,
-		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.AnnaHome())),
+		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome())),
 	}
 
 	s.registerRoutes()

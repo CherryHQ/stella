@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"github.com/vaayne/anna/internal/sandbox"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/CherryHQ/stella/internal/sandbox"
+	"github.com/CherryHQ/stella/pkg/tools"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 // buildSandboxCoreTools creates core tools using the active sandbox session.

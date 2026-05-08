@@ -9,7 +9,7 @@ import (
 )
 
 func TestFileManager_ArticlePath(t *testing.T) {
-	fm := NewFileManager("/tmp/anna")
+	fm := NewFileManager("/tmp/stella")
 
 	tests := []struct {
 		name      string
@@ -25,7 +25,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
 			title:     "Test Article",
 			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
-			want:      "/tmp/anna/library/1/articles/2026/04/29-test-article-01HX3Q9M8N7P.md",
+			want:      "/tmp/stella/library/1/articles/2026/04/29-test-article-01HX3Q9M8N7P.md",
 		},
 		{
 			name:      "title with special chars",
@@ -33,7 +33,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 			articleID: "shortid",
 			title:     "What's New?!",
 			savedAt:   time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
-			want:      "/tmp/anna/library/42/articles/2026/01/15-what-s-new-shortid.md",
+			want:      "/tmp/stella/library/42/articles/2026/01/15-what-s-new-shortid.md",
 		},
 		{
 			name:      "empty title",
@@ -41,7 +41,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
 			title:     "",
 			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
-			want:      "/tmp/anna/library/1/articles/2026/04/29-untitled-01HX3Q9M8N7P.md",
+			want:      "/tmp/stella/library/1/articles/2026/04/29-untitled-01HX3Q9M8N7P.md",
 		},
 	}
 
@@ -167,7 +167,7 @@ func TestFileManager_EnsureLibrary(t *testing.T) {
 }
 
 func TestFileManager_RelativePath(t *testing.T) {
-	fm := NewFileManager("/home/user/.anna")
+	fm := NewFileManager("/home/user/.stella")
 
 	tests := []struct {
 		name string
@@ -175,18 +175,18 @@ func TestFileManager_RelativePath(t *testing.T) {
 		want string
 	}{
 		{
-			name: "path inside anna home",
-			path: "/home/user/.anna/library/1/articles/test.md",
+			name: "path inside stella home",
+			path: "/home/user/.stella/library/1/articles/test.md",
 			want: "library/1/articles/test.md",
 		},
 		{
-			name: "path outside anna home",
+			name: "path outside stella home",
 			path: "/some/other/path.md",
 			want: "/some/other/path.md",
 		},
 		{
-			name: "exact anna home path",
-			path: "/home/user/.anna",
+			name: "exact stella home path",
+			path: "/home/user/.stella",
 			want: "",
 		},
 	}

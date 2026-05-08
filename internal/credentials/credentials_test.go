@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 
-	"github.com/vaayne/anna/internal/credentials"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/internal/credentials"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // --- pluginhost.ConfigBackend stub ---

@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	feishuplugin "github.com/vaayne/anna/plugins/channels/feishu"
-	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
-	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
-	reflectplugin "github.com/vaayne/anna/plugins/reflect"
-	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
+	qqplugin "github.com/CherryHQ/stella/plugins/channels/qq"
+	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
+	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
+	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
 )
 
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {

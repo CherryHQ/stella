@@ -24,7 +24,7 @@ func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
 	}
 
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 		ProjectRoot:  project,
 	})
 	if !strings.Contains(prompt, "root instructions") {

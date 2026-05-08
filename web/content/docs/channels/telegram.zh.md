@@ -2,20 +2,20 @@
 title: Telegram 机器人
 ---
 
-anna 包含一个通过长轮询运行的 Telegram 机器人 —— 无需 webhook 或公网 IP。
+stella 包含一个通过长轮询运行的 Telegram 机器人 —— 无需 webhook 或公网 IP。
 
 ## 设置
 
 1. 通过 [@BotFather](https://t.me/BotFather) 创建一个机器人并记录 bot token
-2. 运行 `anna --open` 启动管理面板
+2. 运行 `stella --open` 启动管理面板
 3. 在管理面板中：添加一个 AI 提供商，然后使用你的 bot token 配置 Telegram 频道
 4. 启动网关：
 
 ```bash
-anna
+stella
 ```
 
-所有频道配置（token、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `ANNA_HOME`。
+所有频道配置（token、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
@@ -124,7 +124,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过 `anna --open` 管理面板管理。
+以下所有设置都通过 `stella --open` 管理面板管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |

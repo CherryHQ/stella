@@ -6,16 +6,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	coreagent "github.com/vaayne/anna/pkg/agent"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
 
 // NewRunnerFactory creates a NewRunnerFunc for a given config snapshot.
@@ -53,9 +53,9 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				err     error
 			)
 			if params.UserID > 0 {
-				userDir, err = SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
+				userDir, err = SetupUserWorkspace(snap.AgentID, config.StellaHome(), params.UserID)
 			} else {
-				userDir, err = SetupSystemWorkspace(snap.AgentID, config.AnnaHome())
+				userDir, err = SetupSystemWorkspace(snap.AgentID, config.StellaHome())
 			}
 			if err != nil {
 				return nil, fmt.Errorf("setup workspace: %w", err)
@@ -78,7 +78,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				pluginView, _ = sessionPluginViewFn(ctx)
 			}
 			promptBuild := pkgplugins.SystemPromptContext{
-				AnnaHome:            config.AnnaHome(),
+				StellaHome:          config.StellaHome(),
 				HomeDir:             homeDir,
 				AgentRoot:           snap.Workspace,
 				ProjectRoot:         "",
@@ -108,7 +108,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				Memory:         memProvider,
 				UserID:         params.UserID,
 				AgentID:        params.AgentID,
-				AnnaHome:       config.AnnaHome(),
+				StellaHome:     config.StellaHome(),
 				AgentRoot:      snap.Workspace,
 				UserRoot:       userRoot,
 				PromptTools:    promptTools,
@@ -125,7 +125,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			runnerTools := append([]tools.Tool{}, builtinTools...)
 			runnerTools = append(runnerTools, skillstool.NewTool(
 				skillStore,
-				config.AnnaHome(),
+				config.StellaHome(),
 				snap.Workspace,
 				"",
 				filepath.Join(userRoot, ".agents", "skills"),
@@ -136,7 +136,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				Model:            modelID,
 				APIKey:           creds.APIKey,
 				AgentRoot:        snap.Workspace,
-				AnnaHome:         config.AnnaHome(),
+				StellaHome:       config.StellaHome(),
 				BaseURL:          creds.BaseURL,
 				System:           system,
 				PluginPrompts:    pluginPrompts,

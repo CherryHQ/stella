@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func newTestStore(t *testing.T) *Store {

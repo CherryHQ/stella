@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/providers"
-	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
+	"github.com/CherryHQ/stella/pkg/providers"
+	anthropicprovider "github.com/CherryHQ/stella/plugins/providers/anthropic"
 )
 
 func skipWithoutAnthropicKey(t *testing.T) {
@@ -22,12 +22,12 @@ func skipWithoutAnthropicKey(t *testing.T) {
 func TestIntegrationPoolWithGoRunner(t *testing.T) {
 	skipWithoutAnthropicKey(t)
 
-	model := os.Getenv("ANNA_GO_MODEL")
+	model := os.Getenv("STELLA_GO_MODEL")
 	if model == "" {
 		model = "claude-sonnet-4-20250514"
 	}
 
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 	workspace := t.TempDir()
 
 	userRoot := filepath.Join(workspace, "users", "1", "data")
@@ -37,14 +37,14 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	factory := func(ctx context.Context, _ RunnerParams) (Runner, error) {
 		return NewGoRunner(ctx, GoRunnerConfig{
-			API:       "anthropic",
-			Model:     model,
-			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
-			AnnaHome:  annaHome,
-			AgentRoot: workspace,
-			UserRoot:  userRoot,
-			Providers: integrationProviderRegistryBuilder,
+			API:        "anthropic",
+			Model:      model,
+			APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
+			StellaHome: stellaHome,
+			AgentRoot:  workspace,
+			UserRoot:   userRoot,
+			Providers:  integrationProviderRegistryBuilder,
 		})
 	}
 

@@ -4,15 +4,15 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/vaayne/anna/internal/credentials"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgtools "github.com/vaayne/anna/pkg/tools"
-	agenttool "github.com/vaayne/anna/plugins/tools/agent"
-	"github.com/vaayne/anna/plugins/tools/bash"
-	"github.com/vaayne/anna/plugins/tools/edit"
-	"github.com/vaayne/anna/plugins/tools/read"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
-	"github.com/vaayne/anna/plugins/tools/write"
+	"github.com/CherryHQ/stella/internal/credentials"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
+	"github.com/CherryHQ/stella/plugins/tools/bash"
+	"github.com/CherryHQ/stella/plugins/tools/edit"
+	"github.com/CherryHQ/stella/plugins/tools/read"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
 // toolJSON is the JSON representation of a tool definition.

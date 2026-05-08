@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/ai"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 func TestClassifyCandidateText(t *testing.T) {

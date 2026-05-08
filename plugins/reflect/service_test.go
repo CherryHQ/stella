@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/pkg/memory/memorytest"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory/memorytest"
 )
 
 func testLogger() *slog.Logger {

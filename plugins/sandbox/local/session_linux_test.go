@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // TestWrapCommand_linux_networkDisabled verifies that wrapCommand on Linux

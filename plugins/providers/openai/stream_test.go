@@ -3,8 +3,8 @@ package openai
 import (
 	"testing"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	sdk "github.com/openai/openai-go"
-	"github.com/vaayne/anna/pkg/ai"
 )
 
 func TestMapChunkTextAndStop(t *testing.T) {

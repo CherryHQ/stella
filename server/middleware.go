@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 // contextKey is used for storing auth info in request context.

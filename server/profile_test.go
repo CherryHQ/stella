@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 func TestListProfileIdentitiesEmpty(t *testing.T) {

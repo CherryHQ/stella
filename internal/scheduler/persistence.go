@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // dbTimeLayout is the SQLite datetime format used for all time columns.

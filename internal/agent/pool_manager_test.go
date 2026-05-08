@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // mockStore implements config.Store for testing PoolManager.
@@ -109,13 +109,13 @@ func TestPoolManagerGetNil(t *testing.T) {
 }
 
 func TestPoolManagerStartAllAndGet(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	t.Setenv("STELLA_HOME", t.TempDir())
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "stella", Name: "Stella", Model: "anthropic/test-model", Enabled: true},
 			{ID: "coder", Name: "Coder", Model: "anthropic/test-model", Enabled: true},
 			{ID: "disabled", Name: "Disabled", Model: "anthropic/test-model", Enabled: false},
 		},
@@ -134,10 +134,10 @@ func TestPoolManagerStartAllAndGet(t *testing.T) {
 	defer func() { _ = pm.Close() }()
 
 	// Should have pools for enabled agents.
-	if p := pm.Get("anna"); p == nil {
-		t.Error("Get(anna) = nil, want non-nil")
-	} else if p.AgentID() != "anna" {
-		t.Errorf("AgentID() = %q, want %q", p.AgentID(), "anna")
+	if p := pm.Get("stella"); p == nil {
+		t.Error("Get(stella) = nil, want non-nil")
+	} else if p.AgentID() != "stella" {
+		t.Errorf("AgentID() = %q, want %q", p.AgentID(), "stella")
 	}
 
 	if p := pm.Get("coder"); p == nil {
@@ -151,13 +151,13 @@ func TestPoolManagerStartAllAndGet(t *testing.T) {
 }
 
 func TestPoolManagerDefaultPool(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	t.Setenv("STELLA_HOME", t.TempDir())
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "stella", Name: "Stella", Model: "anthropic/test-model", Enabled: true},
 		},
 		providers: map[string]config.Provider{
 			"anthropic": {ID: "anthropic", APIKey: "test-key"},
@@ -180,13 +180,13 @@ func TestPoolManagerDefaultPool(t *testing.T) {
 }
 
 func TestPoolManagerClose(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	t.Setenv("STELLA_HOME", t.TempDir())
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "stella", Name: "Stella", Model: "anthropic/test-model", Enabled: true},
 		},
 		providers: map[string]config.Provider{
 			"anthropic": {ID: "anthropic", APIKey: "test-key"},
@@ -206,8 +206,8 @@ func TestPoolManagerClose(t *testing.T) {
 	}
 
 	// After close, pools should be empty.
-	if p := pm.Get("anna"); p != nil {
-		t.Error("Get(anna) should be nil after Close")
+	if p := pm.Get("stella"); p != nil {
+		t.Error("Get(stella) should be nil after Close")
 	}
 }
 
@@ -222,13 +222,13 @@ func (m *closeCountingMemory) Close() error {
 }
 
 func TestPoolManagerSyncAgentRemovalKeepsSharedMemoryOpen(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	t.Setenv("STELLA_HOME", t.TempDir())
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "stella", Name: "Stella", Model: "anthropic/test-model", Enabled: true},
 			{ID: "coder", Name: "Coder", Model: "anthropic/test-model", Enabled: true},
 		},
 		providers: map[string]config.Provider{
@@ -245,14 +245,14 @@ func TestPoolManagerSyncAgentRemovalKeepsSharedMemoryOpen(t *testing.T) {
 	}
 
 	store.agents[0].Enabled = false
-	if err := pm.SyncAgent(ctx, "anna"); err != nil {
+	if err := pm.SyncAgent(ctx, "stella"); err != nil {
 		t.Fatalf("SyncAgent: %v", err)
 	}
 	if mem.closeCount != 0 {
 		t.Fatalf("memory close count after removing one pool = %d, want 0", mem.closeCount)
 	}
-	if got := pm.Get("anna"); got != nil {
-		t.Fatal("Get(anna) should be nil after disabled agent sync")
+	if got := pm.Get("stella"); got != nil {
+		t.Fatal("Get(stella) should be nil after disabled agent sync")
 	}
 	if got := pm.Get("coder"); got == nil {
 		t.Fatal("Get(coder) should remain available")

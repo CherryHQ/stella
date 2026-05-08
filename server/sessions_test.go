@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	sqlc "github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 func TestToSessionResponse(t *testing.T) {

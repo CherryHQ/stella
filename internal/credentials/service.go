@@ -8,16 +8,16 @@ import (
 
 	"golang.org/x/oauth2"
 
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/internal/vault"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 const (
 	githubProviderID = "github"
 
 	// ghOAuthClientID is GitHub CLI's public OAuth app client ID. GitHub's
-	// device flow only requires the client ID, so Anna can offer gh OAuth
+	// device flow only requires the client ID, so Stella can offer gh OAuth
 	// without any admin-side plugin configuration.
 	ghOAuthClientID = "178c6fc778ccc68e1d6a"
 )

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth"
 )
 
 func TestRegisterAndLogin(t *testing.T) {
@@ -249,7 +249,7 @@ func TestBearerAuthSuccess(t *testing.T) {
 	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
 		t.Fatalf("EnsureAutoToken: %v", err)
 	}
-	token := vault.env[env.adminUser.ID][auth.AnnaTokenName]
+	token := vault.env[env.adminUser.ID][auth.StellaTokenName]
 	rr := doBearerRequest(t, env.srv, token, "GET", "/api/auth/me", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -260,10 +260,10 @@ func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 	env := setupAdmin(t)
 	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
 	expired := time.Now().Add(-time.Hour)
-	rawToken := "anna_expired"
+	rawToken := "stella_expired"
 	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
-		Name:        auth.AnnaTokenName,
+		Name:        auth.StellaTokenName,
 		TokenHash:   testTokenHash(rawToken),
 		TokenPrefix: rawToken,
 		ExpiresAt:   &expired,
@@ -280,10 +280,10 @@ func TestBearerAuthRejectsExpiredToken(t *testing.T) {
 func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 	env := setupAdmin(t)
 	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
-	rawToken := "anna_revoked"
+	rawToken := "stella_revoked"
 	token, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
 		UserID:      env.adminUser.ID,
-		Name:        auth.AnnaTokenName,
+		Name:        auth.StellaTokenName,
 		TokenHash:   testTokenHash(rawToken),
 		TokenPrefix: rawToken,
 	})
@@ -315,7 +315,7 @@ func TestBearerAuthRejectsInactiveUser(t *testing.T) {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 
-	rr := doBearerRequest(t, env.srv, vault.env[env.adminUser.ID][auth.AnnaTokenName], "GET", "/api/agents", nil)
+	rr := doBearerRequest(t, env.srv, vault.env[env.adminUser.ID][auth.StellaTokenName], "GET", "/api/agents", nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
@@ -324,7 +324,7 @@ func TestBearerAuthRejectsInactiveUser(t *testing.T) {
 func TestBearerAuthFallsBackToCookie(t *testing.T) {
 	env := setupAdmin(t)
 	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
-	rr := doBearerRequestWithSession(t, env.srv, env.sessionID, "anna_wrong", "GET", "/api/auth/me", nil)
+	rr := doBearerRequestWithSession(t, env.srv, env.sessionID, "stella_wrong", "GET", "/api/auth/me", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}

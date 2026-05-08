@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: anna API
+  title: stella API
   description: |
-    Full REST API for anna covering ALL /api/* routes. This is the aggregated
+    Full REST API for stella covering ALL /api/* routes. This is the aggregated
     entry point; individual feature specs live in sub-files under api/spec/domain/:
 
     - Agents, Skills, Sessions, Models, Providers
@@ -26,7 +26,7 @@ info:
   version: "1"
 servers:
   - url: http://127.0.0.1:25678
-    description: local anna server (default port)
+    description: local stella server (default port)
 security:
   - BearerAuth: []
 tags:

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (
@@ -107,7 +107,7 @@ func configSchema() map[string]any {
 						"transport": map[string]any{
 							"type":        "string",
 							"enum":        []any{TransportStdio, TransportSSE, TransportStreamableHTTP, TransportHTTP},
-							"description": "How Anna connects to the MCP server.",
+							"description": "How Stella connects to the MCP server.",
 						},
 						"command": map[string]any{
 							"type":        "string",

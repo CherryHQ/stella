@@ -1,6 +1,6 @@
 package qq
 
-import "github.com/vaayne/anna/pkg/channel"
+import "github.com/CherryHQ/stella/pkg/channel"
 
 // handleModelCommand processes /model with optional arguments.
 func (b *Bot) handleModelCommand(args string, reply func(string)) {

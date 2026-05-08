@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	builtinres "github.com/vaayne/anna/internal/resources"
+	builtinres "github.com/CherryHQ/stella/internal/resources"
 )
 
 // builtinResourceSummary is the list-row shape. Content is omitted to keep

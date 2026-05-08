@@ -13,9 +13,9 @@ import (
 	"net/url"
 	"strings"
 
+	externalRef0 "github.com/CherryHQ/stella/api/types"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	externalRef0 "github.com/vaayne/anna/api/types"
 )
 
 const (

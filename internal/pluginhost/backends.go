@@ -3,7 +3,7 @@ package pluginhost
 import (
 	"context"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // ConfigBackend is the host-owned unscoped plugin config backend.

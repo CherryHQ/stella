@@ -7,11 +7,11 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/manifestplugins"
-	"github.com/vaayne/anna/internal/skills"
-	"github.com/vaayne/anna/pkg/ai"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type Option func(*Host)
@@ -505,7 +505,7 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
 			Platform:            h.platform(reg.PluginID),
 			State:               state,
-			AnnaHome:            build.AnnaHome,
+			StellaHome:          build.StellaHome,
 			HomeDir:             build.HomeDir,
 			AgentRoot:           build.AgentRoot,
 			ProjectRoot:         build.ProjectRoot,

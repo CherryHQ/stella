@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // simpleTool is a minimal tools.Tool implementation.

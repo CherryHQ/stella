@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type dummyTool struct{ name string }

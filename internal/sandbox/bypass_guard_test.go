@@ -30,7 +30,7 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"internal/agent/prompt.go",
 		// prompt_host.go and hostfs.go intentionally use os.* for host-side
 		// operations (no sandbox session available during prompt rendering or
-		// agent preset discovery, which run in the anna process before a session
+		// agent preset discovery, which run in the stella process before a session
 		// is created).
 	}
 
@@ -79,7 +79,7 @@ func TestPluginPackagesDoNotImportInternalSandbox(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if strings.Contains(string(data), `"github.com/vaayne/anna/internal/sandbox"`) {
+				if strings.Contains(string(data), `"github.com/CherryHQ/stella/internal/sandbox"`) {
 					t.Fatalf("%s imports internal sandbox", path)
 				}
 				return nil

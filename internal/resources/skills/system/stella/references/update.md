@@ -1,0 +1,53 @@
+# Updating stella
+
+## Check current version
+
+```bash
+stella version
+```
+
+## Self-update (recommended)
+
+```bash
+stella upgrade
+stella upgrade --install-dir "$HOME/.local/bin"  # custom install path
+```
+
+Downloads the latest stable release from GitHub for your platform.
+
+## Other methods
+
+### Go install
+
+```bash
+go install github.com/CherryHQ/stella@latest
+```
+
+### From source
+
+```bash
+cd ~/path/to/stella
+git pull origin main
+go build -o stella .
+# Move binary to your PATH
+```
+
+### GitHub releases
+
+Download the latest binary from https://github.com/CherryHQ/stella/releases
+
+Binaries available for: linux/darwin/windows x amd64/arm64.
+
+### Docker
+
+```bash
+docker pull ghcr.io/vaayne/stella:latest
+```
+
+Tags: `latest` (stable), `vX.Y.Z` (specific release).
+
+## After updating
+
+- Config format is backward-compatible; no migration needed
+- Run `stella models update` to refresh the model cache if new models are available
+- Builtin skills update automatically with the binary

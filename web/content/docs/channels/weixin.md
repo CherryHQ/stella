@@ -2,11 +2,11 @@
 title: WeChat Bot
 ---
 
-anna includes a WeChat bot that connects via the iLink Bot API using long-polling (no public URL required). The bot supports text messaging, image input/output with AES-128-ECB encryption, and QR-code-based login.
+stella includes a WeChat bot that connects via the iLink Bot API using long-polling (no public URL required). The bot supports text messaging, image input/output with AES-128-ECB encryption, and QR-code-based login.
 
 ## Setup
 
-1. Run `anna --open` to launch the admin panel
+1. Run `stella --open` to launch the admin panel
 2. In the admin panel, go to the Channels tab and find the WeChat section
 3. Click "Scan QR to Login" to generate a QR code
 4. Scan the QR code with your WeChat account to authorize the bot
@@ -14,18 +14,18 @@ anna includes a WeChat bot that connects via the iLink Bot API using long-pollin
 6. Start the daemon:
 
 ```bash
-anna
+stella
 ```
 
 All channel configuration is managed through the admin panel. The QR login flow is admin-panel-only and must be re-done if the session expires.
 
 ## How It Works
 
-The WeChat channel uses the iLink Bot protocol. After QR login, anna receives a `bot_token` that it uses for all subsequent API calls. Messages are received via long-polling (`getupdates`) and responses are sent via `sendmessage`.
+The WeChat channel uses the iLink Bot protocol. After QR login, stella receives a `bot_token` that it uses for all subsequent API calls. Messages are received via long-polling (`getupdates`) and responses are sent via `sendmessage`.
 
 ### Session Expiry
 
-If the iLink session expires (`ret=-14`), anna clears all credentials and stops the WeChat channel. You will need to re-scan the QR code from the admin panel to re-authorize.
+If the iLink session expires (`ret=-14`), stella clears all credentials and stops the WeChat channel. You will need to re-scan the QR code from the admin panel to re-authorize.
 
 ## Multi-User Support
 
@@ -75,7 +75,7 @@ The WeChat channel supports notifications (scheduler results, notify tool). Set 
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`anna --open`).
+All settings below are managed through the admin panel (`stella --open`).
 
 | Field         | Description                                | Default    |
 | ------------- | ------------------------------------------ | ---------- |

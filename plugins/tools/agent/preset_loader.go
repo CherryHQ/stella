@@ -13,19 +13,19 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	AnnaHome    string // anna home dir (e.g. ~/.anna)
-	AgentRoot   string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
-	UserRoot    string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID})
+	StellaHome  string // stella home dir (e.g. ~/.stella)
+	AgentRoot   string // agent root dir (e.g. ~/.stella/workspaces/{agentID})
+	UserRoot    string // user root dir (e.g. ~/.stella/workspaces/{agentID}/users/{userID})
 	ProjectRoot string // optional project root for local/project-attached runs
 }
 
 // LoadAgentPresets discovers agent presets in increasing priority order:
-// ANNA_HOME -> agent root -> user root -> project root.
+// STELLA_HOME -> agent root -> user root -> project root.
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
+	return loadAgentPresets(context.Background(), cfg.StellaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
 }
 
-func loadAgentPresets(ctx context.Context, annaHome, agentRoot, userRoot, projectRoot string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, stellaHome, agentRoot, userRoot, projectRoot string) []AgentPreset {
 	indexByName := map[string]int{}
 	var presets []AgentPreset
 
@@ -50,8 +50,8 @@ func loadAgentPresets(ctx context.Context, annaHome, agentRoot, userRoot, projec
 		}
 	}
 
-	if annaHome != "" {
-		addDir(filepath.Join(annaHome, "agents"), "anna")
+	if stellaHome != "" {
+		addDir(filepath.Join(stellaHome, "agents"), "stella")
 	}
 	if agentRoot != "" {
 		addDir(filepath.Join(agentRoot, "agents"), "agent")

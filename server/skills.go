@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/internal/skills"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 

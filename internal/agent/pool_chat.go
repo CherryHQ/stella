@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 const autoCompactionTimeout = 2 * time.Minute

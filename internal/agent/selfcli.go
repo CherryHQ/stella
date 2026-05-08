@@ -6,16 +6,16 @@ import (
 	"os"
 	"path/filepath"
 
-	internaltools "github.com/vaayne/anna/internal/tools"
+	internaltools "github.com/CherryHQ/stella/internal/tools"
 )
 
-// EnsureAnnaCLIInPath copies the currently running anna executable to
-// $ANNA_HOME/bin/anna for sandbox sessions, whose PATH is intentionally
-// restricted to anna-managed and system directories. Do not use a symlink here:
+// EnsureStellaCLIInPath copies the currently running stella executable to
+// $STELLA_HOME/bin/stella for sandbox sessions, whose PATH is intentionally
+// restricted to stella-managed and system directories. Do not use a symlink here:
 // sandbox path resolution rejects symlink traversal.
-func EnsureAnnaCLIInPath(annaHome string) error {
-	if annaHome == "" {
-		return fmt.Errorf("anna home is required")
+func EnsureStellaCLIInPath(stellaHome string) error {
+	if stellaHome == "" {
+		return fmt.Errorf("stella home is required")
 	}
 
 	source, err := os.Executable()
@@ -27,19 +27,19 @@ func EnsureAnnaCLIInPath(annaHome string) error {
 		return fmt.Errorf("resolve executable symlink: %w", err)
 	}
 
-	binDir := internaltools.BinDir(annaHome)
+	binDir := internaltools.BinDir(stellaHome)
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return fmt.Errorf("create anna bin dir: %w", err)
+		return fmt.Errorf("create stella bin dir: %w", err)
 	}
 
-	dest := filepath.Join(binDir, "anna")
+	dest := filepath.Join(binDir, "stella")
 	in, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open executable: %w", err)
 	}
 	defer func() { _ = in.Close() }()
 
-	tmp, err := os.CreateTemp(binDir, ".anna-*")
+	tmp, err := os.CreateTemp(binDir, ".stella-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}

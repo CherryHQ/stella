@@ -4,7 +4,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 // BuildContext carries configuration for hook construction.

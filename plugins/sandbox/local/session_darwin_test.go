@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestWrapCommand_darwin_passthrough(t *testing.T) {

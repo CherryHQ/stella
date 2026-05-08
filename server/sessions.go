@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
 )
 
 func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +394,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		writeData(w, http.StatusOK, map[string]any{"root": "", "paths": []string{}})
 		return
 	}
-	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -483,7 +483,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusNotFound, "session has no workspace")
 		return "", fmt.Errorf("no workspace")
 	}
-	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return "", err
@@ -820,7 +820,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 	var userRoot string
 	if info.UserID > 0 && info.AgentID != "" {
-		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID); err == nil {
+		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID); err == nil {
 			userRoot = agent.UserRoot(userDir)
 		}
 	}
@@ -831,7 +831,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
-		AnnaHome:            config.AnnaHome(),
+		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
 		AgentRoot:           agentCfg.Workspace,
 		ProjectRoot:         "",
@@ -856,7 +856,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		Memory:         s.mem,
 		UserID:         info.UserID,
 		AgentID:        info.AgentID,
-		AnnaHome:       config.AnnaHome(),
+		StellaHome:     config.StellaHome(),
 		AgentRoot:      agentCfg.Workspace,
 		UserRoot:       userRoot,
 		PromptTools:    promptTools,

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 type BotRuntimeDeps[T any] struct {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // resolveSandboxRoot returns the sandbox-space root and the real host root.

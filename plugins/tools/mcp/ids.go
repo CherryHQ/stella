@@ -16,7 +16,7 @@ type Target struct {
 	ToolName   string
 }
 
-// CanonicalRegistry maintains a stable mapping from canonical Anna MCP tool IDs
+// CanonicalRegistry maintains a stable mapping from canonical Stella MCP tool IDs
 // to the original MCP server/tool names.
 type CanonicalRegistry struct {
 	mu        sync.RWMutex

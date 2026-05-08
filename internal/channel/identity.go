@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")

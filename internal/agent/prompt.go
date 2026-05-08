@@ -10,10 +10,10 @@ import (
 	"text/template"
 	"time"
 
-	builtinres "github.com/vaayne/anna/internal/resources"
-	"github.com/vaayne/anna/internal/sandbox"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	builtinres "github.com/CherryHQ/stella/internal/resources"
+	"github.com/CherryHQ/stella/internal/sandbox"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -77,7 +77,7 @@ type DBPromptParams struct {
 	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
 	UserID            int64                     // auth user ID for profile lookup
 	AgentID           string                    // agent ID for profile lookup
-	AnnaHome          string
+	StellaHome        string
 	AgentRoot         string
 	ProjectRoot       string // optional project root for local/project-attached runs
 	UserRoot          string // per-user writable root

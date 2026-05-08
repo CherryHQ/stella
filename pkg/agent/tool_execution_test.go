@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 func TestToolExecution(t *testing.T) {

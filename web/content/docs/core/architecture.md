@@ -4,7 +4,7 @@ title: Architecture
 
 ## System Overview
 
-anna is structured as a set of loosely coupled packages wired together in `main.go`. The system supports multiple users and multiple agents, with routing handled per-message. The core flow:
+stella is structured as a set of loosely coupled packages wired together in `main.go`. The system supports multiple users and multiple agents, with routing handled per-message. The core flow:
 
 1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input
 2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback)
@@ -34,7 +34,7 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 ## Package Layout
 
 ```
-cmd/anna/              Entry point, CLI commands, service wiring
+cmd/stella/              Entry point, CLI commands, service wiring
 internal/
   config/              Store interface, DBStore (SQLite), Snapshot, types
   ai/                  Message/Content types, Model, Provider interface, streaming events
@@ -49,7 +49,7 @@ internal/
   admin/               HTTP API + embedded SPA (templ + Alpine.js + daisyUI)
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  SQLite, Atlas migrations, sqlc queries
-  scheduler/           gocron service, heartbeat (skill via anna scheduler CLI)
+  scheduler/           gocron service, heartbeat (skill via stella scheduler CLI)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   memory/              Memory Provider interface, types, Summarizer, tool auto-generation, test helpers
@@ -92,7 +92,7 @@ The `/agent` slash command (handled by `AgentCommander`) lets users list enabled
 
 ## Providers
 
-LLM providers are plugin-based. Three built-in providers ship with Anna:
+LLM providers are plugin-based. Three built-in providers ship with Stella:
 
 | Provider          | API                  | Use Case                                                   |
 | ----------------- | -------------------- | ---------------------------------------------------------- |
@@ -129,7 +129,7 @@ type Tool interface {
 
 | Tool       | Description                                                    |
 | ---------- | -------------------------------------------------------------- |
-| `mcp`      | Proxy configured MCP servers through one generic Anna MCP tool |
+| `mcp`      | Proxy configured MCP servers through one generic Stella MCP tool |
 | `webfetch` | Fetch web page contents                                        |
 
 The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
@@ -162,7 +162,7 @@ All core tools share the same container session per runner:
 
 ### Platform Requirements
 
-Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Anna contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto`, `boxsh`, or `Relaxed` mode.
+Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Stella contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto`, `boxsh`, or `Relaxed` mode.
 
 ### Network Policy Configuration
 
@@ -173,7 +173,7 @@ Per-agent sandbox network policy is configured via the admin API or database:
 | `disabled`  | No outbound network access (default) | Maximum security for untrusted code   |
 | `allow_all` | Unrestricted outbound access         | Trusted agents requiring full network |
 
-Anna validates the network mode at session-create time and fails closed if the Docker backend cannot enforce it.
+Stella validates the network mode at session-create time and fails closed if the Docker backend cannot enforce it.
 
 ### Failure Behavior
 
@@ -187,7 +187,7 @@ This ensures that sandboxed execution is either fully functional or does not run
 
 ### Explicit Exception Boundary
 
-Sandbox guarantees apply to local execution paths owned by Anna. Remote MCP transports are currently treated as a separate trust boundary:
+Sandbox guarantees apply to local execution paths owned by Stella. Remote MCP transports are currently treated as a separate trust boundary:
 
 - local MCP stdio spawning uses `Session.StartProcess`, mediated through the active runner session
 - remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
@@ -241,7 +241,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker). Chat turns are serialized per resolved Anna session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ## Admin API
 

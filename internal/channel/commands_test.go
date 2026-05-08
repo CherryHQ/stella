@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 func TestHandleCommandHelp(t *testing.T) {

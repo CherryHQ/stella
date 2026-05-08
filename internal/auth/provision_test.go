@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
-	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/CherryHQ/stella/internal/auth"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func setupProvisionStore(t *testing.T) auth.AuthStore {

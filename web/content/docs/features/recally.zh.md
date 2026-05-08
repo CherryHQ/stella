@@ -4,9 +4,9 @@ title: Recally - 阅读助手
 
 ## 概述
 
-Recally 是 Anna 的阅读助手 —— 一个用于保存、组织和回顾网页内容的系统。它可以让你建立一个个人内容库，保存文章、论文、推文、视频以及任何其他在对话中遇到的基于 URL 的内容。
+Recally 是 Stella 的阅读助手 —— 一个用于保存、组织和回顾网页内容的系统。它可以让你建立一个个人内容库，保存文章、论文、推文、视频以及任何其他在对话中遇到的基于 URL 的内容。
 
-与简单的书签不同，Recally 将完整的文章内容存储为带有结构化元数据的 Markdown 文件（标题、摘要、标签、作者、来源类型），为所有内容建立索引以便快速搜索，并与 Anna 的 Agent 系统集成，让你日后可以向 Agent 询问已保存内容的相关问题。
+与简单的书签不同，Recally 将完整的文章内容存储为带有结构化元数据的 Markdown 文件（标题、摘要、标签、作者、来源类型），为所有内容建立索引以便快速搜索，并与 Stella 的 Agent 系统集成，让你日后可以向 Agent 询问已保存内容的相关问题。
 
 ## 核心功能
 
@@ -19,7 +19,7 @@ Recally 是 Anna 的阅读助手 —— 一个用于保存、组织和回顾网�
 
 ## 架构
 
-recally CLI 是一个轻量的 REST 客户端。运行中的 anna server（`anna serve`）
+recally CLI 是一个轻量的 REST 客户端。运行中的 stella server（`stella serve`）
 是唯一直接读写 recally 数据库和磁盘 Markdown 文件的进程；CLI、Web UI 以及 SDK
 消费者都走 HTTP。
 
@@ -30,30 +30,30 @@ recally CLI 是一个轻量的 REST 客户端。运行中的 anna server（`anna
     v
 Agent 总结 + 提取元数据
     |
-    | anna recally save --url ... --title ... --summary ...
+    | stella recally save --url ... --title ... --summary ...
     v
-CLI 构造 JSON 请求 → POST /api/recally/articles  (Authorization: Bearer ANNA_TOKEN)
+CLI 构造 JSON 请求 → POST /api/recally/articles  (Authorization: Bearer STELLA_TOKEN)
     |
     v
-anna server: 写入 Markdown 文件 + 数据库索引行
+stella server: 写入 Markdown 文件 + 数据库索引行
     |
     v
-库目录: $ANNA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
+库目录: $STELLA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
 ```
 
 ### 前置条件
 
-执行任何 `anna recally …` 命令之前：
+执行任何 `stella recally …` 命令之前：
 
-1. anna server 必须在本机或可经 HTTP 访问的远端启动（`anna serve`）。
-2. 设置 `ANNA_TOKEN` 为账号生成的 token（server 需开启 `ANNA_VAULT_KEY` 才能启用 token 认证）。
-3. 可选：设置 `ANNA_SERVER_URL` 指向远端 server，默认 `http://127.0.0.1:25678`。
+1. stella server 必须在本机或可经 HTTP 访问的远端启动（`stella serve`）。
+2. 设置 `STELLA_TOKEN` 为账号生成的 token（server 需开启 `STELLA_VAULT_KEY` 才能启用 token 认证）。
+3. 可选：设置 `STELLA_SERVER_URL` 指向远端 server，默认 `http://127.0.0.1:25678`。
 
 CLI 不再直接打开 SQLite 数据库——这个职责完全在 server。
 
 ### REST API
 
-完整契约见 [`api/recally.openapi.yaml`](https://github.com/vaayne/anna/blob/main/api/recally.openapi.yaml)。
+完整契约见 [`api/recally.openapi.yaml`](https://github.com/CherryHQ/stella/blob/main/api/recally.openapi.yaml)。
 资源：
 
 - `GET/POST /api/recally/articles` —— 列表/搜索/upsert
@@ -71,7 +71,7 @@ CLI 不再直接打开 SQLite 数据库——这个职责完全在 server。
 文章存储在独立于 Agent 的用户级库中：
 
 ```
-$ANNA_HOME/
+$STELLA_HOME/
 ├── library/
 │   └── {userID}/
 │       └── articles/
@@ -97,7 +97,7 @@ $ANNA_HOME/
 | `youtube` | 元数据 + 字幕            | `tap fetch`              |
 | `github`  | 仓库信息、议题、PR       | `gh` + `tap fetch`       |
 | `pdf`     | 文本提取                 | `kreuzberg extract`      |
-| `rss`     | 订阅源轮询 → 条目 → 保存 | `anna recally feed poll` |
+| `rss`     | 订阅源轮询 → 条目 → 保存 | `stella recally feed poll` |
 
 ## CLI 参考
 
@@ -106,7 +106,7 @@ $ANNA_HOME/
 #### 保存文章
 
 ```bash
-anna recally save --url <url> \
+stella recally save --url <url> \
   --title "文章标题" \
   --summary "简要摘要" \
   --tags "go,concurrency" \
@@ -130,7 +130,7 @@ anna recally save --url <url> \
 #### 列出文章
 
 ```bash
-anna recally list [--status unread] [--starred] [--json]
+stella recally list [--status unread] [--starred] [--json]
 ```
 
 筛选条件：
@@ -144,7 +144,7 @@ anna recally list [--status unread] [--starred] [--json]
 #### 搜索文章
 
 ```bash
-anna recally search "并发模式" [--limit 20] [--json]
+stella recally search "并发模式" [--limit 20] [--json]
 ```
 
 搜索标题、摘要、标签和作者，使用 LIKE 匹配（FTS5 计划在将来支持）。
@@ -152,7 +152,7 @@ anna recally search "并发模式" [--limit 20] [--json]
 #### 阅读文章
 
 ```bash
-anna recally read <article-id>
+stella recally read <article-id>
 ```
 
 输出完整的 Markdown 内容到标准输出。
@@ -160,7 +160,7 @@ anna recally read <article-id>
 #### 更新文章
 
 ```bash
-anna recally update <article-id> --status read --starred
+stella recally update <article-id> --status read --starred
 ```
 
 更新元数据。如果文件存在，还会重写文件的前言（frontmatter）。
@@ -173,7 +173,7 @@ anna recally update <article-id> --status read --starred
 #### 删除文章
 
 ```bash
-anna recally delete <article-id>
+stella recally delete <article-id>
 ```
 
 从数据库中删除并删除文件。
@@ -183,7 +183,7 @@ anna recally delete <article-id>
 #### 添加订阅
 
 ```bash
-anna recally feed add <feed-url>
+stella recally feed add <feed-url>
 ```
 
 获取订阅源元数据并订阅。将现有条目创建为 `pending`（待处理）状态。
@@ -191,7 +191,7 @@ anna recally feed add <feed-url>
 #### 列出订阅
 
 ```bash
-anna recally feed list [--json]
+stella recally feed list [--json]
 ```
 
 显示已订阅的源及其最后检查时间和检查间隔。
@@ -199,7 +199,7 @@ anna recally feed list [--json]
 #### 删除订阅
 
 ```bash
-anna recally feed remove <feed-id>
+stella recally feed remove <feed-id>
 ```
 
 取消订阅并删除所有条目。
@@ -207,7 +207,7 @@ anna recally feed remove <feed-id>
 #### 轮询订阅
 
 ```bash
-anna recally feed poll [<feed-id>] [--limit 20] [--json]
+stella recally feed poll [<feed-id>] [--limit 20] [--json]
 ```
 
 轮询订阅源以获取新条目。如果不指定 `feed-id`，则轮询所有启用的源。返回待处理和可重试的条目（状态为 `pending` 或 `error` 且尝试次数 < 3）。
@@ -217,9 +217,9 @@ anna recally feed poll [<feed-id>] [--limit 20] [--json]
 #### 标记条目
 
 ```bash
-anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
-anna recally feed mark <feed-id> <entry-id> --status skipped
-anna recally feed mark <feed-id> <entry-id> --status error --error "获取超时"
+stella recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
+stella recally feed mark <feed-id> <entry-id> --status skipped
+stella recally feed mark <feed-id> <entry-id> --status error --error "获取超时"
 ```
 
 更新条目状态。自动递增 `attempts` 并设置 `processed_at`。
@@ -231,7 +231,7 @@ anna recally feed mark <feed-id> <entry-id> --status error --error "获取超时
 ### 摘要命令
 
 ```bash
-anna recally digest [--json]
+stella recally digest [--json]
 ```
 
 输出结构化的 JSON 摘要：
@@ -243,9 +243,9 @@ anna recally digest [--json]
 
 ## 认证
 
-CLI 的所有操作都通过 `ANNA_TOKEN` 认证。Agent 沙盒会话会自动获得该 token，Recally 会从认证后的 token 解析用户。
+CLI 的所有操作都通过 `STELLA_TOKEN` 认证。Agent 沙盒会话会自动获得该 token，Recally 会从认证后的 token 解析用户。
 
-在 Anna 外部直接使用 CLI 时，请在环境变量中提供有效的 `ANNA_TOKEN`。
+在 Stella 外部直接使用 CLI 时，请在环境变量中提供有效的 `STELLA_TOKEN`。
 
 ## 技能使用
 
@@ -267,14 +267,14 @@ CLI 的所有操作都通过 `ANNA_TOKEN` 认证。Agent 沙盒会话会自动�
 
 ## RSS 调度
 
-Recally 与 Anna 的调度器集成以实现自动 RSS 轮询。当用户首次订阅源时，技能会指导 Agent 创建定时任务：
+Recally 与 Stella 的调度器集成以实现自动 RSS 轮询。当用户首次订阅源时，技能会指导 Agent 创建定时任务：
 
 ```
 调度器操作：add
 名称：recally-rss
 计划：every 1h
 会话模式：reuse
-消息：加载 recally 技能。运行 anna recally feed poll 检查新的 RSS 条目，然后按照 recally 技能 RSS 工作流程处理每个待处理条目。
+消息：加载 recally 技能。运行 stella recally feed poll 检查新的 RSS 条目，然后按照 recally 技能 RSS 工作流程处理每个待处理条目。
 ```
 
 对于每日摘要，Agent 可以创建：
@@ -284,7 +284,7 @@ Recally 与 Anna 的调度器集成以实现自动 RSS 轮询。当用户首次�
 名称：recally-digest
 计划：cron 0 8 * * *
 会话模式：reuse
-消息：加载 recally 技能。运行 anna recally digest 并按照 recally 技能摘要格式为用户编写友好的每日阅读摘要。
+消息：加载 recally 技能。运行 stella recally digest 并按照 recally 技能摘要格式为用户编写友好的每日阅读摘要。
 ```
 
 ## 文章生命周期
@@ -315,9 +315,9 @@ Recally 与 Anna 的调度器集成以实现自动 RSS 轮询。当用户首次�
 
 Agent 通过两步流程访问保存的内容：
 
-1. **搜索元数据** (`anna recally search`)：通过标题、摘要、标签、作者进行快速的 LIKE 搜索。返回轻量级索引行。
+1. **搜索元数据** (`stella recally search`)：通过标题、摘要、标签、作者进行快速的 LIKE 搜索。返回轻量级索引行。
 
-2. **阅读完整内容** (`anna recally read`)：一旦 Agent 识别出相关文章，就会读取完整的 Markdown 文件来回答具体问题。
+2. **阅读完整内容** (`stella recally read`)：一旦 Agent 识别出相关文章，就会读取完整的 Markdown 文件来回答具体问题。
 
 这保持了搜索的快速性，同时保留完整内容用于深度查询。
 
@@ -325,7 +325,7 @@ Agent 通过两步流程访问保存的内容：
 
 | 组件             | 位置                                                     |
 | ---------------- | -------------------------------------------------------- |
-| CLI 命令         | `cmd/anna/recally.go`                                    |
+| CLI 命令         | `cmd/stella/recally.go`                                    |
 | 存储层           | `internal/recally/store.go`                              |
 | 文件管理器       | `internal/recally/files.go`                              |
 | URL 规范化       | `internal/recally/urlnorm.go`                            |
@@ -335,7 +335,7 @@ Agent 通过两步流程访问保存的内容：
 | 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql`               |
 | 数据库查询       | `internal/db/queries/articles.sql`                       |
 | 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql`                      |
-| 沙盒认证环境     | `internal/agent/sandbox_backend.go`（注入 `ANNA_TOKEN`） |
+| 沙盒认证环境     | `internal/agent/sandbox_backend.go`（注入 `STELLA_TOKEN`） |
 
 ## 未来改进
 

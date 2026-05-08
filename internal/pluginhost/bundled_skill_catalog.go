@@ -3,7 +3,7 @@ package pluginhost
 import (
 	"sort"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // DefaultCatalogBundledSkillSpecs loads the default plugin catalog into a

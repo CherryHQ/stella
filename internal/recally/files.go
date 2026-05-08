@@ -14,12 +14,12 @@ import (
 
 // FileManager handles reading and writing article files to disk.
 type FileManager struct {
-	annaHome string
+	stellaHome string
 }
 
 // NewFileManager creates a new FileManager instance.
-func NewFileManager(annaHome string) *FileManager {
-	return &FileManager{annaHome: annaHome}
+func NewFileManager(stellaHome string) *FileManager {
+	return &FileManager{stellaHome: stellaHome}
 }
 
 // ArticlePath generates the storage path for an article file.
@@ -28,7 +28,7 @@ func (fm *FileManager) ArticlePath(userID int64, articleID, title string, savedA
 	year := savedAt.UTC().Format("2006")
 	month := savedAt.UTC().Format("01")
 	day := savedAt.UTC().Format("02")
-	return filepath.Join(fm.annaHome, "library", fmt.Sprintf("%d", userID), "articles", year, month, fmt.Sprintf("%s-%s-%s.md", day, slug, articlePathID(articleID)))
+	return filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles", year, month, fmt.Sprintf("%s-%s-%s.md", day, slug, articlePathID(articleID)))
 }
 
 func articlePathID(articleID string) string {
@@ -38,9 +38,9 @@ func articlePathID(articleID string) string {
 	return articleID[:12]
 }
 
-// RelativePath returns a path relative to ANNA_HOME.
+// RelativePath returns a path relative to STELLA_HOME.
 func (fm *FileManager) RelativePath(absolutePath string) string {
-	rel, err := filepath.Rel(fm.annaHome, absolutePath)
+	rel, err := filepath.Rel(fm.stellaHome, absolutePath)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return absolutePath
 	}
@@ -165,8 +165,8 @@ func SplitFrontmatter(content string) (string, string) {
 }
 
 func (fm *FileManager) cleanupEmptyDirs(dir string) {
-	libraryRoot := filepath.Join(fm.annaHome, "library")
-	for dir != libraryRoot && dir != fm.annaHome && strings.HasPrefix(dir, libraryRoot) {
+	libraryRoot := filepath.Join(fm.stellaHome, "library")
+	for dir != libraryRoot && dir != fm.stellaHome && strings.HasPrefix(dir, libraryRoot) {
 		if err := os.Remove(dir); err != nil {
 			return
 		}
@@ -182,7 +182,7 @@ func (fm *FileManager) ArticleExists(path string) bool {
 
 // EnsureLibrary creates the library directory structure if it doesn't exist.
 func (fm *FileManager) EnsureLibrary(userID int64) error {
-	libraryPath := filepath.Join(fm.annaHome, "library", fmt.Sprintf("%d", userID), "articles")
+	libraryPath := filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles")
 	if err := os.MkdirAll(libraryPath, 0o755); err != nil {
 		return fmt.Errorf("create library: %w", err)
 	}
@@ -191,7 +191,7 @@ func (fm *FileManager) EnsureLibrary(userID int64) error {
 
 // ListArticles returns all article markdown files in a user's library.
 func (fm *FileManager) ListArticles(userID int64) ([]string, error) {
-	libraryPath := filepath.Join(fm.annaHome, "library", fmt.Sprintf("%d", userID), "articles")
+	libraryPath := filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles")
 	var files []string
 	err := filepath.Walk(libraryPath, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {

@@ -1,6 +1,6 @@
-# anna
+# stella
 
-You are working on **anna**, a Go CLI/service project. Act as an engineering collaborator: make small, complete, reviewable changes; protect user data; and preserve unrelated work.
+You are working on **stella**, a Go CLI/service project. Act as an engineering collaborator: make small, complete, reviewable changes; protect user data; and preserve unrelated work.
 
 ## Working principles
 
@@ -48,7 +48,7 @@ When behavior, APIs, config, commands, or architecture change:
 - Update `README.md` and/or `docs/content/docs/` as appropriate.
 - Keep `README.md` concise; put detailed explanations in `docs/content/docs/`.
 - Add new documentation pages to the relevant folder `meta.json`.
-- Keep `internal/agent/runner/builtin/anna/` synchronized with user-facing changes.
+- Keep `internal/agent/runner/builtin/stella/` synchronized with user-facing changes.
 - Documentation is maintained only in English and Chinese:
   - English: `*.md`, `*.mdx`
   - Chinese: `*.zh.md`, `*.zh.mdx`

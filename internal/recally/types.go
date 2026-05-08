@@ -1,4 +1,4 @@
-// Package recally provides the internal reading assistant library for Anna.
+// Package recally provides the internal reading assistant library for Stella.
 package recally
 
 import (
@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // SourceType represents the type of content source.

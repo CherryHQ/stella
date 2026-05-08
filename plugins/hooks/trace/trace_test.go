@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 func TestLoadConfig_Defaults(t *testing.T) {
@@ -16,8 +16,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.Enabled {
 		t.Error("expected Enabled=false when no endpoint set")
 	}
-	if cfg.ServiceName != "anna" {
-		t.Errorf("expected default service name 'anna', got %q", cfg.ServiceName)
+	if cfg.ServiceName != "stella" {
+		t.Errorf("expected default service name 'stella', got %q", cfg.ServiceName)
 	}
 	if cfg.SampleRate != 1.0 {
 		t.Errorf("expected SampleRate=1.0, got %f", cfg.SampleRate)

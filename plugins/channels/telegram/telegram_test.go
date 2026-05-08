@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 )

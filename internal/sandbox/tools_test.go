@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // stubHost is a minimal Host that satisfies the Session/Host interface for unit

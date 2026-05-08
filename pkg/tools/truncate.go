@@ -38,7 +38,7 @@ type TruncationResult struct {
 }
 
 func maxLines() int {
-	if v := os.Getenv("ANNA_TOOL_MAX_LINES"); v != "" {
+	if v := os.Getenv("STELLA_TOOL_MAX_LINES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
@@ -47,7 +47,7 @@ func maxLines() int {
 }
 
 func maxBytes() int {
-	if v := os.Getenv("ANNA_TOOL_MAX_BYTES"); v != "" {
+	if v := os.Getenv("STELLA_TOOL_MAX_BYTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
@@ -190,7 +190,7 @@ func saveTempFile(output string) string {
 		return ""
 	}
 
-	tmpFile, err := os.CreateTemp("", "anna-tool-*.txt")
+	tmpFile, err := os.CreateTemp("", "stella-tool-*.txt")
 	if err != nil {
 		return ""
 	}

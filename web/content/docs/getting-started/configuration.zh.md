@@ -2,9 +2,9 @@
 title: 配置
 ---
 
-所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.anna/anna.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `anna --open` 打开 Web 管理面板。
+所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.stella/stella.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `stella --open` 打开 Web 管理面板。
 
-主目录默认为 `~/.anna`，可以通过设置 `ANNA_HOME` 环境变量来更改。
+主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
 ## 数据库表
 
@@ -29,7 +29,7 @@ title: 配置
 
 | 列              | 类型    | 描述                                                                     |
 | --------------- | ------- | ------------------------------------------------------------------------ |
-| `id`            | TEXT    | Agent 标识（例如 `anna`）                                                |
+| `id`            | TEXT    | Agent 标识（例如 `stella`）                                                |
 | `name`          | TEXT    | 显示名称                                                                 |
 | `model`         | TEXT    | 默认模型，格式为 `provider/model`                                        |
 | `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model`                                    |
@@ -139,20 +139,20 @@ title: 配置
 
 | 路径                                         | 用途                                | 类别 |
 | -------------------------------------------- | ----------------------------------- | ---- |
-| `~/.anna/anna.db`                            | SQLite 数据库（配置、记忆、调度器） | 数据 |
-| `~/.anna/plugins/bundled/`                   | 捆绑的运行时插件清单                | 数据 |
-| `~/.anna/plugins/installed/`                 | 用户安装的运行时插件                | 数据 |
-| `~/.anna/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能               | 数据 |
-| `~/.anna/workspaces/{agent-id}/anna.log`     | 每个 agent 的日志文件               | 数据 |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                 | 数据 |
-| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                  | 数据 |
-| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                            | 数据 |
-| `~/.anna/cache/`                             | 模型缓存（可安全删除）              | 缓存 |
-| `~/.anna/cache/sandbox/`                     | 沙箱会话暂存/预检状态               | 缓存 |
+| `~/.stella/stella.db`                            | SQLite 数据库（配置、记忆、调度器） | 数据 |
+| `~/.stella/plugins/bundled/`                   | 捆绑的运行时插件清单                | 数据 |
+| `~/.stella/plugins/installed/`                 | 用户安装的运行时插件                | 数据 |
+| `~/.stella/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能               | 数据 |
+| `~/.stella/workspaces/{agent-id}/stella.log`     | 每个 agent 的日志文件               | 数据 |
+| `~/.stella/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                 | 数据 |
+| `~/.stella/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                  | 数据 |
+| `~/.stella/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                            | 数据 |
+| `~/.stella/cache/`                             | 模型缓存（可安全删除）              | 缓存 |
+| `~/.stella/cache/sandbox/`                     | 沙箱会话暂存/预检状态               | 缓存 |
 
-- **anna.db** 是所有配置、记忆和调度器数据的唯一真实来源。
+- **stella.db** 是所有配置、记忆和调度器数据的唯一真实来源。
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
-- **cache/** 包含可重新生成的数据。运行 `anna models update` 来重建。
+- **cache/** 包含可重新生成的数据。运行 `stella models update` 来重建。
 - **agent 沙箱配置**存储在每个 agent 记录（`settings_agents.sandbox`）上。管理面板可编辑网络策略；也可以直接在存储的 JSON 中设置 backend。
   - `backend`：`auto`（默认）、`boxsh` 或 `docker`
   - `network.mode`：`disabled`（默认）、`allow_all` 或 `whitelist`
@@ -160,10 +160,10 @@ title: 配置
   - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
   - `auto` 在 Linux/macOS 上选择 `boxsh`；在其他平台上失败关闭 —— 需显式配置 `docker`。
   - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
-  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 anna 二进制的版本锁定：开发构建使用本地 `anna-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/vaayne/anna-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
-  - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`anna`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 anna 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `ANNA_HOME_HOST` 环境变量 —— anna 会自动推导出路径转换。
+  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 stella 二进制的版本锁定：开发构建使用本地 `stella-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/vaayne/stella-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
+  - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`stella`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 stella 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `STELLA_HOME_HOST` 环境变量 —— stella 会自动推导出路径转换。
   - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
-  - Docker 将工作区根目录绑定挂载到 `/home/anna/workspace`，将每个只读路径挂载到 `/home/anna/readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
+  - Docker 将工作区根目录绑定挂载到 `/home/stella/workspace`，将每个只读路径挂载到 `/home/stella/readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
 
 docker 后端 agent `sandbox` 字段的 JSON 示例：
 
@@ -176,18 +176,18 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 
 ## 环境变量
 
-旧的 `ANNA_*` 前缀覆盖所有配置字段的方式已被移除。现在只识别以下环境变量：
+旧的 `STELLA_*` 前缀覆盖所有配置字段的方式已被移除。现在只识别以下环境变量：
 
 | 变量                 | 用途                                                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANNA_HOME`          | 覆盖主目录（默认为 `~/.anna`）                                                                                                                     |
-| `ANNA_HOME_HOST`     | 当 anna 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`ANNA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
+| `STELLA_HOME`          | 覆盖主目录（默认为 `~/.stella`）                                                                                                                     |
+| `STELLA_HOME_HOST`     | 当 stella 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`STELLA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
 | `ANTHROPIC_API_KEY`  | Anthropic 提供商的备用 API 密钥                                                                                                                    |
 | `ANTHROPIC_BASE_URL` | Anthropic 提供商的备用基础 URL                                                                                                                     |
 | `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                       |
 | `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                        |
 
-所有其他配置必须通过管理面板（`anna --open`）或直接在数据库中设置。
+所有其他配置必须通过管理面板（`stella --open`）或直接在数据库中设置。
 
 ## 记忆默认设置
 
@@ -201,7 +201,7 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 
 ## 心跳
 
-心跳仅在 `anna` 守护进程中运行。配置存储在 `settings` 表中，键为 `heartbeat`。每次心跳首先使用快速模型决定 `skip` 还是 `run`，只有 `run` 决策会被发送到主心跳会话，然后通过通知器发送。指令从 agent 的 `HEARTBEAT.md` 文件中读取。
+心跳仅在 `stella` 守护进程中运行。配置存储在 `settings` 表中，键为 `heartbeat`。每次心跳首先使用快速模型决定 `skip` 还是 `run`，只有 `run` 决策会被发送到主心跳会话，然后通过通知器发送。指令从 agent 的 `HEARTBEAT.md` 文件中读取。
 
 ## 插件
 
@@ -231,4 +231,4 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 }
 ```
 
-这些绑定控制哪个运行时插件 ID 处理每个内置工具或通道槽。如果某个槽没有显式覆盖，anna 将回退到该槽的捆绑第一方插件。使用 `anna plugin runtime list` 检查有效绑定，使用 `anna plugin runtime bind ...` 更改它们。
+这些绑定控制哪个运行时插件 ID 处理每个内置工具或通道槽。如果某个槽没有显式覆盖，stella 将回退到该槽的捆绑第一方插件。使用 `stella plugin runtime list` 检查有效绑定，使用 `stella plugin runtime bind ...` 更改它们。

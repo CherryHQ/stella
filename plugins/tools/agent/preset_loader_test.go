@@ -319,19 +319,19 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	cwd := t.TempDir()
 	agentRoot := t.TempDir()
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
-	annaHome := t.TempDir()
+	stellaHome := t.TempDir()
 
 	mkdirAll(t, filepath.Join(cwd, ".agents", "agents"), 0o755)
 	mkdirAll(t, filepath.Join(agentRoot, "agents"), 0o755)
 	mkdirAll(t, filepath.Join(userRoot, ".agents", "agents"), 0o755)
-	mkdirAll(t, filepath.Join(annaHome, "agents"), 0o755)
+	mkdirAll(t, filepath.Join(stellaHome, "agents"), 0o755)
 
 	preset := func(name, desc string) []byte {
 		return []byte("---\nname: " + name + "\ndescription: " + desc + "\n---\nBody.")
 	}
 
-	writeTestFile(t, filepath.Join(annaHome, "agents", "anna-only.md"), preset("anna-only", "From anna"), 0o644)
-	writeTestFile(t, filepath.Join(annaHome, "agents", "overlap.md"), preset("overlap", "Anna loses"), 0o644)
+	writeTestFile(t, filepath.Join(stellaHome, "agents", "stella-only.md"), preset("stella-only", "From stella"), 0o644)
+	writeTestFile(t, filepath.Join(stellaHome, "agents", "overlap.md"), preset("overlap", "Stella loses"), 0o644)
 
 	writeTestFile(t, filepath.Join(agentRoot, "agents", "agent-only.md"), preset("agent-only", "From agent root"), 0o644)
 	writeTestFile(t, filepath.Join(agentRoot, "agents", "overlap.md"), preset("overlap", "Agent loses"), 0o644)
@@ -342,7 +342,7 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadAgentPresets(context.Background(), annaHome, agentRoot, userRoot, cwd)
+	presets := loadAgentPresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
 	if len(presets) != 5 {
 		t.Fatalf("expected 5 presets, got %d", len(presets))
 	}
@@ -351,8 +351,8 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	for _, p := range presets {
 		byName[p.Name] = p
 	}
-	if byName["anna-only"].Source != "anna" {
-		t.Errorf("anna-only Source = %q", byName["anna-only"].Source)
+	if byName["stella-only"].Source != "stella" {
+		t.Errorf("stella-only Source = %q", byName["stella-only"].Source)
 	}
 	if byName["agent-only"].Source != "agent" {
 		t.Errorf("agent-only Source = %q", byName["agent-only"].Source)
@@ -379,7 +379,7 @@ func TestLoadAgentPresets_publicWrapper(t *testing.T) {
 	writeTestFile(t, filepath.Join(agentsDir, "helper.md"),
 		[]byte("---\nname: helper\ndescription: A helper agent\n---\nHelp the user."), 0o644)
 
-	presets := LoadAgentPresets(LoadAgentPresetsConfig{AnnaHome: dir})
+	presets := LoadAgentPresets(LoadAgentPresetsConfig{StellaHome: dir})
 	if len(presets) != 1 {
 		t.Fatalf("expected 1 preset, got %d", len(presets))
 	}
@@ -406,7 +406,7 @@ func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "agents", "test.md"),
 		[]byte("---\nname: test\ndescription: Test agent\n---\nBody."), 0o644)
 
-	// Pass the same dir as both annaHome and agentRoot; both scan agents/ so dedup fires.
+	// Pass the same dir as both stellaHome and agentRoot; both scan agents/ so dedup fires.
 	presets := loadAgentPresets(context.Background(), dir, dir, "", "")
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))

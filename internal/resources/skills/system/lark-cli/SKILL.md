@@ -1,12 +1,12 @@
 ---
 description: |
-    Lark/Feishu CLI skills for Anna sessions. Covers workspace operations — calendar,
-    docs, tasks, mail, and messenger — via the lark-cli tool. In Anna, lark-cli runs
-    under an env-var auth model with binaries resolved from $ANNA_HOME/bin: LARKSUITE_CLI_USER_ACCESS_TOKEN,
+    Lark/Feishu CLI skills for Stella sessions. Covers workspace operations — calendar,
+    docs, tasks, mail, and messenger — via the lark-cli tool. In Stella, lark-cli runs
+    under an env-var auth model with binaries resolved from $STELLA_HOME/bin: LARKSUITE_CLI_USER_ACCESS_TOKEN,
     LARKSUITE_CLI_APP_ID, and LARKSUITE_CLI_BRAND are injected at session start;
     no manual config init or auth login is
     needed. Always read lark-shared first for identity selection (--as user vs --as
-    bot), scope / permission-denied handling, token refresh, and the Anna-specific
+    bot), scope / permission-denied handling, token refresh, and the Stella-specific
     rules that override upstream documentation.
 metadata:
     generated: true
@@ -22,19 +22,19 @@ tags:
 
 # Lark
 
-This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and adapted for Anna sessions.
+This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and adapted for Stella sessions.
 
-**Anna auth model** — `lark-cli` runs directly from Anna-managed `$ANNA_HOME/bin` with `LARKSUITE_CLI_USER_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID`, and `LARKSUITE_CLI_BRAND` injected at startup. Do not run `lark-cli config init` or `lark-cli auth login` unless the user explicitly wants a standalone local setup outside Anna.
+**Stella auth model** — `lark-cli` runs directly from Stella-managed `$STELLA_HOME/bin` with `LARKSUITE_CLI_USER_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID`, and `LARKSUITE_CLI_BRAND` injected at startup. Do not run `lark-cli config init` or `lark-cli auth login` unless the user explicitly wants a standalone local setup outside Stella.
 
-**Identity** — default to `--as user` for personal resources (calendar, docs, tasks, mail). `--as bot` requires manual app configuration outside Anna and cannot see user-private resources.
+**Identity** — default to `--as user` for personal resources (calendar, docs, tasks, mail). `--as bot` requires manual app configuration outside Stella and cannot see user-private resources.
 
-**Token expiry** — user access tokens expire after ~2 hours. Anna proactively refreshes them within 10 minutes of expiry. If a token expires mid-session, use the `oauth` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect; Anna restarts the sandbox automatically on the next message.
+**Token expiry** — user access tokens expire after ~2 hours. Stella proactively refreshes them within 10 minutes of expiry. If a token expires mid-session, use the `oauth` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect; Stella restarts the sandbox automatically on the next message.
 
 ## Modules
 
 | Module | Description | Reference |
 | --- | --- | --- |
-| lark-shared | 飞书/Lark CLI 共享基础（Anna 适配版）：说明 Anna 会话中的 `$ANNA_HOME/bin` + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。 | [references/lark-shared.md](./references/lark-shared.md) |
+| lark-shared | 飞书/Lark CLI 共享基础（Stella 适配版）：说明 Stella 会话中的 `$STELLA_HOME/bin` + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。 | [references/lark-shared.md](./references/lark-shared.md) |
 | lark-approval | 飞书审批 API：审批实例、审批任务管理。 | [references/lark-approval.md](./references/lark-approval.md) |
 | lark-attendance | 飞书考勤打卡：查询自己的考勤打卡记录 | [references/lark-attendance.md](./references/lark-attendance.md) |
 | lark-base | 当需要用 lark-cli 操作飞书多维表格（Base）时调用：适用于建表、字段管理、记录读写、记录分享链接、视图配置、历史查询，以及角色/表单/仪表盘管理/工作流；也适用于把旧的 +table / +field / +record 写法改成当前命令写法。涉及字段设计、公式字段、查找引用、跨表计算、行级派生指标、数据分析需求时也必须使用本 skill。 | [references/lark-base.md](./references/lark-base.md) |

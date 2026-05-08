@@ -13,18 +13,18 @@ import (
 	mobyclient "github.com/moby/moby/client"
 )
 
-// CleanupOrphanedContainers force-removes anna-labeled containers whose owning
+// CleanupOrphanedContainers force-removes stella-labeled containers whose owning
 // process is clearly gone:
 //   - dead-state containers (exited, dead, created) are always removed
 //   - running / paused containers are removed only when their owner_pid label
 //     points to a process that no longer exists on this host — this keeps
-//     peer anna processes with live sessions safe from another anna startup
+//     peer stella processes with live sessions safe from another stella startup
 //   - transitional states (restarting, …) fall back to an age cutoff so
 //     truly-hung containers eventually clear
 //
 // Best-effort: errors are logged, not returned.
-func CleanupOrphanedContainers(ctx context.Context, c *Client, annaHome string) {
-	filters := mobyclient.Filters{}.Add("label", LabelAnnaHome+"="+annaHome)
+func CleanupOrphanedContainers(ctx context.Context, c *Client, stellaHome string) {
+	filters := mobyclient.Filters{}.Add("label", LabelStellaHome+"="+stellaHome)
 
 	list, err := c.api.ContainerList(ctx, mobyclient.ContainerListOptions{
 		All:     true,
@@ -75,7 +75,7 @@ func cleanupContainer(ctx context.Context, c *Client, id string) {
 
 // isContainerStale reports whether a labelled container should be force-removed
 // during startup cleanup. Age alone never triggers removal of a running or
-// paused container — that would race with peer anna processes — so live states
+// paused container — that would race with peer stella processes — so live states
 // are gated on whether the recorded owner PID is still a live process.
 func isContainerStale(status, ownerPID, createdAt string) bool {
 	switch status {
@@ -85,7 +85,7 @@ func isContainerStale(status, ownerPID, createdAt string) bool {
 		return ownerProcessGone(ownerPID)
 	}
 	// restarting, removing, or unknown: fall back to age so truly-hung
-	// transitional containers eventually clear. Peer anna processes that
+	// transitional containers eventually clear. Peer stella processes that
 	// are actively running sit in "running" above, not here.
 	if createdAt == "" {
 		return false

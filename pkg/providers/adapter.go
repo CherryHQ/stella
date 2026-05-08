@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // ProviderAdapter defines the provider adapter contract.

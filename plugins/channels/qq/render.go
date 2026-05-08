@@ -1,8 +1,8 @@
 package qq
 
 import (
+	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/pkg/channel"
 )
 
 // sendFinalResponse sends the completed response, splitting into chunks

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
@@ -102,7 +102,7 @@ func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromp
 			continue
 		}
 		owner := ownerPlugin(skill.Metadata)
-		if owner == "" || skill.Name == "anna" {
+		if owner == "" || skill.Name == "stella" {
 			out = append(out, skill)
 			continue
 		}

@@ -11,8 +11,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/CherryHQ/stella/pkg/httpclient"
 	"github.com/go-resty/resty/v2"
-	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 const (
@@ -68,7 +68,7 @@ To fix this:
 4. Retry the install`
 
 func newClawhubClient() *resty.Client {
-	client := httpclient.New().SetHeader("User-Agent", "anna")
+	client := httpclient.New().SetHeader("User-Agent", "stella")
 	if token := clawhubToken(); token != "" {
 		client.SetAuthToken(token)
 	}

@@ -1,9 +1,9 @@
 package openairesponse
 
 import (
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/pkg/ai"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) responses.ResponseNewParams {

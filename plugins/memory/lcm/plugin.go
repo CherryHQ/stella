@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func init() {

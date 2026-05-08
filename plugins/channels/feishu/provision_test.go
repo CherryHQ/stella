@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // mockProvisioner records ProvisionUser calls.

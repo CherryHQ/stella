@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestEnsureAnnaCLIInPathReplacesSymlink(t *testing.T) {
-	// Build a fake annaHome with bin/ containing a symlink where the binary should go.
+func TestEnsureStellaCLIInPathReplacesSymlink(t *testing.T) {
+	// Build a fake stellaHome with bin/ containing a symlink where the binary should go.
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -15,17 +15,17 @@ func TestEnsureAnnaCLIInPathReplacesSymlink(t *testing.T) {
 	}
 
 	// Place a symlink at the destination to confirm it gets replaced by a regular file.
-	target := filepath.Join(dir, "old-anna")
+	target := filepath.Join(dir, "old-stella")
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dest := filepath.Join(binDir, "anna")
+	dest := filepath.Join(binDir, "stella")
 	if err := os.Symlink(target, dest); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := EnsureAnnaCLIInPath(dir); err != nil {
-		t.Fatalf("EnsureAnnaCLIInPath: %v", err)
+	if err := EnsureStellaCLIInPath(dir); err != nil {
+		t.Fatalf("EnsureStellaCLIInPath: %v", err)
 	}
 
 	info, err := os.Lstat(dest)

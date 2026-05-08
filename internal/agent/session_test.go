@@ -13,19 +13,19 @@ func TestBuildSessionKey(t *testing.T) {
 	}{
 		{
 			name:           "private DM",
-			agentID:        "anna",
+			agentID:        "stella",
 			platform:       "tg",
 			externalUserID: "123456",
 			channelContext: "private",
-			want:           "anna:tg:123456:private",
+			want:           "stella:tg:123456:private",
 		},
 		{
 			name:           "group chat",
-			agentID:        "anna",
+			agentID:        "stella",
 			platform:       "tg",
 			externalUserID: "123456",
 			channelContext: "group:-987654",
-			want:           "anna:tg:123456:group:-987654",
+			want:           "stella:tg:123456:group:-987654",
 		},
 		{
 			name:           "different agent",
@@ -37,11 +37,11 @@ func TestBuildSessionKey(t *testing.T) {
 		},
 		{
 			name:           "CLI platform",
-			agentID:        "anna",
+			agentID:        "stella",
 			platform:       "cli",
 			externalUserID: "local",
 			channelContext: "default",
-			want:           "anna:cli:local:default",
+			want:           "stella:cli:local:default",
 		},
 	}
 	for _, tt := range tests {
@@ -55,7 +55,7 @@ func TestBuildSessionKey(t *testing.T) {
 }
 
 func TestBuildSessionKeyDifferentAgentsDifferentKeys(t *testing.T) {
-	key1 := BuildSessionKey("anna", "tg", "123", "private")
+	key1 := BuildSessionKey("stella", "tg", "123", "private")
 	key2 := BuildSessionKey("coder", "tg", "123", "private")
 	if key1 == key2 {
 		t.Error("different agents should produce different session keys")
@@ -72,10 +72,10 @@ func TestBuildUserSessionKey(t *testing.T) {
 	}{
 		{
 			name:           "linked user private",
-			agentID:        "anna",
+			agentID:        "stella",
 			authUserID:     42,
 			channelContext: "private",
-			want:           "anna:user:42:private",
+			want:           "stella:user:42:private",
 		},
 		{
 			name:           "different agent",
@@ -97,8 +97,8 @@ func TestBuildUserSessionKey(t *testing.T) {
 
 func TestLinkedUserSessionKeySharedAcrossChannels(t *testing.T) {
 	// Same auth user on different platforms should get the same session key.
-	keyTG := BuildUserSessionKey("anna", 42, "private")
-	keyQQ := BuildUserSessionKey("anna", 42, "private")
+	keyTG := BuildUserSessionKey("stella", 42, "private")
+	keyQQ := BuildUserSessionKey("stella", 42, "private")
 	if keyTG != keyQQ {
 		t.Errorf("linked user keys should match across platforms: %q != %q", keyTG, keyQQ)
 	}

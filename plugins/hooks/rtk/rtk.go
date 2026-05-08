@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/hooks"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func init() {

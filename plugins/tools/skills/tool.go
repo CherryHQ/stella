@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 var skillsInputSchema = func() map[string]any {
@@ -75,16 +75,16 @@ var skillsInputSchema = func() map[string]any {
 
 type Tool struct {
 	store         pkgplugins.SkillStore
-	annaHome      string
+	stellaHome    string
 	agentRoot     string
 	projectRoot   string
 	userSkillsDir string
 }
 
-func NewTool(store pkgplugins.SkillStore, annaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
+func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
 	return &Tool{
 		store:         store,
-		annaHome:      annaHome,
+		stellaHome:    stellaHome,
 		agentRoot:     agentRoot,
 		projectRoot:   projectRoot,
 		userSkillsDir: userSkillsDir,

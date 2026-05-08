@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 // toolCallbacks emits progress events around tool execution.

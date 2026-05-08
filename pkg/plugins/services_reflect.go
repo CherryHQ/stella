@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 const (

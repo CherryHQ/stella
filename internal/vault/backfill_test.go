@@ -7,9 +7,9 @@ import (
 
 	"filippo.io/age"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestBackfillUserKeys(t *testing.T) {

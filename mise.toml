@@ -7,7 +7,7 @@ go = "1.25"
 "github:sqlc-dev/sqlc" = "1.29.0"
 
 [env]
-BINARY_NAME = "anna"
+BINARY_NAME = "stella"
 LOG_LEVEL = "trace"
 
 # ============================================================================
@@ -15,9 +15,9 @@ LOG_LEVEL = "trace"
 # ============================================================================
 
 [tasks.build]
-description = "Build anna binary"
+description = "Build stella binary"
 depends = ["generate", "deps:sync"]
-run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/vaayne/anna/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
+run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/stella"
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -36,9 +36,9 @@ run = "pnpm install && pnpm openapi-ts"
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
 run = """
-yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "anna API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
+yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
-  > /tmp/anna-components.yaml && mv /tmp/anna-components.yaml api/spec/components.yaml
+  > /tmp/stella-components.yaml && mv /tmp/stella-components.yaml api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
 go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
@@ -49,18 +49,18 @@ go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
 # ============================================================================
 
 [tasks.dev]
-description = "Start anna server (web + api)"
+description = "Start stella server (web + api)"
 depends = ["dev:ui", "dev:api"]
 
 [tasks."dev:ui"]
-description = "Start anna webui"
+description = "Start stella webui"
 dir = "web"
 run = 'vp dev'
 
 [tasks."dev:api"]
-description = "Start anna API server"
+description = "Start stella API server"
 depends = ["build"]
-run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME'
+run = 'STELLA_HOME="$HOME/.stella-dev" ./bin/$BINARY_NAME'
 
 # ============================================================================
 # Code Quality
@@ -140,10 +140,10 @@ run = "goreleaser build --snapshot --single-target --clean"
 
 [tasks."docker:build"]
 description = "Build Docker image"
-run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; if [ -n \"${GITHUB_TOKEN:-}\" ]; then docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t anna:latest .; else docker build --build-arg VERSION=$VERSION -t anna:latest .; fi"
+run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; if [ -n \"${GITHUB_TOKEN:-}\" ]; then docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t stella:latest .; else docker build --build-arg VERSION=$VERSION -t stella:latest .; fi"
 
 [tasks."sandbox:docker:build"]
-description = "Build local anna-sandbox:dev image (used by the docker sandbox backend in dev builds)"
+description = "Build local stella-sandbox:dev image (used by the docker sandbox backend in dev builds)"
 run = """
   DIR=plugins/sandbox/docker
   UID_ARG=$(id -u)
@@ -156,34 +156,34 @@ run = """
       --build-arg USER_GID=$GID_ARG \
       --build-arg VERSION=$VERSION_ARG \
       -f "$DIR/Dockerfile" \
-      -t anna-sandbox:dev .
+      -t stella-sandbox:dev .
   else
     DOCKER_BUILDKIT=1 docker build \
       --build-arg USER_UID=$UID_ARG \
       --build-arg USER_GID=$GID_ARG \
       --build-arg VERSION=$VERSION_ARG \
       -f "$DIR/Dockerfile" \
-      -t anna-sandbox:dev .
+      -t stella-sandbox:dev .
   fi
 """
 
 [tasks."docker:dev"]
-description = "Run local Docker image with ANNA_HOME in ~/.anna-dev"
+description = "Run local Docker image with STELLA_HOME in ~/.stella-dev"
 run = """
-    docker image inspect anna:latest >/dev/null 2>&1 || { echo 'anna:latest not found; run mise run docker:build first' >&2; exit 1; }
-    mkdir -p \"$HOME/.anna-dev\"
-    docker rm -f anna-dev >/dev/null 2>&1 || true
-    docker run -d --name anna-dev -p 25678:25678 \
+    docker image inspect stella:latest >/dev/null 2>&1 || { echo 'stella:latest not found; run mise run docker:build first' >&2; exit 1; }
+    mkdir -p \"$HOME/.stella-dev\"
+    docker rm -f stella-dev >/dev/null 2>&1 || true
+    docker run -d --name stella-dev -p 25678:25678 \
         --user 0:0 \
         --security-opt seccomp=unconfined \
-        -v "$HOME/.anna-dev:/workspace" \
+        -v "$HOME/.stella-dev:/workspace" \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -e "ANNA_HOME=/workspace" \
-        -e "ANNA_HOME_HOST=$HOME/.anna-dev" \
+        -e "STELLA_HOME=/workspace" \
+        -e "STELLA_HOME_HOST=$HOME/.stella-dev" \
         -e "HOST=0.0.0.0" \
-        anna:latest
-    echo 'anna-dev started'
-    echo 'logs: docker logs -f anna-dev'
-    echo 'stop: docker stop anna-dev'
-    docker logs -f anna-dev
+        stella:latest
+    echo 'stella-dev started'
+    echo 'logs: docker logs -f stella-dev'
+    echo 'stop: docker stop stella-dev'
+    docker logs -f stella-dev
 """

@@ -4,7 +4,7 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Stella 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
 
 ## 目的
 
@@ -39,7 +39,7 @@ title: 沙箱后端抽象
 
 ### Docker（推荐）
 
-Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守护进程必须正在运行且可访问。Anna 在会话创建时连接 Docker 守护进程，如果不可用则拒绝失败：
+Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守护进程必须正在运行且可访问。Stella 在会话创建时连接 Docker 守护进程，如果不可用则拒绝失败：
 
 - Docker 守护进程缺失或无法访问 → 会话创建失败，runner 不启动
 - 不支持的策略 → `PolicyCompatibilityError`，runner 不启动
@@ -59,7 +59,7 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 | 文件系统 + 网络隔离   | Linux     | `bwrap`（必需）— 最小可用 Linux 根环境，`/workspace` 读写，`/tmp`/`/var/tmp`/`/dev/shm` 为可写 tmpfs，选定的运行时/工具目录和 DNS 解析配置只读挂载；网络模式为 `disabled` 时附加 `--unshare-net` |
 | 无额外本地隔离        | macOS     | 命令直接在宿主机 OS 上运行；不强制执行文件系统和网络策略                                                                                                                                         |
 
-本地后端在 Linux 上采用**拒绝失败**策略：`bwrap`（bubblewrap）为必需项。若 bwrap 不存在或不可用（例如在未启用 `--privileged` 的 Docker 容器内），会话创建失败并返回包含操作建议的错误信息。不存在回退到仅 `unshare` 或无隔离执行的降级路径。本地沙箱进程不会继承完整宿主机环境；Anna 只注入 runner 管理的会话变量以及少量语言环境/终端/代理允许列表。macOS 当前不再附加额外沙箱工具。
+本地后端在 Linux 上采用**拒绝失败**策略：`bwrap`（bubblewrap）为必需项。若 bwrap 不存在或不可用（例如在未启用 `--privileged` 的 Docker 容器内），会话创建失败并返回包含操作建议的错误信息。不存在回退到仅 `unshare` 或无隔离执行的降级路径。本地沙箱进程不会继承完整宿主机环境；Stella 只注入 runner 管理的会话变量以及少量语言环境/终端/代理允许列表。macOS 当前不再附加额外沙箱工具。
 
 #### 安装依赖
 
@@ -151,7 +151,7 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 
 ## 拒绝失败行为
 
-Anna 优先选择显式拒绝而非静默降级：
+Stella 优先选择显式拒绝而非静默降级：
 
 - 会话创建时 Docker 不可用 → runner 启动失败
 - 不支持的策略 → `PolicyCompatibilityError`，runner 启动失败

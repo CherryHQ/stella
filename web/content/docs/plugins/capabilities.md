@@ -1,6 +1,6 @@
 ---
 title: Capabilities
-description: Reference for every capability type in Anna's plugin system.
+description: Reference for every capability type in Stella's plugin system.
 ---
 
 ## Capability Reference
@@ -50,7 +50,7 @@ Use `ToolContext` when building:
 - `Paths`
   - `UserRoot`
   - `ToolsBinDir`
-  - `AnnaHome`
+  - `StellaHome`
   - `AgentRoot`
   - `ProjectRoot`
 - `Runtime`

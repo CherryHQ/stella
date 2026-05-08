@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/vault"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 // handleConfig processes the /config KEY VALUE command. It is the only

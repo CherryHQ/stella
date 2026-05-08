@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
-	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Anna.", PromptTools: []pkgplugins.PromptToolInfo{{Name: "mcp__github__searchrepos", Description: "Search repositories", Metadata: map[string]any{"server_name": "github"}}}})
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Stella.", PromptTools: []pkgplugins.PromptToolInfo{{Name: "mcp__github__searchrepos", Description: "Search repositories", Metadata: map[string]any{"server_name": "github"}}}})
 	if !strings.Contains(prompt, "`skills`: Load, search, install, list, remove, create, and update local skills") {
 		t.Fatalf("expected builtin skills tool in prompt: %s", prompt)
 	}
@@ -25,7 +25,7 @@ func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
 }
 
 func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
-	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Anna."})
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Stella."})
 	if !strings.Contains(prompt, "`skills`: Load, search, install, list, remove, create, and update local skills") {
 		t.Fatalf("expected builtin skills tool in prompt: %s", prompt)
 	}
@@ -36,7 +36,7 @@ func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
 
 func TestBuildSystemPromptIncludesPromptSections(t *testing.T) {
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-		SystemPrompt: "You are Anna.",
+		SystemPrompt: "You are Stella.",
 		PromptSections: []pkgplugins.SystemPromptSection{
 			{Title: "Skills", Content: "<available_skills>\n  <skill>demo</skill>\n</available_skills>"},
 		},

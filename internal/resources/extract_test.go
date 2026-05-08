@@ -13,8 +13,8 @@ func TestExtractSkills(t *testing.T) {
 	if err := ExtractSkills(dir); err != nil {
 		t.Fatalf("ExtractSkills: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "system", "anna", "SKILL.md")); err != nil {
-		t.Fatalf("system/anna/SKILL.md missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "system", "stella", "SKILL.md")); err != nil {
+		t.Fatalf("system/stella/SKILL.md missing: %v", err)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestEnsureBuiltinSkills_Idempotent(t *testing.T) {
 		t.Fatalf("first call: %v", err)
 	}
 	// Mutate the extracted file to verify Ensure doesn't re-extract.
-	target := filepath.Join(dir, "system", "anna", "SKILL.md")
+	target := filepath.Join(dir, "system", "stella", "SKILL.md")
 	if err := os.WriteFile(target, []byte("sentinel"), 0o644); err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestExtractSkillsNestedRoots(t *testing.T) {
 
 func TestExtractSkillsReplacesStaleEntries(t *testing.T) {
 	dir := t.TempDir()
-	stale := filepath.Join(dir, "system", "anna", "stale.md")
+	stale := filepath.Join(dir, "system", "stella", "stale.md")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -95,12 +95,12 @@ func TestExtractSkillsReplacesStaleEntries(t *testing.T) {
 	}
 }
 
-func TestSubFSContainsAnna(t *testing.T) {
+func TestSubFSContainsStella(t *testing.T) {
 	sub, ok := SubFS(KindSkill)
 	if !ok {
 		t.Fatal("skill SubFS not available")
 	}
-	if _, err := fs.Stat(sub, "system/anna"); err != nil {
-		t.Fatalf("system/anna dir not found: %v", err)
+	if _, err := fs.Stat(sub, "system/stella"); err != nil {
+		t.Fatalf("system/stella dir not found: %v", err)
 	}
 }

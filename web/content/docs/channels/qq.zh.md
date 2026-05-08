@@ -2,20 +2,20 @@
 title: QQ 机器人
 ---
 
-anna 包含一个通过 WebSocket 连接的 QQ 机器人（持久连接，无需公网 URL）。
+stella 包含一个通过 WebSocket 连接的 QQ 机器人（持久连接，无需公网 URL）。
 
 ## 设置
 
 1. 在 [QQ 开放平台](https://q.qq.com/) 注册一个 QQ 机器人并获取你的 AppID 和 AppSecret
-2. 运行 `anna --open` 启动管理面板
+2. 运行 `stella --open` 启动管理面板
 3. 在管理面板中：添加一个 AI 提供商，然后使用你的 AppID 和 AppSecret 配置 QQ 频道
 4. 启动网关：
 
 ```bash
-anna
+stella
 ```
 
-所有频道配置（凭据、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `ANNA_HOME`。
+所有频道配置（凭据、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
@@ -81,7 +81,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过 `anna --open` 管理面板管理。
+以下所有设置都通过 `stella --open` 管理面板管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |

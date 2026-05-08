@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // assembler builds context for the model within a token budget.

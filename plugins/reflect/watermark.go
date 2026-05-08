@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // watermarkStore tracks review progress per session.

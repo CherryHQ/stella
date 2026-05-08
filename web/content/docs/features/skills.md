@@ -6,7 +6,7 @@ title: Skills
 
 Skills are reusable playbooks — markdown files that tell the agent how to perform a specific task. They are loaded on demand during a conversation and can be installed from external registries or created locally.
 
-Anna supports three skill scopes:
+Stella supports three skill scopes:
 
 | Scope       | Location                         | Who can write   |
 | ----------- | -------------------------------- | --------------- |
@@ -37,7 +37,7 @@ skills action=install source="clawhub:<slug>@<version>"
    /config CLAWHUB_TOKEN <your-token>
    ```
 
-Anna also automatically falls back to the CN mirror (`cn.clawhub-mirror.com`) on 429, so most users never need a token.
+Stella also automatically falls back to the CN mirror (`cn.clawhub-mirror.com`) on 429, so most users never need a token.
 
 **Environment variables**
 

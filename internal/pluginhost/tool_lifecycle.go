@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCallContext) (pkgplugins.BeforeToolCallResult, error) {

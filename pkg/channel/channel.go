@@ -7,7 +7,7 @@ package channel
 import (
 	"context"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // Platform identifiers for each messaging channel.

@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"time"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	apitypes "github.com/vaayne/anna/api/types"
-	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 const adminDBTimeLayout = "2006-01-02 15:04:05"

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // compactionEngine runs leaf and condensed compaction passes.
@@ -188,7 +188,7 @@ func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 // compactMessageRun creates a leaf summary from a message run.
 func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, run messageRun, result *memory.CompactionResult) error {
 	// Load source messages before opening a transaction. The summarizer may call
-	// back into the database to resolve model/provider settings, and Anna's SQLite
+	// back into the database to resolve model/provider settings, and Stella's SQLite
 	// handle intentionally uses a single connection. Holding a transaction while
 	// waiting for the LLM would self-deadlock the summarizer until the context
 	// deadline expires.
@@ -382,7 +382,7 @@ func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64
 // condenseSummaryRun creates a condensed summary from a run of summary context items.
 func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *memory.CompactionResult) error {
 	// Load summaries from cache before opening a transaction; see
-	// compactMessageRun for why LLM work must not happen while holding Anna's
+	// compactMessageRun for why LLM work must not happen while holding Stella's
 	// single SQLite connection in a transaction.
 	var summaries []sqlc.CtxSummary
 	var textParts []string

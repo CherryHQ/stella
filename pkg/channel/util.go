@@ -7,13 +7,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // WelcomeMessage is the shared welcome/help text for all channels.
 // It explains both slash commands and natural-language shortcuts for
 // channels without slash-command menus (like SMS or simple webhooks).
-const WelcomeMessage = `Hi! I'm Anna — your local AI assistant.
+const WelcomeMessage = `Hi! I'm Stella — your local AI assistant.
 
 You can chat normally or use slash commands.
 Some agents/channels also support a few short natural-language controls.
@@ -34,7 +34,7 @@ Other commands
   /agent     List or switch agents
   /whoami    Show your user ID
 
-If a short phrase is unclear, Anna treats it as a normal chat message.
+If a short phrase is unclear, Stella treats it as a normal chat message.
 Just send a message to get started.`
 
 // SplitMessage splits text into chunks that fit within maxLen.

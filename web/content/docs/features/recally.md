@@ -4,9 +4,9 @@ title: Recally - Reading Assistant
 
 ## Overview
 
-Recally is Anna's reading assistant — a system for saving, organizing, and recalling web content. It lets you build a personal library of articles, papers, tweets, videos, and any other URL-based content you encounter across conversations.
+Recally is Stella's reading assistant — a system for saving, organizing, and recalling web content. It lets you build a personal library of articles, papers, tweets, videos, and any other URL-based content you encounter across conversations.
 
-Unlike simple bookmarks, Recally stores full article content as markdown files with structured metadata (title, summary, tags, author, source type), indexes everything for fast search, and integrates with Anna's agent system so you can ask questions about your saved content later.
+Unlike simple bookmarks, Recally stores full article content as markdown files with structured metadata (title, summary, tags, author, source type), indexes everything for fast search, and integrates with Stella's agent system so you can ask questions about your saved content later.
 
 ## Key Features
 
@@ -19,7 +19,7 @@ Unlike simple bookmarks, Recally stores full article content as markdown files w
 
 ## Architecture
 
-The recally CLI is a thin REST client. The running anna server (`anna serve`)
+The recally CLI is a thin REST client. The running stella server (`stella serve`)
 is the only process that touches the recally database and the markdown library
 on disk; CLI, web UI, and SDK consumers all talk HTTP.
 
@@ -30,26 +30,26 @@ User sends URL → Agent loads recally skill
     v
 Agent summarizes + extracts metadata
     |
-    | anna recally save --url ... --title ... --summary ...
+    | stella recally save --url ... --title ... --summary ...
     v
-CLI builds JSON request → POST /api/recally/articles  (Authorization: Bearer ANNA_TOKEN)
+CLI builds JSON request → POST /api/recally/articles  (Authorization: Bearer STELLA_TOKEN)
     |
     v
-anna server: writes markdown file + DB index row
+stella server: writes markdown file + DB index row
     |
     v
-Library: $ANNA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
+Library: $STELLA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
 ```
 
 ### Prerequisites
 
-Before running any `anna recally …` command:
+Before running any `stella recally …` command:
 
-1. The anna server must be running (`anna serve`) on the same host or reachable
+1. The stella server must be running (`stella serve`) on the same host or reachable
    over HTTP.
-2. Set `ANNA_TOKEN` to a token issued by your account (the server requires
-   `ANNA_VAULT_KEY` for token-based auth to be available).
-3. Optional: set `ANNA_SERVER_URL` to point the CLI at a remote server. Default
+2. Set `STELLA_TOKEN` to a token issued by your account (the server requires
+   `STELLA_VAULT_KEY` for token-based auth to be available).
+3. Optional: set `STELLA_SERVER_URL` to point the CLI at a remote server. Default
    is `http://127.0.0.1:25678`.
 
 The CLI never opens the SQLite database directly — that responsibility belongs
@@ -57,7 +57,7 @@ exclusively to the server.
 
 ### REST API
 
-The full contract lives in [`api/recally.openapi.yaml`](https://github.com/vaayne/anna/blob/main/api/recally.openapi.yaml).
+The full contract lives in [`api/recally.openapi.yaml`](https://github.com/CherryHQ/stella/blob/main/api/recally.openapi.yaml).
 Resources:
 
 - `GET/POST /api/recally/articles` — list/search/upsert
@@ -77,7 +77,7 @@ To regenerate the server interface and client after editing the spec, run
 Articles are stored in an agent-independent, user-scoped library:
 
 ```
-$ANNA_HOME/
+$STELLA_HOME/
 ├── library/
 │   └── {userID}/
 │       └── articles/
@@ -103,7 +103,7 @@ The database stores only an index row with URL, title, summary, tags, status, an
 | `youtube` | Metadata + transcript         | `tap fetch`              |
 | `github`  | Repo info, issues, PRs        | `gh` + `tap fetch`       |
 | `pdf`     | Text extraction               | `kreuzberg extract`      |
-| `rss`     | Feed polling → entries → save | `anna recally feed poll` |
+| `rss`     | Feed polling → entries → save | `stella recally feed poll` |
 
 ## CLI Reference
 
@@ -112,7 +112,7 @@ The database stores only an index row with URL, title, summary, tags, status, an
 #### Save an article
 
 ```bash
-anna recally save --url <url> \
+stella recally save --url <url> \
   --title "Article Title" \
   --summary "Brief summary" \
   --tags "go,concurrency" \
@@ -136,7 +136,7 @@ Output: JSON with `id`, `file_path`, and `created` (false if article was updated
 #### List articles
 
 ```bash
-anna recally list [--status unread] [--starred] [--json]
+stella recally list [--status unread] [--starred] [--json]
 ```
 
 Filters:
@@ -150,7 +150,7 @@ Filters:
 #### Search articles
 
 ```bash
-anna recally search "concurrency patterns" [--limit 20] [--json]
+stella recally search "concurrency patterns" [--limit 20] [--json]
 ```
 
 Searches title, summary, tags, and author using LIKE-based matching (FTS5 deferred to future phase).
@@ -158,7 +158,7 @@ Searches title, summary, tags, and author using LIKE-based matching (FTS5 deferr
 #### Read an article
 
 ```bash
-anna recally read <article-id>
+stella recally read <article-id>
 ```
 
 Outputs the full markdown content to stdout.
@@ -166,7 +166,7 @@ Outputs the full markdown content to stdout.
 #### Update an article
 
 ```bash
-anna recally update <article-id> --status read --starred
+stella recally update <article-id> --status read --starred
 ```
 
 Updates metadata. Also rewrites the file frontmatter if the file exists.
@@ -179,7 +179,7 @@ Updates metadata. Also rewrites the file frontmatter if the file exists.
 #### Delete an article
 
 ```bash
-anna recally delete <article-id>
+stella recally delete <article-id>
 ```
 
 Removes from DB and deletes the file.
@@ -189,7 +189,7 @@ Removes from DB and deletes the file.
 #### Add a feed
 
 ```bash
-anna recally feed add <feed-url>
+stella recally feed add <feed-url>
 ```
 
 Fetches feed metadata and subscribes. Creates entries for existing items as `pending`.
@@ -197,7 +197,7 @@ Fetches feed metadata and subscribes. Creates entries for existing items as `pen
 #### List feeds
 
 ```bash
-anna recally feed list [--json]
+stella recally feed list [--json]
 ```
 
 Shows subscribed feeds with last check time and check interval.
@@ -205,7 +205,7 @@ Shows subscribed feeds with last check time and check interval.
 #### Remove a feed
 
 ```bash
-anna recally feed remove <feed-id>
+stella recally feed remove <feed-id>
 ```
 
 Unsubscribes and removes all entries.
@@ -213,7 +213,7 @@ Unsubscribes and removes all entries.
 #### Poll feeds
 
 ```bash
-anna recally feed poll [<feed-id>] [--limit 20] [--json]
+stella recally feed poll [<feed-id>] [--limit 20] [--json]
 ```
 
 Polls feed(s) for new entries. Without `feed-id`, polls all enabled feeds. Returns pending and retryable entries (status `pending` or `error` with attempts < 3).
@@ -223,9 +223,9 @@ Output includes `feed_id`, `new_entries` count, and `pending` array of entries t
 #### Mark an entry
 
 ```bash
-anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
-anna recally feed mark <feed-id> <entry-id> --status skipped
-anna recally feed mark <feed-id> <entry-id> --status error --error "timeout fetching"
+stella recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
+stella recally feed mark <feed-id> <entry-id> --status skipped
+stella recally feed mark <feed-id> <entry-id> --status error --error "timeout fetching"
 ```
 
 Updates entry status. Auto-increments `attempts` and sets `processed_at`.
@@ -237,7 +237,7 @@ Updates entry status. Auto-increments `attempts` and sets `processed_at`.
 ### Digest Command
 
 ```bash
-anna recally digest [--json]
+stella recally digest [--json]
 ```
 
 Outputs a structured JSON summary:
@@ -249,9 +249,9 @@ Outputs a structured JSON summary:
 
 ## Authentication
 
-The CLI authenticates with `ANNA_TOKEN` for all operations. Agent sandbox sessions receive this token automatically, and Recally resolves the user from the authenticated token.
+The CLI authenticates with `STELLA_TOKEN` for all operations. Agent sandbox sessions receive this token automatically, and Recally resolves the user from the authenticated token.
 
-For direct CLI usage outside Anna, provide a valid `ANNA_TOKEN` in the environment.
+For direct CLI usage outside Stella, provide a valid `STELLA_TOKEN` in the environment.
 
 ## Skill Usage
 
@@ -273,14 +273,14 @@ The skill includes:
 
 ## RSS Scheduling
 
-Recally integrates with Anna's scheduler for automatic RSS polling. The skill instructs the agent to create a scheduled job when the user first subscribes to a feed:
+Recally integrates with Stella's scheduler for automatic RSS polling. The skill instructs the agent to create a scheduled job when the user first subscribes to a feed:
 
 ```
 Scheduler action: add
 Name: recally-rss
 Schedule: every 1h
 Session mode: reuse
-Message: Load recally skill. Run anna recally feed poll to check for new RSS entries, then process each pending entry following the recally skill RSS workflow.
+Message: Load recally skill. Run stella recally feed poll to check for new RSS entries, then process each pending entry following the recally skill RSS workflow.
 ```
 
 For daily digests, the agent can create:
@@ -290,7 +290,7 @@ Scheduler action: add
 Name: recally-digest
 Schedule: cron 0 8 * * *
 Session mode: reuse
-Message: Load recally skill. Run anna recally digest and compose a friendly daily reading summary for the user following the recally skill digest format.
+Message: Load recally skill. Run stella recally digest and compose a friendly daily reading summary for the user following the recally skill digest format.
 ```
 
 ## Article Lifecycle
@@ -321,9 +321,9 @@ The agent can pass `--canonical-url` if it discovered a better canonical during 
 
 The agent accesses saved content through a two-step flow:
 
-1. **Search metadata** (`anna recally search`): Fast LIKE-based search over title, summary, tags, author. Returns lightweight index rows.
+1. **Search metadata** (`stella recally search`): Fast LIKE-based search over title, summary, tags, author. Returns lightweight index rows.
 
-2. **Read full content** (`anna recally read`): Once the agent identifies relevant articles, it reads the full markdown file to answer specific questions.
+2. **Read full content** (`stella recally read`): Once the agent identifies relevant articles, it reads the full markdown file to answer specific questions.
 
 This keeps search fast while preserving full content for deep queries.
 
@@ -331,7 +331,7 @@ This keeps search fast while preserving full content for deep queries.
 
 | Component         | Location                                                   |
 | ----------------- | ---------------------------------------------------------- |
-| CLI command       | `cmd/anna/recally.go`                                      |
+| CLI command       | `cmd/stella/recally.go`                                      |
 | Store layer       | `internal/recally/store.go`                                |
 | File manager      | `internal/recally/files.go`                                |
 | URL normalization | `internal/recally/urlnorm.go`                              |
@@ -341,7 +341,7 @@ This keeps search fast while preserving full content for deep queries.
 | DB schema (RSS)   | `internal/db/schemas/tables/rss_feeds.sql`                 |
 | DB queries        | `internal/db/queries/articles.sql`                         |
 | DB queries (RSS)  | `internal/db/queries/rss_feeds.sql`                        |
-| Sandbox auth env  | `internal/agent/sandbox_backend.go` (injects `ANNA_TOKEN`) |
+| Sandbox auth env  | `internal/agent/sandbox_backend.go` (injects `STELLA_TOKEN`) |
 
 ## Future Improvements
 

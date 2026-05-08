@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"path"
 
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/pluginhost"
-	builtinres "github.com/vaayne/anna/internal/resources"
-	"github.com/vaayne/anna/internal/skills"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	builtinres "github.com/CherryHQ/stella/internal/resources"
+	"github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
 
 // findSkillByID linear-scans ListAll. The store has no Get(ctx, id) yet —

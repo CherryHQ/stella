@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // Registry stores providers by API name.

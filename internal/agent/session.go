@@ -3,7 +3,7 @@ package agent
 import (
 	"fmt"
 
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // CompactionConfig controls automatic session compaction.

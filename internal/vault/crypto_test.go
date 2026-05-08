@@ -5,7 +5,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/internal/vault"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 func TestParsesMasterIdentity(t *testing.T) {

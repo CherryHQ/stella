@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // runnerPaths keeps only the runner's primary inputs.
 // Everything else used by the runner is derived from these values.
 type runnerPaths struct {
-	AnnaHome    string
+	StellaHome  string
 	AgentRoot   string
 	UserRoot    string
 	ProjectRoot string
@@ -20,9 +20,9 @@ type runnerPaths struct {
 // Sandbox execution is defined entirely by the user-scoped writable root and an
 // internal working directory derived from that root.
 type sandboxPaths struct {
-	AnnaHome string
-	UserRoot string
-	WorkDir  string
+	StellaHome string
+	UserRoot   string
+	WorkDir    string
 }
 
 // resolveRunnerPaths converts GoRunnerConfig into the minimal path set the
@@ -31,7 +31,7 @@ type sandboxPaths struct {
 func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	paths, _ := resolveSandboxPaths(cfg)
 	return runnerPaths{
-		AnnaHome:    paths.AnnaHome,
+		StellaHome:  paths.StellaHome,
 		AgentRoot:   cfg.AgentRoot,
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: cfg.ProjectRoot,
@@ -43,9 +43,9 @@ func resolveSandboxWorkingDir(cfg GoRunnerConfig, userRoot string) string {
 }
 
 func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
+	stellaHome := cfg.StellaHome
+	if stellaHome == "" {
+		stellaHome = config.StellaHome()
 	}
 	if cfg.UserRoot == "" {
 		return sandboxPaths{}, fmt.Errorf("user_root is required")
@@ -58,9 +58,9 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 	workDir := resolveSandboxWorkingDir(cfg, userRoot)
 
 	return sandboxPaths{
-		AnnaHome: annaHome,
-		UserRoot: userRoot,
-		WorkDir:  workDir,
+		StellaHome: stellaHome,
+		UserRoot:   userRoot,
+		WorkDir:    workDir,
 	}, nil
 }
 
@@ -70,12 +70,12 @@ func resolveToolsBinDir(_ runnerPaths, _ string) string {
 	return ""
 }
 
-func (p runnerPaths) annaSkillsDir() string {
-	return filepath.Join(p.AnnaHome, "skills")
+func (p runnerPaths) stellaSkillsDir() string {
+	return filepath.Join(p.StellaHome, "skills")
 }
 
-func (p runnerPaths) annaAgentsDir() string {
-	return filepath.Join(p.AnnaHome, "agents")
+func (p runnerPaths) stellaAgentsDir() string {
+	return filepath.Join(p.StellaHome, "agents")
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into
@@ -86,8 +86,8 @@ func (p runnerPaths) annaAgentsDir() string {
 // bind-mount path.
 func sandboxProcessEnv(paths sandboxPaths) map[string]string {
 	env := map[string]string{}
-	if paths.AnnaHome != "" {
-		env["ANNA_HOME"] = paths.AnnaHome
+	if paths.StellaHome != "" {
+		env["STELLA_HOME"] = paths.StellaHome
 	}
 	return env
 }

@@ -3,7 +3,7 @@ package reflect
 import (
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestCountMutations_SkipsFailedToolCalls(t *testing.T) {

@@ -65,7 +65,7 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           <div>
             <p className="text-sm font-medium">Tool definition</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Saved to <code className="font-mono">$ANNA_HOME/plugins.yaml</code>; binaries sync
+              Saved to <code className="font-mono">$STELLA_HOME/plugins.yaml</code>; binaries sync
               after save.
             </p>
           </div>

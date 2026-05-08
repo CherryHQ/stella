@@ -3,7 +3,7 @@ package openairesponse
 import (
 	"testing"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestConvertMessagesEmpty(t *testing.T) {

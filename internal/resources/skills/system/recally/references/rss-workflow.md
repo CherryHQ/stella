@@ -3,7 +3,7 @@
 ## 1. Poll Feeds
 
 ```bash
-anna recally feed poll --limit 20 --json
+stella recally feed poll --limit 20 --json
 ```
 
 Returns an array of feed results, each with a `new_entries` array of pending entries.
@@ -14,17 +14,17 @@ Use the `agent` tool to spawn one sub-agent per pending entry. Each sub-agent in
 
 **On success:**
 ```bash
-anna recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
+stella recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
 ```
 
 **On failure:**
 ```bash
-anna recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
+stella recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
 ```
 
 **To skip** (duplicate, off-topic, paywalled):
 ```bash
-anna recally feed mark <feed-id> <entry-id> --status skipped
+stella recally feed mark <feed-id> <entry-id> --status skipped
 ```
 
 Each sub-agent is self-contained — on failure it marks its own entry as error and exits without affecting others. Wait for all sub-agents to finish before counting results.

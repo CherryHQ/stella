@@ -17,14 +17,14 @@ import (
 )
 
 // miseToolsDir returns the MISE_DATA_DIR path for isolated mise installs.
-func miseToolsDir(annaHome string) string {
-	return filepath.Join(annaHome, ".mise-tools")
+func miseToolsDir(stellaHome string) string {
+	return filepath.Join(stellaHome, ".mise-tools")
 }
 
-// findMiseBin returns the path to the mise binary. It prefers the Anna-managed
-// binary in $ANNA_HOME/bin, then falls back to mise on PATH.
-func findMiseBin(annaHome string) (string, error) {
-	local := filepath.Join(annaHome, "bin", runtimeBinaryName("mise"))
+// findMiseBin returns the path to the mise binary. It prefers the Stella-managed
+// binary in $STELLA_HOME/bin, then falls back to mise on PATH.
+func findMiseBin(stellaHome string) (string, error) {
+	local := filepath.Join(stellaHome, "bin", runtimeBinaryName("mise"))
 	if _, err := os.Stat(local); err == nil {
 		return local, nil
 	}
@@ -34,8 +34,8 @@ func findMiseBin(annaHome string) (string, error) {
 	return "", fmt.Errorf("mise not found at %s or on PATH", local)
 }
 
-func bootstrapMise(_ context.Context, annaHome string) error {
-	_, err := findMiseBin(annaHome)
+func bootstrapMise(_ context.Context, stellaHome string) error {
+	_, err := findMiseBin(stellaHome)
 	return err
 }
 
@@ -64,8 +64,8 @@ var misePassthroughEnv = []string{
 	"GH_TOKEN",
 }
 
-func isolatedMiseEnv(annaHome string) ([]string, error) {
-	dataDir := miseToolsDir(annaHome)
+func isolatedMiseEnv(stellaHome string) ([]string, error) {
+	dataDir := miseToolsDir(stellaHome)
 	paths := map[string]string{
 		"MISE_DATA_DIR":   dataDir,
 		"MISE_CONFIG_DIR": filepath.Join(dataDir, "config"),
@@ -254,14 +254,14 @@ func generateMiseTOML(b ManifestBinary) (string, error) {
 }
 
 // installBinaryWithMise installs a single binary via mise's github backend and
-// copies the resulting binary to $ANNA_HOME/bin/.
-func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome string) (string, error) {
-	miseBin, err := findMiseBin(annaHome)
+// copies the resulting binary to $STELLA_HOME/bin/.
+func installBinaryWithMise(ctx context.Context, b ManifestBinary, stellaHome string) (string, error) {
+	miseBin, err := findMiseBin(stellaHome)
 	if err != nil {
 		return "", err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "anna-mise-*")
+	tmpDir, err := os.MkdirTemp("", "stella-mise-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}
@@ -276,7 +276,7 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("write mise.toml: %w", err)
 	}
 
-	env, err := isolatedMiseEnv(annaHome)
+	env, err := isolatedMiseEnv(stellaHome)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +292,7 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	}
 
 	// Run mise install for only the manifest tool. Avoid installing any global or
-	// inherited mise config that may be visible to the Anna process.
+	// inherited mise config that may be visible to the Stella process.
 	toolKey := b.miseToolKey()
 	stderr.Reset()
 	installCmd := managedCommandContext(ctx, miseBin, "install", toolKey)
@@ -342,12 +342,12 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	}
 	version := strings.TrimSpace(stdout.String())
 
-	// Always install as b.Name in $ANNA_HOME/bin/ regardless of exe alias.
+	// Always install as b.Name in $STELLA_HOME/bin/ regardless of exe alias.
 	dstName := b.Name
 	if runtime.GOOS == "windows" {
 		dstName += ".exe"
 	}
-	binDir := filepath.Join(annaHome, "bin")
+	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("create bin dir: %w", err)
 	}

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/memory"
-	"github.com/vaayne/anna/plugins/memory/simple"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/plugins/memory/simple"
 )
 
 func newTestDB(t *testing.T) (*simple.Provider, func()) {

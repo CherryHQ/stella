@@ -1,24 +1,24 @@
 ---
-title: anna
+title: stella
 description: 永不遗忘的 AI 助手
 icon: Bot
 ---
 
 import { Cards, Card } from "@/components/docs/mdx-components";
 
-anna 是一个自托管的 AI 助手，具备无损上下文管理能力。原生 Go 二进制文件调用 LLM 提供商，提供终端 TUI 和多平台机器人网关（Telegram、QQ、飞书、微信）。开箱即用支持多代理和多用户。内置调度器、心跳监控和跨渠道通知。
+stella 是一个自托管的 AI 助手，具备无损上下文管理能力。原生 Go 二进制文件调用 LLM 提供商，提供终端 TUI 和多平台机器人网关（Telegram、QQ、飞书、微信）。开箱即用支持多代理和多用户。内置调度器、心跳监控和跨渠道通知。
 
 ## 快速开始
 
 ```bash
 # 安装
-go install github.com/vaayne/anna@latest
+go install github.com/CherryHQ/stella@latest
 
 # 交互式设置（打开 Web UI）
-anna --open
+stella --open
 
 # 启动守护进程（机器人 + 调度器）
-anna
+stella
 ```
 
 ## 探索
@@ -40,7 +40,7 @@ anna
   <Card title="渠道" description="Telegram、QQ、飞书、微信机器人" href="/docs/channels/telegram" />
   <Card
     title="插件"
-    description="使用 JavaScript 插件扩展 anna"
+    description="使用 JavaScript 插件扩展 stella"
     href="/docs/features/plugin-system"
   />
   <Card

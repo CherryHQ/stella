@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	apiserver "github.com/vaayne/anna/api/server"
+	apiserver "github.com/CherryHQ/stella/api/server"
 )
 
 func ptr(s string) *string { return &s }

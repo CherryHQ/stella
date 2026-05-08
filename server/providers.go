@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/providers"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {

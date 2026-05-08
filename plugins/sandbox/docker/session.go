@@ -15,18 +15,18 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 // workspaceMount matches the path pre-created in the bundled Dockerfile
-// (plugins/sandbox/docker/Dockerfile) under the anna user's HOME so mise
+// (plugins/sandbox/docker/Dockerfile) under the stella user's HOME so mise
 // activate, $PATH, and $HOME all line up.
-const workspaceMount = "/home/anna/workspace"
+const workspaceMount = "/home/stella/workspace"
 
-// annaHomeMount is the in-container root used for the host ANNA_HOME assets
+// stellaHomeMount is the in-container root used for the host STELLA_HOME assets
 // that sandbox sessions need. Only selected subdirectories are bind-mounted.
-const annaHomeMount = "/home/anna/.anna"
+const stellaHomeMount = "/home/stella/.stella"
 
 func nextSessionID() string { return sandboxpkg.NewSessionID() }
 
@@ -108,11 +108,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		return nil, fmt.Errorf("docker session: client: %w", err)
 	}
 
-	// Label with the daemon-view ANNA_HOME so orphan cleanup scopes to this
-	// host installation. Under DooD two anna instances may share an in-container
-	// ANNA_HOME path while living in different host directories; labeling with
+	// Label with the daemon-view STELLA_HOME so orphan cleanup scopes to this
+	// host installation. Under DooD two stella instances may share an in-container
+	// STELLA_HOME path while living in different host directories; labeling with
 	// the daemon-view path keeps their container sets disjoint.
-	annaHome := f.cfg.TranslateToDaemonPath(policy.Env["ANNA_HOME"])
+	stellaHome := f.cfg.TranslateToDaemonPath(policy.Env["STELLA_HOME"])
 
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
@@ -121,19 +121,19 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		NetworkMode:    networkMode,
 		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
-			dockerclient.LabelSessionID: sessionID,
-			dockerclient.LabelAnnaHome:  annaHome,
-			dockerclient.LabelCreatedAt: time.Now().UTC().Format(time.RFC3339),
-			dockerclient.LabelOwnerPID:  strconv.Itoa(os.Getpid()),
+			dockerclient.LabelSessionID:  sessionID,
+			dockerclient.LabelStellaHome: stellaHome,
+			dockerclient.LabelCreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			dockerclient.LabelOwnerPID:   strconv.Itoa(os.Getpid()),
 		},
-		Name: "anna-sandbox-" + sessionID,
+		Name: "stella-sandbox-" + sessionID,
 	}
 
-	if annaHome != "" {
+	if stellaHome != "" {
 		opts.ReadOnlyMounts = []dockerclient.Mount{
 			{
-				HostPath:      filepath.Join(annaHome, "skills"),
-				ContainerPath: filepath.Join(annaHomeMount, "skills"),
+				HostPath:      filepath.Join(stellaHome, "skills"),
+				ContainerPath: filepath.Join(stellaHomeMount, "skills"),
 				ReadOnly:      true,
 			},
 		}
@@ -164,11 +164,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	span.AddEvent("sandbox.docker.session.ready", trace.WithAttributes(
-		attribute.String("anna.sandbox.container_id", containerID),
+		attribute.String("stella.sandbox.container_id", containerID),
 	))
 
-	// Build mount table for the workspace plus mounted ANNA_HOME assets.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["ANNA_HOME"], annaHomeMount)
+	// Build mount table for the workspace plus mounted STELLA_HOME assets.
+	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["STELLA_HOME"], stellaHomeMount)
 
 	session := &dockerSession{
 		id:           sessionID,
@@ -199,7 +199,7 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 }
 
 // buildMountTable returns the bind mount set that toContainerPath should consult.
-func buildMountTable(workspaceHost, workspaceMount, annaHomeHost, annaHomeContainer string) []dockerclient.Mount {
+func buildMountTable(workspaceHost, workspaceMount, stellaHomeHost, stellaHomeContainer string) []dockerclient.Mount {
 	mounts := []dockerclient.Mount{
 		{
 			HostPath:      workspaceHost,
@@ -207,16 +207,16 @@ func buildMountTable(workspaceHost, workspaceMount, annaHomeHost, annaHomeContai
 			ReadOnly:      false,
 		},
 	}
-	if annaHomeHost != "" && annaHomeContainer != "" {
+	if stellaHomeHost != "" && stellaHomeContainer != "" {
 		mounts = append(mounts,
 			dockerclient.Mount{
-				HostPath:      annaHomeHost,
-				ContainerPath: annaHomeContainer,
+				HostPath:      stellaHomeHost,
+				ContainerPath: stellaHomeContainer,
 				ReadOnly:      true,
 			},
 			dockerclient.Mount{
-				HostPath:      filepath.Join(annaHomeHost, "skills"),
-				ContainerPath: filepath.Join(annaHomeContainer, "skills"),
+				HostPath:      filepath.Join(stellaHomeHost, "skills"),
+				ContainerPath: filepath.Join(stellaHomeContainer, "skills"),
 				ReadOnly:      true,
 			},
 		)
@@ -233,15 +233,15 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 	return out
 }
 
-// hostOnlyEnvKeys are variables that callers build from the anna process view
+// hostOnlyEnvKeys are variables that callers build from the stella process view
 // and would mislead or break tools inside the container. They are dropped
 // before exec so the image's baked values (ENV PATH, HOME, …) take effect.
-//   - PATH: callers prepend anna-managed tool dirs (fd/rg/mise/tap shims) that
-//     live on the anna host filesystem. Those paths don't exist in the
+//   - PATH: callers prepend stella-managed tool dirs (fd/rg/mise/tap shims) that
+//     live on the stella host filesystem. Those paths don't exist in the
 //     container, and passing them overrides the image's ENV PATH that points
-//     at /home/anna/.local/share/mise/shims et al.
-//   - HOME: the container's image-baked HOME (/home/anna) is the right value.
-//     The anna host HOME would point at a dir that isn't mounted.
+//     at /home/stella/.local/share/mise/shims et al.
+//   - HOME: the container's image-baked HOME (/home/stella) is the right value.
+//     The stella host HOME would point at a dir that isn't mounted.
 var hostOnlyEnvKeys = map[string]struct{}{
 	"PATH": {},
 	"HOME": {},
@@ -277,10 +277,10 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 // It is used as the base when building a container exec PATH that prepends
 // container-native user tool cache paths. Keep in sync with the ENV PATH line
 // in plugins/sandbox/docker/Dockerfile.
-const containerDefaultPATH = "/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const containerDefaultPATH = "/home/stella/.local/bin:/home/stella/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // injectToolPaths prepends container-native user tool directories to PATH.
-// Built-in tools come from the image-baked PATH; host $ANNA_HOME/bin is never
+// Built-in tools come from the image-baked PATH; host $STELLA_HOME/bin is never
 // used for docker executable resolution because it may contain host-platform
 // binaries.
 func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
@@ -345,7 +345,7 @@ func (s *dockerSession) endTrace(reason string, err error) {
 			return
 		}
 		s.traceSpan.AddEvent("sandbox.docker.session.closed", trace.WithAttributes(
-			attribute.String("anna.sandbox.close_reason", reason),
+			attribute.String("stella.sandbox.close_reason", reason),
 		))
 		recordError(s.traceSpan, err)
 		s.traceSpan.End()

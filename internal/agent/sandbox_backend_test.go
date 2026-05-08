@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -84,9 +84,9 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1",
+		StellaHome: "/stella",
+		AgentRoot:  "/workspace/agent",
+		UserRoot:   "/workspace/agent/users/1",
 	}
 
 	paths, err := resolveSandboxPaths(cfg)
@@ -97,20 +97,20 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	if _, ok := env["HOME"]; ok {
 		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
-	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
+		t.Fatalf("STELLA_HOME = %q, want %q", got, cfg.StellaHome)
 	}
 }
 
 func TestCopyLocalHostEnvAllowlist(t *testing.T) {
-	t.Setenv("ANNA_TEST_SECRET", "must-not-leak")
+	t.Setenv("STELLA_TEST_SECRET", "must-not-leak")
 	t.Setenv("LANG", "C.UTF-8")
 	t.Setenv("HTTPS_PROXY", "http://proxy.example:8080")
 
 	env := map[string]string{}
 	copyLocalHostEnv(env)
 
-	if _, ok := env["ANNA_TEST_SECRET"]; ok {
+	if _, ok := env["STELLA_TEST_SECRET"]; ok {
 		t.Fatal("local sandbox env copied non-allowlisted host variable")
 	}
 	if got := env["LANG"]; got != "C.UTF-8" {
@@ -122,9 +122,9 @@ func TestCopyLocalHostEnvAllowlist(t *testing.T) {
 }
 
 func TestLocalSandboxPathAllowed(t *testing.T) {
-	annaBin := "/home/me/.anna/bin"
+	stellaBin := "/home/me/.stella/bin"
 	for _, entry := range []string{
-		annaBin,
+		stellaBin,
 		"/usr/bin",
 		"/usr/local/bin",
 		"/bin",
@@ -132,12 +132,12 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 		"/nix/store/abc/bin",
 		"/run/current-system/sw/bin",
 	} {
-		if !localSandboxPathAllowed(entry, annaBin) {
+		if !localSandboxPathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be allowed", entry)
 		}
 	}
 	for _, entry := range []string{"", "/home/me/bin", "/tmp/bin", "/binary"} {
-		if localSandboxPathAllowed(entry, annaBin) {
+		if localSandboxPathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be rejected", entry)
 		}
 	}
@@ -173,7 +173,7 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 // routes to createDockerSession and fails with a docker-related error when the daemon
 // is unreachable.
 func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
-	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/stella-test-docker.sock")
 	t.Setenv("DOCKER_TLS_VERIFY", "")
 	t.Setenv("DOCKER_CERT_PATH", "")
 
@@ -218,18 +218,18 @@ func TestRunnerSessionNilHandling(t *testing.T) {
 }
 
 // TestBuildSandboxEnv_vaultSecretsInjected verifies that vault secrets appear
-// in the sandbox env and that runner-set vars (ANNA_HOME) take precedence over
+// in the sandbox env and that runner-set vars (STELLA_HOME) take precedence over
 // any same-named vault entry.
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/users/1",
-		UserID:    42,
+		StellaHome: "/stella",
+		AgentRoot:  "/workspace/agent",
+		UserRoot:   "/workspace/users/1",
+		UserID:     42,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
-				"MY_SECRET": "s3cr3t",
-				"ANNA_HOME": "should-be-overridden", // runner var must win
+				"MY_SECRET":   "s3cr3t",
+				"STELLA_HOME": "should-be-overridden", // runner var must win
 			},
 		},
 	}
@@ -249,9 +249,9 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 		t.Errorf("MY_SECRET = %q, want %q", got, "s3cr3t")
 	}
 
-	// Runner var (ANNA_HOME) must override any same-named vault entry.
-	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-		t.Errorf("ANNA_HOME = %q, want %q (runner var must take precedence)", got, cfg.AnnaHome)
+	// Runner var (STELLA_HOME) must override any same-named vault entry.
+	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
+		t.Errorf("STELLA_HOME = %q, want %q (runner var must take precedence)", got, cfg.StellaHome)
 	}
 }
 
@@ -259,9 +259,9 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 // correctly (returns runner env vars) when no vault loader is configured.
 func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/users/1",
+		StellaHome: "/stella",
+		AgentRoot:  "/workspace/agent",
+		UserRoot:   "/workspace/users/1",
 	}
 
 	paths, err := resolveSandboxPaths(cfg)
@@ -274,8 +274,8 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
 
-	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-		t.Errorf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
+		t.Errorf("STELLA_HOME = %q, want %q", got, cfg.StellaHome)
 	}
 }
 
@@ -284,10 +284,10 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 // present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/users/1",
-		UserID:    1,
+		StellaHome: "/stella",
+		AgentRoot:  "/workspace/agent",
+		UserRoot:   "/workspace/users/1",
+		UserID:     1,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
@@ -359,7 +359,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	}
 
 	cfg := GoRunnerConfig{
-		AnnaHome:       "/anna",
+		StellaHome:     "/stella",
 		AgentRoot:      "/workspace/agent",
 		UserRoot:       "/workspace/users/1",
 		UserID:         userID,
@@ -424,7 +424,7 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	}
 
 	cfg := GoRunnerConfig{
-		AnnaHome:       "/anna",
+		StellaHome:     "/stella",
 		AgentRoot:      "/workspace/agent",
 		UserRoot:       "/workspace/users/1",
 		UserID:         userID,

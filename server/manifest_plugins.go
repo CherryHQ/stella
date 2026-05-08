@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,7 +20,7 @@ func loadMergedManifest() (*manifestplugins.Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	user, err := manifestplugins.LoadUser(filepath.Join(config.AnnaHome(), "plugins.yaml"))
+	user, err := manifestplugins.LoadUser(filepath.Join(config.StellaHome(), "plugins.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	path := filepath.Join(config.AnnaHome(), "plugins.yaml")
+	path := filepath.Join(config.StellaHome(), "plugins.yaml")
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -82,7 +82,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload manifest plugin hooks", "error", err)
 		}
 	}
-	_ = manifestplugins.Reconcile(r.Context(), merged, config.AnnaHome())
+	_ = manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())
 	writeData(w, http.StatusOK, merged.Plugins)
 }
 
@@ -95,7 +95,7 @@ func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	result := manifestplugins.Reconcile(r.Context(), merged, config.AnnaHome())
+	result := manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())
 	writeData(w, http.StatusOK, result)
 }
 

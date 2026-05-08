@@ -15,16 +15,16 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/vaayne/anna/internal/config"
-	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	"github.com/vaayne/anna/internal/manifestplugins"
-	"github.com/vaayne/anna/internal/sandbox"
-	internaltools "github.com/vaayne/anna/internal/tools"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
-	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
-	noneplugin "github.com/vaayne/anna/plugins/sandbox/none"
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/sandbox"
+	internaltools "github.com/CherryHQ/stella/internal/tools"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
+	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -131,7 +131,7 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 
 // buildSandboxEnv constructs the Policy.Env map for a sandbox session.
 // Vault secrets (if any) are used as the base so that runner-set variables
-// (e.g. ANNA_HOME) always take precedence over user-defined secrets.
+// (e.g. STELLA_HOME) always take precedence over user-defined secrets.
 func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths) (map[string]string, error) {
 	env := make(map[string]string)
 
@@ -270,15 +270,15 @@ func localSandboxHome(workDir string) string {
 	return workDir
 }
 
-func localSandboxPath(annaHome string) string {
-	annaBin := internaltools.BinDir(annaHome)
+func localSandboxPath(stellaHome string) string {
+	stellaBin := internaltools.BinDir(stellaHome)
 	if runtime.GOOS != "linux" {
-		return prependPathEntry(annaBin, os.Getenv("PATH"))
+		return prependPathEntry(stellaBin, os.Getenv("PATH"))
 	}
 
-	entries := []string{annaBin}
+	entries := []string{stellaBin}
 	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
-		if localSandboxPathAllowed(entry, annaBin) {
+		if localSandboxPathAllowed(entry, stellaBin) {
 			entries = append(entries, entry)
 		}
 	}
@@ -294,11 +294,11 @@ func localSandboxPath(annaHome string) string {
 	return strings.Join(dedupePathEntries(entries), string(os.PathListSeparator))
 }
 
-func localSandboxPathAllowed(entry, annaBin string) bool {
+func localSandboxPathAllowed(entry, stellaBin string) bool {
 	if entry == "" {
 		return false
 	}
-	if annaBin != "" && entry == annaBin {
+	if stellaBin != "" && entry == stellaBin {
 		return true
 	}
 	for _, root := range []string{"/usr", "/bin", "/sbin", "/nix", "/run/current-system/sw"} {
@@ -340,10 +340,10 @@ func copyLocalHostEnv(env map[string]string) {
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
-			attribute.String("anna.sandbox.backend", config.SandboxBackendDocker),
-			attribute.String("anna.sandbox.agent_root", cfg.AgentRoot),
-			attribute.String("anna.sandbox.user_root", cfg.UserRoot),
-			attribute.String("anna.sandbox.project_root", cfg.ProjectRoot),
+			attribute.String("stella.sandbox.backend", config.SandboxBackendDocker),
+			attribute.String("stella.sandbox.agent_root", cfg.AgentRoot),
+			attribute.String("stella.sandbox.user_root", cfg.UserRoot),
+			attribute.String("stella.sandbox.project_root", cfg.ProjectRoot),
 		),
 	)
 	defer span.End()
@@ -370,9 +370,9 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 	}
 
 	span.SetAttributes(
-		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
-		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
-		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
+		attribute.String("stella.sandbox.resolved_user_root", paths.UserRoot),
+		attribute.String("stella.sandbox.work_dir", paths.WorkDir),
+		attribute.String("stella.sandbox.network.mode", cfg.Sandbox.Network.Mode),
 	)
 
 	slog.Info("creating docker session",
@@ -387,7 +387,7 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	userTools, err := resolveDockerUserToolBinaries(paths.AnnaHome)
+	userTools, err := resolveDockerUserToolBinaries(paths.StellaHome)
 	if err != nil {
 		err = fmt.Errorf("resolve docker user tools: %w", err)
 		recordSandboxError(span, err)
@@ -423,7 +423,7 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	if err != nil {
 		return nil, err
 	}
-	env["PATH"] = localSandboxPath(paths.AnnaHome)
+	env["PATH"] = localSandboxPath(paths.StellaHome)
 	if paths.WorkDir != "" {
 		env["HOME"] = localSandboxHome(paths.WorkDir)
 	}
@@ -465,7 +465,7 @@ func createHostSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession,
 	if err != nil {
 		return nil, err
 	}
-	env["PATH"] = localSandboxPath(paths.AnnaHome)
+	env["PATH"] = localSandboxPath(paths.StellaHome)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
@@ -495,22 +495,22 @@ func createHostSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession,
 var dockerOrphanCleanupOnce sync.Once
 
 // resolveDockerConfig builds the docker plugin Config used by the runner,
-// including any DooD path-translation prefixes derived from ANNA_HOME_HOST.
+// including any DooD path-translation prefixes derived from STELLA_HOME_HOST.
 // Shared by session creation, preflight, and orphan cleanup so all three scope
 // to the same daemon-view paths.
 func resolveDockerConfig() (dockerplugin.Config, error) {
 	return applyDooDDefaults(
 		dockerplugin.Config{Image: config.SandboxDockerImage()},
-		config.AnnaHome(),
+		config.StellaHome(),
 	)
 }
 
-func resolveDockerUserToolBinaries(annaHome string) ([]dockerplugin.ToolBinary, error) {
+func resolveDockerUserToolBinaries(stellaHome string) ([]dockerplugin.ToolBinary, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
-	user, err := manifestplugins.LoadUser(filepath.Join(annaHome, "plugins.yaml"))
+	user, err := manifestplugins.LoadUser(filepath.Join(stellaHome, "plugins.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -562,11 +562,11 @@ func resolveDockerUserToolBinaries(annaHome string) ([]dockerplugin.ToolBinary, 
 	return out, nil
 }
 
-// cleanupOrphanedDockerContainers removes stale anna containers from previous
-// crashed processes. Runs at most once per process. The annaHome argument must
+// cleanupOrphanedDockerContainers removes stale stella containers from previous
+// crashed processes. Runs at most once per process. The stellaHome argument must
 // already be translated to the daemon-view path so it matches the label set at
 // container creation time.
-func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
+func cleanupOrphanedDockerContainers(ctx context.Context, stellaHome string) {
 	dockerOrphanCleanupOnce.Do(func() {
 		client, err := dockerclient.New()
 		if err != nil {
@@ -574,7 +574,7 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 				"component", "runner_sandbox", "error", err)
 			return
 		}
-		dockerclient.CleanupOrphanedContainers(ctx, client, annaHome)
+		dockerclient.CleanupOrphanedContainers(ctx, client, stellaHome)
 	})
 }
 

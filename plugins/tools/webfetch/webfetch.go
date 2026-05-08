@@ -11,11 +11,11 @@ import (
 	"strings"
 
 	readability "codeberg.org/readeck/go-readability/v2"
+	"github.com/CherryHQ/stella/pkg/httpclient"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-resty/resty/v2"
-	"github.com/vaayne/anna/pkg/httpclient"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
 )
 
 func init() {
@@ -144,7 +144,7 @@ func acceptHeader(format string) string {
 func (t *WebFetchTool) fetch(ctx context.Context, rawURL string, parsed *url.URL, format string) (fetchResult, error) {
 	resp, err := t.client.R().
 		SetContext(ctx).
-		SetHeader("User-Agent", "Mozilla/5.0 (compatible; Anna/1.0)").
+		SetHeader("User-Agent", "Mozilla/5.0 (compatible; Stella/1.0)").
 		SetHeader("Accept", acceptHeader(format)).
 		Get(rawURL)
 	if err != nil {

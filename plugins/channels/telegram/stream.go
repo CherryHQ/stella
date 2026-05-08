@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/tools"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // Action name constants for the memory tool.

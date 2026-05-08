@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // slugify converts a name to a URL-safe agent ID.

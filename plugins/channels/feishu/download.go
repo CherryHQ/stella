@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent"
 )
 
 // downloadImage downloads an image from Feishu using the MessageResource API.

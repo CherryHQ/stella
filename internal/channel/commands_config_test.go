@@ -8,9 +8,9 @@ import (
 
 	"filippo.io/age"
 
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func testVaultService(t *testing.T) (*vault.Service, int64) {
@@ -122,7 +122,7 @@ func TestHandleConfigNoArgs(t *testing.T) {
 
 func TestHandleConfigInvalidKey(t *testing.T) {
 	svc, userID := testVaultService(t)
-	resp, ok := handleConfig(context.Background(), svc, userID, "ANNA_SECRET value")
+	resp, ok := handleConfig(context.Background(), svc, userID, "STELLA_SECRET value")
 	if ok {
 		t.Error("expected ok=false for reserved key")
 	}

@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 

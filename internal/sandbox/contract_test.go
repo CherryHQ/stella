@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-	dockerclient "github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
+	dockerclient "github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 // dockerAvailable probes whether the docker daemon is reachable.
@@ -25,7 +25,7 @@ func dockerAvailable(ctx context.Context) bool {
 
 // dockerContractImage is the image the docker contract tests use. Alpine is
 // sufficient because the contract tests exercise the generic Session/Host
-// interface, not anna-sandbox-specific features, and alpine always pulls from
+// interface, not stella-sandbox-specific features, and alpine always pulls from
 // the public registry.
 const dockerContractImage = "alpine:3.20"
 

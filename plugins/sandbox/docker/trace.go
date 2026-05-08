@@ -8,18 +8,18 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-var tracer = otel.Tracer("anna/sandbox/docker")
+var tracer = otel.Tracer("stella/sandbox/docker")
 
 func sessionTraceAttrs(sessionID string, policy sandboxpkg.Policy, image, workspaceHost string) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String("anna.sandbox.backend", "docker"),
-		attribute.String("anna.sandbox.session.id", sessionID),
-		attribute.String("anna.sandbox.image", image),
-		attribute.String("anna.sandbox.workspace_host", workspaceHost),
-		attribute.String("anna.sandbox.network.mode", string(policy.NetworkModeOrDefault())),
+		attribute.String("stella.sandbox.backend", "docker"),
+		attribute.String("stella.sandbox.session.id", sessionID),
+		attribute.String("stella.sandbox.image", image),
+		attribute.String("stella.sandbox.workspace_host", workspaceHost),
+		attribute.String("stella.sandbox.network.mode", string(policy.NetworkModeOrDefault())),
 	}
 }
 

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/manifestplugins"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type stubStore struct{ plugins map[string]config.Plugin }

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/pkg/hooks"
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // Pool manages a set of sessions, each with its own history and

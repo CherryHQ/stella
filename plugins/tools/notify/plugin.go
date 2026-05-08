@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/memory"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/memory"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const PluginID = "tool/notify"
@@ -19,7 +19,7 @@ func init() {
 			Kind:        "tool",
 			Name:        "notify",
 			DisplayName: "Notify",
-			Description: "Send notifications through Anna's configured notification routes.",
+			Description: "Send notifications through Stella's configured notification routes.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
 			},
@@ -58,7 +58,7 @@ var inputSchema = map[string]any{
 		},
 		"chat_id": map[string]any{
 			"type":        "string",
-			"description": "Target chat/channel within the backend. Usually omit this in user conversations so Anna can resolve the linked identity automatically.",
+			"description": "Target chat/channel within the backend. Usually omit this in user conversations so Stella can resolve the linked identity automatically.",
 		},
 		"silent": map[string]any{
 			"type":        "boolean",
@@ -71,7 +71,7 @@ var inputSchema = map[string]any{
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        "notify",
-		Description: "Send a notification message to the user. In normal user conversations, omit 'chat_id' so Anna can route via the current user's linked identities automatically. Supports multiple backends (Telegram, Slack, etc.). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
+		Description: "Send a notification message to the user. In normal user conversations, omit 'chat_id' so Stella can route via the current user's linked identities automatically. Supports multiple backends (Telegram, Slack, etc.). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: inputSchema,
 	}
 }

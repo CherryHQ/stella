@@ -1,8 +1,8 @@
 package server
 
 import (
-	apiserver "github.com/vaayne/anna/api/server"
-	"github.com/vaayne/anna/web"
+	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/web"
 )
 
 func (s *Server) registerRoutes() {

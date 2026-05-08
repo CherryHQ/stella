@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vaayne/anna/pkg/httpclient"
+	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 
 // EncryptAESECB encrypts plaintext using AES-128-ECB with PKCS7 padding.

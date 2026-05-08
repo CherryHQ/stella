@@ -1,7 +1,7 @@
 ---
 name: release
 description: >
-  Release workflow for anna Go CLI project. Create releases with semantic versioned
+  Release workflow for stella Go CLI project. Create releases with semantic versioned
   tags, update changelog, and trigger automated CI/CD builds. Use when the user
   asks to "release", "create a release", "tag a version", "update changelog",
   "prepare release", "cut a release", or discusses versioning and release artifacts.
@@ -39,8 +39,8 @@ Apply to `docs/content/docs/changelog.mdx`:
 1. Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`
 2. Add fresh `[Unreleased]` section above
 3. Categorize: `✨ Features`, `🐛 Bug Fixes`, `♻️ Refactoring`, `📝 Documentation`, `📦 Dependencies`
-4. Link PRs: `([#123](https://github.com/vaayne/anna/pull/123))`
-5. Append: `**Full Changelog**: [vPREV...vX.Y.Z](https://github.com/vaayne/anna/compare/vPREV...vX.Y.Z)`
+4. Link PRs: `([#123](https://github.com/CherryHQ/stella/pull/123))`
+5. Append: `**Full Changelog**: [vPREV...vX.Y.Z](https://github.com/CherryHQ/stella/compare/vPREV...vX.Y.Z)`
 
 ## Validate and Test
 
@@ -52,5 +52,5 @@ mise run release:snapshot  # Test release locally (no tag needed)
 ## Artifacts
 
 - **Binaries**: linux/darwin/windows × amd64/arm64 (GoReleaser)
-- **Docker**: `ghcr.io/vaayne/anna` — linux/amd64 + linux/arm64
+- **Docker**: `ghcr.io/vaayne/stella` — linux/amd64 + linux/arm64
 - **Docker tags**: `latest` (stable), `vX.Y.Z` (release), SHA (every build)

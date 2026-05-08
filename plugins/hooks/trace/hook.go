@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/vaayne/anna/pkg/hooks"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func init() {
@@ -89,7 +89,7 @@ func newHook() (*Hook, error) {
 
 	h := &Hook{
 		log:      log,
-		tracer:   noop.NewTracerProvider().Tracer("anna"),
+		tracer:   noop.NewTracerProvider().Tracer("stella"),
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}
@@ -101,7 +101,7 @@ func newHook() (*Hook, error) {
 			return nil, err
 		}
 		h.tp = tp
-		h.tracer = tp.Tracer("anna")
+		h.tracer = tp.Tracer("stella")
 		// Set as global so otelhttp and other instrumentation libraries use it.
 		otel.SetTracerProvider(tp)
 		go h.reaper()

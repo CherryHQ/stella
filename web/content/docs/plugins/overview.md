@@ -1,20 +1,20 @@
 ---
 title: Plugin Overview
-description: Concepts, architecture, and lifecycle for Anna's built-in plugin system.
+description: Concepts, architecture, and lifecycle for Stella's built-in plugin system.
 ---
 
 ## What A Plugin Is
 
-In Anna, a plugin is the ownership unit for a feature area.
+In Stella, a plugin is the ownership unit for a feature area.
 
 A plugin:
 
 - has one canonical plugin ID such as `tool/mcp`, `channel/telegram`, or `reflect`
 - owns its own metadata, config schema, validation, and status behavior
 - can register one or more capabilities against the plugin host
-- is compiled into the `anna` binary at build time
+- is compiled into the `stella` binary at build time
 
-Anna does not load third-party binaries or subprocess plugins. Built-in plugins register themselves during process startup through Go `init()` functions.
+Stella does not load third-party binaries or subprocess plugins. Built-in plugins register themselves during process startup through Go `init()` functions.
 
 ## The Public Design
 
@@ -77,7 +77,7 @@ This matters because one plugin can own more than one capability.
 
 ## Capability Model
 
-Anna's built-in plugin system supports these capability types:
+Stella's built-in plugin system supports these capability types:
 
 - `AdminSpec`: config defaults, schema, validation, redaction, and status
 - `ToolSpec`: agent-callable tools
@@ -103,7 +103,7 @@ Examples:
 
 ## CLI-Backed Tool Plugins
 
-Some `tool/*` plugins do not expose an Anna JSON tool at all. Instead, they own
+Some `tool/*` plugins do not expose an Stella JSON tool at all. Instead, they own
 CLI integration that affects bash sessions and prompt guidance.
 
 Examples now include:

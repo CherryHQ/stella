@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type Store struct {

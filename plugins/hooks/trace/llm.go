@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
@@ -41,7 +41,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		st.turnCtx, st.turnSpan = h.tracer.Start(st.chatCtx,
 			fmt.Sprintf("turn %d", st.turnNum),
 			trace.WithAttributes(
-				attribute.Int("anna.turn.number", st.turnNum),
+				attribute.Int("stella.turn.number", st.turnNum),
 				attribute.Int64("user_id", hctx.UserID),
 				attribute.String("agent_id", hctx.AgentID),
 			),

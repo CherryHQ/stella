@@ -88,14 +88,14 @@ func TestBuildMounts(t *testing.T) {
 	t.Run("volume mounts included", func(t *testing.T) {
 		opts := CreateOptions{
 			ReadOnlyMounts: []Mount{
-				{HostPath: "anna-tools-abc", ContainerPath: "/tools", ReadOnly: true, Type: MountTypeVolume},
+				{HostPath: "stella-tools-abc", ContainerPath: "/tools", ReadOnly: true, Type: MountTypeVolume},
 			},
 		}
 		mounts := buildMounts(opts)
 		if len(mounts) != 1 {
 			t.Fatalf("expected 1 mount, got %d", len(mounts))
 		}
-		if mounts[0].Type != mount.TypeVolume || mounts[0].Source != "anna-tools-abc" || mounts[0].Target != "/tools" || !mounts[0].ReadOnly {
+		if mounts[0].Type != mount.TypeVolume || mounts[0].Source != "stella-tools-abc" || mounts[0].Target != "/tools" || !mounts[0].ReadOnly {
 			t.Fatalf("unexpected volume mount: %+v", mounts[0])
 		}
 	})

@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/vaayne/anna/pkg/ai"
+import "github.com/CherryHQ/stella/pkg/ai"
 
 // LoopEvent is the runtime event contract emitted by the agent loop.
 type LoopEvent interface {

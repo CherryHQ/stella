@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 type testStoresWithEngine struct {
@@ -40,8 +40,8 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
-	if agentID != "anna" {
-		t.Errorf("agentID = %q, want %q", agentID, "anna")
+	if agentID != "stella" {
+		t.Errorf("agentID = %q, want %q", agentID, "stella")
 	}
 }
 
@@ -70,8 +70,8 @@ func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if agentID != "anna" {
-		t.Errorf("agentID = %q, want fallback to %q", agentID, "anna")
+	if agentID != "stella" {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, "stella")
 	}
 }
 
@@ -142,10 +142,10 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	ctx := context.Background()
 
 	_ = ts.store.UpdateAgent(ctx, config.Agent{
-		ID:        "anna",
-		Name:      "Anna",
+		ID:        "stella",
+		Name:      "Stella",
 		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/anna",
+		Workspace: "/tmp/stella",
 		Scope:     config.AgentScopeRestricted,
 		Enabled:   true,
 	})
@@ -199,8 +199,8 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if agentID != "anna" {
-		t.Errorf("agentID = %q, want fallback to %q", agentID, "anna")
+	if agentID != "stella" {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, "stella")
 	}
 }
 

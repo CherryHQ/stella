@@ -15,13 +15,13 @@ import (
 )
 
 func TestInstallBinaryWithMiseCancelKillsChildProcessGroup(t *testing.T) {
-	annaHome := t.TempDir()
-	binDir := filepath.Join(annaHome, "bin")
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("create bin dir: %v", err)
 	}
 
-	childPIDPath := filepath.Join(annaHome, "child.pid")
+	childPIDPath := filepath.Join(stellaHome, "child.pid")
 	fakeMise := filepath.Join(binDir, "mise")
 	fake := `#!/bin/sh
 set -eu
@@ -46,7 +46,7 @@ esac
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := installBinaryWithMise(ctx, ManifestBinary{Name: "mytool", Tool: "github:owner/repo"}, annaHome)
+		_, err := installBinaryWithMise(ctx, ManifestBinary{Name: "mytool", Tool: "github:owner/repo"}, stellaHome)
 		errCh <- err
 	}()
 

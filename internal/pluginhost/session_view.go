@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // SessionPluginView returns the enabled plugin-owned session env setup used by

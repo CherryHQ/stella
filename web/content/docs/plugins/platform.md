@@ -12,7 +12,7 @@ It exists to solve two problems:
 - plugin code should only see the services it is allowed to use
 - host internals should stay internal
 
-Instead of handing plugins a global service container, Anna passes `Platform` through typed contexts such as `ToolContext`, `RuntimeContext`, and `AdminContext`.
+Instead of handing plugins a global service container, Stella passes `Platform` through typed contexts such as `ToolContext`, `RuntimeContext`, and `AdminContext`.
 
 ## Available Services
 
@@ -113,7 +113,7 @@ Use it when your plugin needs to send completion updates, alerts, or scheduler-d
 
 `Auth()` provides user and linked-identity lookup.
 
-Use it when a plugin needs to understand the current user or route platform-specific behavior through Anna's identity model.
+Use it when a plugin needs to understand the current user or route platform-specific behavior through Stella's identity model.
 
 ## RuntimeLookup
 
@@ -180,7 +180,7 @@ Examples:
 - `Paths`
   - `UserRoot`
   - `ToolsBinDir`
-  - `AnnaHome`
+  - `StellaHome`
   - `AgentRoot`
   - `ProjectRoot`
 - `Runtime`
@@ -199,7 +199,7 @@ Examples:
 - `Platform`
 - `State`
 - `DB`
-- `AnnaHome`
+- `StellaHome`
 - `SummarizerFn`
 
 That design keeps `Platform` focused while still giving each capability the extra inputs it actually needs.

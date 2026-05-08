@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // sessionQueue enforces a per-session FIFO execution order for incoming
@@ -13,7 +13,7 @@ import (
 // later requests queue up and are dispatched in arrival order after the
 // current one finishes or is aborted.
 //
-// The queue is keyed by the resolved Anna session key so the boundary
+// The queue is keyed by the resolved Stella session key so the boundary
 // matches the actual memory/history boundary rather than a platform-specific
 // display concept.
 type sessionQueue struct {

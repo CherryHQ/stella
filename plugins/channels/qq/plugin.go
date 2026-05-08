@@ -3,8 +3,8 @@ package qq
 import (
 	"fmt"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 const (

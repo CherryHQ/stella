@@ -1,9 +1,9 @@
 package anthropic
 
 import (
+	"github.com/CherryHQ/stella/pkg/ai"
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/vaayne/anna/pkg/ai"
 )
 
 const defaultMaxTokens = 16384

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const legacyPluginJobMessagePrefix = "__anna_plugin_job__:"
+const legacyPluginJobMessagePrefix = "__stella_plugin_job__:"
 
 type legacyPluginJobEnvelope struct {
 	PluginID    string         `json:"plugin_id"`

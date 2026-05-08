@@ -3,7 +3,7 @@ package plugins
 import (
 	"context"
 
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // Notifier exposes user-visible notification delivery through the host.

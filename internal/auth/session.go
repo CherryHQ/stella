@@ -10,7 +10,7 @@ import (
 
 const (
 	// SessionCookieName is the HTTP cookie name for session tokens.
-	SessionCookieName = "anna_session"
+	SessionCookieName = "stella_session"
 
 	// SessionDuration is the default session lifetime.
 	SessionDuration = 7 * 24 * time.Hour

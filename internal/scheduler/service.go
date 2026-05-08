@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/memory"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
-	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/notify"
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	"github.com/vaayne/anna/pkg/memory"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp

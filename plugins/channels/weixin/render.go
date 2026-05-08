@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // sendFinalResponse splits text at 2000 chars and sends each chunk,

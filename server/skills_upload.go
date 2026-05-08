@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/skills"
-	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	"github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 	"gopkg.in/yaml.v3"
 )
 

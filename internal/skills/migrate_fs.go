@@ -12,14 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // MigrateFSConfig controls how on-disk skills are discovered and mapped to DB rows.
 type MigrateFSConfig struct {
-	// AnnaHome is intentionally unused: builtin (anna source) skills are handled
+	// StellaHome is intentionally unused: builtin (stella source) skills are handled
 	// exclusively by SyncBuiltin, not by filesystem migration.
-	AnnaHome      string
+	StellaHome    string
 	AgentRoot     string
 	UserRoot      string
 	UserSkillsDir string
@@ -47,7 +47,7 @@ type migrateLoadedSkill struct {
 
 // MigrateFilesystem reads on-disk skills and idempotently imports each into the DB.
 //
-// Skills with source="anna" (builtin) are skipped — use SyncBuiltin for those.
+// Skills with source="stella" (builtin) are skipped — use SyncBuiltin for those.
 // The function is safe to call multiple times; existing rows are counted as Skipped.
 func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSConfig) (MigrateFSResult, error) {
 	loaded := loadFSSkills(cfg)
@@ -55,7 +55,7 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 	var result MigrateFSResult
 
 	for _, cs := range loaded {
-		if cs.Source == "anna" {
+		if cs.Source == "stella" {
 			// Builtin skills are managed by SyncBuiltin, not filesystem migration.
 			continue
 		}
@@ -111,7 +111,7 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 }
 
 // loadFSSkills discovers skills from the filesystem in increasing priority order:
-// agent -> user. Builtin (anna source) and project skills are intentionally excluded here.
+// agent -> user. Builtin (stella source) and project skills are intentionally excluded here.
 // Project skills are filesystem-only and do not get migrated to the DB.
 func loadFSSkills(cfg MigrateFSConfig) []migrateLoadedSkill {
 	type key struct{ source, name string }

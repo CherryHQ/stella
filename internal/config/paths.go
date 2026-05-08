@@ -7,22 +7,22 @@ import (
 )
 
 var (
-	annaHomeOnce sync.Once
-	annaHomeVal  string
+	stellaHomeOnce sync.Once
+	stellaHomeVal  string
 )
 
-// AnnaHome returns the anna home directory.
-// Priority: ANNA_HOME env -> ~/.anna
+// StellaHome returns the stella home directory.
+// Priority: STELLA_HOME env -> ~/.stella
 // The result is cached after the first call.
-func AnnaHome() string {
-	annaHomeOnce.Do(func() {
-		annaHomeVal = resolveAnnaHome()
+func StellaHome() string {
+	stellaHomeOnce.Do(func() {
+		stellaHomeVal = resolveStellaHome()
 	})
-	return annaHomeVal
+	return stellaHomeVal
 }
 
-func resolveAnnaHome() string {
-	if v := os.Getenv("ANNA_HOME"); v != "" {
+func resolveStellaHome() string {
+	if v := os.Getenv("STELLA_HOME"); v != "" {
 		if filepath.IsAbs(v) {
 			return v
 		}
@@ -33,32 +33,32 @@ func resolveAnnaHome() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".anna")
+		return filepath.Join(".", ".stella")
 	}
-	return filepath.Join(home, ".anna")
+	return filepath.Join(home, ".stella")
 }
 
-// ResetAnnaHome clears the cached AnnaHome value (for testing).
-func ResetAnnaHome() {
-	annaHomeOnce = sync.Once{}
-	annaHomeVal = ""
+// ResetStellaHome clears the cached StellaHome value (for testing).
+func ResetStellaHome() {
+	stellaHomeOnce = sync.Once{}
+	stellaHomeVal = ""
 }
 
-// CachePath returns the cache directory inside the anna home.
+// CachePath returns the cache directory inside the stella home.
 func CachePath() string {
-	return filepath.Join(AnnaHome(), "cache")
+	return filepath.Join(StellaHome(), "cache")
 }
 
-// DBPath returns the default database path inside the anna home.
+// DBPath returns the default database path inside the stella home.
 func DBPath() string {
-	return filepath.Join(AnnaHome(), "anna.db")
+	return filepath.Join(StellaHome(), "stella.db")
 }
 
 // ServerURL returns the URL CLI commands should use to talk to the local
-// anna server. Priority: ANNA_SERVER_URL env -> http://127.0.0.1:25678
-// (the default admin port from cmd/anna/gateway.go).
+// stella server. Priority: STELLA_SERVER_URL env -> http://127.0.0.1:25678
+// (the default admin port from cmd/stella/gateway.go).
 func ServerURL() string {
-	if v := os.Getenv("ANNA_SERVER_URL"); v != "" {
+	if v := os.Getenv("STELLA_SERVER_URL"); v != "" {
 		return v
 	}
 	return "http://127.0.0.1:25678"

@@ -1,6 +1,6 @@
 package pluginhost
 
-import pkgplugins "github.com/vaayne/anna/pkg/plugins"
+import pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 
 func defaultCatalog() *pkgplugins.Catalog {
 	catalog := pkgplugins.NewCatalog()

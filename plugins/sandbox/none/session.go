@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // Factory creates sessions that execute directly on the host with no sandboxing.

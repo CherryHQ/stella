@@ -3,8 +3,8 @@ package server
 import (
 	"net/http"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 const channelPluginConfigError = "channel instance config lives on /channels, not plugin config"

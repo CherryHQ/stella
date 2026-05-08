@@ -1,23 +1,23 @@
 ---
 name: social-content
 description: >
-  Generate and post social media marketing content for Anna, a self-hosted AI assistant.
+  Generate and post social media marketing content for Stella, a self-hosted AI assistant.
   Produce platform-specific post drafts for Twitter/X (English, technical credibility)
   or Xiaohongshu (Chinese, scenario-driven). Can post tweets to X via script (requires
   user approval). Use when the user asks to "write a post", "create social content",
   "draft a tweet", "write xiaohongshu content", "marketing post", "social media draft",
-  "post to twitter", "post tweet", or discusses content for Anna's social accounts.
+  "post to twitter", "post tweet", or discusses content for Stella's social accounts.
 ---
 
-# Social Content for Anna
+# Social Content for Stella
 
-Generate on-brand social media drafts for Anna's Twitter/X and Xiaohongshu accounts.
+Generate on-brand social media drafts for Stella's Twitter/X and Xiaohongshu accounts.
 
-## Anna — Brand and Product Reference
+## Stella — Brand and Product Reference
 
-For full context on Anna's brand, product, visual identity, and content strategy, read [references/anna.md](references/anna.md). Always consult this reference when unsure about positioning, capabilities, or brand voice.
+For full context on Stella's brand, product, visual identity, and content strategy, read [references/stella.md](references/stella.md). Always consult this reference when unsure about positioning, capabilities, or brand voice.
 
-## Anna's Voice
+## Stella's Voice
 
 All content MUST follow these voice rules:
 
@@ -34,7 +34,7 @@ All content MUST follow these voice rules:
 - News aggregator tone (reposting AI headlines)
 - Virtual girlfriend/boyfriend framing
 - Exaggerated claims ("revolutionary", "the future of AI")
-- Content that implies Anna is a real human blogger
+- Content that implies Stella is a real human blogger
 
 ## Content Pillars
 
@@ -42,12 +42,12 @@ Each post fits one pillar. Ask the user which pillar, or infer from their topic:
 
 | Pillar | Focus |
 |---|---|
-| **Anna can do this** | One capability demo — a sentence + a scenario |
-| **Built Anna today** | Build in public — new feature, design decision, update log |
+| **Stella can do this** | One capability demo — a sentence + a scenario |
+| **Built Stella today** | Build in public — new feature, design decision, update log |
 | **Memory is a feature** | Long-term context, info retrieval, conversation continuity |
 | **Local-first assistant** | Self-hosted, data control, single binary, no cloud dependency |
-| **Anna in daily life** | Reminders, notifications, cross-device workflow, daily routines |
-| **Designing Anna** | Avatar, brand voice, visual identity, persona decisions |
+| **Stella in daily life** | Reminders, notifications, cross-device workflow, daily routines |
+| **Designing Stella** | Avatar, brand voice, visual identity, persona decisions |
 
 ### Content Ratio Target
 
@@ -77,15 +77,15 @@ Each post fits one pillar. Ask the user which pillar, or infer from their topic:
       ```
    e. Report the result back to the user
 
-   **Requirements:** `X_CLIENT_ID` and `X_CLIENT_SECRET` must be set in the environment. On first run, the script will prompt for OAuth2 authorization in the browser; tokens are cached at `~/.anna/x_tokens.json` for subsequent use.
+   **Requirements:** `X_CLIENT_ID` and `X_CLIENT_SECRET` must be set in the environment. On first run, the script will prompt for OAuth2 authorization in the browser; tokens are cached at `~/.stella/x_tokens.json` for subsequent use.
 
 ## Quality Checklist
 
 Before presenting any draft, verify:
 
-- [ ] Matches Anna's voice (calm, confident, clear, warm)
+- [ ] Matches Stella's voice (calm, confident, clear, warm)
 - [ ] Fits one content pillar cleanly
-- [ ] Factually accurate about Anna's capabilities
+- [ ] Factually accurate about Stella's capabilities
 - [ ] Follows platform-specific format from the reference file
 - [ ] No forbidden patterns (hype, cute, salesy, news-repost)
 - [ ] Appropriate length for the platform

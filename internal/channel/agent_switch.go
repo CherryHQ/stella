@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/config"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 type AgentCommander struct {

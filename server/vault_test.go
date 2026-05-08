@@ -7,8 +7,8 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/vaayne/anna/internal/vault"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {

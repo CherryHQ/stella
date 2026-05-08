@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 type mockHook struct {

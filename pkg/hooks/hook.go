@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // HookPoint identifies where in the engine loop a hook fires.

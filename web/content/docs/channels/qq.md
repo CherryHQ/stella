@@ -2,20 +2,20 @@
 title: QQ Bot
 ---
 
-anna includes a QQ bot that connects via WebSocket (persistent connection, no public URL required).
+stella includes a QQ bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup
 
 1. Register a QQ Bot at [QQ Bot Platform](https://q.qq.com/) and get your AppID and AppSecret
-2. Run `anna --open` to launch the admin panel
+2. Run `stella --open` to launch the admin panel
 3. In the admin panel: add an AI provider, then configure the QQ channel with your AppID and AppSecret
 4. Start the daemon:
 
 ```bash
-anna
+stella
 ```
 
-All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -82,7 +82,7 @@ Send these commands as text messages to the bot:
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`anna --open`).
+All settings below are managed through the admin panel (`stella --open`).
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

@@ -39,7 +39,7 @@ RUN templ generate
 RUN sqlc generate
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -ldflags "-s -w -X github.com/vaayne/anna/internal/version.Version=${VERSION}" -o bin/anna ./cmd/anna/
+    go build -ldflags "-s -w -X github.com/CherryHQ/stella/internal/version.Version=${VERSION}" -o bin/stella ./cmd/stella/
 
 FROM debian:13-slim AS app
 
@@ -55,8 +55,8 @@ WORKDIR /workspace
 ENV HOME="/home/nonroot"
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
 
-COPY --from=builder /go/src/app/bin/anna /usr/local/bin/anna
+COPY --from=builder /go/src/app/bin/stella /usr/local/bin/stella
 
 USER 65532:65532
 
-CMD ["anna", "gateway"]
+CMD ["stella", "gateway"]

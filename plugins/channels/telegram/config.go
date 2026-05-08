@@ -1,7 +1,7 @@
 package telegram
 
 import (
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 func DecodeConfig(raw map[string]any) (pkgchannel.TelegramConfig, error) {

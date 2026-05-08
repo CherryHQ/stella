@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/vaayne/anna/pkg/memory"
+	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // candidate represents a session that may need review.

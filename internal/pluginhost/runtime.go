@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type RuntimeHost struct {

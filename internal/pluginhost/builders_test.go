@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/sandbox"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/CherryHQ/stella/internal/config"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/pkg/tools"
+	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 type testTool struct{ name string }
@@ -67,7 +67,7 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    "/user",
 			ToolsBinDir: "/tools/bin",
-			AnnaHome:    "/anna",
+			StellaHome:  "/stella",
 			AgentRoot:   "/agent",
 			ProjectRoot: "/project",
 		},

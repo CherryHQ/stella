@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	internalnotify "github.com/vaayne/anna/internal/notify"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	internalnotify "github.com/CherryHQ/stella/internal/notify"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type fakeTelegramChannel struct {
@@ -66,7 +66,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	if snap.State != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %q, want running", snap.State)
 	}
-	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token-2", "channel_id": "@anna"}}); err != nil {
+	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token-2", "channel_id": "@stella"}}); err != nil {
 		t.Fatalf("reconfigure apply: %v", err)
 	}
 	waitClosed(t, first.stopped, "first stop")

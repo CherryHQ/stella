@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // skillStorePlatform is a minimal Platform implementation for prompt tests.
@@ -127,7 +127,7 @@ func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
-	for _, name := range []string{"anna", "code-review", "research"} {
+	for _, name := range []string{"stella", "code-review", "research"} {
 		if _, err := store.Create(ctx, pkgplugins.Skill{
 			Scope:       "system",
 			Name:        name,
@@ -155,7 +155,7 @@ func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"anna", "code-review", "research", "user-skill"} {
+	for _, name := range []string{"stella", "code-review", "research", "user-skill"} {
 		if !strings.Contains(section.Content, "<name>"+name+"</name>") {
 			t.Fatalf("expected %s in prompt content: %s", name, section.Content)
 		}

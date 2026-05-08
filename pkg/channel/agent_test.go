@@ -55,7 +55,7 @@ func TestHandleAgentCommandSwitch(t *testing.T) {
 
 	HandleAgentCommand(AgentCommandHandler{
 		Incoming: IncomingMessage{SenderID: "u1"},
-		Args:     "anna",
+		Args:     "stella",
 		Reply:    func(s string) { reply = s },
 		ListAgents: func(context.Context, IncomingMessage) ([]AgentInfo, string, error) {
 			t.Fatal("list agents should not be called for direct switch")
@@ -70,10 +70,10 @@ func TestHandleAgentCommandSwitch(t *testing.T) {
 		},
 	})
 
-	if switched != "anna" {
-		t.Fatalf("expected switch to anna, got %q", switched)
+	if switched != "stella" {
+		t.Fatalf("expected switch to stella, got %q", switched)
 	}
-	if !strings.Contains(reply, "Switched to agent: anna") {
+	if !strings.Contains(reply, "Switched to agent: stella") {
 		t.Fatalf("unexpected reply: %q", reply)
 	}
 }
