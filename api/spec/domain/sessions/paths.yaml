@@ -105,6 +105,169 @@ paths:
         "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/sessions/{sessionID}/workspace:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: List files in the session workspace
+      operationId: getSessionWorkspace
+      parameters:
+        - name: show_hidden
+          in: query
+          schema: { type: boolean, default: false }
+          description: Include dot-prefixed files and directories
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/sessions/{sessionID}/workspace/files:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Create a file or directory in the session workspace
+      operationId: createWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceCreateRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [sessions]
+      summary: Delete a file or directory from the session workspace
+      operationId: deleteWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceDeleteRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [sessions]
+      summary: Rename or move a file or directory in the session workspace
+      operationId: moveWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceMoveRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/sessions/{sessionID}/workspace/file-content:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get the content of a file in the session workspace
+      operationId: getWorkspaceFileContent
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          description: Relative path of the file within the workspace
+        - name: raw
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    put:
+      tags: [sessions]
+      summary: Write content to a file in the session workspace
+      operationId: updateWorkspaceFileContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUpdateContentRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/sessions/{sessionID}/workspace/upload:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Upload a file to the session workspace assets directory
+      operationId: uploadWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+      responses:
+        "201":
+          description: uploaded
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUploadResponse" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/sessions/{sessionID}/system-prompt:
     parameters:
       - { name: sessionID, in: path, required: true, schema: { type: string } }

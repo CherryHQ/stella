@@ -1,0 +1,12 @@
+{
+  "title": "Plugins",
+  "pages": [
+    "overview",
+    "manifest-tools",
+    "create-a-plugin",
+    "capabilities",
+    "platform",
+    "examples",
+    "trace"
+  ]
+}

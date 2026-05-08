@@ -299,6 +299,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
 
+// WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
+type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
+
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
 
@@ -402,6 +405,27 @@ type GetSessionMessagesParams struct {
 
 	// Skip Number of messages to skip from the end
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+}
+
+// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
+type GetSessionWorkspaceParams struct {
+	// ShowHidden Include dot-prefixed files and directories
+	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+}
+
+// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
+type GetWorkspaceFileContentParams struct {
+	// Path Relative path of the file within the workspace
+	Path string `form:"path" json:"path"`
+
+	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
+}
+
+// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
+type UploadWorkspaceFileMultipartBody struct {
+	// File The file to upload
+	File openapi_types.File `json:"file"`
 }
 
 // SearchSkillsParams defines parameters for SearchSkills.
@@ -527,6 +551,21 @@ type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
 
 // SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
 type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
+
+// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
+type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
+
+// DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
+type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
+
+// MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
+type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
+
+// CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
+type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
+
+// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
+type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
 
 // CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
 type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
@@ -872,6 +911,27 @@ type ServerInterface interface {
 	// Get the system prompt for a session
 	// (GET /api/sessions/{sessionID}/system-prompt)
 	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string)
+	// List files in the session workspace
+	// (GET /api/sessions/{sessionID}/workspace)
+	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params GetSessionWorkspaceParams)
+	// Get the content of a file in the session workspace
+	// (GET /api/sessions/{sessionID}/workspace/file-content)
+	GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params GetWorkspaceFileContentParams)
+	// Write content to a file in the session workspace
+	// (PUT /api/sessions/{sessionID}/workspace/file-content)
+	UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string)
+	// Delete a file or directory from the session workspace
+	// (DELETE /api/sessions/{sessionID}/workspace/files)
+	DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
+	// Rename or move a file or directory in the session workspace
+	// (PATCH /api/sessions/{sessionID}/workspace/files)
+	MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
+	// Create a file or directory in the session workspace
+	// (POST /api/sessions/{sessionID}/workspace/files)
+	CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
+	// Upload a file to the session workspace assets directory
+	// (POST /api/sessions/{sessionID}/workspace/upload)
+	UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
 	// List all skills (admin only)
 	// (GET /api/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request)
@@ -4391,6 +4451,275 @@ func (siw *ServerInterfaceWrapper) GetSessionSystemPrompt(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// GetSessionWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionWorkspaceParams
+
+	// ------------- Optional query parameter "show_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "show_hidden", r.URL.Query(), &params.ShowHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "show_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "show_hidden", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionWorkspace(w, r, sessionID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspaceFileContent operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetWorkspaceFileContentParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "raw" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "raw", r.URL.Query(), &params.Raw, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "raw"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "raw", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceFileContent(w, r, sessionID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWorkspaceFileContent operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWorkspaceFileContent(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkspaceFile(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveWorkspaceFile(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspaceFile(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadWorkspaceFile(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkills operation middleware
 func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -5121,6 +5450,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.GetSessionMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.SendSessionMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/system-prompt", wrapper.GetSessionSystemPrompt)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace", wrapper.GetSessionWorkspace)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/file-content", wrapper.GetWorkspaceFileContent)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/file-content", wrapper.UpdateWorkspaceFileContent)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.DeleteWorkspaceFile)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)

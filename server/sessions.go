@@ -3,8 +3,12 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	apiserver "github.com/vaayne/anna/api/server"
@@ -366,6 +370,425 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 		return fmt.Errorf("access denied")
 	}
 	return nil
+}
+
+func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetSessionWorkspaceParams) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+		return
+	}
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return
+	}
+	info, err := sm.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if info.UserID <= 0 || info.AgentID == "" {
+		writeData(w, http.StatusOK, map[string]any{"root": "", "paths": []string{}})
+		return
+	}
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	root := agent.UserRoot(userDir)
+	showHidden := params.ShowHidden != nil && *params.ShowHidden
+	paths, err := collectWorkspacePaths(root, showHidden)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+func collectWorkspacePaths(root string, showHidden bool) ([]string, error) {
+	const maxPaths = 1000
+	var visible, hidden []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil //nolint:nilerr // skip unreadable entries
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == "." {
+			return nil //nolint:nilerr
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == "__pycache__" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			if !showHidden && strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, "/.")
+		if isDot {
+			if showHidden && len(hidden) < maxPaths {
+				hidden = append(hidden, rel)
+			}
+		} else {
+			visible = append(visible, rel)
+			if len(visible) >= maxPaths {
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	paths := visible
+	if showHidden {
+		remaining := maxPaths - len(paths)
+		if remaining > 0 && len(hidden) > 0 {
+			if len(hidden) > remaining {
+				hidden = hidden[:remaining]
+			}
+			paths = append(paths, hidden...)
+		}
+	}
+	return paths, nil
+}
+
+// sessionWorkspaceRoot resolves the workspace root for a session, checking
+// access and returning (root, nil) or writing an error and returning ("", err).
+func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, sessionID string) (string, error) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return "", fmt.Errorf("missing session ID")
+	}
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+		return "", err
+	}
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return "", fmt.Errorf("unsupported")
+	}
+	info, err := sm.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return "", err
+	}
+	if info.UserID <= 0 || info.AgentID == "" {
+		writeError(w, http.StatusNotFound, "session has no workspace")
+		return "", fmt.Errorf("no workspace")
+	}
+	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	return agent.UserRoot(userDir), nil
+}
+
+// safePath resolves a caller-supplied relative path to an absolute path that
+// is guaranteed to stay within root. Returns an error if the result would
+// escape root (directory traversal).
+func safePath(root, rel string) (string, error) {
+	abs := filepath.Join(root, filepath.Clean("/"+rel))
+	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes workspace root")
+	}
+	return abs, nil
+}
+
+func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.CreateWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.IsDir != nil && *body.IsDir {
+		if err := os.MkdirAll(abs, 0o755); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		content := ""
+		if body.Content != nil {
+			content = *body.Content
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	paths, err := collectWorkspacePaths(root, false)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.DeleteWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.RemoveAll(abs); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	paths, err := collectWorkspacePaths(root, false)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.MoveWorkspaceFileJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" || body.NewPath == "" {
+		writeError(w, http.StatusBadRequest, "path and new_path are required")
+		return
+	}
+	src, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	dst, err := safePath(root, body.NewPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.Rename(src, dst); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	paths, err := collectWorkspacePaths(root, false)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+}
+
+func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetWorkspaceFileContentParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	if params.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, params.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if info.IsDir() {
+		writeError(w, http.StatusBadRequest, "path is a directory")
+		return
+	}
+	if params.Raw != nil && *params.Raw {
+		http.ServeFile(w, r, abs)
+		return
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Refuse binary files: check first 512 bytes for null byte.
+	probe := data
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	if slices.Contains(probe, 0) {
+		writeError(w, http.StatusBadRequest, "file appears to be binary")
+		return
+	}
+	lang := detectLanguage(params.Path)
+	writeData(w, http.StatusOK, map[string]any{
+		"path":     params.Path,
+		"content":  string(data),
+		"language": lang,
+	})
+}
+
+func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	var body apiserver.UpdateWorkspaceFileContentJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	abs, err := safePath(root, body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.WriteFile(abs, []byte(body.Content), 0o644); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	lang := detectLanguage(body.Path)
+	writeData(w, http.StatusOK, map[string]any{
+		"path":     body.Path,
+		"content":  body.Content,
+		"language": lang,
+	})
+}
+
+func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file field: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	now := time.Now()
+	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
+	dir := filepath.Join(root, ".assets", now.Format("200601"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(header.Filename))
+	abs := filepath.Join(dir, name)
+	if err := os.WriteFile(abs, data, 0o644); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rel, _ := filepath.Rel(root, abs)
+	writeData(w, http.StatusCreated, map[string]string{"path": rel})
+}
+
+// detectLanguage returns a simple language hint based on file extension.
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".py":
+		return "python"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md", ".mdx":
+		return "markdown"
+	case ".html", ".templ":
+		return "html"
+	case ".css":
+		return "css"
+	case ".sh", ".bash":
+		return "shell"
+	case ".sql":
+		return "sql"
+	case ".toml":
+		return "toml"
+	case ".xml":
+		return "xml"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".txt":
+		return "text"
+	default:
+		return ""
+	}
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {

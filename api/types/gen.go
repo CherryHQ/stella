@@ -675,6 +675,15 @@ type SessionDetail struct {
 	UserName   *string `json:"user_name,omitempty"`
 }
 
+// SessionWorkspace defines model for SessionWorkspace.
+type SessionWorkspace struct {
+	// Paths Relative file paths within the workspace
+	Paths []string `json:"paths"`
+
+	// Root Absolute path of the workspace root directory
+	Root string `json:"root"`
+}
+
 // SetMemoryRequest defines model for SetMemoryRequest.
 type SetMemoryRequest struct {
 	Content string `json:"content"`
@@ -867,6 +876,60 @@ type WeixinQRStatus struct {
 	IlinkBotId  *string `json:"ilink_bot_id,omitempty"`
 	IlinkUserId *string `json:"ilink_user_id,omitempty"`
 	Status      *string `json:"status,omitempty"`
+}
+
+// WorkspaceCreateRequest defines model for WorkspaceCreateRequest.
+type WorkspaceCreateRequest struct {
+	// Content Initial file content (ignored when is_dir is true)
+	Content *string `json:"content,omitempty"`
+
+	// IsDir Create a directory when true; a file when false or omitted
+	IsDir *bool `json:"is_dir,omitempty"`
+
+	// Path Relative path for the new file or directory
+	Path string `json:"path"`
+}
+
+// WorkspaceDeleteRequest defines model for WorkspaceDeleteRequest.
+type WorkspaceDeleteRequest struct {
+	// Path Relative path of the file or directory to delete
+	Path string `json:"path"`
+}
+
+// WorkspaceFileContent defines model for WorkspaceFileContent.
+type WorkspaceFileContent struct {
+	// Content File text content
+	Content string `json:"content"`
+
+	// Language Detected language hint for syntax highlighting
+	Language *string `json:"language,omitempty"`
+
+	// Path Relative path of the file within the workspace
+	Path string `json:"path"`
+}
+
+// WorkspaceMoveRequest defines model for WorkspaceMoveRequest.
+type WorkspaceMoveRequest struct {
+	// NewPath New relative path (rename or move destination)
+	NewPath string `json:"new_path"`
+
+	// Path Current relative path
+	Path string `json:"path"`
+}
+
+// WorkspaceUpdateContentRequest defines model for WorkspaceUpdateContentRequest.
+type WorkspaceUpdateContentRequest struct {
+	// Content New file content to write
+	Content string `json:"content"`
+
+	// Path Relative path of the file within the workspace
+	Path string `json:"path"`
+}
+
+// WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
+type WorkspaceUploadResponse struct {
+	// Path Relative path of the uploaded file within the workspace
+	Path string `json:"path"`
 }
 
 // BadRequest defines model for BadRequest.

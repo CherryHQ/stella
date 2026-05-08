@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
@@ -210,12 +211,13 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 func TestProfilePageRoute(t *testing.T) {
 	env := setupAdmin(t)
 
+	// /profile is now served by the SPA wildcard; the redirect is handled client-side.
 	rr := doRequest(t, env, "GET", "/profile", nil)
-	if rr.Code != http.StatusFound {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if loc := rr.Header().Get("Location"); loc != "/account" {
-		t.Errorf("Location = %q, want %q", loc, "/account")
+	if !strings.Contains(rr.Body.String(), "app-root") {
+		t.Error("body missing SPA mount point")
 	}
 }
 
