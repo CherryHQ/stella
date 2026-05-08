@@ -17,7 +17,7 @@ env:
 jobs:
   format:
     name: Format
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -35,7 +35,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
