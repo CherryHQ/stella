@@ -28,6 +28,7 @@
     "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.97.0",
     "@tanstack/router-plugin": "latest",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

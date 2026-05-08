@@ -28,6 +28,11 @@ description = "Generate templ components, sqlc queries, and OpenAPI clients"
 depends = ["generate:api"]
 run = "templ generate && sqlc generate"
 
+[tasks."generate:ts-sdk"]
+description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
+dir = "web"
+run = "pnpm install && pnpm openapi-ts"
+
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types, server, and client"
 run = """
