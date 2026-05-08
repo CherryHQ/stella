@@ -1,6 +1,5 @@
 @import "@fontsource-variable/inter";
 @import "tailwindcss";
-@import "geist";
 
 @font-face {
   font-family: "Geist Mono";
