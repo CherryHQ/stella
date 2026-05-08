@@ -1,8 +1,12 @@
 import { useState } from "react";
+import { useNavigate } from '@tanstack/react-router'
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { queryClient } from '@/lib/queryClient'
+import { meQueryOptions } from '@/lib/queries/me'
 
 export function LoginPage() {
+  const navigate = useNavigate()
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -32,7 +36,8 @@ export function LoginPage() {
         setError(json.error);
         return;
       }
-      window.location.href = "/";
+      await queryClient.invalidateQueries(meQueryOptions)
+      navigate({ to: '/agents' as any })
     } catch (e) {
       setError((e as Error).message || "Login failed");
     } finally {
@@ -63,7 +68,8 @@ export function LoginPage() {
         setError(json.error);
         return;
       }
-      window.location.href = "/";
+      await queryClient.invalidateQueries(meQueryOptions)
+      navigate({ to: '/agents' as any })
     } catch (e) {
       setError((e as Error).message || "Registration failed");
     } finally {

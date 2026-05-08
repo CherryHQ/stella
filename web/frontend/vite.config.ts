@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus";
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
@@ -6,7 +7,7 @@ import path from "node:path";
 export default defineConfig({
   fmt: {},
   lint: { options: { typeAware: true, typeCheck: true } },
-  plugins: [tailwindcss(), react()],
+  plugins: [TanStackRouterVite({ routesDirectory: './src/routes', generatedRouteTree: './src/routeTree.gen.ts' }), tailwindcss(), react()],
   base: "/static/dist/",
   build: {
     outDir: "../static/dist",
