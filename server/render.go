@@ -61,6 +61,13 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, 
 	s.renderPageWithVite(w, r, activePage, pageScript, content)
 }
 
+func (s *Server) pageApp(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := web.SPAPage().Render(r.Context(), w); err != nil {
+		s.log.Error("render spa", "error", err)
+	}
+}
+
 func (s *Server) renderPageWithVite(w http.ResponseWriter, r *http.Request, activePage, pageScript string, content templ.Component, viteEntries ...string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
