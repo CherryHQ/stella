@@ -21,7 +21,7 @@ function Home() {
 
   return (
     <>
-      <SiteHeader variant="landing" />
+      <SiteHeader />
       <main className="home-page">
         <HeroSection lang={lang} />
         <FeaturesSection lang={lang} />

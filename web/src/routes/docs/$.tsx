@@ -37,7 +37,7 @@ function Page() {
 
   return (
     <div className="flex flex-col h-dvh">
-      <SiteHeader variant="docs" />
+      <SiteHeader />
       <div className="flex flex-1 overflow-hidden">
         {/* Desktop sidebar */}
         <aside className="hidden md:block w-64 shrink-0 border-r border-border overflow-y-auto p-4">
