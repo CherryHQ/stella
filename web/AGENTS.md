@@ -1,72 +1,96 @@
 ## Web UI
 
-Server-rendered pages using Go templ + Alpine.js 3 + daisyUI 5. CDN-only — no npm, no bundler.
+Full React SPA using TanStack Router, TanStack Query, and CossUI components. The Go server serves a single HTML shell (`web/spa.templ`) for all page routes; React owns routing and rendering.
 
-**Stack:** templ (type-safe HTML) · daisyUI 5 + Tailwind 4 (CDN) · Alpine.js 3 ESM (CDN via esm.sh)
+**Stack:** React 19 · TanStack Router (file-based) · TanStack Query · CossUI (`web/frontend/src/components/ui/`) · Tailwind v4 · pnpm
 
-### Design system
+### Directory structure
 
-`web/DESIGN.md` is the visual identity spec for this project. Read it before touching any UI. It defines:
-- **Colors** — use the named daisyUI semantic tokens (`primary`, `secondary`, `base-300`, etc.), never raw hex.
-- **Typography** — DM Serif for page titles/logo, DM Sans for UI body, JetBrains Mono for all technical/code surfaces.
-- **Components** — button variants, card styles, badge usage, elevation rules, and the layout shell.
-- **Do's and Don'ts** — what to avoid (bold display text, shadow on inline cards, hardcoded colors).
+```
+web/
+├── spa.templ               # Minimal HTML shell — <div id="app-root"> + ViteEntry("app")
+├── spa_templ.go            # Auto-generated — never edit manually
+├── vite.go                 # ViteEntry() helper — manifest in prod, dev server in dev
+├── static/                 # Served at GET /static/ — fonts, images, legacy assets
+└── frontend/               # All React/TS source
+    ├── src/
+    │   ├── entries/app.tsx         # SPA entry — creates router + QueryClientProvider
+    │   ├── routes/
+    │   │   ├── __root.tsx          # Root route — bare <Outlet>, no providers
+    │   │   ├── login.tsx           # /login — unauthenticated; redirects to /agents if authed
+    │   │   ├── _app.tsx            # Authenticated layout route — runs meQuery loader
+    │   │   └── _app/               # Page routes (all require auth via _app parent)
+    │   ├── components/
+    │   │   ├── layout/AppLayout.tsx  # Navbar + <Outlet> shell
+    │   │   ├── ui/                   # CossUI components (Button, Separator, etc.)
+    │   │   └── {page}/               # One directory per page
+    │   ├── lib/
+    │   │   ├── queryClient.ts        # Singleton QueryClient
+    │   │   └── queries/me.ts         # meQueryOptions — auth query
+    │   └── globals.css             # Tailwind + CossUI design tokens + font imports
+    ├── vite.config.ts
+    └── package.json
+```
 
-When adding or editing UI: check `DESIGN.md` for the right token, component pattern, or elevation level first.
+### Auth pattern
 
-### Conventions
+Auth state lives in the TanStack Query cache via `meQueryOptions` (`src/lib/queries/me.ts`). The `GET /api/auth/me` response shape is `{ id, username, role, is_admin }` (note: `is_admin` is snake_case).
 
-- `package web` for layout/components (`web/*.templ`); `package pages` for pages (`web/pages/*.templ`)
-- JS files are ESM modules (`import`/`export`); no bundler
-- All frontend deps via CDN — never add `package.json`
-- `*_templ.go` files are auto-generated — never edit manually
-- `mise run generate` after editing any `.templ` file; `mise run format` before committing
-- daisyUI classes: `btn`, `input`, `badge`, `card`, `alert`, `toggle`, `collapse` — see https://daisyui.com/components/
+- Route loaders: `await queryClient.ensureQueryData(meQueryOptions)` — network fetch, throws on 401
+- Components: `useQuery(meQueryOptions)` — reads from same cache entry, no extra request
+- Admin guards: `queryClient.getQueryData(meQueryOptions.queryKey)` — sync cache read (parent loader already fetched)
 
 ### Adding a new page
 
-1. `web/pages/mypage.templ` — package `pages`, use `@web.PageHeader`, `@web.FormField`, etc.
-2. `web/static/js/pages/mypage.js` — ESM, `Alpine.data('mypagePage', () => ({ ... }))`
-3. Wire up handler + route in `server/` (see `server/CLAUDE.md`)
-4. Add nav link in `web/navbar.templ` → `navItems` slice
-5. `mise run generate`
+1. Create `src/components/mypage/MyPage.tsx` — React component
+2. Create `src/routes/_app/mypage.tsx`:
+   ```typescript
+   import { createFileRoute } from '@tanstack/react-router'
+   import { MyPage } from '@/components/mypage/MyPage'
+   export const Route = createFileRoute('/_app/mypage')({ component: MyPage })
+   ```
+   For admin-only pages, add a `beforeLoad` that checks `queryClient.getQueryData(meQueryOptions.queryKey)?.is_admin` and throws `redirect({ to: '/agents' })` if false.
+3. Add the nav link to `src/components/layout/AppLayout.tsx` → `navItems` array
+4. Run `pnpm build` — router plugin regenerates `src/routeTree.gen.ts` automatically
 
-### Alpine patterns
-
-```javascript
-// API calls
-import { api } from '/static/js/api.js';
-const data = await api('GET', '/api/things');
-
-// Toast notifications
-this.$store.toast.show('Saved');
-this.$store.toast.show(err.message, 'error');
-```
+No Go server changes needed — the wildcard `GET /{path...}` already serves all page routes.
 
 ### URL as state
 
-Pages with filters, pagination, view modes, or tabs must encode that state in the URL — not only in Alpine data. This makes pages shareable, bookmarkable, and browser-back-compatible.
+Use TanStack Router search params, not `history.pushState` directly:
 
-**What belongs in the URL:** search queries, filters, pagination, view mode, selected tab.  
-**What does not:** unsaved form input, tokens, transient hover/focus state.
+```typescript
+export const Route = createFileRoute('/_app/mypage')({
+  validateSearch: (search) => ({
+    status: (search.status as string) || 'all',
+    page: Number(search.page) || 1,
+  }),
+  component: MyPage,
+})
 
-```javascript
-init() {
-  const p = new URLSearchParams(window.location.search);
-  this.status = p.get('status') || 'all';   // read; omit param when it equals the default
-  this.page   = parseInt(p.get('page')) || 1;
-},
-pushState() {
-  const p = new URLSearchParams();
-  if (this.status !== 'all') p.set('status', this.status);
-  if (this.page   !== 1)     p.set('page',   this.page);
-  const qs = p.toString();
-  history.pushState({}, '', qs ? `?${qs}` : location.pathname);
-},
+// Inside component:
+const { status, page } = Route.useSearch()
+const navigate = useNavigate({ from: Route.fullPath })
+navigate({ search: (prev) => ({ ...prev, status: 'active' }) })
 ```
 
-- Omit parameters that equal the default value
-- Use `pushState` for distinct steps; `replaceState` for incremental refinements (e.g. debounced search)
-- Debounce frequent updates to avoid flooding browser history
-- Parameter names must be self-documenting (`status=active`, not `s=1`)
-- Listen for `popstate` to restore state on browser back/forward
+### Dev workflow
+
+```bash
+cd web/frontend
+pnpm dev          # Vite dev server at localhost:5173
+pnpm build        # Production build → web/static/dist/
+
+# In another terminal:
+APP_ENV=development anna --open   # Go server proxies Vite assets from :5173
+```
+
+### CossUI components
+
+All components live in `src/components/ui/`. Import directly:
+```typescript
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+```
+
+Based on `@base-ui/react`. Design tokens are in `src/globals.css` under `:root` (light) and `.dark`.
