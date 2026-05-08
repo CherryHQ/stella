@@ -301,6 +301,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
 
+// WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
+type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
+
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
 
@@ -410,6 +413,12 @@ type GetSessionMessagesParams struct {
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
 	Path string `form:"path" json:"path"`
+}
+
+// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
+type UploadWorkspaceFileMultipartBody struct {
+	// File The file to upload
+	File openapi_types.File `json:"file"`
 }
 
 // SearchSkillsParams defines parameters for SearchSkills.
@@ -547,6 +556,9 @@ type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
 
 // CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
 type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
+
+// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
+type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
 
 // CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
 type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
@@ -1056,6 +1068,9 @@ type ClientInterface interface {
 	CreateWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateWorkspaceFile(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadWorkspaceFileWithBody request with any body
+	UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSkills request
 	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2929,6 +2944,18 @@ func (c *Client) CreateWorkspaceFileWithBody(ctx context.Context, sessionID stri
 
 func (c *Client) CreateWorkspaceFile(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateWorkspaceFileRequest(c.Server, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -7865,6 +7892,42 @@ func NewCreateWorkspaceFileRequestWithBody(server string, sessionID string, cont
 	return req, nil
 }
 
+// NewUploadWorkspaceFileRequestWithBody generates requests for UploadWorkspaceFile with any type of body
+func NewUploadWorkspaceFileRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/upload", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListSkillsRequest generates requests for ListSkills
 func NewListSkillsRequest(server string) (*http.Request, error) {
 	var err error
@@ -8973,6 +9036,9 @@ type ClientWithResponsesInterface interface {
 	CreateWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
 
 	CreateWorkspaceFileWithResponse(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
+
+	// UploadWorkspaceFileWithBodyWithResponse request with any body
+	UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error)
 
 	// ListSkillsWithResponse request
 	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
@@ -12730,6 +12796,40 @@ func (r CreateWorkspaceFileResponse) ContentType() string {
 	return ""
 }
 
+type UploadWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.WorkspaceUploadResponse
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -14559,6 +14659,15 @@ func (c *ClientWithResponses) CreateWorkspaceFileWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseCreateWorkspaceFileResponse(rsp)
+}
+
+// UploadWorkspaceFileWithBodyWithResponse request with arbitrary body returning *UploadWorkspaceFileResponse
+func (c *ClientWithResponses) UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error) {
+	rsp, err := c.UploadWorkspaceFileWithBody(ctx, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadWorkspaceFileResponse(rsp)
 }
 
 // ListSkillsWithResponse request returning *ListSkillsResponse
@@ -19565,6 +19674,60 @@ func ParseCreateWorkspaceFileResponse(rsp *http.Response) (*CreateWorkspaceFileR
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
 		var dest externalRef0.SessionWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadWorkspaceFileResponse parses an HTTP response from a UploadWorkspaceFileWithResponse call
+func ParseUploadWorkspaceFileResponse(rsp *http.Response) (*UploadWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.WorkspaceUploadResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

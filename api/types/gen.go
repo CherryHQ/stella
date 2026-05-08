@@ -926,6 +926,12 @@ type WorkspaceUpdateContentRequest struct {
 	Path string `json:"path"`
 }
 
+// WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
+type WorkspaceUploadResponse struct {
+	// Path Relative path of the uploaded file within the workspace
+	Path string `json:"path"`
+}
+
 // BadRequest defines model for BadRequest.
 type BadRequest struct {
 	Error string `json:"error"`

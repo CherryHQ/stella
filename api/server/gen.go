@@ -299,6 +299,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
 
+// WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
+type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
+
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
 
@@ -408,6 +411,12 @@ type GetSessionMessagesParams struct {
 type GetWorkspaceFileContentParams struct {
 	// Path Relative path of the file within the workspace
 	Path string `form:"path" json:"path"`
+}
+
+// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
+type UploadWorkspaceFileMultipartBody struct {
+	// File The file to upload
+	File openapi_types.File `json:"file"`
 }
 
 // SearchSkillsParams defines parameters for SearchSkills.
@@ -545,6 +554,9 @@ type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
 
 // CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
 type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
+
+// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
+type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
 
 // CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
 type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
@@ -908,6 +920,9 @@ type ServerInterface interface {
 	// Create a file or directory in the session workspace
 	// (POST /api/sessions/{sessionID}/workspace/files)
 	CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
+	// Upload a file to the session workspace assets directory
+	// (POST /api/sessions/{sessionID}/workspace/upload)
+	UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
 	// List all skills (admin only)
 	// (GET /api/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request)
@@ -4635,6 +4650,38 @@ func (siw *ServerInterfaceWrapper) CreateWorkspaceFile(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// UploadWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadWorkspaceFile(w, r, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkills operation middleware
 func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -5371,6 +5418,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.DeleteWorkspaceFile)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)

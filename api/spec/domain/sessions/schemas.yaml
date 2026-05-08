@@ -114,3 +114,11 @@ components:
         content:
           type: string
           description: New file content to write
+
+    WorkspaceUploadResponse:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Relative path of the uploaded file within the workspace

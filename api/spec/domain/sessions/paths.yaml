@@ -226,6 +226,36 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/sessions/{sessionID}/workspace/upload:
+    parameters:
+      - { name: sessionID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Upload a file to the session workspace assets directory
+      operationId: uploadWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+      responses:
+        "201":
+          description: uploaded
+          content:
+            application/json:
+              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUploadResponse" }
+        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/sessions/{sessionID}/system-prompt:
     parameters:
       - { name: sessionID, in: path, required: true, schema: { type: string } }

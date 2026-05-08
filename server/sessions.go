@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -422,7 +423,7 @@ func collectWorkspacePaths(root string) ([]string, error) {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if name == ".agents" || name == ".git" || name == ".cache" || name == "__pycache__" || name == "node_modules" {
+			if name == ".agents" || name == ".assets" || name == ".git" || name == ".cache" || name == "__pycache__" || name == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -677,6 +678,45 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 		"content":  body.Content,
 		"language": lang,
 	})
+}
+
+func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	if err != nil {
+		return
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file field: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	now := time.Now()
+	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
+	dir := filepath.Join(root, ".assets", now.Format("200601"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(header.Filename))
+	abs := filepath.Join(dir, name)
+	if err := os.WriteFile(abs, data, 0o644); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rel, _ := filepath.Rel(root, abs)
+	writeData(w, http.StatusCreated, map[string]string{"path": rel})
 }
 
 // detectLanguage returns a simple language hint based on file extension.
