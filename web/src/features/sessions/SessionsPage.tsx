@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Agent, Session, Workspace } from "@/lib/types";
@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 import { SessionSidebar } from "./SessionSidebar";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
-import { FileEditorModal } from "./FileEditorModal";
+
+const RIGHT_MIN = 240;
+const RIGHT_MAX_RATIO = 0.5;
+const RIGHT_DEFAULT = 300;
 
 export function SessionsPage() {
   const queryClient = useQueryClient();
@@ -17,18 +20,44 @@ export function SessionsPage() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
 
-  // Workspace state (lifted from SessionDetail)
+  // Workspace state
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [fileEditor, setFileEditor] = useState<{
-    open: boolean;
-    path: string;
-    content: string;
-    language: string;
-    saving: boolean;
-    loading: boolean;
-    previewMd: boolean;
-  } | null>(null);
+
+  // Resizable right panel
+  const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
+  const dragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const onResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragging.current = true;
+      const startX = e.clientX;
+      const startW = rightWidth;
+
+      const onMove = (ev: MouseEvent) => {
+        if (!dragging.current) return;
+        const delta = startX - ev.clientX;
+        const maxW = (containerRef.current?.offsetWidth ?? 1200) * RIGHT_MAX_RATIO;
+        setRightWidth(Math.max(RIGHT_MIN, Math.min(maxW, startW + delta)));
+      };
+
+      const onUp = () => {
+        dragging.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [rightWidth],
+  );
 
   const sessionsQuery = useInfiniteQuery({
     queryKey: ["sessions"],
@@ -96,7 +125,6 @@ export function SessionsPage() {
     return () => window.removeEventListener("popstate", onPop);
   }, [openSession]);
 
-  // Workspace loading
   const loadWorkspace = useCallback(async (sid: string, showHidden = false) => {
     setWorkspaceLoading(true);
     try {
@@ -113,7 +141,6 @@ export function SessionsPage() {
     }
   }, []);
 
-  // Load workspace when right panel opens or session changes while it's open
   useEffect(() => {
     if (rightOpen && sessionDetail) {
       loadWorkspace(sessionDetail.id).catch(console.error);
@@ -123,59 +150,9 @@ export function SessionsPage() {
     }
   }, [rightOpen, sessionDetail?.id, loadWorkspace, sessionDetail]);
 
-  // File editor callbacks
-  const enc = sessionDetail ? encodeURIComponent(sessionDetail.id) : "";
-
-  const openFileEditor = useCallback(
-    async (path: string) => {
-      if (!sessionDetail) return;
-      setFileEditor({
-        open: true,
-        path,
-        content: "",
-        language: "",
-        saving: false,
-        loading: true,
-        previewMd: false,
-      });
-      try {
-        const data = await api<{ content: string; language: string }>(
-          "GET",
-          `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
-        );
-        setFileEditor((prev) =>
-          prev
-            ? {
-                ...prev,
-                content: data.content ?? "",
-                language: data.language ?? "",
-                loading: false,
-              }
-            : null,
-        );
-      } catch (e) {
-        console.error(e);
-        setFileEditor(null);
-      }
-    },
-    [sessionDetail, enc],
-  );
-
-  const saveFileEditor = useCallback(async () => {
-    if (!fileEditor || !sessionDetail) return;
-    setFileEditor((prev) => (prev ? { ...prev, saving: true } : null));
-    try {
-      await api("PUT", `/api/sessions/${enc}/workspace/file-content`, {
-        path: fileEditor.path,
-        content: fileEditor.content,
-      });
-    } finally {
-      setFileEditor((prev) => (prev ? { ...prev, saving: false } : null));
-    }
-  }, [fileEditor, sessionDetail, enc]);
-
   return (
     <div
+      ref={containerRef}
       className="border-t border-border flex overflow-hidden"
       style={{ height: "calc(100vh - 3.5rem)" }}
     >
@@ -213,36 +190,30 @@ export function SessionsPage() {
         onToggleRight={() => setRightOpen((v) => !v)}
       />
 
-      {/* Right sidebar (workspace) */}
+      {/* Right sidebar (workspace) — resizable */}
       <div
         className={cn(
-          "flex-shrink-0 transition-all duration-200 ease-out",
+          "flex-shrink-0 relative transition-[width,min-width,opacity] duration-200 ease-out",
           rightOpen
-            ? "w-[272px] min-w-[272px] border-l border-border"
+            ? "border-l border-border"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
+        style={rightOpen ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
       >
+        {/* Drag handle */}
+        {rightOpen && (
+          <div
+            onMouseDown={onResizeStart}
+            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-primary/10 active:bg-primary/20 transition-colors"
+          />
+        )}
         <WorkspacePanel
           sessionID={sessionDetail?.id ?? ""}
           workspace={workspace}
           workspaceLoading={workspaceLoading}
-          onOpenFile={openFileEditor}
           onReload={loadWorkspace}
         />
       </div>
-
-      {/* File editor modal */}
-      {fileEditor?.open && (
-        <FileEditorModal
-          fileEditor={fileEditor}
-          onClose={() => setFileEditor(null)}
-          onSave={saveFileEditor}
-          onChange={(content) => setFileEditor((prev) => (prev ? { ...prev, content } : null))}
-          onTogglePreview={() =>
-            setFileEditor((prev) => (prev ? { ...prev, previewMd: !prev.previewMd } : null))
-          }
-        />
-      )}
     </div>
   );
 }
