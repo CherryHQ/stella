@@ -1,0 +1,68 @@
+---
+title: anna
+description: Your AI assistant that never forgets.
+icon: Bot
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+anna is a self-hosted AI assistant with lossless context management. Native Go binary calling LLM providers, with a terminal TUI and multi-platform bot gateway (Telegram, QQ, Feishu, WeChat). Supports multiple agents and multiple users out of the box. Built-in scheduler, heartbeat monitoring, and cross-channel notifications.
+
+## Quick Start
+
+```bash
+# Install
+go install github.com/vaayne/anna@latest
+
+# Interactive setup (opens web UI)
+anna --open
+
+# Start the daemon (bots + scheduler)
+anna
+```
+
+## Explore
+
+<Cards>
+  <Card
+    title="Configuration"
+    description="DB-backed config, admin panel, defaults"
+    href="/docs/getting-started/configuration"
+  />
+  <Card
+    title="Deployment"
+    description="Binary, Docker, systemd, compose"
+    href="/docs/getting-started/deployment"
+  />
+  <Card
+    title="Architecture"
+    description="System design, multi-agent routing, packages"
+    href="/docs/core/architecture"
+  />
+  <Card
+    title="Memory System"
+    description="Lossless context management deep dive"
+    href="/docs/core/memory-system"
+  />
+  <Card title="Models" description="Tiers, providers, caching" href="/docs/core/models" />
+  <Card
+    title="Channels"
+    description="Telegram, QQ, Feishu, WeChat bots"
+    href="/docs/channels/telegram"
+  />
+  <Card
+    title="Plugins"
+    description="Extend anna with JavaScript plugins"
+    href="/docs/features/plugin-system"
+  />
+  <Card
+    title="Scheduler System"
+    description="Scheduled tasks, heartbeat, persistence"
+    href="/docs/features/scheduler-system"
+  />
+  <Card
+    title="Notifications"
+    description="Dispatcher, backends, routing"
+    href="/docs/features/notification-system"
+  />
+</Cards>

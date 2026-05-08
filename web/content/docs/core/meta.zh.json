@@ -1,0 +1,11 @@
+{
+  "title": "核心概念",
+  "pages": [
+    "architecture",
+    "cli-as-client",
+    "sandbox-backend-abstraction",
+    "models",
+    "memory-system",
+    "session-compaction"
+  ]
+}

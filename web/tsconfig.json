@@ -20,8 +20,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "collections/*": ["./.source/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", ".source", "source.config.ts"]
 }

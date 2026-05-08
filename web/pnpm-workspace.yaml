@@ -1,4 +1,5 @@
 allowBuilds:
+  esbuild: true
   sharp: true
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@latest
