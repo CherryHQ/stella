@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { createHighlighter, type Highlighter } from "shiki";
-import { ArrowLeft, Pencil, Save, X, Loader2 } from "lucide-react";
+import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +115,7 @@ export function FileViewer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const ext = extOf(path);
   const fileName = path.split("/").pop() ?? path;
+  const rawUrl = `/api/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`;
 
   useEffect(() => {
     setEditing(false);
@@ -210,6 +211,17 @@ export function FileViewer({
         {language && (
           <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">{language}</span>
         )}
+        {!loading && (isImage(path) || isPdf(path) || isBinary(path)) && (
+          <a
+            href={rawUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            title="Open in browser"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
         {!loading && !isBinary(path) && !isImage(path) && !isPdf(path) && (
           <>
             {editing ? (
@@ -261,7 +273,7 @@ export function FileViewer({
         {!loading && isImage(path) && (
           <div className="p-4 flex items-center justify-center h-full">
             <img
-              src={`/api/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`}
+              src={rawUrl}
               alt={fileName}
               className="max-w-full max-h-full object-contain rounded"
               onError={(e) => {
@@ -271,18 +283,19 @@ export function FileViewer({
           </div>
         )}
 
-        {!loading && isPdf(path) && (
-          <iframe
-            src={`/api/sessions/${encodeURIComponent(sessionID)}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`}
-            className="w-full h-full border-0"
-            title={fileName}
-          />
-        )}
-
-        {!loading && isBinary(path) && (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/50">
-            <span className="text-xs font-mono">Binary file</span>
+        {!loading && (isPdf(path) || isBinary(path)) && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
+            <span className="text-xs font-mono">{isPdf(path) ? "PDF document" : "Binary file"}</span>
             <span className="text-[10px] font-mono">.{ext}</span>
+            <a
+              href={rawUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-mono text-primary hover:underline flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Open in browser
+            </a>
           </div>
         )}
 
