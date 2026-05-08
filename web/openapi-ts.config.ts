@@ -1,16 +1,16 @@
-import { defineConfig } from '@hey-api/openapi-ts';
+import { defineConfig } from "@hey-api/openapi-ts";
 
 export default defineConfig({
-  input: '../api/spec/openapi.yaml',
+  input: "../api/spec/openapi.yaml",
   output: {
-    path: 'src/lib/api-client',
-    postProcess: ['prettier'],
+    path: "src/lib/api-client",
+    postProcess: ["prettier"],
   },
   plugins: [
     {
-      name: '@hey-api/client-fetch',
+      name: "@hey-api/client-fetch",
       baseUrl: false,
     },
-    { name: '@tanstack/react-query' },
+    { name: "@tanstack/react-query" },
   ],
 });

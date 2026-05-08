@@ -530,11 +530,7 @@ import type {
  */
 export const registerMutation = (
   options?: Partial<Options<RegisterData>>,
-): UseMutationOptions<
-  RegisterResponse,
-  RegisterError,
-  Options<RegisterData>
-> => {
+): UseMutationOptions<RegisterResponse, RegisterError, Options<RegisterData>> => {
   const mutationOptions: UseMutationOptions<
     RegisterResponse,
     RegisterError,
@@ -558,11 +554,7 @@ export const registerMutation = (
 export const loginMutation = (
   options?: Partial<Options<LoginData>>,
 ): UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> => {
-  const mutationOptions: UseMutationOptions<
-    LoginResponse,
-    LoginError,
-    Options<LoginData>
-  > = {
+  const mutationOptions: UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> = {
     mutationFn: async (fnOptions) => {
       const { data } = await login({
         ...options,
@@ -581,11 +573,7 @@ export const loginMutation = (
 export const logoutMutation = (
   options?: Partial<Options<LogoutData>>,
 ): UseMutationOptions<LogoutResponse, LogoutError, Options<LogoutData>> => {
-  const mutationOptions: UseMutationOptions<
-    LogoutResponse,
-    LogoutError,
-    Options<LogoutData>
-  > = {
+  const mutationOptions: UseMutationOptions<LogoutResponse, LogoutError, Options<LogoutData>> = {
     mutationFn: async (fnOptions) => {
       const { data } = await logout({
         ...options,
@@ -614,8 +602,7 @@ const createQueryKey = <TOptions extends Options>(
 ): [QueryKey<TOptions>[0]] => {
   const params: QueryKey<TOptions>[0] = {
     _id: id,
-    baseUrl:
-      options?.baseUrl || (options?.client ?? client).getConfig().baseUrl,
+    baseUrl: options?.baseUrl || (options?.client ?? client).getConfig().baseUrl,
   } as QueryKey<TOptions>[0];
   if (infinite) {
     params._infinite = infinite;
@@ -638,19 +625,13 @@ const createQueryKey = <TOptions extends Options>(
   return [params];
 };
 
-export const getMeQueryKey = (options?: Options<GetMeData>) =>
-  createQueryKey("getMe", options);
+export const getMeQueryKey = (options?: Options<GetMeData>) => createQueryKey("getMe", options);
 
 /**
  * Get the currently authenticated user
  */
 export const getMeOptions = (options?: Options<GetMeData>) =>
-  queryOptions<
-    GetMeResponse,
-    GetMeError,
-    GetMeResponse,
-    ReturnType<typeof getMeQueryKey>
-  >({
+  queryOptions<GetMeResponse, GetMeError, GetMeResponse, ReturnType<typeof getMeQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getMe({
         ...options,
@@ -693,11 +674,7 @@ export const listAgentsOptions = (options?: Options<ListAgentsData>) =>
  */
 export const createAgentMutation = (
   options?: Partial<Options<CreateAgentData>>,
-): UseMutationOptions<
-  CreateAgentResponse,
-  CreateAgentError,
-  Options<CreateAgentData>
-> => {
+): UseMutationOptions<CreateAgentResponse, CreateAgentError, Options<CreateAgentData>> => {
   const mutationOptions: UseMutationOptions<
     CreateAgentResponse,
     CreateAgentError,
@@ -720,11 +697,7 @@ export const createAgentMutation = (
  */
 export const deleteAgentMutation = (
   options?: Partial<Options<DeleteAgentData>>,
-): UseMutationOptions<
-  DeleteAgentResponse,
-  DeleteAgentError,
-  Options<DeleteAgentData>
-> => {
+): UseMutationOptions<DeleteAgentResponse, DeleteAgentError, Options<DeleteAgentData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteAgentResponse,
     DeleteAgentError,
@@ -772,11 +745,7 @@ export const getAgentOptions = (options: Options<GetAgentData>) =>
  */
 export const updateAgentMutation = (
   options?: Partial<Options<UpdateAgentData>>,
-): UseMutationOptions<
-  UpdateAgentResponse,
-  UpdateAgentError,
-  Options<UpdateAgentData>
-> => {
+): UseMutationOptions<UpdateAgentResponse, UpdateAgentError, Options<UpdateAgentData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateAgentResponse,
     UpdateAgentError,
@@ -873,9 +842,8 @@ export const removeAgentUserMutation = (
   return mutationOptions;
 };
 
-export const listAgentSkillsQueryKey = (
-  options: Options<ListAgentSkillsData>,
-) => createQueryKey("listAgentSkills", options);
+export const listAgentSkillsQueryKey = (options: Options<ListAgentSkillsData>) =>
+  createQueryKey("listAgentSkills", options);
 
 /**
  * List skills for an agent (creator or admin)
@@ -1086,16 +1054,13 @@ export const deleteAgentSkillFileMutation = (
   return mutationOptions;
 };
 
-export const getAgentSkillFileQueryKey = (
-  options: Options<GetAgentSkillFileData>,
-) => createQueryKey("getAgentSkillFile", options);
+export const getAgentSkillFileQueryKey = (options: Options<GetAgentSkillFileData>) =>
+  createQueryKey("getAgentSkillFile", options);
 
 /**
  * Download a skill file (creator or admin)
  */
-export const getAgentSkillFileOptions = (
-  options: Options<GetAgentSkillFileData>,
-) =>
+export const getAgentSkillFileOptions = (options: Options<GetAgentSkillFileData>) =>
   queryOptions<
     GetAgentSkillFileResponse,
     GetAgentSkillFileError,
@@ -1144,11 +1109,7 @@ export const listSkillsOptions = (options?: Options<ListSkillsData>) =>
  */
 export const createSkillMutation = (
   options?: Partial<Options<CreateSkillData>>,
-): UseMutationOptions<
-  CreateSkillResponse,
-  CreateSkillError,
-  Options<CreateSkillData>
-> => {
+): UseMutationOptions<CreateSkillResponse, CreateSkillError, Options<CreateSkillData>> => {
   const mutationOptions: UseMutationOptions<
     CreateSkillResponse,
     CreateSkillError,
@@ -1196,11 +1157,7 @@ export const searchSkillsOptions = (options: Options<SearchSkillsData>) =>
  */
 export const installSkillMutation = (
   options?: Partial<Options<InstallSkillData>>,
-): UseMutationOptions<
-  InstallSkillResponse,
-  InstallSkillError,
-  Options<InstallSkillData>
-> => {
+): UseMutationOptions<InstallSkillResponse, InstallSkillError, Options<InstallSkillData>> => {
   const mutationOptions: UseMutationOptions<
     InstallSkillResponse,
     InstallSkillError,
@@ -1223,11 +1180,7 @@ export const installSkillMutation = (
  */
 export const deleteSkillMutation = (
   options?: Partial<Options<DeleteSkillData>>,
-): UseMutationOptions<
-  DeleteSkillResponse,
-  DeleteSkillError,
-  Options<DeleteSkillData>
-> => {
+): UseMutationOptions<DeleteSkillResponse, DeleteSkillError, Options<DeleteSkillData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteSkillResponse,
     DeleteSkillError,
@@ -1275,11 +1228,7 @@ export const getSkillOptions = (options: Options<GetSkillData>) =>
  */
 export const updateSkillMutation = (
   options?: Partial<Options<UpdateSkillData>>,
-): UseMutationOptions<
-  UpdateSkillResponse,
-  UpdateSkillError,
-  Options<UpdateSkillData>
-> => {
+): UseMutationOptions<UpdateSkillResponse, UpdateSkillError, Options<UpdateSkillData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateSkillResponse,
     UpdateSkillError,
@@ -1349,16 +1298,13 @@ export const getSkillFileOptions = (options: Options<GetSkillFileData>) =>
     queryKey: getSkillFileQueryKey(options),
   });
 
-export const listProfileSkillsQueryKey = (
-  options?: Options<ListProfileSkillsData>,
-) => createQueryKey("listProfileSkills", options);
+export const listProfileSkillsQueryKey = (options?: Options<ListProfileSkillsData>) =>
+  createQueryKey("listProfileSkills", options);
 
 /**
  * List profile skills (current user)
  */
-export const listProfileSkillsOptions = (
-  options?: Options<ListProfileSkillsData>,
-) =>
+export const listProfileSkillsOptions = (options?: Options<ListProfileSkillsData>) =>
   queryOptions<
     ListProfileSkillsResponse,
     ListProfileSkillsError,
@@ -1458,9 +1404,8 @@ export const deleteProfileSkillMutation = (
   return mutationOptions;
 };
 
-export const getProfileSkillQueryKey = (
-  options: Options<GetProfileSkillData>,
-) => createQueryKey("getProfileSkill", options);
+export const getProfileSkillQueryKey = (options: Options<GetProfileSkillData>) =>
+  createQueryKey("getProfileSkill", options);
 
 /**
  * Get a profile skill by ID
@@ -1538,16 +1483,13 @@ export const deleteProfileSkillFileMutation = (
   return mutationOptions;
 };
 
-export const getProfileSkillFileQueryKey = (
-  options: Options<GetProfileSkillFileData>,
-) => createQueryKey("getProfileSkillFile", options);
+export const getProfileSkillFileQueryKey = (options: Options<GetProfileSkillFileData>) =>
+  createQueryKey("getProfileSkillFile", options);
 
 /**
  * Get a profile skill file
  */
-export const getProfileSkillFileOptions = (
-  options: Options<GetProfileSkillFileData>,
-) =>
+export const getProfileSkillFileOptions = (options: Options<GetProfileSkillFileData>) =>
   queryOptions<
     GetProfileSkillFileResponse,
     GetProfileSkillFileError,
@@ -1596,11 +1538,7 @@ export const listArticlesOptions = (options?: Options<ListArticlesData>) =>
  */
 export const saveArticleMutation = (
   options?: Partial<Options<SaveArticleData>>,
-): UseMutationOptions<
-  SaveArticleResponse,
-  SaveArticleError,
-  Options<SaveArticleData>
-> => {
+): UseMutationOptions<SaveArticleResponse, SaveArticleError, Options<SaveArticleData>> => {
   const mutationOptions: UseMutationOptions<
     SaveArticleResponse,
     SaveArticleError,
@@ -1623,11 +1561,7 @@ export const saveArticleMutation = (
  */
 export const deleteArticleMutation = (
   options?: Partial<Options<DeleteArticleData>>,
-): UseMutationOptions<
-  DeleteArticleResponse,
-  DeleteArticleError,
-  Options<DeleteArticleData>
-> => {
+): UseMutationOptions<DeleteArticleResponse, DeleteArticleError, Options<DeleteArticleData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteArticleResponse,
     DeleteArticleError,
@@ -1675,11 +1609,7 @@ export const getArticleOptions = (options: Options<GetArticleData>) =>
  */
 export const updateArticleMutation = (
   options?: Partial<Options<UpdateArticleData>>,
-): UseMutationOptions<
-  UpdateArticleResponse,
-  UpdateArticleError,
-  Options<UpdateArticleData>
-> => {
+): UseMutationOptions<UpdateArticleResponse, UpdateArticleError, Options<UpdateArticleData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateArticleResponse,
     UpdateArticleError,
@@ -1727,11 +1657,7 @@ export const listFeedsOptions = (options?: Options<ListFeedsData>) =>
  */
 export const createFeedMutation = (
   options?: Partial<Options<CreateFeedData>>,
-): UseMutationOptions<
-  CreateFeedResponse,
-  CreateFeedError,
-  Options<CreateFeedData>
-> => {
+): UseMutationOptions<CreateFeedResponse, CreateFeedError, Options<CreateFeedData>> => {
   const mutationOptions: UseMutationOptions<
     CreateFeedResponse,
     CreateFeedError,
@@ -1754,11 +1680,7 @@ export const createFeedMutation = (
  */
 export const deleteFeedMutation = (
   options?: Partial<Options<DeleteFeedData>>,
-): UseMutationOptions<
-  DeleteFeedResponse,
-  DeleteFeedError,
-  Options<DeleteFeedData>
-> => {
+): UseMutationOptions<DeleteFeedResponse, DeleteFeedError, Options<DeleteFeedData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteFeedResponse,
     DeleteFeedError,
@@ -1783,12 +1705,7 @@ export const getFeedQueryKey = (options: Options<GetFeedData>) =>
  * Get a feed
  */
 export const getFeedOptions = (options: Options<GetFeedData>) =>
-  queryOptions<
-    GetFeedResponse,
-    GetFeedError,
-    GetFeedResponse,
-    ReturnType<typeof getFeedQueryKey>
-  >({
+  queryOptions<GetFeedResponse, GetFeedError, GetFeedResponse, ReturnType<typeof getFeedQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getFeed({
         ...options,
@@ -1806,11 +1723,7 @@ export const getFeedOptions = (options: Options<GetFeedData>) =>
  */
 export const updateFeedMutation = (
   options?: Partial<Options<UpdateFeedData>>,
-): UseMutationOptions<
-  UpdateFeedResponse,
-  UpdateFeedError,
-  Options<UpdateFeedData>
-> => {
+): UseMutationOptions<UpdateFeedResponse, UpdateFeedError, Options<UpdateFeedData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateFeedResponse,
     UpdateFeedError,
@@ -1833,11 +1746,7 @@ export const updateFeedMutation = (
  */
 export const pollFeedMutation = (
   options?: Partial<Options<PollFeedData>>,
-): UseMutationOptions<
-  PollFeedResponse,
-  PollFeedError,
-  Options<PollFeedData>
-> => {
+): UseMutationOptions<PollFeedResponse, PollFeedError, Options<PollFeedData>> => {
   const mutationOptions: UseMutationOptions<
     PollFeedResponse,
     PollFeedError,
@@ -1855,9 +1764,8 @@ export const pollFeedMutation = (
   return mutationOptions;
 };
 
-export const listFeedEntriesQueryKey = (
-  options: Options<ListFeedEntriesData>,
-) => createQueryKey("listFeedEntries", options);
+export const listFeedEntriesQueryKey = (options: Options<ListFeedEntriesData>) =>
+  createQueryKey("listFeedEntries", options);
 
 /**
  * List entries for a feed
@@ -1983,16 +1891,13 @@ export const listToolsOptions = (options?: Options<ListToolsData>) =>
     queryKey: listToolsQueryKey(options),
   });
 
-export const listBuiltinResourcesQueryKey = (
-  options: Options<ListBuiltinResourcesData>,
-) => createQueryKey("listBuiltinResources", options);
+export const listBuiltinResourcesQueryKey = (options: Options<ListBuiltinResourcesData>) =>
+  createQueryKey("listBuiltinResources", options);
 
 /**
  * List builtin resources of a given kind
  */
-export const listBuiltinResourcesOptions = (
-  options: Options<ListBuiltinResourcesData>,
-) =>
+export const listBuiltinResourcesOptions = (options: Options<ListBuiltinResourcesData>) =>
   queryOptions<
     ListBuiltinResourcesResponse,
     ListBuiltinResourcesError,
@@ -2011,16 +1916,13 @@ export const listBuiltinResourcesOptions = (
     queryKey: listBuiltinResourcesQueryKey(options),
   });
 
-export const getBuiltinResourceQueryKey = (
-  options: Options<GetBuiltinResourceData>,
-) => createQueryKey("getBuiltinResource", options);
+export const getBuiltinResourceQueryKey = (options: Options<GetBuiltinResourceData>) =>
+  createQueryKey("getBuiltinResource", options);
 
 /**
  * Get a specific builtin resource
  */
-export const getBuiltinResourceOptions = (
-  options: Options<GetBuiltinResourceData>,
-) =>
+export const getBuiltinResourceOptions = (options: Options<GetBuiltinResourceData>) =>
   queryOptions<
     GetBuiltinResourceResponse,
     GetBuiltinResourceError,
@@ -2039,16 +1941,13 @@ export const getBuiltinResourceOptions = (
     queryKey: getBuiltinResourceQueryKey(options),
   });
 
-export const listPublicChannelsQueryKey = (
-  options?: Options<ListPublicChannelsData>,
-) => createQueryKey("listPublicChannels", options);
+export const listPublicChannelsQueryKey = (options?: Options<ListPublicChannelsData>) =>
+  createQueryKey("listPublicChannels", options);
 
 /**
  * List public channels (any authenticated user)
  */
-export const listPublicChannelsOptions = (
-  options?: Options<ListPublicChannelsData>,
-) =>
+export const listPublicChannelsOptions = (options?: Options<ListPublicChannelsData>) =>
   queryOptions<
     ListPublicChannelsResponse,
     ListPublicChannelsError,
@@ -2097,11 +1996,7 @@ export const listChannelsOptions = (options?: Options<ListChannelsData>) =>
  */
 export const createChannelMutation = (
   options?: Partial<Options<CreateChannelData>>,
-): UseMutationOptions<
-  CreateChannelResponse,
-  CreateChannelError,
-  Options<CreateChannelData>
-> => {
+): UseMutationOptions<CreateChannelResponse, CreateChannelError, Options<CreateChannelData>> => {
   const mutationOptions: UseMutationOptions<
     CreateChannelResponse,
     CreateChannelError,
@@ -2124,11 +2019,7 @@ export const createChannelMutation = (
  */
 export const deleteChannelMutation = (
   options?: Partial<Options<DeleteChannelData>>,
-): UseMutationOptions<
-  DeleteChannelResponse,
-  DeleteChannelError,
-  Options<DeleteChannelData>
-> => {
+): UseMutationOptions<DeleteChannelResponse, DeleteChannelError, Options<DeleteChannelData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteChannelResponse,
     DeleteChannelError,
@@ -2176,11 +2067,7 @@ export const getChannelOptions = (options: Options<GetChannelData>) =>
  */
 export const updateChannelMutation = (
   options?: Partial<Options<UpdateChannelData>>,
-): UseMutationOptions<
-  UpdateChannelResponse,
-  UpdateChannelError,
-  Options<UpdateChannelData>
-> => {
+): UseMutationOptions<UpdateChannelResponse, UpdateChannelError, Options<UpdateChannelData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateChannelResponse,
     UpdateChannelError,
@@ -2203,11 +2090,7 @@ export const updateChannelMutation = (
  */
 export const startWeixinQrMutation = (
   options?: Partial<Options<StartWeixinQrData>>,
-): UseMutationOptions<
-  StartWeixinQrResponse,
-  StartWeixinQrError,
-  Options<StartWeixinQrData>
-> => {
+): UseMutationOptions<StartWeixinQrResponse, StartWeixinQrError, Options<StartWeixinQrData>> => {
   const mutationOptions: UseMutationOptions<
     StartWeixinQrResponse,
     StartWeixinQrError,
@@ -2225,16 +2108,13 @@ export const startWeixinQrMutation = (
   return mutationOptions;
 };
 
-export const pollWeixinQrStatusQueryKey = (
-  options: Options<PollWeixinQrStatusData>,
-) => createQueryKey("pollWeixinQrStatus", options);
+export const pollWeixinQrStatusQueryKey = (options: Options<PollWeixinQrStatusData>) =>
+  createQueryKey("pollWeixinQrStatus", options);
 
 /**
  * Poll WeChat QR login status (any authenticated user)
  */
-export const pollWeixinQrStatusOptions = (
-  options: Options<PollWeixinQrStatusData>,
-) =>
+export const pollWeixinQrStatusOptions = (options: Options<PollWeixinQrStatusData>) =>
   queryOptions<
     PollWeixinQrStatusResponse,
     PollWeixinQrStatusError,
@@ -2283,11 +2163,7 @@ export const listProvidersOptions = (options?: Options<ListProvidersData>) =>
  */
 export const createProviderMutation = (
   options?: Partial<Options<CreateProviderData>>,
-): UseMutationOptions<
-  CreateProviderResponse,
-  CreateProviderError,
-  Options<CreateProviderData>
-> => {
+): UseMutationOptions<CreateProviderResponse, CreateProviderError, Options<CreateProviderData>> => {
   const mutationOptions: UseMutationOptions<
     CreateProviderResponse,
     CreateProviderError,
@@ -2310,11 +2186,7 @@ export const createProviderMutation = (
  */
 export const deleteProviderMutation = (
   options?: Partial<Options<DeleteProviderData>>,
-): UseMutationOptions<
-  DeleteProviderResponse,
-  DeleteProviderError,
-  Options<DeleteProviderData>
-> => {
+): UseMutationOptions<DeleteProviderResponse, DeleteProviderError, Options<DeleteProviderData>> => {
   const mutationOptions: UseMutationOptions<
     DeleteProviderResponse,
     DeleteProviderError,
@@ -2362,11 +2234,7 @@ export const getProviderOptions = (options: Options<GetProviderData>) =>
  */
 export const updateProviderMutation = (
   options?: Partial<Options<UpdateProviderData>>,
-): UseMutationOptions<
-  UpdateProviderResponse,
-  UpdateProviderError,
-  Options<UpdateProviderData>
-> => {
+): UseMutationOptions<UpdateProviderResponse, UpdateProviderError, Options<UpdateProviderData>> => {
   const mutationOptions: UseMutationOptions<
     UpdateProviderResponse,
     UpdateProviderError,
@@ -2384,16 +2252,13 @@ export const updateProviderMutation = (
   return mutationOptions;
 };
 
-export const listProviderModelsQueryKey = (
-  options: Options<ListProviderModelsData>,
-) => createQueryKey("listProviderModels", options);
+export const listProviderModelsQueryKey = (options: Options<ListProviderModelsData>) =>
+  createQueryKey("listProviderModels", options);
 
 /**
  * List models for a provider (admin only)
  */
-export const listProviderModelsOptions = (
-  options: Options<ListProviderModelsData>,
-) =>
+export const listProviderModelsOptions = (options: Options<ListProviderModelsData>) =>
   queryOptions<
     ListProviderModelsResponse,
     ListProviderModelsError,
@@ -2439,16 +2304,13 @@ export const fetchProviderModelsMutation = (
   return mutationOptions;
 };
 
-export const listProviderTypesQueryKey = (
-  options?: Options<ListProviderTypesData>,
-) => createQueryKey("listProviderTypes", options);
+export const listProviderTypesQueryKey = (options?: Options<ListProviderTypesData>) =>
+  createQueryKey("listProviderTypes", options);
 
 /**
  * List available provider types (admin only)
  */
-export const listProviderTypesOptions = (
-  options?: Options<ListProviderTypesData>,
-) =>
+export const listProviderTypesOptions = (options?: Options<ListProviderTypesData>) =>
   queryOptions<
     ListProviderTypesResponse,
     ListProviderTypesError,
@@ -2528,25 +2390,18 @@ const createInfiniteParams = <
 
 export const listSessionsInfiniteQueryKey = (
   options?: Options<ListSessionsData>,
-): QueryKey<Options<ListSessionsData>> =>
-  createQueryKey("listSessions", options, true);
+): QueryKey<Options<ListSessionsData>> => createQueryKey("listSessions", options, true);
 
 /**
  * List sessions (all users see their own; admins see all)
  */
-export const listSessionsInfiniteOptions = (
-  options?: Options<ListSessionsData>,
-) =>
+export const listSessionsInfiniteOptions = (options?: Options<ListSessionsData>) =>
   infiniteQueryOptions<
     ListSessionsResponse,
     ListSessionsError,
     InfiniteData<ListSessionsResponse>,
     QueryKey<Options<ListSessionsData>>,
-    | number
-    | Pick<
-        QueryKey<Options<ListSessionsData>>[0],
-        "body" | "headers" | "path" | "query"
-      >
+    number | Pick<QueryKey<Options<ListSessionsData>>[0], "body" | "headers" | "path" | "query">
   >(
     // @ts-ignore
     {
@@ -2581,11 +2436,7 @@ export const listSessionsInfiniteOptions = (
  */
 export const createSessionMutation = (
   options?: Partial<Options<CreateSessionData>>,
-): UseMutationOptions<
-  CreateSessionResponse,
-  CreateSessionError,
-  Options<CreateSessionData>
-> => {
+): UseMutationOptions<CreateSessionResponse, CreateSessionError, Options<CreateSessionData>> => {
   const mutationOptions: UseMutationOptions<
     CreateSessionResponse,
     CreateSessionError,
@@ -2628,16 +2479,13 @@ export const getSessionOptions = (options: Options<GetSessionData>) =>
     queryKey: getSessionQueryKey(options),
   });
 
-export const getSessionMessagesQueryKey = (
-  options: Options<GetSessionMessagesData>,
-) => createQueryKey("getSessionMessages", options);
+export const getSessionMessagesQueryKey = (options: Options<GetSessionMessagesData>) =>
+  createQueryKey("getSessionMessages", options);
 
 /**
  * Get messages for a session
  */
-export const getSessionMessagesOptions = (
-  options: Options<GetSessionMessagesData>,
-) =>
+export const getSessionMessagesOptions = (options: Options<GetSessionMessagesData>) =>
   queryOptions<
     GetSessionMessagesResponse,
     GetSessionMessagesError,
@@ -2656,16 +2504,13 @@ export const getSessionMessagesOptions = (
     queryKey: getSessionMessagesQueryKey(options),
   });
 
-export const getSessionWorkspaceQueryKey = (
-  options: Options<GetSessionWorkspaceData>,
-) => createQueryKey("getSessionWorkspace", options);
+export const getSessionWorkspaceQueryKey = (options: Options<GetSessionWorkspaceData>) =>
+  createQueryKey("getSessionWorkspace", options);
 
 /**
  * List files in the session workspace
  */
-export const getSessionWorkspaceOptions = (
-  options: Options<GetSessionWorkspaceData>,
-) =>
+export const getSessionWorkspaceOptions = (options: Options<GetSessionWorkspaceData>) =>
   queryOptions<
     GetSessionWorkspaceResponse,
     GetSessionWorkspaceError,
@@ -2765,16 +2610,13 @@ export const createWorkspaceFileMutation = (
   return mutationOptions;
 };
 
-export const getWorkspaceFileContentQueryKey = (
-  options: Options<GetWorkspaceFileContentData>,
-) => createQueryKey("getWorkspaceFileContent", options);
+export const getWorkspaceFileContentQueryKey = (options: Options<GetWorkspaceFileContentData>) =>
+  createQueryKey("getWorkspaceFileContent", options);
 
 /**
  * Get the content of a file in the session workspace
  */
-export const getWorkspaceFileContentOptions = (
-  options: Options<GetWorkspaceFileContentData>,
-) =>
+export const getWorkspaceFileContentOptions = (options: Options<GetWorkspaceFileContentData>) =>
   queryOptions<
     GetWorkspaceFileContentResponse,
     GetWorkspaceFileContentError,
@@ -2820,16 +2662,13 @@ export const updateWorkspaceFileContentMutation = (
   return mutationOptions;
 };
 
-export const getSessionSystemPromptQueryKey = (
-  options: Options<GetSessionSystemPromptData>,
-) => createQueryKey("getSessionSystemPrompt", options);
+export const getSessionSystemPromptQueryKey = (options: Options<GetSessionSystemPromptData>) =>
+  createQueryKey("getSessionSystemPrompt", options);
 
 /**
  * Get the system prompt for a session
  */
-export const getSessionSystemPromptOptions = (
-  options: Options<GetSessionSystemPromptData>,
-) =>
+export const getSessionSystemPromptOptions = (options: Options<GetSessionSystemPromptData>) =>
   queryOptions<
     GetSessionSystemPromptResponse,
     GetSessionSystemPromptError,
@@ -2902,16 +2741,13 @@ export const updateUserNotifyIdentityMutation = (
   return mutationOptions;
 };
 
-export const listUserMemoriesQueryKey = (
-  options: Options<ListUserMemoriesData>,
-) => createQueryKey("listUserMemories", options);
+export const listUserMemoriesQueryKey = (options: Options<ListUserMemoriesData>) =>
+  createQueryKey("listUserMemories", options);
 
 /**
  * List memories for a user (admin only)
  */
-export const listUserMemoriesOptions = (
-  options: Options<ListUserMemoriesData>,
-) =>
+export const listUserMemoriesOptions = (options: Options<ListUserMemoriesData>) =>
   queryOptions<
     ListUserMemoriesResponse,
     ListUserMemoriesError,
@@ -2962,11 +2798,7 @@ export const deleteUserMemoryMutation = (
  */
 export const setUserMemoryMutation = (
   options?: Partial<Options<SetUserMemoryData>>,
-): UseMutationOptions<
-  SetUserMemoryResponse,
-  SetUserMemoryError,
-  Options<SetUserMemoryData>
-> => {
+): UseMutationOptions<SetUserMemoryResponse, SetUserMemoryError, Options<SetUserMemoryData>> => {
   const mutationOptions: UseMutationOptions<
     SetUserMemoryResponse,
     SetUserMemoryError,
@@ -3061,16 +2893,13 @@ export const updateAuthUserRoleMutation = (
   return mutationOptions;
 };
 
-export const listAuthUserAgentsQueryKey = (
-  options: Options<ListAuthUserAgentsData>,
-) => createQueryKey("listAuthUserAgents", options);
+export const listAuthUserAgentsQueryKey = (options: Options<ListAuthUserAgentsData>) =>
+  createQueryKey("listAuthUserAgents", options);
 
 /**
  * List agents assigned to an auth user (admin only)
  */
-export const listAuthUserAgentsOptions = (
-  options: Options<ListAuthUserAgentsData>,
-) =>
+export const listAuthUserAgentsOptions = (options: Options<ListAuthUserAgentsData>) =>
   queryOptions<
     ListAuthUserAgentsResponse,
     ListAuthUserAgentsError,
@@ -3170,16 +2999,13 @@ export const updateAuthUserActiveMutation = (
   return mutationOptions;
 };
 
-export const listProfileIdentitiesQueryKey = (
-  options?: Options<ListProfileIdentitiesData>,
-) => createQueryKey("listProfileIdentities", options);
+export const listProfileIdentitiesQueryKey = (options?: Options<ListProfileIdentitiesData>) =>
+  createQueryKey("listProfileIdentities", options);
 
 /**
  * List linked identities for the current user
  */
-export const listProfileIdentitiesOptions = (
-  options?: Options<ListProfileIdentitiesData>,
-) =>
+export const listProfileIdentitiesOptions = (options?: Options<ListProfileIdentitiesData>) =>
   queryOptions<
     ListProfileIdentitiesResponse,
     ListProfileIdentitiesError,
@@ -3230,11 +3056,7 @@ export const unlinkProfileIdentityMutation = (
  */
 export const changePasswordMutation = (
   options?: Partial<Options<ChangePasswordData>>,
-): UseMutationOptions<
-  ChangePasswordResponse,
-  ChangePasswordError,
-  Options<ChangePasswordData>
-> => {
+): UseMutationOptions<ChangePasswordResponse, ChangePasswordError, Options<ChangePasswordData>> => {
   const mutationOptions: UseMutationOptions<
     ChangePasswordResponse,
     ChangePasswordError,
@@ -3279,16 +3101,13 @@ export const generateLinkCodeMutation = (
   return mutationOptions;
 };
 
-export const listProfileMemoriesQueryKey = (
-  options?: Options<ListProfileMemoriesData>,
-) => createQueryKey("listProfileMemories", options);
+export const listProfileMemoriesQueryKey = (options?: Options<ListProfileMemoriesData>) =>
+  createQueryKey("listProfileMemories", options);
 
 /**
  * List per-agent memories for the current user
  */
-export const listProfileMemoriesOptions = (
-  options?: Options<ListProfileMemoriesData>,
-) =>
+export const listProfileMemoriesOptions = (options?: Options<ListProfileMemoriesData>) =>
   queryOptions<
     ListProfileMemoriesResponse,
     ListProfileMemoriesError,
@@ -3366,11 +3185,7 @@ export const setProfileMemoryMutation = (
  */
 export const setProfileSoulMutation = (
   options?: Partial<Options<SetProfileSoulData>>,
-): UseMutationOptions<
-  SetProfileSoulResponse,
-  SetProfileSoulError,
-  Options<SetProfileSoulData>
-> => {
+): UseMutationOptions<SetProfileSoulResponse, SetProfileSoulError, Options<SetProfileSoulData>> => {
   const mutationOptions: UseMutationOptions<
     SetProfileSoulResponse,
     SetProfileSoulError,
@@ -3388,16 +3203,13 @@ export const setProfileSoulMutation = (
   return mutationOptions;
 };
 
-export const listVaultEntriesQueryKey = (
-  options?: Options<ListVaultEntriesData>,
-) => createQueryKey("listVaultEntries", options);
+export const listVaultEntriesQueryKey = (options?: Options<ListVaultEntriesData>) =>
+  createQueryKey("listVaultEntries", options);
 
 /**
  * List vault entries for the current user
  */
-export const listVaultEntriesOptions = (
-  options?: Options<ListVaultEntriesData>,
-) =>
+export const listVaultEntriesOptions = (options?: Options<ListVaultEntriesData>) =>
   queryOptions<
     ListVaultEntriesResponse,
     ListVaultEntriesError,
@@ -3473,11 +3285,7 @@ export const getVaultEntryOptions = (options: Options<GetVaultEntryData>) =>
  */
 export const setVaultEntryMutation = (
   options?: Partial<Options<SetVaultEntryData>>,
-): UseMutationOptions<
-  SetVaultEntryResponse,
-  SetVaultEntryError,
-  Options<SetVaultEntryData>
-> => {
+): UseMutationOptions<SetVaultEntryResponse, SetVaultEntryError, Options<SetVaultEntryData>> => {
   const mutationOptions: UseMutationOptions<
     SetVaultEntryResponse,
     SetVaultEntryError,
@@ -3495,16 +3303,13 @@ export const setVaultEntryMutation = (
   return mutationOptions;
 };
 
-export const listOAuthProvidersQueryKey = (
-  options?: Options<ListOAuthProvidersData>,
-) => createQueryKey("listOAuthProviders", options);
+export const listOAuthProvidersQueryKey = (options?: Options<ListOAuthProvidersData>) =>
+  createQueryKey("listOAuthProviders", options);
 
 /**
  * List OAuth provider statuses for the current user
  */
-export const listOAuthProvidersOptions = (
-  options?: Options<ListOAuthProvidersData>,
-) =>
+export const listOAuthProvidersOptions = (options?: Options<ListOAuthProvidersData>) =>
   queryOptions<
     ListOAuthProvidersResponse,
     ListOAuthProvidersError,
@@ -3528,11 +3333,7 @@ export const listOAuthProvidersOptions = (
  */
 export const startOAuthFlowMutation = (
   options?: Partial<Options<StartOAuthFlowData>>,
-): UseMutationOptions<
-  StartOAuthFlowResponse,
-  StartOAuthFlowError,
-  Options<StartOAuthFlowData>
-> => {
+): UseMutationOptions<StartOAuthFlowResponse, StartOAuthFlowError, Options<StartOAuthFlowData>> => {
   const mutationOptions: UseMutationOptions<
     StartOAuthFlowResponse,
     StartOAuthFlowError,
@@ -3575,16 +3376,13 @@ export const pollOAuthFlowOptions = (options: Options<PollOAuthFlowData>) =>
     queryKey: pollOAuthFlowQueryKey(options),
   });
 
-export const getOAuthConnectedQueryKey = (
-  options: Options<GetOAuthConnectedData>,
-) => createQueryKey("getOAuthConnected", options);
+export const getOAuthConnectedQueryKey = (options: Options<GetOAuthConnectedData>) =>
+  createQueryKey("getOAuthConnected", options);
 
 /**
  * Check if the current user is connected to an OAuth provider
  */
-export const getOAuthConnectedOptions = (
-  options: Options<GetOAuthConnectedData>,
-) =>
+export const getOAuthConnectedOptions = (options: Options<GetOAuthConnectedData>) =>
   queryOptions<
     GetOAuthConnectedResponse,
     GetOAuthConnectedError,
@@ -3637,12 +3435,7 @@ export const oauthCallbackQueryKey = (options: Options<OauthCallbackData>) =>
  * OAuth callback (browser redirect, unauthenticated)
  */
 export const oauthCallbackOptions = (options: Options<OauthCallbackData>) =>
-  queryOptions<
-    unknown,
-    DefaultError,
-    unknown,
-    ReturnType<typeof oauthCallbackQueryKey>
-  >({
+  queryOptions<unknown, DefaultError, unknown, ReturnType<typeof oauthCallbackQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await oauthCallback({
         ...options,
@@ -3655,16 +3448,13 @@ export const oauthCallbackOptions = (options: Options<OauthCallbackData>) =>
     queryKey: oauthCallbackQueryKey(options),
   });
 
-export const listSchedulerJobsQueryKey = (
-  options?: Options<ListSchedulerJobsData>,
-) => createQueryKey("listSchedulerJobs", options);
+export const listSchedulerJobsQueryKey = (options?: Options<ListSchedulerJobsData>) =>
+  createQueryKey("listSchedulerJobs", options);
 
 /**
  * List scheduler jobs
  */
-export const listSchedulerJobsOptions = (
-  options?: Options<ListSchedulerJobsData>,
-) =>
+export const listSchedulerJobsOptions = (options?: Options<ListSchedulerJobsData>) =>
   queryOptions<
     ListSchedulerJobsResponse,
     ListSchedulerJobsError,
@@ -3791,16 +3581,13 @@ export const triggerSchedulerJobMutation = (
   return mutationOptions;
 };
 
-export const listSchedulerJobRunsQueryKey = (
-  options: Options<ListSchedulerJobRunsData>,
-) => createQueryKey("listSchedulerJobRuns", options);
+export const listSchedulerJobRunsQueryKey = (options: Options<ListSchedulerJobRunsData>) =>
+  createQueryKey("listSchedulerJobRuns", options);
 
 /**
  * List scheduler job runs
  */
-export const listSchedulerJobRunsOptions = (
-  options: Options<ListSchedulerJobRunsData>,
-) =>
+export const listSchedulerJobRunsOptions = (options: Options<ListSchedulerJobRunsData>) =>
   queryOptions<
     ListSchedulerJobRunsResponse,
     ListSchedulerJobRunsError,
@@ -3849,11 +3636,7 @@ export const listPluginsOptions = (options?: Options<ListPluginsData>) =>
  */
 export const togglePluginMutation = (
   options?: Partial<Options<TogglePluginData>>,
-): UseMutationOptions<
-  TogglePluginResponse,
-  TogglePluginError,
-  Options<TogglePluginData>
-> => {
+): UseMutationOptions<TogglePluginResponse, TogglePluginError, Options<TogglePluginData>> => {
   const mutationOptions: UseMutationOptions<
     TogglePluginResponse,
     TogglePluginError,
@@ -3871,9 +3654,8 @@ export const togglePluginMutation = (
   return mutationOptions;
 };
 
-export const getPluginStatusQueryKey = (
-  options: Options<GetPluginStatusData>,
-) => createQueryKey("getPluginStatus", options);
+export const getPluginStatusQueryKey = (options: Options<GetPluginStatusData>) =>
+  createQueryKey("getPluginStatus", options);
 
 /**
  * Get plugin status (admin only)
@@ -3897,9 +3679,8 @@ export const getPluginStatusOptions = (options: Options<GetPluginStatusData>) =>
     queryKey: getPluginStatusQueryKey(options),
   });
 
-export const getPluginConfigQueryKey = (
-  options: Options<GetPluginConfigData>,
-) => createQueryKey("getPluginConfig", options);
+export const getPluginConfigQueryKey = (options: Options<GetPluginConfigData>) =>
+  createQueryKey("getPluginConfig", options);
 
 /**
  * Get plugin config (admin only)
@@ -3950,16 +3731,13 @@ export const updatePluginConfigMutation = (
   return mutationOptions;
 };
 
-export const getPluginConfigSchemaQueryKey = (
-  options: Options<GetPluginConfigSchemaData>,
-) => createQueryKey("getPluginConfigSchema", options);
+export const getPluginConfigSchemaQueryKey = (options: Options<GetPluginConfigSchemaData>) =>
+  createQueryKey("getPluginConfigSchema", options);
 
 /**
  * Get plugin config schema (admin only)
  */
-export const getPluginConfigSchemaOptions = (
-  options: Options<GetPluginConfigSchemaData>,
-) =>
+export const getPluginConfigSchemaOptions = (options: Options<GetPluginConfigSchemaData>) =>
   queryOptions<
     GetPluginConfigSchemaResponse,
     GetPluginConfigSchemaError,
@@ -3978,16 +3756,13 @@ export const getPluginConfigSchemaOptions = (
     queryKey: getPluginConfigSchemaQueryKey(options),
   });
 
-export const listManifestPluginsQueryKey = (
-  options?: Options<ListManifestPluginsData>,
-) => createQueryKey("listManifestPlugins", options);
+export const listManifestPluginsQueryKey = (options?: Options<ListManifestPluginsData>) =>
+  createQueryKey("listManifestPlugins", options);
 
 /**
  * List manifest plugins (admin only)
  */
-export const listManifestPluginsOptions = (
-  options?: Options<ListManifestPluginsData>,
-) =>
+export const listManifestPluginsOptions = (options?: Options<ListManifestPluginsData>) =>
   queryOptions<
     ListManifestPluginsResponse,
     ListManifestPluginsError,

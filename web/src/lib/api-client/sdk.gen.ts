@@ -421,11 +421,7 @@ export type Options<
 export const register = <ThrowOnError extends boolean = false>(
   options: Options<RegisterData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    RegisterResponses,
-    RegisterErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<RegisterResponses, RegisterErrors, ThrowOnError>({
     url: "/api/auth/register",
     ...options,
     headers: {
@@ -455,13 +451,11 @@ export const login = <ThrowOnError extends boolean = false>(
 export const logout = <ThrowOnError extends boolean = false>(
   options?: Options<LogoutData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).post<LogoutResponses, LogoutErrors, ThrowOnError>(
-    {
-      security: [{ scheme: "bearer", type: "http" }],
-      url: "/api/auth/logout",
-      ...options,
-    },
-  );
+  (options?.client ?? client).post<LogoutResponses, LogoutErrors, ThrowOnError>({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/logout",
+    ...options,
+  });
 
 /**
  * Get the currently authenticated user
@@ -481,11 +475,7 @@ export const getMe = <ThrowOnError extends boolean = false>(
 export const listAgents = <ThrowOnError extends boolean = false>(
   options?: Options<ListAgentsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListAgentsResponses,
-    ListAgentsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListAgentsResponses, ListAgentsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents",
     ...options,
@@ -497,11 +487,7 @@ export const listAgents = <ThrowOnError extends boolean = false>(
 export const createAgent = <ThrowOnError extends boolean = false>(
   options: Options<CreateAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    CreateAgentResponses,
-    CreateAgentErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<CreateAgentResponses, CreateAgentErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents",
     ...options,
@@ -517,11 +503,7 @@ export const createAgent = <ThrowOnError extends boolean = false>(
 export const deleteAgent = <ThrowOnError extends boolean = false>(
   options: Options<DeleteAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteAgentResponses,
-    DeleteAgentErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteAgentResponses, DeleteAgentErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}",
     ...options,
@@ -533,11 +515,7 @@ export const deleteAgent = <ThrowOnError extends boolean = false>(
 export const getAgent = <ThrowOnError extends boolean = false>(
   options: Options<GetAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetAgentResponses,
-    GetAgentErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}",
     ...options,
@@ -549,11 +527,7 @@ export const getAgent = <ThrowOnError extends boolean = false>(
 export const updateAgent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateAgentResponses,
-    UpdateAgentErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateAgentResponses, UpdateAgentErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}",
     ...options,
@@ -569,11 +543,7 @@ export const updateAgent = <ThrowOnError extends boolean = false>(
 export const listAgentUsers = <ThrowOnError extends boolean = false>(
   options: Options<ListAgentUsersData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    ListAgentUsersResponses,
-    ListAgentUsersErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<ListAgentUsersResponses, ListAgentUsersErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/users",
     ...options,
@@ -585,11 +555,7 @@ export const listAgentUsers = <ThrowOnError extends boolean = false>(
 export const assignAgentUser = <ThrowOnError extends boolean = false>(
   options: Options<AssignAgentUserData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    AssignAgentUserResponses,
-    AssignAgentUserErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<AssignAgentUserResponses, AssignAgentUserErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/users",
     ...options,
@@ -605,11 +571,7 @@ export const assignAgentUser = <ThrowOnError extends boolean = false>(
 export const removeAgentUser = <ThrowOnError extends boolean = false>(
   options: Options<RemoveAgentUserData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    RemoveAgentUserResponses,
-    RemoveAgentUserErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<RemoveAgentUserResponses, RemoveAgentUserErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/users/{userId}",
     ...options,
@@ -621,11 +583,7 @@ export const removeAgentUser = <ThrowOnError extends boolean = false>(
 export const listAgentSkills = <ThrowOnError extends boolean = false>(
   options: Options<ListAgentSkillsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    ListAgentSkillsResponses,
-    ListAgentSkillsErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<ListAgentSkillsResponses, ListAgentSkillsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/skills",
     ...options,
@@ -657,11 +615,7 @@ export const installAgentSkill = <ThrowOnError extends boolean = false>(
 export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
   options: Options<UploadAgentSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    UploadAgentSkillResponses,
-    UploadAgentSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<UploadAgentSkillResponses, UploadAgentSkillErrors, ThrowOnError>({
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/skills/upload",
@@ -675,9 +629,7 @@ export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
 /**
  * Duplicate a builtin skill to an agent (admin only)
  */
-export const duplicateBuiltinSkillToAgent = <
-  ThrowOnError extends boolean = false,
->(
+export const duplicateBuiltinSkillToAgent = <ThrowOnError extends boolean = false>(
   options: Options<DuplicateBuiltinSkillToAgentData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
@@ -712,11 +664,7 @@ export const deleteAgentSkill = <ThrowOnError extends boolean = false>(
 export const getAgentSkill = <ThrowOnError extends boolean = false>(
   options: Options<GetAgentSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetAgentSkillResponses,
-    GetAgentSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetAgentSkillResponses, GetAgentSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/skills/{skillId}",
     ...options,
@@ -728,11 +676,7 @@ export const getAgentSkill = <ThrowOnError extends boolean = false>(
 export const updateAgentSkill = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateAgentSkillResponses,
-    UpdateAgentSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateAgentSkillResponses, UpdateAgentSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/skills/{skillId}",
     ...options,
@@ -764,15 +708,13 @@ export const deleteAgentSkillFile = <ThrowOnError extends boolean = false>(
 export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
   options: Options<GetAgentSkillFileData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetAgentSkillFileResponses,
-    GetAgentSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}/file",
-    ...options,
-  });
+  (options.client ?? client).get<GetAgentSkillFileResponses, GetAgentSkillFileErrors, ThrowOnError>(
+    {
+      security: [{ scheme: "bearer", type: "http" }],
+      url: "/api/agents/{id}/skills/{skillId}/file",
+      ...options,
+    },
+  );
 
 /**
  * List all skills (admin only)
@@ -780,11 +722,7 @@ export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
 export const listSkills = <ThrowOnError extends boolean = false>(
   options?: Options<ListSkillsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListSkillsResponses,
-    ListSkillsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListSkillsResponses, ListSkillsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills",
     ...options,
@@ -796,11 +734,7 @@ export const listSkills = <ThrowOnError extends boolean = false>(
 export const createSkill = <ThrowOnError extends boolean = false>(
   options: Options<CreateSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    CreateSkillResponses,
-    CreateSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<CreateSkillResponses, CreateSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills",
     ...options,
@@ -816,11 +750,7 @@ export const createSkill = <ThrowOnError extends boolean = false>(
 export const searchSkills = <ThrowOnError extends boolean = false>(
   options: Options<SearchSkillsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    SearchSkillsResponses,
-    SearchSkillsErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<SearchSkillsResponses, SearchSkillsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/search",
     ...options,
@@ -832,11 +762,7 @@ export const searchSkills = <ThrowOnError extends boolean = false>(
 export const installSkill = <ThrowOnError extends boolean = false>(
   options: Options<InstallSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    InstallSkillResponses,
-    InstallSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<InstallSkillResponses, InstallSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/install",
     ...options,
@@ -852,11 +778,7 @@ export const installSkill = <ThrowOnError extends boolean = false>(
 export const deleteSkill = <ThrowOnError extends boolean = false>(
   options: Options<DeleteSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteSkillResponses,
-    DeleteSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteSkillResponses, DeleteSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/{id}",
     ...options,
@@ -868,11 +790,7 @@ export const deleteSkill = <ThrowOnError extends boolean = false>(
 export const getSkill = <ThrowOnError extends boolean = false>(
   options: Options<GetSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetSkillResponses,
-    GetSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetSkillResponses, GetSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/{id}",
     ...options,
@@ -884,11 +802,7 @@ export const getSkill = <ThrowOnError extends boolean = false>(
 export const updateSkill = <ThrowOnError extends boolean = false>(
   options: Options<UpdateSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateSkillResponses,
-    UpdateSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateSkillResponses, UpdateSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/{id}",
     ...options,
@@ -904,11 +818,7 @@ export const updateSkill = <ThrowOnError extends boolean = false>(
 export const deleteSkillFile = <ThrowOnError extends boolean = false>(
   options: Options<DeleteSkillFileData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteSkillFileResponses,
-    DeleteSkillFileErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteSkillFileResponses, DeleteSkillFileErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/{id}/file",
     ...options,
@@ -920,11 +830,7 @@ export const deleteSkillFile = <ThrowOnError extends boolean = false>(
 export const getSkillFile = <ThrowOnError extends boolean = false>(
   options: Options<GetSkillFileData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetSkillFileResponses,
-    GetSkillFileErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetSkillFileResponses, GetSkillFileErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/{id}/file",
     ...options,
@@ -1009,11 +915,7 @@ export const deleteProfileSkill = <ThrowOnError extends boolean = false>(
 export const getProfileSkill = <ThrowOnError extends boolean = false>(
   options: Options<GetProfileSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetProfileSkillResponses,
-    GetProfileSkillErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetProfileSkillResponses, GetProfileSkillErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/skills/{skillId}",
     ...options,
@@ -1077,11 +979,7 @@ export const getProfileSkillFile = <ThrowOnError extends boolean = false>(
 export const listArticles = <ThrowOnError extends boolean = false>(
   options?: Options<ListArticlesData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListArticlesResponses,
-    ListArticlesErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListArticlesResponses, ListArticlesErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/articles",
     ...options,
@@ -1093,11 +991,7 @@ export const listArticles = <ThrowOnError extends boolean = false>(
 export const saveArticle = <ThrowOnError extends boolean = false>(
   options: Options<SaveArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    SaveArticleResponses,
-    SaveArticleErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<SaveArticleResponses, SaveArticleErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/articles",
     ...options,
@@ -1113,11 +1007,7 @@ export const saveArticle = <ThrowOnError extends boolean = false>(
 export const deleteArticle = <ThrowOnError extends boolean = false>(
   options: Options<DeleteArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteArticleResponses,
-    DeleteArticleErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteArticleResponses, DeleteArticleErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/articles/{id}",
     ...options,
@@ -1129,11 +1019,7 @@ export const deleteArticle = <ThrowOnError extends boolean = false>(
 export const getArticle = <ThrowOnError extends boolean = false>(
   options: Options<GetArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetArticleResponses,
-    GetArticleErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetArticleResponses, GetArticleErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/articles/{id}",
     ...options,
@@ -1145,11 +1031,7 @@ export const getArticle = <ThrowOnError extends boolean = false>(
 export const updateArticle = <ThrowOnError extends boolean = false>(
   options: Options<UpdateArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateArticleResponses,
-    UpdateArticleErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateArticleResponses, UpdateArticleErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/articles/{id}",
     ...options,
@@ -1165,11 +1047,7 @@ export const updateArticle = <ThrowOnError extends boolean = false>(
 export const listFeeds = <ThrowOnError extends boolean = false>(
   options?: Options<ListFeedsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListFeedsResponses,
-    ListFeedsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListFeedsResponses, ListFeedsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds",
     ...options,
@@ -1181,11 +1059,7 @@ export const listFeeds = <ThrowOnError extends boolean = false>(
 export const createFeed = <ThrowOnError extends boolean = false>(
   options: Options<CreateFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    CreateFeedResponses,
-    CreateFeedErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<CreateFeedResponses, CreateFeedErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds",
     ...options,
@@ -1201,11 +1075,7 @@ export const createFeed = <ThrowOnError extends boolean = false>(
 export const deleteFeed = <ThrowOnError extends boolean = false>(
   options: Options<DeleteFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteFeedResponses,
-    DeleteFeedErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteFeedResponses, DeleteFeedErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds/{id}",
     ...options,
@@ -1217,13 +1087,11 @@ export const deleteFeed = <ThrowOnError extends boolean = false>(
 export const getFeed = <ThrowOnError extends boolean = false>(
   options: Options<GetFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<GetFeedResponses, GetFeedErrors, ThrowOnError>(
-    {
-      security: [{ scheme: "bearer", type: "http" }],
-      url: "/api/recally/feeds/{id}",
-      ...options,
-    },
-  );
+  (options.client ?? client).get<GetFeedResponses, GetFeedErrors, ThrowOnError>({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/recally/feeds/{id}",
+    ...options,
+  });
 
 /**
  * Update feed fields (partial)
@@ -1231,11 +1099,7 @@ export const getFeed = <ThrowOnError extends boolean = false>(
 export const updateFeed = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateFeedResponses,
-    UpdateFeedErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateFeedResponses, UpdateFeedErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds/{id}",
     ...options,
@@ -1251,11 +1115,7 @@ export const updateFeed = <ThrowOnError extends boolean = false>(
 export const pollFeed = <ThrowOnError extends boolean = false>(
   options: Options<PollFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    PollFeedResponses,
-    PollFeedErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<PollFeedResponses, PollFeedErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds/{id}/poll",
     ...options,
@@ -1267,11 +1127,7 @@ export const pollFeed = <ThrowOnError extends boolean = false>(
 export const listFeedEntries = <ThrowOnError extends boolean = false>(
   options: Options<ListFeedEntriesData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    ListFeedEntriesResponses,
-    ListFeedEntriesErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<ListFeedEntriesResponses, ListFeedEntriesErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds/{feedId}/entries",
     ...options,
@@ -1283,11 +1139,7 @@ export const listFeedEntries = <ThrowOnError extends boolean = false>(
 export const updateFeedEntry = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedEntryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateFeedEntryResponses,
-    UpdateFeedEntryErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateFeedEntryResponses, UpdateFeedEntryErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/feeds/{feedId}/entries/{id}",
     ...options,
@@ -1303,11 +1155,7 @@ export const updateFeedEntry = <ThrowOnError extends boolean = false>(
 export const getDigest = <ThrowOnError extends boolean = false>(
   options?: Options<GetDigestData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    GetDigestResponses,
-    GetDigestErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<GetDigestResponses, GetDigestErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/digest",
     ...options,
@@ -1319,11 +1167,7 @@ export const getDigest = <ThrowOnError extends boolean = false>(
 export const listModels = <ThrowOnError extends boolean = false>(
   options?: Options<ListModelsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListModelsResponses,
-    ListModelsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListModelsResponses, ListModelsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/models",
     ...options,
@@ -1335,11 +1179,7 @@ export const listModels = <ThrowOnError extends boolean = false>(
 export const listTools = <ThrowOnError extends boolean = false>(
   options?: Options<ListToolsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListToolsResponses,
-    ListToolsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListToolsResponses, ListToolsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/tools",
     ...options,
@@ -1399,11 +1239,7 @@ export const listPublicChannels = <ThrowOnError extends boolean = false>(
 export const listChannels = <ThrowOnError extends boolean = false>(
   options?: Options<ListChannelsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListChannelsResponses,
-    ListChannelsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListChannelsResponses, ListChannelsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels",
     ...options,
@@ -1415,11 +1251,7 @@ export const listChannels = <ThrowOnError extends boolean = false>(
 export const createChannel = <ThrowOnError extends boolean = false>(
   options: Options<CreateChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    CreateChannelResponses,
-    CreateChannelErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<CreateChannelResponses, CreateChannelErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels",
     ...options,
@@ -1435,11 +1267,7 @@ export const createChannel = <ThrowOnError extends boolean = false>(
 export const deleteChannel = <ThrowOnError extends boolean = false>(
   options: Options<DeleteChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteChannelResponses,
-    DeleteChannelErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteChannelResponses, DeleteChannelErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels/{id}",
     ...options,
@@ -1451,11 +1279,7 @@ export const deleteChannel = <ThrowOnError extends boolean = false>(
 export const getChannel = <ThrowOnError extends boolean = false>(
   options: Options<GetChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetChannelResponses,
-    GetChannelErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetChannelResponses, GetChannelErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels/{id}",
     ...options,
@@ -1467,11 +1291,7 @@ export const getChannel = <ThrowOnError extends boolean = false>(
 export const updateChannel = <ThrowOnError extends boolean = false>(
   options: Options<UpdateChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateChannelResponses,
-    UpdateChannelErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateChannelResponses, UpdateChannelErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels/{id}",
     ...options,
@@ -1487,11 +1307,7 @@ export const updateChannel = <ThrowOnError extends boolean = false>(
 export const startWeixinQr = <ThrowOnError extends boolean = false>(
   options?: Options<StartWeixinQrData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).post<
-    StartWeixinQrResponses,
-    StartWeixinQrErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).post<StartWeixinQrResponses, StartWeixinQrErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/channels/weixin/qr",
     ...options,
@@ -1519,11 +1335,7 @@ export const pollWeixinQrStatus = <ThrowOnError extends boolean = false>(
 export const listProviders = <ThrowOnError extends boolean = false>(
   options?: Options<ListProvidersData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListProvidersResponses,
-    ListProvidersErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListProvidersResponses, ListProvidersErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/providers",
     ...options,
@@ -1535,11 +1347,7 @@ export const listProviders = <ThrowOnError extends boolean = false>(
 export const createProvider = <ThrowOnError extends boolean = false>(
   options: Options<CreateProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    CreateProviderResponses,
-    CreateProviderErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<CreateProviderResponses, CreateProviderErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/providers",
     ...options,
@@ -1555,11 +1363,7 @@ export const createProvider = <ThrowOnError extends boolean = false>(
 export const deleteProvider = <ThrowOnError extends boolean = false>(
   options: Options<DeleteProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DeleteProviderResponses,
-    DeleteProviderErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DeleteProviderResponses, DeleteProviderErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/providers/{id}",
     ...options,
@@ -1571,11 +1375,7 @@ export const deleteProvider = <ThrowOnError extends boolean = false>(
 export const getProvider = <ThrowOnError extends boolean = false>(
   options: Options<GetProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetProviderResponses,
-    GetProviderErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetProviderResponses, GetProviderErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/providers/{id}",
     ...options,
@@ -1587,11 +1387,7 @@ export const getProvider = <ThrowOnError extends boolean = false>(
 export const updateProvider = <ThrowOnError extends boolean = false>(
   options: Options<UpdateProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateProviderResponses,
-    UpdateProviderErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<UpdateProviderResponses, UpdateProviderErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/providers/{id}",
     ...options,
@@ -1659,11 +1455,7 @@ export const listProviderTypes = <ThrowOnError extends boolean = false>(
 export const listSessions = <ThrowOnError extends boolean = false>(
   options?: Options<ListSessionsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListSessionsResponses,
-    ListSessionsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListSessionsResponses, ListSessionsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/sessions",
     ...options,
@@ -1675,11 +1467,7 @@ export const listSessions = <ThrowOnError extends boolean = false>(
 export const createSession = <ThrowOnError extends boolean = false>(
   options?: Options<CreateSessionData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).post<
-    CreateSessionResponses,
-    CreateSessionErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).post<CreateSessionResponses, CreateSessionErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/sessions",
     ...options,
@@ -1695,11 +1483,7 @@ export const createSession = <ThrowOnError extends boolean = false>(
 export const getSession = <ThrowOnError extends boolean = false>(
   options: Options<GetSessionData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetSessionResponses,
-    GetSessionErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetSessionResponses, GetSessionErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/sessions/{sessionID}",
     ...options,
@@ -1725,11 +1509,7 @@ export const getSessionMessages = <ThrowOnError extends boolean = false>(
  * Send a message to a session (SSE streaming)
  */
 export const sendSessionMessage = <ThrowOnError extends boolean = false>(
-  options: Options<
-    SendSessionMessageData,
-    ThrowOnError,
-    SendSessionMessageResponse
-  >,
+  options: Options<SendSessionMessageData, ThrowOnError, SendSessionMessageResponse>,
 ) =>
   (options.client ?? client).sse.post<
     SendSessionMessageResponses,
@@ -1840,9 +1620,7 @@ export const getWorkspaceFileContent = <ThrowOnError extends boolean = false>(
 /**
  * Write content to a file in the session workspace
  */
-export const updateWorkspaceFileContent = <
-  ThrowOnError extends boolean = false,
->(
+export const updateWorkspaceFileContent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateWorkspaceFileContentData, ThrowOnError>,
 ) =>
   (options.client ?? client).put<
@@ -1921,11 +1699,7 @@ export const updateUserNotifyIdentity = <ThrowOnError extends boolean = false>(
 export const listUserMemories = <ThrowOnError extends boolean = false>(
   options: Options<ListUserMemoriesData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    ListUserMemoriesResponses,
-    ListUserMemoriesErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<ListUserMemoriesResponses, ListUserMemoriesErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/users/{id}/memories",
     ...options,
@@ -1953,11 +1727,7 @@ export const deleteUserMemory = <ThrowOnError extends boolean = false>(
 export const setUserMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetUserMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    SetUserMemoryResponses,
-    SetUserMemoryErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<SetUserMemoryResponses, SetUserMemoryErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/users/{id}/memories/{agentId}",
     ...options,
@@ -1973,11 +1743,7 @@ export const setUserMemory = <ThrowOnError extends boolean = false>(
 export const listAuthUsers = <ThrowOnError extends boolean = false>(
   options?: Options<ListAuthUsersData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListAuthUsersResponses,
-    ListAuthUsersErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListAuthUsersResponses, ListAuthUsersErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/users",
     ...options,
@@ -1989,11 +1755,7 @@ export const listAuthUsers = <ThrowOnError extends boolean = false>(
 export const getAuthUser = <ThrowOnError extends boolean = false>(
   options: Options<GetAuthUserData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetAuthUserResponses,
-    GetAuthUserErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetAuthUserResponses, GetAuthUserErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/users/{id}",
     ...options,
@@ -2129,11 +1891,7 @@ export const unlinkProfileIdentity = <ThrowOnError extends boolean = false>(
 export const changePassword = <ThrowOnError extends boolean = false>(
   options: Options<ChangePasswordData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    ChangePasswordResponses,
-    ChangePasswordErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<ChangePasswordResponses, ChangePasswordErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/password",
     ...options,
@@ -2149,11 +1907,7 @@ export const changePassword = <ThrowOnError extends boolean = false>(
 export const generateLinkCode = <ThrowOnError extends boolean = false>(
   options: Options<GenerateLinkCodeData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    GenerateLinkCodeResponses,
-    GenerateLinkCodeErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<GenerateLinkCodeResponses, GenerateLinkCodeErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/link-code",
     ...options,
@@ -2201,11 +1955,7 @@ export const deleteProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    SetProfileMemoryResponses,
-    SetProfileMemoryErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<SetProfileMemoryResponses, SetProfileMemoryErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/memories/{agentId}",
     ...options,
@@ -2221,11 +1971,7 @@ export const setProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileSoul = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileSoulData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    SetProfileSoulResponses,
-    SetProfileSoulErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<SetProfileSoulResponses, SetProfileSoulErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/soul/{agentId}",
     ...options,
@@ -2241,11 +1987,7 @@ export const setProfileSoul = <ThrowOnError extends boolean = false>(
 export const listVaultEntries = <ThrowOnError extends boolean = false>(
   options?: Options<ListVaultEntriesData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListVaultEntriesResponses,
-    ListVaultEntriesErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListVaultEntriesResponses, ListVaultEntriesErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/vault",
     ...options,
@@ -2273,11 +2015,7 @@ export const deleteVaultEntry = <ThrowOnError extends boolean = false>(
 export const getVaultEntry = <ThrowOnError extends boolean = false>(
   options: Options<GetVaultEntryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetVaultEntryResponses,
-    GetVaultEntryErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetVaultEntryResponses, GetVaultEntryErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/vault/{name}",
     ...options,
@@ -2289,11 +2027,7 @@ export const getVaultEntry = <ThrowOnError extends boolean = false>(
 export const setVaultEntry = <ThrowOnError extends boolean = false>(
   options: Options<SetVaultEntryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    SetVaultEntryResponses,
-    SetVaultEntryErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).put<SetVaultEntryResponses, SetVaultEntryErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/vault/{name}",
     ...options,
@@ -2325,11 +2059,7 @@ export const listOAuthProviders = <ThrowOnError extends boolean = false>(
 export const startOAuthFlow = <ThrowOnError extends boolean = false>(
   options: Options<StartOAuthFlowData, ThrowOnError>,
 ) =>
-  (options.client ?? client).post<
-    StartOAuthFlowResponses,
-    StartOAuthFlowErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).post<StartOAuthFlowResponses, StartOAuthFlowErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/oauth/{provider}/start",
     ...options,
@@ -2341,11 +2071,7 @@ export const startOAuthFlow = <ThrowOnError extends boolean = false>(
 export const pollOAuthFlow = <ThrowOnError extends boolean = false>(
   options: Options<PollOAuthFlowData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    PollOAuthFlowResponses,
-    PollOAuthFlowErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<PollOAuthFlowResponses, PollOAuthFlowErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/oauth/{provider}/status/{flowID}",
     ...options,
@@ -2357,15 +2083,13 @@ export const pollOAuthFlow = <ThrowOnError extends boolean = false>(
 export const getOAuthConnected = <ThrowOnError extends boolean = false>(
   options: Options<GetOAuthConnectedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetOAuthConnectedResponses,
-    GetOAuthConnectedErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/oauth/{provider}/connected",
-    ...options,
-  });
+  (options.client ?? client).get<GetOAuthConnectedResponses, GetOAuthConnectedErrors, ThrowOnError>(
+    {
+      security: [{ scheme: "bearer", type: "http" }],
+      url: "/api/auth/profile/oauth/{provider}/connected",
+      ...options,
+    },
+  );
 
 /**
  * Disconnect an OAuth provider
@@ -2373,11 +2097,7 @@ export const getOAuthConnected = <ThrowOnError extends boolean = false>(
 export const disconnectOAuth = <ThrowOnError extends boolean = false>(
   options: Options<DisconnectOAuthData, ThrowOnError>,
 ) =>
-  (options.client ?? client).delete<
-    DisconnectOAuthResponses,
-    DisconnectOAuthErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).delete<DisconnectOAuthResponses, DisconnectOAuthErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/profile/oauth/{provider}",
     ...options,
@@ -2504,11 +2224,7 @@ export const listSchedulerJobRuns = <ThrowOnError extends boolean = false>(
 export const listPlugins = <ThrowOnError extends boolean = false>(
   options?: Options<ListPluginsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
-    ListPluginsResponses,
-    ListPluginsErrors,
-    ThrowOnError
-  >({
+  (options?.client ?? client).get<ListPluginsResponses, ListPluginsErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/plugins",
     ...options,
@@ -2520,11 +2236,7 @@ export const listPlugins = <ThrowOnError extends boolean = false>(
 export const togglePlugin = <ThrowOnError extends boolean = false>(
   options: Options<TogglePluginData, ThrowOnError>,
 ) =>
-  (options.client ?? client).patch<
-    TogglePluginResponses,
-    TogglePluginErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).patch<TogglePluginResponses, TogglePluginErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/plugins/{kind}/{name}",
     ...options,
@@ -2540,11 +2252,7 @@ export const togglePlugin = <ThrowOnError extends boolean = false>(
 export const getPluginStatus = <ThrowOnError extends boolean = false>(
   options: Options<GetPluginStatusData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetPluginStatusResponses,
-    GetPluginStatusErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetPluginStatusResponses, GetPluginStatusErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/plugin-status/{kind}/{name}",
     ...options,
@@ -2556,11 +2264,7 @@ export const getPluginStatus = <ThrowOnError extends boolean = false>(
 export const getPluginConfig = <ThrowOnError extends boolean = false>(
   options: Options<GetPluginConfigData, ThrowOnError>,
 ) =>
-  (options.client ?? client).get<
-    GetPluginConfigResponses,
-    GetPluginConfigErrors,
-    ThrowOnError
-  >({
+  (options.client ?? client).get<GetPluginConfigResponses, GetPluginConfigErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/plugin-config/{kind}/{name}",
     ...options,

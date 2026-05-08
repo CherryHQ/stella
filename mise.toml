@@ -25,7 +25,7 @@ run = "rm -rf bin/"
 
 [tasks.generate]
 description = "Generate templ components, sqlc queries, and OpenAPI clients"
-depends = ["generate:api"]
+depends = ["generate:api", "generate:ts-sdk"]
 run = "templ generate && sqlc generate"
 
 [tasks."generate:ts-sdk"]
