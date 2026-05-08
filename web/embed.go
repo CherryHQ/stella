@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed static
+//go:embed all:static
 var staticFS embed.FS
 
 // StaticHandler serves files from the embedded static/ directory at GET /static/.
