@@ -1,0 +1,17 @@
+{
+  "name": "@anna/client",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "generate": "openapi-ts"
+  },
+  "dependencies": {
+    "@hey-api/client-fetch": "^0.9.0",
+    "@tanstack/react-query": "^5.0.0"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.97.0",
+    "typescript": "^5.0.0"
+  }
+}

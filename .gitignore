@@ -12,3 +12,5 @@ internal/resources/binaries/binaries/*/*.gz
 
 cmd/anna/.agents/
 internal/agent/runner/.agents/
+
+web/sdk/node_modules/
