@@ -41,7 +41,7 @@ changelog:
 
 release:
   github:
-    owner: vaayne
+    owner: CherryHQ
     name: stella
   draft: false
   prerelease: auto

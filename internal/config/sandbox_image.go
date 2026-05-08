@@ -9,7 +9,7 @@ import (
 // sandboxDockerImageRepo is the published registry/repo for the stella-sandbox
 // image. Release builds pull from this repo at a tag matching the stella
 // binary version.
-const sandboxDockerImageRepo = "ghcr.io/vaayne/stella-sandbox"
+const sandboxDockerImageRepo = "ghcr.io/cherryhq/stella-sandbox"
 
 // sandboxDockerDevImage is the tag used for local dev builds. Produced by
 // `mise run sandbox:docker:build`; never pushed to a registry.
@@ -18,7 +18,7 @@ const sandboxDockerDevImage = "stella-sandbox:dev"
 // SandboxDockerImage returns the sandbox container image tag for the current
 // stella build. Dev builds use a local `stella-sandbox:dev` tag (produced by
 // `mise run sandbox:docker:build`); tagged releases pull
-// `ghcr.io/vaayne/stella-sandbox:<version>` from GHCR. The version is
+// `ghcr.io/cherryhq/stella-sandbox:<version>` from GHCR. The version is
 // normalized to strip any leading "v" so "v1.2.3" and "1.2.3" resolve to
 // the same image tag.
 func SandboxDockerImage() string {

@@ -3,7 +3,7 @@ name: scheduler
 description: |
     Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), and one-time (at) jobs.
 metadata:
-    author: vaayne/stella
+    author: CherryHQ/stella
     owner_plugin: system/scheduler
     version: "1.0"
 ---

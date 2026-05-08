@@ -52,5 +52,5 @@ mise run release:snapshot  # Test release locally (no tag needed)
 ## Artifacts
 
 - **Binaries**: linux/darwin/windows × amd64/arm64 (GoReleaser)
-- **Docker**: `ghcr.io/vaayne/stella` — linux/amd64 + linux/arm64
+- **Docker**: `ghcr.io/cherryhq/stella` — linux/amd64 + linux/arm64
 - **Docker tags**: `latest` (stable), `vX.Y.Z` (release), SHA (every build)

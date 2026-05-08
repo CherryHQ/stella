@@ -6,7 +6,7 @@ description: |
     compose, reply, set up email, add email account, configure email
     (non-Lark/Feishu accounts).
 metadata:
-    author: vaayne/stella
+    author: CherryHQ/stella
     owner_plugin: system/email
     version: "1.0"
 ---

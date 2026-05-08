@@ -16,9 +16,9 @@ func TestSandboxDockerImage(t *testing.T) {
 		{name: "literal dev", version: "dev", want: "stella-sandbox:dev"},
 		{name: "dirty describe", version: "v0.1.0-5-gabcdef-dirty", want: "stella-sandbox:dev"},
 		{name: "describe with commits", version: "v0.1.0-5-gabcdef", want: "stella-sandbox:dev"},
-		{name: "release with v prefix", version: "v0.1.0", want: "ghcr.io/vaayne/stella-sandbox:0.1.0"},
-		{name: "release without v prefix", version: "0.1.0", want: "ghcr.io/vaayne/stella-sandbox:0.1.0"},
-		{name: "release semver patch", version: "v1.2.3", want: "ghcr.io/vaayne/stella-sandbox:1.2.3"},
+		{name: "release with v prefix", version: "v0.1.0", want: "ghcr.io/cherryhq/stella-sandbox:0.1.0"},
+		{name: "release without v prefix", version: "0.1.0", want: "ghcr.io/cherryhq/stella-sandbox:0.1.0"},
+		{name: "release semver patch", version: "v1.2.3", want: "ghcr.io/cherryhq/stella-sandbox:1.2.3"},
 	}
 
 	for _, tc := range cases {

@@ -189,7 +189,7 @@ Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automat
 
 ## Docker
 
-Images are published to `ghcr.io/vaayne/stella` for `linux/amd64` and `linux/arm64`.
+Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/arm64`.
 
 ### Tags
 
@@ -208,7 +208,7 @@ docker run -it --rm \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
-  ghcr.io/vaayne/stella:latest \
+  ghcr.io/cherryhq/stella:latest \
   stella --open
 ```
 
@@ -220,7 +220,7 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
-  ghcr.io/vaayne/stella:latest
+  ghcr.io/cherryhq/stella:latest
 ```
 
 The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. If you want the default boxsh-backed sandbox to work inside Docker, run the container with `--security-opt seccomp=unconfined` so boxsh can call `unshare(2)`. Without that option, sandboxed core tools fall back to a Docker runtime limitation rather than an stella bug.
@@ -231,7 +231,7 @@ The container runs as `nonroot` user. Mount `~/.stella` to persist the database,
 # docker-compose.yml
 services:
   stella:
-    image: ghcr.io/vaayne/stella:latest
+    image: ghcr.io/cherryhq/stella:latest
     restart: unless-stopped
     security_opt:
       - seccomp=unconfined

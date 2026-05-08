@@ -41,7 +41,7 @@ Binaries available for: linux/darwin/windows x amd64/arm64.
 ### Docker
 
 ```bash
-docker pull ghcr.io/vaayne/stella:latest
+docker pull ghcr.io/cherryhq/stella:latest
 ```
 
 Tags: `latest` (stable), `vX.Y.Z` (specific release).

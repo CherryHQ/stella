@@ -189,7 +189,7 @@ rm ~/Library/LaunchAgents/com.vaayne.stella.plist
 
 ## Docker
 
-镜像发布到 `ghcr.io/vaayne/stella`，支持 `linux/amd64` 和 `linux/arm64` 平台。
+镜像发布到 `ghcr.io/cherryhq/stella`，支持 `linux/amd64` 和 `linux/arm64` 平台。
 
 ### 标签
 
@@ -208,7 +208,7 @@ docker run -it --rm \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
-  ghcr.io/vaayne/stella:latest \
+  ghcr.io/cherryhq/stella:latest \
   stella --open
 ```
 
@@ -220,7 +220,7 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
-  ghcr.io/vaayne/stella:latest
+  ghcr.io/cherryhq/stella:latest
 ```
 
 容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。如果要在 Docker 中使用默认的 boxsh 沙箱，请在运行时加上 `--security-opt seccomp=unconfined`，这样 boxsh 才能调用 `unshare(2)`。没有这个选项时，带沙箱的核心工具会因为 Docker 运行时限制而失败。
@@ -231,7 +231,7 @@ docker run -d \
 # docker-compose.yml
 services:
   stella:
-    image: ghcr.io/vaayne/stella:latest
+    image: ghcr.io/cherryhq/stella:latest
     restart: unless-stopped
     security_opt:
       - seccomp=unconfined

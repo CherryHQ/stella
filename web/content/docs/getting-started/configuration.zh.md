@@ -160,7 +160,7 @@ title: 配置
   - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
   - `auto` 在 Linux/macOS 上选择 `boxsh`；在其他平台上失败关闭 —— 需显式配置 `docker`。
   - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
-  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 stella 二进制的版本锁定：开发构建使用本地 `stella-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/vaayne/stella-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
+  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 stella 二进制的版本锁定：开发构建使用本地 `stella-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/cherryhq/stella-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
   - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`stella`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 stella 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `STELLA_HOME_HOST` 环境变量 —— stella 会自动推导出路径转换。
   - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
   - Docker 将工作区根目录绑定挂载到 `/home/stella/workspace`，将每个只读路径挂载到 `/home/stella/readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
