@@ -23,5 +23,5 @@ func (s *Server) registerStaticRoutes() {
 }
 
 func (s *Server) registerPageRoutes() {
-	s.mux.HandleFunc("GET /{path...}", s.pageApp)
+	s.mux.Handle("GET /{path...}", web.SPAHandler())
 }

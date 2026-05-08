@@ -5,7 +5,7 @@ coverage-*.*
 coverage.html
 dist/
 web/static/dist/
-web/frontend/node_modules/
+web/node_modules/
 handoff.md
 plan.md
 
