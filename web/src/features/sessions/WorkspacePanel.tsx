@@ -71,7 +71,7 @@ function FileTreePanel({
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
 
   const { model } = useFileTree({
-    paths: workspace.paths,
+    paths: workspace.paths ?? [],
     initialExpansion: 1,
     search: true,
     renaming: {
@@ -136,7 +136,7 @@ function FileTreePanel({
       }}
       onDoubleClick={() => {
         const path = model.getFocusedPath() ?? selectedPaths[0] ?? null;
-        if (path && workspace.paths.includes(path)) {
+        if (path && workspace.paths?.includes(path)) {
           onOpenFile(path);
         }
       }}
@@ -193,7 +193,7 @@ export function WorkspacePanel({
   const fileCount = workspace?.paths?.length ?? 0;
 
   return (
-    <div className="w-80 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+    <div className="w-full flex flex-col overflow-hidden bg-background h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border flex-shrink-0">
         <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
@@ -323,13 +323,13 @@ export function WorkspacePanel({
       )}
 
       {/* File tree / empty state */}
-      {!workspaceLoading && workspace && workspace.paths.length === 0 && !newItemType && (
+      {!workspaceLoading && workspace && (workspace.paths?.length ?? 0) === 0 && !newItemType && (
         <div className="px-4 py-3 text-[10px] font-mono text-muted-foreground/40">
           Workspace is empty. Use the buttons above to create files.
         </div>
       )}
 
-      {!workspaceLoading && workspace && workspace.paths.length > 0 && (
+      {!workspaceLoading && workspace && (workspace.paths?.length ?? 0) > 0 && (
         <div className="flex-1 overflow-hidden">
           <FileTreePanel
             sessionID={sessionID}
