@@ -1,6 +1,11 @@
-import { getMeOptions } from "@/lib/api-client/@tanstack/react-query.gen";
+import { queryOptions } from "@tanstack/react-query";
+import { getMe } from "@/lib/api-client/sdk.gen";
 
-export const meQueryOptions = {
-  ...getMeOptions({ baseUrl: "" }),
+export const meQueryOptions = queryOptions({
+  queryKey: ["me"],
+  queryFn: async () => {
+    const { data } = await getMe({ throwOnError: true });
+    return (data as unknown as { data: typeof data }).data;
+  },
   retry: false,
-};
+});

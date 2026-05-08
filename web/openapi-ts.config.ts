@@ -7,7 +7,10 @@ export default defineConfig({
     postProcess: ['prettier'],
   },
   plugins: [
-    '@hey-api/client-fetch',
+    {
+      name: '@hey-api/client-fetch',
+      baseUrl: false,
+    },
     { name: '@tanstack/react-query' },
   ],
 });
