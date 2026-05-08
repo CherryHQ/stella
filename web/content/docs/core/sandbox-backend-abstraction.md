@@ -53,17 +53,18 @@ The local backend runs commands directly on the host OS. It is intended for envi
 
 **This backend does not provide container-level isolation.** It applies OS-level hardening layers instead:
 
-| Layer | Platform | Mechanism |
-|---|---|---|
-| Process group kill + rlimits | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)` |
-| Filesystem + network isolation | Linux | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, `/tmp`/`/var/tmp`/`/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
-| No additional local isolation | macOS | Commands run directly on the host OS; filesystem and network policy are not enforced |
+| Layer                          | Platform | Mechanism                                                                                                                                                                                                                                      |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process group kill + rlimits   | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)`                                                                                                                                                     |
+| Filesystem + network isolation | Linux    | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, `/tmp`/`/var/tmp`/`/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
+| No additional local isolation  | macOS    | Commands run directly on the host OS; filesystem and network policy are not enforced                                                                                                                                                           |
 
 The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. Local sandbox processes do not inherit the full host environment; Anna injects only runner-managed session variables plus a small locale/terminal/proxy allowlist. On macOS, no extra sandboxing tool is currently applied.
 
 #### Installing dependencies
 
 **Linux — bubblewrap (required):**
+
 ```bash
 # Debian / Ubuntu
 apt install bubblewrap
@@ -171,16 +172,16 @@ The abstraction is covered by:
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
 
-| Step | File | What to do |
-|---|---|---|
-| 1 | `internal/config/sandbox.go` | Add `SandboxBackend<Name> = "<name>"` constant |
-| 2 | `internal/config/plugin.go` | Append name to `builtinSandboxNames` so the DB row is seeded |
-| 3 | `plugins/sandbox/<name>/session.go` | Implement `sandbox.Factory` and `sandbox.Session` |
-| 4 | `plugins/sandbox/plugin.go` | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata |
-| 5 | `internal/sandbox/factory.go` | Call `mustRegisterFactory(r, <name>plugin.NewFactory(), true)` in `DefaultRegistry()` |
-| 6 | `internal/agent/sandbox_backend.go` | Add `config.SandboxBackend<Name>: create<Name>Session` to `sessionRegistry` and implement the factory function |
-| 7 | `web/static/js/pages/plugins.js` | Add `"sandbox/<name>"` to `validBackends` and a `sandboxMeta` entry with features/limitations |
-| 8 | Docs | Update this file and `sandbox-backend-abstraction.zh.md` |
+| Step | File                                | What to do                                                                                                     |
+| ---- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1    | `internal/config/sandbox.go`        | Add `SandboxBackend<Name> = "<name>"` constant                                                                 |
+| 2    | `internal/config/plugin.go`         | Append name to `builtinSandboxNames` so the DB row is seeded                                                   |
+| 3    | `plugins/sandbox/<name>/session.go` | Implement `sandbox.Factory` and `sandbox.Session`                                                              |
+| 4    | `plugins/sandbox/plugin.go`         | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata                       |
+| 5    | `internal/sandbox/factory.go`       | Call `mustRegisterFactory(r, <name>plugin.NewFactory(), true)` in `DefaultRegistry()`                          |
+| 6    | `internal/agent/sandbox_backend.go` | Add `config.SandboxBackend<Name>: create<Name>Session` to `sessionRegistry` and implement the factory function |
+| 7    | `web/static/js/pages/plugins.js`    | Add `"sandbox/<name>"` to `validBackends` and a `sandboxMeta` entry with features/limitations                  |
+| 8    | Docs                                | Update this file and `sandbox-backend-abstraction.zh.md`                                                       |
 
 ## Related Docs
 

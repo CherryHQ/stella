@@ -8,11 +8,11 @@ Skills（技能）是可复用的操作手册——以 Markdown 文件的形式�
 
 Anna 支持三种技能作用域：
 
-| 作用域      | 位置                                  | 可写权限         |
-| ----------- | ------------------------------------- | ---------------- |
-| **project** | `{PROJECT_ROOT}/.agents/skills/`      | Git（只读）      |
-| **user**    | 数据库，按用户加密存储                | 用户             |
-| **agent**   | 数据库，绑定到特定 Agent              | 用户             |
+| 作用域      | 位置                             | 可写权限    |
+| ----------- | -------------------------------- | ----------- |
+| **project** | `{PROJECT_ROOT}/.agents/skills/` | Git（只读） |
+| **user**    | 数据库，按用户加密存储           | 用户        |
+| **agent**   | 数据库，绑定到特定 Agent         | 用户        |
 
 Project 技能随代码仓库一起分发，优先级高于同名的 user/agent 技能。
 
@@ -41,10 +41,10 @@ Anna 在遇到 429 时会自动切换到国内镜像（`cn.clawhub-mirror.com`�
 
 **环境变量**
 
-| 变量            | 说明                                              |
-| --------------- | ------------------------------------------------- |
-| `CLAWHUB_TOKEN` | 认证访问的 Bearer Token                           |
-| `CLAWHUB_URL`   | 覆盖注册表地址（默认：clawhub.ai）                |
+| 变量            | 说明                               |
+| --------------- | ---------------------------------- |
+| `CLAWHUB_TOKEN` | 认证访问的 Bearer Token            |
+| `CLAWHUB_URL`   | 覆盖注册表地址（默认：clawhub.ai） |
 
 ### skills.sh
 
@@ -72,16 +72,16 @@ skills action=install source="./relative/path"
 
 ## 管理技能
 
-| 操作     | 示例                                                    |
-| -------- | ------------------------------------------------------- |
-| 搜索     | `skills action=search query=git`                        |
-| 安装     | `skills action=install source="clawhub:git-helper"`     |
-| 列表     | `skills action=list`                                    |
-| 加载     | `skills action=load name=git-helper`                    |
-| 删除     | `skills action=remove name=git-helper`                  |
-| 创建     | `skills action=create name=my-skill description=...`    |
-| 更新     | `skills action=patch name=my-skill status=active`       |
-| 弃用     | `skills action=deprecate name=my-skill`                 |
+| 操作 | 示例                                                 |
+| ---- | ---------------------------------------------------- |
+| 搜索 | `skills action=search query=git`                     |
+| 安装 | `skills action=install source="clawhub:git-helper"`  |
+| 列表 | `skills action=list`                                 |
+| 加载 | `skills action=load name=git-helper`                 |
+| 删除 | `skills action=remove name=git-helper`               |
+| 创建 | `skills action=create name=my-skill description=...` |
+| 更新 | `skills action=patch name=my-skill status=active`    |
+| 弃用 | `skills action=deprecate name=my-skill`              |
 
 在 install/remove/create 时加上 `scope=agent` 可将目标切换为当前 Agent 作用域（默认为 user）。
 
@@ -103,9 +103,9 @@ status: active
 
 **Frontmatter 字段说明**
 
-| 字段                       | 必填 | 说明                                              |
-| -------------------------- | ---- | ------------------------------------------------- |
-| `name`                     | 是   | 小写字母，仅允许连字符，最多 64 个字符            |
-| `description`              | 是   | 显示在 `list` 和 `search` 输出中                  |
-| `status`                   | 否   | `draft` / `active`（默认）/ `deprecated`          |
-| `disable-model-invocation` | 否   | 为 `true` 时，技能注入系统提示但模型不可直接调用  |
+| 字段                       | 必填 | 说明                                             |
+| -------------------------- | ---- | ------------------------------------------------ |
+| `name`                     | 是   | 小写字母，仅允许连字符，最多 64 个字符           |
+| `description`              | 是   | 显示在 `list` 和 `search` 输出中                 |
+| `status`                   | 否   | `draft` / `active`（默认）/ `deprecated`         |
+| `disable-model-invocation` | 否   | 为 `true` 时，技能注入系统提示但模型不可直接调用 |

@@ -4,6 +4,7 @@ import { baseOptions } from "@/lib/docs/layout.shared";
 import { t } from "@/lib/docs/translations";
 import { i18n } from "@/lib/docs/i18n";
 import { DocsProvider } from "@/components/docs/DocsProvider";
+import { SiteHeader } from "@/components/SiteHeader";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -23,7 +24,7 @@ function Home() {
 
   return (
     <DocsProvider>
-      <HomeLayout {...baseOptions()}>
+      <HomeLayout {...baseOptions()} nav={{ component: <SiteHeader variant="landing" /> }}>
         <div className="home-page">
           <HeroSection lang={lang} />
           <FeaturesSection lang={lang} />

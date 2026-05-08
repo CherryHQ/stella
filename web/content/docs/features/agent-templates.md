@@ -8,12 +8,12 @@ Anna ships with a curated catalog of **builtin resources** so a fresh install is
 
 Four resource kinds are shipped:
 
-| Kind          | Purpose                                                              | Where it runs                                      |
-| ------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
-| **Skill**     | Reusable knowledge/playbook the agent can load on demand             | DB-synced into `skills(scope='system')` on startup |
-| **Soul**      | Persona/tone fragment layered into the agent's system prompt         | Copied into an agent at creation time              |
-| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool    | Extracted to `$ANNA_HOME/agents/` on startup       |
-| **Template**  | Full agent bootstrap (model + system prompt + soul) | Read once at agent creation; no persistent link    |
+| Kind          | Purpose                                                           | Where it runs                                      |
+| ------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
+| **Skill**     | Reusable knowledge/playbook the agent can load on demand          | DB-synced into `skills(scope='system')` on startup |
+| **Soul**      | Persona/tone fragment layered into the agent's system prompt      | Copied into an agent at creation time              |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$ANNA_HOME/agents/` on startup       |
+| **Template**  | Full agent bootstrap (model + system prompt + soul)               | Read once at agent creation; no persistent link    |
 
 ## Templates
 
@@ -47,12 +47,12 @@ Shipped sub-agents: `coder`, `researcher`, `reviewer`, `writer`.
 
 ### Preset front-matter fields
 
-| Field         | Type     | Description                                                                                 |
-| ------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `name`        | string   | Required. Unique preset identifier used in `agent` tool calls.                              |
-| `description` | string   | Required. Human-readable description shown in the preset list.                              |
-| `model`       | string   | Optional model override (e.g. `claude-haiku-4-5-20251001`). Defaults to parent model.       |
-| `tools`       | string[] | Optional explicit tool allowlist. Omit to inherit all parent tools; use `[]` for no tools.  |
+| Field         | Type     | Description                                                                                                    |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `name`        | string   | Required. Unique preset identifier used in `agent` tool calls.                                                 |
+| `description` | string   | Required. Human-readable description shown in the preset list.                                                 |
+| `model`       | string   | Optional model override (e.g. `claude-haiku-4-5-20251001`). Defaults to parent model.                          |
+| `tools`       | string[] | Optional explicit tool allowlist. Omit to inherit all parent tools; use `[]` for no tools.                     |
 | `timeout`     | duration | Wall-clock deadline for this preset's runs (e.g. `30m`, `1h`). Overrides the global `runner.subagent_timeout`. |
 
 The markdown body below the front-matter becomes the subagent's additional system prompt.
@@ -71,7 +71,6 @@ An agent's skill catalog in the prompt is:
  ∪ {user-scope DB skills}
  ∪ {project skills from .agents/skills}
 ```
-
 
 Shipped system skills live under `internal/resources/skills/system/` and are synced into `skills(scope='system')` on startup. Startup sync is authoritative: skills removed from the embedded system catalog are deleted from the database on the next sync.
 
