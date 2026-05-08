@@ -7,6 +7,7 @@ Type runs **CursorGothic** as the single sans family. Display sits at weight 400
 The brand's strongest visual signature is the **AI-timeline pill palette**: five pastel pills (peach `{colors.timeline-thinking}`, mint `{colors.timeline-grep}`, blue `{colors.timeline-read}`, lavender `{colors.timeline-edit}`, gold `{colors.timeline-done}`) marking AI-action stages inside in-product timeline visualizations. Used only in product UI — never as system action colors.
 
 **Key Characteristics:**
+
 - Warm cream canvas, not white. Ink is warm (#26251e), not pure black.
 - Single CTA color: `{colors.primary}` (Cursor Orange #f54e00). Used scarcely.
 - Display weight stays at 400 — never bold. Magazine voice.
@@ -18,21 +19,25 @@ The brand's strongest visual signature is the **AI-timeline pill palette**: five
 ## Colors
 
 ### Brand & Accent
+
 - **Cursor Orange** (`{colors.primary}` — #f54e00): Primary CTA pills, wordmark, hero accent. Used scarcely.
 - **Cursor Orange Active** (`{colors.primary-active}` — #d04200): Press state.
 
 ### Surface
+
 - **Canvas** (`{colors.canvas}` — #f7f7f4): Warm cream page floor.
 - **Canvas Soft** (`{colors.canvas-soft}` — #fafaf7): IDE-pane background inside mockups.
 - **Surface Card** (`{colors.surface-card}` — #ffffff): Pure white card surface — slight contrast against the cream canvas.
 - **Surface Strong** (`{colors.surface-strong}` — #e6e5e0): Badges, tag pills.
 
 ### Hairlines
+
 - **Hairline** (`{colors.hairline}` — #e6e5e0): 1px divider.
 - **Hairline Soft** (`{colors.hairline-soft}` — #efeee8): Lighter divider.
 - **Hairline Strong** (`{colors.hairline-strong}` — #cfcdc4): Stronger panel outline.
 
 ### Text
+
 - **Ink** (`{colors.ink}` — #26251e): Display, body emphasis. Warm near-black.
 - **Body** (`{colors.body}` — #5a5852): Default running-text.
 - **Body Strong** (`{colors.body-strong}` — #26251e): Same as ink.
@@ -41,6 +46,7 @@ The brand's strongest visual signature is the **AI-timeline pill palette**: five
 - **On Primary** (`{colors.on-primary}` — #ffffff): White text on Cursor Orange.
 
 ### Timeline (AI-action signature)
+
 - **Thinking** (`{colors.timeline-thinking}` — #dfa88f): Peach. Used inside in-product agent timeline only.
 - **Grep** (`{colors.timeline-grep}` — #9fc9a2): Mint.
 - **Read** (`{colors.timeline-read}` — #9fbbe0): Pastel blue.
@@ -48,69 +54,77 @@ The brand's strongest visual signature is the **AI-timeline pill palette**: five
 - **Done** (`{colors.timeline-done}` — #c08532): Warm gold.
 
 ### Semantic
+
 - **Success** (`{colors.semantic-success}` — #1f8a65): Confirmation indicators.
 - **Error** (`{colors.semantic-error}` — #cf2d56): Validation errors.
 
 ## Typography
 
 ### Font Family
+
 **CursorGothic** is the licensed display + body family. Fallback: `system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif`. Code surfaces switch to **JetBrains Mono**.
 
 ### Hierarchy
 
-| Token | Size | Weight | Line Height | Letter Spacing | Use |
-|---|---|---|---|---|---|
-| `{typography.display-mega}` | 72px | 400 | 1.1 | -2.16px | Homepage hero h1 |
-| `{typography.display-lg}` | 36px | 400 | 1.2 | -0.72px | Section heads |
-| `{typography.display-md}` | 26px | 400 | 1.25 | -0.325px | Sub-section heads |
-| `{typography.display-sm}` | 22px | 400 | 1.3 | -0.11px | Card group titles |
-| `{typography.title-md}` | 18px | 600 | 1.4 | 0 | Component titles |
-| `{typography.title-sm}` | 16px | 600 | 1.4 | 0 | List labels |
-| `{typography.body-md}` | 16px | 400 | 1.5 | 0 | Default body |
-| `{typography.body-tracked}` | 16px | 400 | 1.5 | 0.08px | Tracked editorial body |
-| `{typography.body-sm}` | 14px | 400 | 1.5 | 0 | Footer body |
-| `{typography.caption}` | 13px | 400 | 1.4 | 0 | Photo captions |
-| `{typography.caption-uppercase}` | 11px | 600 | 1.4 | 0.88px | Section labels, timeline pill labels |
-| `{typography.code}` | 13px | 400 | 1.5 | 0 | Code blocks — JetBrains Mono |
-| `{typography.button}` | 14px | 500 | 1.0 | 0 | CTA pill labels |
-| `{typography.nav-link}` | 14px | 500 | 1.4 | 0 | Top-nav menu |
+| Token                            | Size | Weight | Line Height | Letter Spacing | Use                                  |
+| -------------------------------- | ---- | ------ | ----------- | -------------- | ------------------------------------ |
+| `{typography.display-mega}`      | 72px | 400    | 1.1         | -2.16px        | Homepage hero h1                     |
+| `{typography.display-lg}`        | 36px | 400    | 1.2         | -0.72px        | Section heads                        |
+| `{typography.display-md}`        | 26px | 400    | 1.25        | -0.325px       | Sub-section heads                    |
+| `{typography.display-sm}`        | 22px | 400    | 1.3         | -0.11px        | Card group titles                    |
+| `{typography.title-md}`          | 18px | 600    | 1.4         | 0              | Component titles                     |
+| `{typography.title-sm}`          | 16px | 600    | 1.4         | 0              | List labels                          |
+| `{typography.body-md}`           | 16px | 400    | 1.5         | 0              | Default body                         |
+| `{typography.body-tracked}`      | 16px | 400    | 1.5         | 0.08px         | Tracked editorial body               |
+| `{typography.body-sm}`           | 14px | 400    | 1.5         | 0              | Footer body                          |
+| `{typography.caption}`           | 13px | 400    | 1.4         | 0              | Photo captions                       |
+| `{typography.caption-uppercase}` | 11px | 600    | 1.4         | 0.88px         | Section labels, timeline pill labels |
+| `{typography.code}`              | 13px | 400    | 1.5         | 0              | Code blocks — JetBrains Mono         |
+| `{typography.button}`            | 14px | 500    | 1.0         | 0              | CTA pill labels                      |
+| `{typography.nav-link}`          | 14px | 500    | 1.4         | 0              | Top-nav menu                         |
 
 ### Principles
+
 - **Display weight stays at 400.** Magazine voice, never bold.
 - **Negative letter-spacing on display only.** -0.11px to -2.16px tracking.
 - **JetBrains Mono on every code surface.**
 
 ### Note on Font Substitutes
+
 CursorGothic is licensed. Open-source substitute: **Inter** at weight 400 with letter-spacing -1.5%. Or **GT Sectra** for a more editorial feel.
 
 ## Layout
 
 ### Spacing System
+
 - **Base unit:** 4px.
 - **Tokens:** `{spacing.xxs}` 4px · `{spacing.xs}` 8px · `{spacing.sm}` 12px · `{spacing.base}` 16px · `{spacing.md}` 20px · `{spacing.lg}` 24px · `{spacing.xl}` 32px · `{spacing.xxl}` 48px · `{spacing.section}` 80px.
 - **Section padding:** 80px.
 
 ### Grid & Container
+
 - Max content width: ~1200px.
 - Editorial body: 12-column grid.
 - Feature card grids: 2-up at desktop for splits, 3-up for benefits.
 - Footer: 5-column at desktop.
 
 ### Whitespace Philosophy
+
 Generous editorial pacing — closer to a print magazine than a tech site. The cream canvas has plenty of breathing room; cards within bands sit close (16-24px gap).
 
 ## Elevation & Depth
 
 The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Cards float above the canvas via 1px hairlines and the slight white-on-cream contrast.
 
-| Level | Treatment | Use |
-|---|---|---|
-| Flat (canvas) | `{colors.canvas}` (#f7f7f4) | Body bands, footer |
-| Card | `{colors.surface-card}` (#ffffff) | Content cards |
-| Hairline border | 1px `{colors.hairline}` | Card outlines, dividers |
-| IDE pane | `{colors.canvas-soft}` (#fafaf7) | Inside IDE mockup cards |
+| Level           | Treatment                         | Use                     |
+| --------------- | --------------------------------- | ----------------------- |
+| Flat (canvas)   | `{colors.canvas}` (#f7f7f4)       | Body bands, footer      |
+| Card            | `{colors.surface-card}` (#ffffff) | Content cards           |
+| Hairline border | 1px `{colors.hairline}`           | Card outlines, dividers |
+| IDE pane        | `{colors.canvas-soft}` (#fafaf7)  | Inside IDE mockup cards |
 
 ### Decorative Depth
+
 - **IDE-mockup cards** are the only "elevated" element. White card on cream canvas with internal pane structure mimicking the actual Cursor editor.
 - **Timeline pastel pills** add chromatic depth without surface elevation.
 
@@ -118,16 +132,16 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 
 ### Border Radius Scale
 
-| Token | Value | Use |
-|---|---|---|
-| `{rounded.none}` | 0px | Reserved |
-| `{rounded.xs}` | 4px | Inline tags |
-| `{rounded.sm}` | 6px | Compact rows |
-| `{rounded.md}` | 8px | CTA buttons, form inputs |
-| `{rounded.lg}` | 12px | Cards, IDE panes |
-| `{rounded.xl}` | 16px | Larger feature cards (rare) |
-| `{rounded.pill}` | 9999px | Timeline pills, badges |
-| `{rounded.full}` | 9999px | Avatars (rare) |
+| Token            | Value  | Use                         |
+| ---------------- | ------ | --------------------------- |
+| `{rounded.none}` | 0px    | Reserved                    |
+| `{rounded.xs}`   | 4px    | Inline tags                 |
+| `{rounded.sm}`   | 6px    | Compact rows                |
+| `{rounded.md}`   | 8px    | CTA buttons, form inputs    |
+| `{rounded.lg}`   | 12px   | Cards, IDE panes            |
+| `{rounded.xl}`   | 16px   | Larger feature cards (rare) |
+| `{rounded.pill}` | 9999px | Timeline pills, badges      |
+| `{rounded.full}` | 9999px | Avatars (rare)              |
 
 ## Components
 
@@ -202,6 +216,7 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 ## Do's and Don'ts
 
 ### Do
+
 - Reserve `{colors.primary}` (Cursor Orange) for primary CTAs and brand wordmark.
 - Keep display weight at 400. The editorial voice depends on this.
 - Use the cream `{colors.canvas}` page floor — never pure white.
@@ -209,6 +224,7 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 - Use timeline pastels only inside in-product agent visualizations — never as system action colors.
 
 ### Don't
+
 - Don't introduce a secondary brand action color. Cursor Orange is the only one.
 - Don't drop display to bold weights (700+). Magazine voice depends on 400.
 - Don't add drop shadows. Hairlines + ink-on-cream contrast carry the depth.
@@ -219,18 +235,20 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 
 ### Breakpoints
 
-| Name | Width | Key Changes |
-|---|---|---|
-| Mobile | < 640px | Hero h1 72→32px; IDE mockup collapses to single pane preview; feature grid 1-up; nav hamburger. |
-| Tablet | 640–1024px | Hero h1 56px; IDE mockup compresses; feature grid 2-up. |
-| Desktop | 1024–1280px | Full hero h1 72px; full multi-pane IDE mockup; feature grid 3-up. |
-| Wide | > 1280px | Content caps at 1200px. |
+| Name    | Width       | Key Changes                                                                                     |
+| ------- | ----------- | ----------------------------------------------------------------------------------------------- |
+| Mobile  | < 640px     | Hero h1 72→32px; IDE mockup collapses to single pane preview; feature grid 1-up; nav hamburger. |
+| Tablet  | 640–1024px  | Hero h1 56px; IDE mockup compresses; feature grid 2-up.                                         |
+| Desktop | 1024–1280px | Full hero h1 72px; full multi-pane IDE mockup; feature grid 3-up.                               |
+| Wide    | > 1280px    | Content caps at 1200px.                                                                         |
 
 ### Touch Targets
+
 - Primary CTA at 40px height — at WCAG AA, padded for AAA.
 - Download CTA at 44px — at AAA.
 
 ### Collapsing Strategy
+
 - Top nav switches to hamburger below 768px.
 - IDE mockup multi-pane collapses to a single primary pane preview on mobile.
 - Feature grid: 3-up → 2-up → 1-up.

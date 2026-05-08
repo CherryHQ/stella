@@ -1,0 +1,52 @@
+---
+title: anna
+description: 永不遗忘的 AI 助手
+icon: Bot
+---
+
+import { Cards, Card } from "@/components/docs/mdx-components";
+
+anna 是一个自托管的 AI 助手，具备无损上下文管理能力。原生 Go 二进制文件调用 LLM 提供商，提供终端 TUI 和多平台机器人网关（Telegram、QQ、飞书、微信）。开箱即用支持多代理和多用户。内置调度器、心跳监控和跨渠道通知。
+
+## 快速开始
+
+```bash
+# 安装
+go install github.com/vaayne/anna@latest
+
+# 交互式设置（打开 Web UI）
+anna --open
+
+# 启动守护进程（机器人 + 调度器）
+anna
+```
+
+## 探索
+
+<Cards>
+  <Card
+    title="配置"
+    description="数据库配置、管理面板、默认值"
+    href="/docs/getting-started/configuration"
+  />
+  <Card
+    title="部署"
+    description="二进制文件、Docker、systemd、compose"
+    href="/docs/getting-started/deployment"
+  />
+  <Card title="架构" description="系统设计、多代理路由、包结构" href="/docs/core/architecture" />
+  <Card title="记忆系统" description="无损上下文管理深入解析" href="/docs/core/memory-system" />
+  <Card title="模型" description="分层、提供商、缓存" href="/docs/core/models" />
+  <Card title="渠道" description="Telegram、QQ、飞书、微信机器人" href="/docs/channels/telegram" />
+  <Card
+    title="插件"
+    description="使用 JavaScript 插件扩展 anna"
+    href="/docs/features/plugin-system"
+  />
+  <Card
+    title="调度系统"
+    description="定时任务、心跳监控、持久化"
+    href="/docs/features/scheduler-system"
+  />
+  <Card title="通知" description="分发器、后端、路由" href="/docs/features/notification-system" />
+</Cards>

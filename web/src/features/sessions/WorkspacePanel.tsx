@@ -1,0 +1,555 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FileTree as FileTreeComponent,
+  useFileTree,
+  useFileTreeSelection,
+} from "@pierre/trees/react";
+import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
+import { FilePlus, FolderPlus, Trash2, Eye, EyeOff, RefreshCw, X } from "lucide-react";
+import { api } from "@/lib/api";
+import type { Workspace } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { FileViewer } from "./FileViewer";
+
+function buildTheme(): TreeThemeInput {
+  const style = getComputedStyle(document.documentElement);
+  const get = (v: string): string | undefined => {
+    const val = style.getPropertyValue(v).trim();
+    return val || undefined;
+  };
+  const isDark = document.documentElement.classList.contains("dark");
+
+  const colors: Record<string, string> = {};
+  const set = (key: string, val: string | undefined) => {
+    if (val) colors[key] = val;
+  };
+
+  set("input.background", get("--muted"));
+  set("input.border", get("--border"));
+  set("sideBar.background", get("--background"));
+  set("sideBar.foreground", get("--foreground"));
+  set("sideBar.border", get("--border"));
+  set("list.hoverBackground", get("--muted"));
+  set("list.activeSelectionBackground", get("--accent"));
+  set("list.activeSelectionForeground", get("--primary"));
+
+  return {
+    type: isDark ? "dark" : "light",
+    bg: get("--background"),
+    fg: get("--foreground"),
+    colors,
+  };
+}
+
+interface Props {
+  sessionID: string;
+  workspace: Workspace | null;
+  workspaceLoading: boolean;
+  onReload: (sid: string, showHidden?: boolean) => Promise<void>;
+}
+
+type ViewMode = "tree" | "viewer";
+
+interface ViewerState {
+  path: string;
+  content: string;
+  language: string;
+  loading: boolean;
+  saving: boolean;
+}
+
+export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReload }: Props) {
+  const [mode, setMode] = useState<ViewMode>("tree");
+  const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
+  const [newItemName, setNewItemName] = useState("");
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
+
+  const enc = encodeURIComponent(sessionID);
+
+  const reload = useCallback(() => {
+    onReload(sessionID, showHidden).catch(console.error);
+  }, [sessionID, showHidden, onReload]);
+
+  // File operations
+  const openFile = useCallback(
+    async (path: string) => {
+      setViewer({ path, content: "", language: "", loading: true, saving: false });
+      setMode("viewer");
+      try {
+        const data = await api<{ content: string; language: string }>(
+          "GET",
+          `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
+        );
+        setViewer((v) =>
+          v && v.path === path
+            ? { ...v, content: data.content ?? "", language: data.language ?? "", loading: false }
+            : v,
+        );
+      } catch (e) {
+        console.error(e);
+        setViewer(null);
+        setMode("tree");
+      }
+    },
+    [enc],
+  );
+
+  const saveFile = useCallback(
+    async (content: string) => {
+      if (!viewer) return;
+      setViewer((v) => (v ? { ...v, saving: true } : null));
+      try {
+        await api("PUT", `/api/sessions/${enc}/workspace/file-content`, {
+          path: viewer.path,
+          content,
+        });
+        setViewer((v) => (v ? { ...v, content, saving: false } : null));
+      } catch (e) {
+        console.error(e);
+        setViewer((v) => (v ? { ...v, saving: false } : null));
+      }
+    },
+    [viewer, enc],
+  );
+
+  const createItem = useCallback(async () => {
+    const name = newItemName.trim();
+    if (!name) return;
+    await api("POST", `/api/sessions/${enc}/workspace/files`, {
+      path: name,
+      is_dir: newItemType === "dir",
+    });
+    reload();
+    setNewItemType(null);
+    setNewItemName("");
+  }, [enc, newItemName, newItemType, reload]);
+
+  const deleteItem = useCallback(
+    async (path: string) => {
+      if (!confirm(`Delete "${path}"?`)) return;
+      await api("DELETE", `/api/sessions/${enc}/workspace/files`, { path });
+      reload();
+      if (selectedPath === path) setSelectedPath(null);
+      if (viewer?.path === path) {
+        setViewer(null);
+        setMode("tree");
+      }
+    },
+    [enc, selectedPath, reload, viewer],
+  );
+
+  const goBack = useCallback(() => {
+    setMode("tree");
+    setViewer(null);
+  }, []);
+
+  // Reset mode when session changes
+  useEffect(() => {
+    setMode("tree");
+    setViewer(null);
+    setSelectedPath(null);
+  }, [sessionID]);
+
+  const fileCount = workspace?.paths?.length ?? 0;
+
+  if (!sessionID) {
+    return (
+      <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border flex-shrink-0">
+          <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+            Workspace
+          </span>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-xs text-muted-foreground/50 font-mono">
+            Select a session to see its workspace
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "viewer" && viewer) {
+    return (
+      <FileViewer
+        path={viewer.path}
+        content={viewer.content}
+        language={viewer.language}
+        loading={viewer.loading}
+        saving={viewer.saving}
+        sessionID={sessionID}
+        onBack={goBack}
+        onSave={saveFile}
+      />
+    );
+  }
+
+  return (
+    <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-2 pt-2 pb-1.5 border-b border-border flex-shrink-0">
+        <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider pl-1">
+          Workspace
+        </span>
+        <div className="flex items-center gap-0">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setNewItemType("file")}
+            title="New file"
+            className="px-1 h-6"
+          >
+            <FilePlus className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setNewItemType("dir")}
+            title="New folder"
+            className="px-1 h-6"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={!selectedPath}
+            onClick={() => selectedPath && deleteItem(selectedPath).catch(console.error)}
+            title="Delete selected"
+            className={cn(
+              "px-1 h-6",
+              selectedPath
+                ? "text-destructive hover:bg-destructive/10"
+                : "opacity-30 cursor-not-allowed",
+            )}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+          <div className="w-px h-3 bg-border mx-0.5" />
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              const next = !showHidden;
+              setShowHidden(next);
+              onReload(sessionID, next).catch(console.error);
+            }}
+            title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
+            className={cn("px-1 h-6", showHidden ? "text-primary" : "text-muted-foreground/50")}
+          >
+            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={reload}
+            disabled={workspaceLoading}
+            title="Refresh"
+            className="px-1 h-6"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />
+          </Button>
+          <div className="w-px h-3 bg-border mx-0.5" />
+          {workspaceLoading ? (
+            <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
+          ) : (
+            <span className="text-[10px] font-mono text-muted-foreground/30 mx-1">
+              {fileCount >= 1000 ? "1000+" : fileCount}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* New item form */}
+      {newItemType !== null && (
+        <div className="px-2 py-1.5 border-b border-border flex-shrink-0 bg-muted/30">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createItem().catch(console.error);
+            }}
+            className="flex items-center gap-1.5"
+          >
+            <span className="text-[10px] font-mono text-muted-foreground/50">
+              {newItemType === "dir" ? "dir" : "file"}:
+            </span>
+            <input
+              autoFocus
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && (setNewItemType(null), setNewItemName(""))}
+              className="flex-1 text-[11px] font-mono border border-border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:border-primary/60 h-6"
+              placeholder="name..."
+              autoComplete="off"
+            />
+            <Button type="submit" size="xs" className="h-6 min-h-0 text-[11px]">
+              Add
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setNewItemType(null);
+                setNewItemName("");
+              }}
+              className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!workspaceLoading && workspace && fileCount === 0 && !newItemType && (
+        <div className="px-4 py-8 text-center">
+          <p className="text-[11px] font-mono text-muted-foreground/40">Empty workspace</p>
+        </div>
+      )}
+
+      {/* File tree */}
+      {!workspaceLoading && workspace && fileCount > 0 && (
+        <div className="flex-1 overflow-hidden">
+          <TreeWithSearch
+            sessionID={sessionID}
+            workspace={workspace}
+            onReload={reload}
+            onOpenFile={openFile}
+            onSelectedPath={setSelectedPath}
+            onDelete={deleteItem}
+            onNewFile={() => setNewItemType("file")}
+            onNewFolder={() => setNewItemType("dir")}
+          />
+        </div>
+      )}
+
+      {/* Loading state for tree */}
+      {workspaceLoading && !workspace && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-4 h-4 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface TreeWithSearchProps {
+  sessionID: string;
+  workspace: Workspace;
+  onReload: () => void;
+  onOpenFile: (path: string) => void;
+  onSelectedPath: (path: string | null) => void;
+  onDelete: (path: string) => Promise<void>;
+  onNewFile: () => void;
+  onNewFolder: () => void;
+}
+
+const ctxItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  width: "100%",
+  padding: "5px 10px",
+  border: "none",
+  background: "none",
+  color: "inherit",
+  fontSize: 12,
+  fontFamily: "var(--font-mono, monospace)",
+  cursor: "pointer",
+  textAlign: "left",
+  borderRadius: 4,
+};
+
+function TreeWithSearch({
+  sessionID,
+  workspace,
+  onReload,
+  onOpenFile,
+  onSelectedPath,
+  onDelete,
+  onNewFile,
+  onNewFolder,
+}: TreeWithSearchProps) {
+  const enc = encodeURIComponent(sessionID);
+  const theme = useMemo(() => buildTheme(), []);
+  const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
+  const { model } = useFileTree({
+    paths: workspace.paths ?? [],
+    initialExpansion: 1,
+    search: true,
+    icons: "standard",
+    density: "compact",
+    composition: {
+      contextMenu: {
+        enabled: true,
+        triggerMode: "both",
+        buttonVisibility: "when-needed",
+      },
+    },
+    renaming: {
+      onRename: async ({ sourcePath, destinationPath }) => {
+        try {
+          await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
+            path: sourcePath,
+            new_path: destinationPath,
+          });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Rename failed";
+          console.error("rename:", msg);
+          model.move(destinationPath, sourcePath);
+        }
+      },
+      onError: (message: string) => console.error("rename error:", message),
+    },
+    dragAndDrop: {
+      onDropComplete: async ({ draggedPaths, target }) => {
+        try {
+          for (const src of draggedPaths) {
+            const filename = src.split("/").pop()!;
+            const destDir = target.directoryPath ?? "";
+            const newPath = destDir ? `${destDir}/${filename}` : filename;
+            await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
+              path: src,
+              new_path: newPath,
+            });
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Move failed";
+          console.error("drop:", msg);
+          onReload();
+        }
+      },
+      onDropError: (message: string) => console.error("drop error:", message),
+    },
+  });
+
+  const selectedPaths = useFileTreeSelection(model);
+
+  const firstSelected = selectedPaths[0] ?? null;
+  useEffect(() => {
+    onSelectedPath(firstSelected);
+  }, [firstSelected, onSelectedPath]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-hidden">
+        <FileTreeComponent
+          model={model}
+          style={{ ...themeStyles, width: "100%", height: "100%" }}
+          renderContextMenu={(item, context) => (
+            <div
+              style={{
+                borderRadius: 8,
+                border: "1px solid var(--border, #e5e5e5)",
+                background: "var(--popover, #fff)",
+                color: "var(--popover-foreground, #333)",
+                padding: "4px 0",
+                minWidth: 140,
+                boxShadow: "0 4px 12px rgba(0,0,0,.08)",
+              }}
+            >
+              <button
+                type="button"
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                }}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  onOpenFile(item.path);
+                }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                }}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  model.startRenaming(item.path);
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...ctxItemStyle,
+                  color: "var(--destructive, #ef4444)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                }}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  onDelete(item.path).catch(console.error);
+                }}
+              >
+                Delete
+              </button>
+              <div
+                style={{
+                  height: 1,
+                  background: "var(--border, #e5e5e5)",
+                  margin: "4px 8px",
+                }}
+              />
+              <button
+                type="button"
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                }}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  onNewFile();
+                }}
+              >
+                New file
+              </button>
+              <button
+                type="button"
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                }}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  onNewFolder();
+                }}
+              >
+                New folder
+              </button>
+            </div>
+          )}
+          onDoubleClick={() => {
+            const path = model.getFocusedPath() ?? selectedPaths[0] ?? null;
+            if (path && workspace.paths?.includes(path)) {
+              onOpenFile(path);
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}

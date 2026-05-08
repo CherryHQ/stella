@@ -1,0 +1,1596 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anna Sessions — Three-Panel Prototype</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --canvas: #f7f7f4;
+        --canvas-soft: #fafaf7;
+        --surface: #ffffff;
+        --ink: #26251e;
+        --body: #5a5852;
+        --muted: #807d72;
+        --muted-soft: #a09c92;
+        --hairline: #e6e5e0;
+        --hairline-soft: #efeee8;
+        --hairline-strong: #cfcdc4;
+        --primary: #f54e00;
+        --primary-active: #d04200;
+        --on-primary: #ffffff;
+        --surface-strong: #e6e5e0;
+
+        --tl-thinking: #dfa88f;
+        --tl-grep: #9fc9a2;
+        --tl-read: #9fbbe0;
+        --tl-edit: #c0a8dd;
+        --tl-done: #c08532;
+
+        --success: #1f8a65;
+        --error: #cf2d56;
+
+        --sidebar-w: 272px;
+        --workspace-w: 272px;
+        --topbar-h: 48px;
+
+        --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+
+        --rounded-sm: 6px;
+        --rounded-md: 8px;
+        --rounded-lg: 12px;
+      }
+
+      html {
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--ink);
+        background: var(--canvas);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ── Top bar ── */
+      .topbar {
+        height: var(--topbar-h);
+        background: var(--surface);
+        border-bottom: 1px solid var(--hairline);
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        gap: 12px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+      }
+      .topbar-logo {
+        font-style: italic;
+        font-weight: 500;
+        font-size: 17px;
+        letter-spacing: -0.3px;
+        color: var(--ink);
+        user-select: none;
+        flex-shrink: 0;
+      }
+      .topbar-nav {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: 20px;
+      }
+      .topbar-nav a {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+        text-decoration: none;
+        padding: 4px 10px;
+        border-radius: var(--rounded-sm);
+        transition:
+          color 0.15s,
+          background 0.15s;
+      }
+      .topbar-nav a:hover {
+        color: var(--ink);
+        background: var(--hairline-soft);
+      }
+      .topbar-nav a.active {
+        color: var(--ink);
+        background: var(--hairline-soft);
+      }
+      .topbar-nav .sep {
+        color: var(--hairline-strong);
+        font-size: 12px;
+        padding: 0 2px;
+        user-select: none;
+      }
+      .topbar-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .topbar-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--hairline);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      /* ── Shell ── */
+      .shell {
+        display: flex;
+        height: calc(100vh - var(--topbar-h));
+        margin-top: var(--topbar-h);
+        overflow: hidden;
+      }
+
+      /* ── Left sidebar ── */
+      .sidebar-left {
+        width: var(--sidebar-w);
+        min-width: var(--sidebar-w);
+        background: var(--canvas-soft);
+        border-right: 1px solid var(--hairline);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        flex-shrink: 0;
+        transition:
+          width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+          min-width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+          opacity 0.18s;
+      }
+      .sidebar-left.collapsed {
+        width: 0;
+        min-width: 0;
+        border-right: none;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Sidebar header */
+      .sidebar-header {
+        padding: 12px 14px 0;
+        flex-shrink: 0;
+      }
+      .sidebar-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .sidebar-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.88px;
+        text-transform: uppercase;
+        color: var(--muted-soft);
+      }
+      .btn-new {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--on-primary);
+        background: var(--ink);
+        border: none;
+        border-radius: var(--rounded-md);
+        padding: 5px 12px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .btn-new:hover {
+        background: #3a392f;
+      }
+      .btn-new svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      /* Search */
+      .sidebar-search {
+        position: relative;
+        margin: 0 0 10px;
+      }
+      .sidebar-search input {
+        width: 100%;
+        padding: 7px 10px 7px 30px;
+        font-size: 12px;
+        font-family: var(--font-mono);
+        border: 1px solid var(--hairline);
+        border-radius: var(--rounded-sm);
+        background: var(--surface);
+        color: var(--ink);
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .sidebar-search input::placeholder {
+        color: var(--muted-soft);
+      }
+      .sidebar-search input:focus {
+        border-color: var(--hairline-strong);
+      }
+      .sidebar-search .search-icon {
+        position: absolute;
+        left: 9px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 14px;
+        height: 14px;
+        color: var(--muted-soft);
+        pointer-events: none;
+      }
+
+      /* Filters */
+      .agent-switcher {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--hairline-soft);
+      }
+      .agent-switcher select {
+        flex: 1;
+        font-size: 12px;
+        font-family: var(--font-mono);
+        border: 1px solid var(--hairline);
+        border-radius: var(--rounded-sm);
+        padding: 6px 10px;
+        background: var(--surface);
+        color: var(--ink);
+        outline: none;
+        cursor: pointer;
+        font-weight: 500;
+      }
+      .agent-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        flex-shrink: 0;
+      }
+
+      /* Session list */
+      .session-list {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      .session-group-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--muted-soft);
+        padding: 10px 14px 4px;
+        user-select: none;
+      }
+      .session-item {
+        padding: 10px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--hairline-soft);
+        transition: background 0.12s;
+      }
+      .session-item:hover {
+        background: var(--hairline-soft);
+      }
+      .session-item.active {
+        background: var(--surface);
+        box-shadow: inset 3px 0 0 var(--primary);
+      }
+      .session-item.pinned .session-title::before {
+        content: "\2605";
+        color: var(--primary);
+        margin-right: 5px;
+        font-size: 10px;
+      }
+      .session-title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink);
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 3px;
+      }
+      .session-item.active .session-title {
+        color: var(--primary);
+      }
+      .session-meta {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--muted-soft);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .session-meta .dot {
+        color: var(--hairline-strong);
+      }
+
+      /* ── Center panel ── */
+      .center {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      /* Center header */
+      .center-header {
+        flex-shrink: 0;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--hairline);
+        background: var(--surface);
+      }
+      .center-header-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .center-title {
+        flex: 1;
+        font-size: 18px;
+        font-weight: 400;
+        letter-spacing: -0.3px;
+        line-height: 1.25;
+        color: var(--ink);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .center-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .action-btn {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--muted);
+        background: transparent;
+        border: none;
+        padding: 4px 10px;
+        border-radius: var(--rounded-sm);
+        cursor: pointer;
+        transition:
+          color 0.12s,
+          background 0.12s;
+        white-space: nowrap;
+      }
+      .action-btn:hover {
+        color: var(--ink);
+        background: var(--hairline-soft);
+      }
+      .action-btn.active {
+        color: var(--primary);
+      }
+      .action-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .panel-toggle-btn {
+        flex-shrink: 0;
+      }
+      .icon-btn {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--rounded-sm);
+      }
+      .icon-btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      .icon-btn-count {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        font-size: 9px;
+        font-weight: 600;
+        line-height: 1;
+        background: var(--primary);
+        color: var(--on-primary);
+        border-radius: 9999px;
+        padding: 1px 4px;
+        font-family: var(--font-mono);
+      }
+      .meta-sep {
+        width: 1px;
+        height: 12px;
+        background: var(--hairline);
+        margin: 0 4px;
+      }
+
+      .badge {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        padding: 2px 8px;
+        border-radius: 9999px;
+        background: var(--hairline-soft);
+        color: var(--muted);
+      }
+      .badge-primary {
+        background: var(--primary);
+        color: var(--on-primary);
+      }
+
+      .center-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: var(--muted);
+      }
+      .center-meta .dot {
+        color: var(--hairline-strong);
+      }
+      .token-count {
+        color: var(--primary);
+        opacity: 0.7;
+        font-size: 10px;
+      }
+
+      /* Transcript */
+      .transcript {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+      }
+      .message {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .message + .message.same-role {
+        margin-top: -8px;
+      }
+      .avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .avatar-user {
+        background: var(--hairline);
+      }
+      .avatar-user svg {
+        width: 14px;
+        height: 14px;
+        color: var(--muted);
+      }
+      .avatar-assistant {
+        background: #fde8dc;
+      }
+      .avatar-assistant svg {
+        width: 14px;
+        height: 14px;
+        color: var(--primary);
+      }
+      .avatar.invisible {
+        visibility: hidden;
+      }
+      .msg-body {
+        flex: 1;
+        min-width: 0;
+      }
+      .msg-text {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--ink);
+      }
+      .msg-text p {
+        margin-bottom: 8px;
+      }
+      .msg-text p:last-child {
+        margin-bottom: 0;
+      }
+      .msg-text code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        background: var(--hairline-soft);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--body);
+      }
+      .msg-text strong {
+        font-weight: 600;
+      }
+      .msg-timestamp {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--muted-soft);
+        margin-top: 4px;
+      }
+
+      /* Tool call block */
+      .tool-call {
+        margin: 6px 0;
+        padding-left: 10px;
+        border-left: 2px solid var(--tl-read);
+      }
+      .tool-call-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        padding: 3px 0;
+      }
+      .tool-call-header .tool-name {
+        font-weight: 600;
+      }
+      .tool-name.bash {
+        color: var(--tl-done);
+      }
+      .tool-name.read {
+        color: var(--muted);
+      }
+      .tool-name.edit {
+        color: var(--tl-edit);
+      }
+      .tool-call-header .tool-id {
+        color: var(--muted-soft);
+        font-size: 10px;
+      }
+      .tool-call-header .tool-preview {
+        color: var(--muted);
+        font-size: 10px;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tool-call-header .tool-status {
+        font-size: 10px;
+        color: var(--success);
+        margin-left: auto;
+      }
+      .tool-call-body {
+        background: var(--canvas-soft);
+        border-radius: var(--rounded-sm);
+        overflow: hidden;
+        margin-top: 4px;
+      }
+      .tool-call-body-header {
+        font-size: 9px;
+        font-family: var(--font-mono);
+        color: var(--muted-soft);
+        padding: 4px 10px;
+        border-bottom: 1px solid var(--hairline-soft);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .tool-call-body-header .bash-prompt {
+        color: var(--tl-done);
+        font-weight: 700;
+      }
+      .tool-call-body pre {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: var(--body);
+        padding: 8px 10px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.5;
+      }
+      .tool-call-body pre.bash-cmd {
+        color: #967828;
+      }
+
+      /* Thinking block */
+      .thinking-block {
+        padding-left: 10px;
+        border-left: 1px solid var(--hairline);
+        margin: 4px 0;
+      }
+      .thinking-toggle {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--muted);
+        font-style: italic;
+        cursor: pointer;
+        padding: 2px 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: none;
+        border: none;
+      }
+
+      /* Message input */
+      .message-input-wrap {
+        flex-shrink: 0;
+        padding: 10px 20px 16px;
+        background: var(--surface);
+        border-top: 1px solid var(--hairline);
+      }
+      .message-input {
+        position: relative;
+        border: 1px solid var(--hairline);
+        border-radius: 16px;
+        background: var(--surface);
+        transition: border-color 0.15s;
+      }
+      .message-input:focus-within {
+        border-color: var(--hairline-strong);
+      }
+      .message-input textarea {
+        width: 100%;
+        padding: 12px 16px 36px;
+        font-size: 14px;
+        font-family: var(--font-sans);
+        color: var(--ink);
+        background: transparent;
+        border: none;
+        resize: none;
+        outline: none;
+        line-height: 1.5;
+        min-height: 48px;
+      }
+      .message-input textarea::placeholder {
+        color: var(--muted-soft);
+      }
+      .message-input-footer {
+        position: absolute;
+        bottom: 8px;
+        left: 16px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .input-hint {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--hairline-strong);
+        user-select: none;
+      }
+      .btn-send {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--on-primary);
+        background: var(--ink);
+        border: none;
+        border-radius: 10px;
+        padding: 5px 14px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .btn-send:hover {
+        background: #3a392f;
+      }
+      .btn-send svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      /* ── Right sidebar (workspace) ── */
+      .sidebar-right {
+        width: var(--workspace-w);
+        min-width: var(--workspace-w);
+        background: var(--canvas-soft);
+        border-left: 1px solid var(--hairline);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        flex-shrink: 0;
+        transition:
+          width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+          min-width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+          opacity 0.18s;
+      }
+      .sidebar-right.collapsed {
+        width: 0;
+        min-width: 0;
+        border-left: none;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Workspace header */
+      .workspace-header {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--hairline);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+      }
+      .workspace-header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .workspace-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .ws-btn {
+        width: 26px;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        border-radius: var(--rounded-sm);
+        color: var(--muted);
+        cursor: pointer;
+        transition:
+          color 0.12s,
+          background 0.12s;
+      }
+      .ws-btn:hover {
+        color: var(--ink);
+        background: var(--hairline-soft);
+      }
+      .ws-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      /* File tree */
+      .file-tree {
+        flex: 1;
+        overflow-y: auto;
+        padding: 4px 0;
+        font-size: 12px;
+        font-family: var(--font-mono);
+      }
+      .tree-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 12px 3px var(--indent, 12px);
+        cursor: pointer;
+        transition: background 0.1s;
+        color: var(--body);
+        user-select: none;
+      }
+      .tree-item:hover {
+        background: var(--hairline-soft);
+      }
+      .tree-item.active {
+        background: var(--hairline);
+        color: var(--primary);
+      }
+      .tree-chevron {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        color: var(--muted-soft);
+        transition: transform 0.15s ease;
+      }
+      .tree-item.dir.open .tree-chevron {
+        transform: rotate(90deg);
+      }
+      .tree-icon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        color: var(--muted-soft);
+      }
+      .tree-icon.folder {
+        color: var(--tl-done);
+      }
+      .tree-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tree-size {
+        font-size: 10px;
+        color: var(--muted-soft);
+        flex-shrink: 0;
+        margin-left: auto;
+        padding-left: 8px;
+      }
+      .tree-item.dir .tree-name {
+        font-weight: 500;
+        color: var(--ink);
+      }
+      .tree-item:not(.dir) {
+        padding-left: calc(var(--indent, 12px) + 16px);
+      }
+
+      .workspace-footer {
+        flex-shrink: 0;
+        border-top: 1px solid var(--hairline);
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .file-count {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: var(--muted-soft);
+      }
+
+      /* ── Scrollbar ── */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--hairline-strong);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--muted-soft);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Top bar -->
+    <div class="topbar">
+      <span class="topbar-logo">anna</span>
+      <nav class="topbar-nav">
+        <a href="#">Providers</a>
+        <span class="sep">/</span>
+        <a href="#">Agents</a>
+        <span class="sep">/</span>
+        <a href="#">Channels</a>
+        <span class="sep">/</span>
+        <a href="#" class="active">Sessions</a>
+        <span class="sep">/</span>
+        <a href="#">Scheduler</a>
+      </nav>
+      <div class="topbar-right">
+        <div class="topbar-avatar">V</div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <!-- ════════ LEFT SIDEBAR ════════ -->
+      <aside class="sidebar-left" id="sidebarLeft">
+        <div class="sidebar-header">
+          <div class="sidebar-header-row">
+            <span class="sidebar-label">Sessions</span>
+            <button class="btn-new">
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              New
+            </button>
+          </div>
+
+          <div class="sidebar-search">
+            <svg
+              class="search-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+              />
+            </svg>
+            <input type="text" placeholder="Search sessions…" />
+          </div>
+        </div>
+
+        <div class="agent-switcher">
+          <span class="agent-dot"></span>
+          <select>
+            <option>hermes</option>
+            <option>anna</option>
+            <option>coder</option>
+          </select>
+        </div>
+
+        <div class="session-list">
+          <!-- Pinned -->
+          <div class="session-group-label">Pinned</div>
+
+          <div class="session-item pinned">
+            <div class="session-title">Can you add Sonnet 4.6 as my fallback&hellip;</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>2h ago</span>
+            </div>
+          </div>
+
+          <div class="session-item pinned">
+            <div class="session-title">Can we load an upgraded version of this&hellip;</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>5h ago</span>
+            </div>
+          </div>
+
+          <!-- Today -->
+          <div class="session-group-label">Today</div>
+
+          <div class="session-item active">
+            <div class="session-title">Can we fix it so that these are also colored&hellip;</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>09:38</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">Can you see this?</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>09:12</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">Hey, are you getting this message?</div>
+            <div class="session-meta">
+              <span>wechat</span><span class="dot">&middot;</span><span>anna</span
+              ><span class="dot">&middot;</span><span>08:45</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">Can you run a full sweep in the meta sense&hellip;</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>07:20</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">Why do I sometimes see this lingering insid&hellip;</div>
+            <div class="session-meta">
+              <span>feishu</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>06:50</span>
+            </div>
+          </div>
+
+          <!-- Yesterday -->
+          <div class="session-group-label">Yesterday</div>
+
+          <div class="session-item">
+            <div class="session-title">Is this the default profile?</div>
+            <div class="session-meta">
+              <span>telegram</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>May 7</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">Another test, can you see this?</div>
+            <div class="session-meta">
+              <span>qq</span><span class="dot">&middot;</span><span>anna</span
+              ><span class="dot">&middot;</span><span>May 7</span>
+            </div>
+          </div>
+
+          <div class="session-item">
+            <div class="session-title">What's the time?</div>
+            <div class="session-meta">
+              <span>terminal</span><span class="dot">&middot;</span><span>hermes</span
+              ><span class="dot">&middot;</span><span>May 7</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ════════ CENTER PANEL ════════ -->
+      <main class="center">
+        <!-- Header -->
+        <div class="center-header">
+          <div class="center-header-top">
+            <button
+              class="action-btn panel-toggle-btn"
+              onclick="toggleLeft()"
+              title="Toggle sessions"
+            >
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3.75 3.75v16.5h16.5V3.75H3.75Zm6 0v16.5"
+                />
+              </svg>
+            </button>
+            <h1 class="center-title">
+              Can we fix it so that these are also colored by each theme indep
+            </h1>
+            <div class="center-actions">
+              <button class="action-btn icon-btn" title="Tools (3 enabled)">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.049.58.025 1.193-.14 1.743"
+                  />
+                </svg>
+                <span class="icon-btn-count">3</span>
+              </button>
+              <button class="action-btn icon-btn" title="System Prompt">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                  />
+                </svg>
+              </button>
+              <button class="action-btn icon-btn" title="Copy session ID">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"
+                  />
+                </svg>
+              </button>
+            </div>
+            <button
+              class="action-btn panel-toggle-btn"
+              onclick="toggleRight()"
+              title="Toggle workspace"
+            >
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
+                />
+              </svg>
+            </button>
+          </div>
+          <div class="center-meta">
+            <span class="badge">telegram</span>
+            <span class="badge">hermes</span>
+            <span class="badge badge-primary">Sonnet 4.6</span>
+            <span class="meta-sep"></span>
+            <span>09:38 PM</span>
+            <span class="dot">&middot;</span>
+            <span>31 msgs</span>
+            <span class="dot">&middot;</span>
+            <span class="token-count">3.1M in / 9.7k out</span>
+          </div>
+        </div>
+
+        <!-- Transcript -->
+        <div class="transcript">
+          <!-- Assistant message with tool calls -->
+          <div class="message">
+            <div class="avatar avatar-assistant">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z"
+                />
+              </svg>
+            </div>
+            <div class="msg-body">
+              <div class="msg-text">
+                <p>All 433 tests pass. Now let me commit and push to the public remote:</p>
+              </div>
+
+              <div class="tool-call">
+                <div class="tool-call-header">
+                  <span>&#9656;</span>
+                  <span class="tool-name bash">bash</span>
+                  <span class="tool-id">#a4f2</span>
+                  <span class="tool-preview">$ git add -A && git commit -m "fix: theme-inde…</span>
+                  <span class="tool-status">~124 tok</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Same role continuation -->
+          <div class="message same-role">
+            <div class="avatar avatar-assistant invisible">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z"
+                />
+              </svg>
+            </div>
+            <div class="msg-body">
+              <div class="msg-text">
+                <p>Clean, minimal diff. Let me commit and push:</p>
+              </div>
+              <div class="msg-timestamp">Hermes &middot; 09:38 PM</div>
+            </div>
+          </div>
+
+          <!-- Another assistant message -->
+          <div class="message">
+            <div class="avatar avatar-assistant">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z"
+                />
+              </svg>
+            </div>
+            <div class="msg-body">
+              <div class="msg-text">
+                <p>
+                  PR #99 is open. Let me clean up the public remote and switch back to private
+                  master:
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="message same-role">
+            <div class="avatar avatar-assistant invisible">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.645 20.91z" /></svg>
+            </div>
+            <div class="msg-body">
+              <div class="msg-text">
+                <p>Done. Here's what the issue was and what got fixed:</p>
+                <p>
+                  <strong>Root cause:</strong> <code>.topbar</code> (the header bar with the
+                  conversation title, model selector, and settings gear) had its background
+                  hardcoded as <code>rgba(22,33,62,.98)</code> — the exact dark navy of the default
+                  theme, baked directly into the CSS. Same for <code>.main</code> (the chat area)
+                  which had <code>rgba(26,26,46,0.5)</code>. Neither of these used CSS variables, so
+                  they never responded to theme changes.
+                </p>
+                <p>
+                  <strong>Three fixes in <code>static/style.css</code>:</strong>
+                </p>
+              </div>
+
+              <!-- Expanded tool call -->
+              <div class="tool-call" style="border-left-color: var(--tl-edit)">
+                <div class="tool-call-header">
+                  <span>&#9662;</span>
+                  <span class="tool-name edit">edit</span>
+                  <span class="tool-id">#b7e1</span>
+                </div>
+                <div class="tool-call-body">
+                  <div class="tool-call-body-header">
+                    <span>edit</span>
+                  </div>
+                  <pre>static/style.css — .topbar background</pre>
+                </div>
+              </div>
+
+              <div class="msg-text" style="margin-top: 10px">
+                <p>
+                  1. <code>.topbar</code> background: <code>rgba(22,33,62,.98)</code> →
+                  <code>var(--sidebar)</code> — now matches the sidebar color per theme
+                </p>
+                <p>
+                  2. <code>.main</code> background: <code>rgba(26,26,46,0.5)</code> →
+                  <code>var(--bg)</code> — chat area follows the theme background
+                </p>
+                <p>
+                  3. Removed a duplicate <code>.topbar</code> rule that was overriding
+                  <code>border-bottom</code> with another hardcoded rgba value — the main rule
+                  already uses <code>var(--border)</code> correctly
+                </p>
+              </div>
+
+              <div class="msg-text" style="margin-top: 10px">
+                <p>All 433 tests pass. PR #99 is open on the public repo for your review.</p>
+              </div>
+
+              <div class="msg-timestamp">
+                Hermes &middot; 09:38 PM &middot;
+                <span class="token-count">3.1M in &middot; 9.7k out</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Message input -->
+        <div class="message-input-wrap">
+          <div class="message-input">
+            <textarea placeholder="Message Hermes…" rows="1"></textarea>
+            <div class="message-input-footer">
+              <span class="input-hint">⌘↵ to send</span>
+              <button class="btn-send">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z"
+                  />
+                </svg>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ════════ RIGHT SIDEBAR (WORKSPACE) ════════ -->
+      <aside class="sidebar-right" id="sidebarRight">
+        <div class="workspace-header">
+          <div class="workspace-header-left">
+            <span class="sidebar-label">Workspace</span>
+            <span class="badge" style="font-size: 9px; padding: 1px 7px">MASTER</span>
+          </div>
+          <div class="workspace-actions">
+            <button class="ws-btn" title="New file">
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                />
+              </svg>
+            </button>
+            <button class="ws-btn" title="New folder">
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+                />
+              </svg>
+            </button>
+            <button class="ws-btn" title="Refresh">
+              <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="file-tree">
+          <!-- Directories -->
+          <div class="tree-item dir open" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">api</span>
+          </div>
+          <div class="tree-item dir" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">archive</span>
+          </div>
+          <div class="tree-item dir" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">docs</span>
+          </div>
+          <div class="tree-item dir" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">screenshots</span>
+          </div>
+          <div class="tree-item dir" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">static</span>
+          </div>
+          <div class="tree-item dir" style="--indent: 12px">
+            <svg
+              class="tree-chevron"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            <svg
+              class="tree-icon folder"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            <span class="tree-name">tests</span>
+          </div>
+
+          <!-- Files -->
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">.dockerignore</span>
+            <span class="tree-size">0.1k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">.env</span>
+            <span class="tree-size">0.6k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">.gitignore</span>
+            <span class="tree-size">0.4k</span>
+          </div>
+          <div class="tree-item active" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">ARCHITECTURE.md</span>
+            <span class="tree-size">75.4k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">CHANGELOG.md</span>
+            <span class="tree-size">55.6k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">Dockerfile</span>
+            <span class="tree-size">0.5k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">LICENSE</span>
+            <span class="tree-size">1.1k</span>
+          </div>
+          <div class="tree-item" style="--indent: 12px">
+            <svg
+              class="tree-icon"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+              />
+            </svg>
+            <span class="tree-name">README.md</span>
+            <span class="tree-size">17.2k</span>
+          </div>
+        </div>
+
+        <div class="workspace-footer">
+          <span class="file-count">14 files</span>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      function toggleLeft() {
+        document.getElementById("sidebarLeft").classList.toggle("collapsed");
+      }
+
+      function toggleRight() {
+        document.getElementById("sidebarRight").classList.toggle("collapsed");
+      }
+
+      document.querySelectorAll(".tree-item.dir").forEach((el) => {
+        el.addEventListener("click", () => el.classList.toggle("open"));
+      });
+    </script>
+  </body>
+</html>
