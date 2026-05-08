@@ -768,7 +768,7 @@ export function PluginsPage() {
         <div>
           <p className="text-xs text-muted-foreground mb-4">
             Enable platform types here. Configure bot instances on the{" "}
-            <a href="/channels" className="text-primary underline underline-offset-4">
+            <a href="/settings/channels" className="text-primary underline underline-offset-4">
               Channels
             </a>{" "}
             page.

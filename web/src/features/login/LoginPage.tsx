@@ -37,7 +37,7 @@ export function LoginPage() {
         return;
       }
       await queryClient.invalidateQueries(meQueryOptions);
-      navigate({ to: "/agents" as any });
+      navigate({ to: "/sessions" as any });
     } catch (e) {
       setError((e as Error).message || "Login failed");
     } finally {
@@ -69,7 +69,7 @@ export function LoginPage() {
         return;
       }
       await queryClient.invalidateQueries(meQueryOptions);
-      navigate({ to: "/agents" as any });
+      navigate({ to: "/sessions" as any });
     } catch (e) {
       setError((e as Error).message || "Registration failed");
     } finally {

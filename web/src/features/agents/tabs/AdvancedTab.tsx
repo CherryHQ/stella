@@ -38,7 +38,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
         </p>
         <p className="text-xs text-muted-foreground">
           Sandbox backend is configured on the{" "}
-          <a href="/plugins" className="text-primary underline underline-offset-4">
+          <a href="/settings/plugins" className="text-primary underline underline-offset-4">
             Plugins
           </a>{" "}
           page.

@@ -687,7 +687,7 @@ export function ChannelsPage() {
                     <p>
                       Enable one or more channel plugins on the{" "}
                       <a
-                        href="/plugins"
+                        href="/settings/plugins"
                         className="text-primary underline underline-offset-4 hover:text-primary/80"
                       >
                         Plugins

@@ -175,7 +175,7 @@ export function SessionsPage() {
 
   return (
     <div
-      className="-mx-6 -mt-12 border-t border-border flex overflow-hidden"
+      className="border-t border-border flex overflow-hidden"
       style={{ height: "calc(100vh - 3.5rem)" }}
     >
       {/* Left sidebar */}

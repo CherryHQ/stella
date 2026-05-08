@@ -6,14 +6,9 @@ import { queryClient } from "@/lib/queryClient";
 import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { id: "providers", label: "Providers", href: "/providers", adminOnly: true },
-  { id: "agents", label: "Agents", href: "/agents", adminOnly: false },
-  { id: "channels", label: "Channels", href: "/channels", adminOnly: false },
-  { id: "credentials", label: "Credentials", href: "/credentials", adminOnly: false },
-  { id: "users", label: "Users", href: "/users", adminOnly: true },
   { id: "sessions", label: "Sessions", href: "/sessions", adminOnly: false },
   { id: "scheduler", label: "Scheduler", href: "/scheduler", adminOnly: false },
-  { id: "plugins", label: "Plugins", href: "/plugins", adminOnly: true },
+  { id: "settings", label: "Settings", href: "/settings", adminOnly: false },
 ];
 
 export function AppLayout() {
@@ -38,18 +33,19 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="border-b border-border">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          {/* Logo */}
-          <Link
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            to={(me?.is_admin ? "/providers" : "/agents") as any}
-            className="font-serif italic text-primary text-xl tracking-tight select-none"
-          >
-            anna
-          </Link>
+        <div className="px-6 h-14 flex items-center">
+          <div className="flex items-baseline gap-6">
+            {/* Logo */}
+            <Link
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              to={"/sessions" as any}
+              className="font-serif italic text-primary text-xl tracking-tight select-none"
+            >
+              anna
+            </Link>
 
-          {/* Desktop nav */}
-          <nav className="hidden sm:flex items-center gap-1 text-sm">
+            {/* Desktop nav */}
+            <nav className="hidden sm:flex items-baseline gap-1 text-sm">
             {visibleNavItems.map((item, i) => (
               <React.Fragment key={item.id}>
                 {i > 0 && <span className="text-muted-foreground mx-2">/</span>}
@@ -81,9 +77,10 @@ export function AppLayout() {
               </option>
             ))}
           </select>
+          </div>
 
           {/* User menu */}
-          <div className="flex items-center gap-4">
+          <div className="ml-auto flex items-center gap-4">
             {me && (
               <details className="relative">
                 <summary className="cursor-pointer list-none flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent text-sm font-medium">
@@ -120,7 +117,7 @@ export function AppLayout() {
           </div>
         </div>
       </header>
-      <main className="max-w-6xl mx-auto px-6 py-12 flex-1 w-full">
+      <main className="flex-1 w-full overflow-hidden">
         <Outlet />
       </main>
     </div>

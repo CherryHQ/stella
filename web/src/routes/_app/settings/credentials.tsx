@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CredentialsPage } from "@/features/credentials/CredentialsPage";
 
-export const Route = createFileRoute("/_app/credentials")({
+export const Route = createFileRoute("/_app/settings/credentials")({
   component: CredentialsPage,
 });

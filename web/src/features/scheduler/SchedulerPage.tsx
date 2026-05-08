@@ -60,8 +60,9 @@ export function SchedulerPage() {
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
-  const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
   const [triggeringJobId, setTriggeringJobId] = useState<number | null>(null);
   const [runHistories, setRunHistories] = useState<Record<number, SchedulerJobRun[]>>({});
   const [jobForm, setJobForm] = useState<JobForm>(emptyForm());
@@ -104,26 +105,55 @@ export function SchedulerPage() {
     void Promise.all([loadJobs(), loadAgents(), loadMe()]);
   }, [loadJobs, loadAgents, loadMe]);
 
+  const loadRuns = useCallback(async (jobId: number) => {
+    try {
+      const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
+      setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedJobId !== null) {
+      void loadRuns(selectedJobId);
+    }
+  }, [selectedJobId, loadRuns]);
+
   const resetForm = useCallback(() => {
     setJobForm(emptyForm());
     setEditingJobId(null);
   }, []);
 
-  const editJob = useCallback((j: SchedulerJob) => {
-    if (j.owner_kind === "plugin") return;
-    setEditingJobId(j.id);
-    setJobForm({
-      name: j.name,
-      message: j.message,
-      schedule_type: j.cron ? "cron" : "every",
-      cron: j.cron || "",
-      every: j.every || "",
-      session_mode: j.session_mode || "reuse",
-      enabled: j.enabled,
-      agent_id: j.agent_id || "",
-      system_job: !j.user_id,
-    });
-  }, []);
+  const selectJob = useCallback(
+    (j: SchedulerJob) => {
+      setSelectedJobId(j.id);
+      setCreatingNew(false);
+      if (j.owner_kind !== "plugin") {
+        setEditingJobId(j.id);
+        setJobForm({
+          name: j.name,
+          message: j.message,
+          schedule_type: j.cron ? "cron" : "every",
+          cron: j.cron || "",
+          every: j.every || "",
+          session_mode: j.session_mode || "reuse",
+          enabled: j.enabled,
+          agent_id: j.agent_id || "",
+          system_job: !j.user_id,
+        });
+      } else {
+        resetForm();
+      }
+    },
+    [resetForm],
+  );
+
+  const startNew = useCallback(() => {
+    setSelectedJobId(null);
+    setCreatingNew(true);
+    resetForm();
+  }, [resetForm]);
 
   const saveJob = useCallback(async () => {
     const payload: Record<string, unknown> = {
@@ -143,6 +173,8 @@ export function SchedulerPage() {
         await api("POST", "/api/scheduler/jobs", payload);
       }
       resetForm();
+      setSelectedJobId(null);
+      setCreatingNew(false);
       await loadJobs();
       showToast("Saved");
     } catch (e) {
@@ -150,40 +182,23 @@ export function SchedulerPage() {
     }
   }, [jobForm, isAdmin, editingJobId, resetForm, loadJobs, showToast]);
 
-  const toggleJob = useCallback(
-    async (j: SchedulerJob) => {
-      if (j.owner_kind === "plugin") return;
-      try {
-        await api("PUT", "/api/scheduler/jobs/" + j.id, {
-          name: j.name,
-          message: j.message,
-          cron: j.cron || "",
-          every: j.every || "",
-          session_mode: j.session_mode,
-          enabled: !j.enabled,
-          agent_id: j.agent_id || "",
-        });
-        await loadJobs();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Request failed", "error");
-      }
-    },
-    [loadJobs, showToast],
-  );
-
   const doDeleteJob = useCallback(
     async (id: number) => {
       const job = jobs.find((item) => item.id === id);
       if (job?.owner_kind === "plugin") return;
       try {
         await api("DELETE", "/api/scheduler/jobs/" + id);
+        if (selectedJobId === id) {
+          setSelectedJobId(null);
+          resetForm();
+        }
         await loadJobs();
         showToast("Deleted");
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Request failed", "error");
       }
     },
-    [jobs, loadJobs, showToast],
+    [jobs, selectedJobId, resetForm, loadJobs, showToast],
   );
 
   const triggerJob = useCallback(
@@ -192,9 +207,8 @@ export function SchedulerPage() {
       try {
         await api("POST", "/api/scheduler/jobs/" + j.id + "/run");
         showToast("Job triggered");
-        if (expandedJobId === j.id) {
-          const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + j.id + "/runs");
-          setRunHistories((prev) => ({ ...prev, [j.id]: runs || [] }));
+        if (selectedJobId === j.id) {
+          void loadRuns(j.id);
         }
         await loadJobs();
       } catch (e) {
@@ -203,24 +217,7 @@ export function SchedulerPage() {
         setTriggeringJobId(null);
       }
     },
-    [expandedJobId, loadJobs, showToast],
-  );
-
-  const toggleRuns = useCallback(
-    async (jobId: number) => {
-      if (expandedJobId === jobId) {
-        setExpandedJobId(null);
-        return;
-      }
-      setExpandedJobId(jobId);
-      try {
-        const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
-        setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
-      } catch (e) {
-        console.error(e);
-      }
-    },
-    [expandedJobId],
+    [selectedJobId, loadRuns, loadJobs, showToast],
   );
 
   const isFormValid =
@@ -228,312 +225,439 @@ export function SchedulerPage() {
     jobForm.message &&
     (jobForm.schedule_type === "cron" ? !!jobForm.cron : !!jobForm.every);
 
+  const selectedJob = selectedJobId !== null ? jobs.find((j) => j.id === selectedJobId) : null;
+  const runs = selectedJobId !== null ? runHistories[selectedJobId] : undefined;
+
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="font-serif text-2xl font-normal tracking-tight mb-1">Scheduled tasks</h1>
-        <p className="text-sm text-muted-foreground">
-          Recurring jobs that Anna executes on a schedule.
-        </p>
-      </div>
-
-      <div className="border-t border-border pt-8">
-        {/* Job form */}
-        <div className="mb-8 pb-8 border-b border-border">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider">
-              {editingJobId ? "EDIT JOB" : "NEW JOB"}
-            </p>
-            {editingJobId && (
-              <Button variant="ghost" size="xs" onClick={resetForm}>
-                Cancel
-              </Button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
-            <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
-                Name
-              </label>
-              <Input
-                type="text"
-                value={jobForm.name}
-                onChange={(e) => setJobForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Daily summary"
-                nativeInput
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
-                Session Mode
-              </label>
-              <select
-                value={jobForm.session_mode}
-                onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
-                className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="reuse">Reuse session</option>
-                <option value="new">New session each run</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
-              Schedule
-            </label>
-            <div className="flex items-center gap-4 mb-2">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  value="cron"
-                  checked={jobForm.schedule_type === "cron"}
-                  onChange={() => setJobForm((f) => ({ ...f, schedule_type: "cron" }))}
-                  className="accent-primary"
-                />
-                <span>Cron</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  value="every"
-                  checked={jobForm.schedule_type === "every"}
-                  onChange={() => setJobForm((f) => ({ ...f, schedule_type: "every" }))}
-                  className="accent-primary"
-                />
-                <span>Interval</span>
-              </label>
-            </div>
-            {jobForm.schedule_type === "cron" ? (
-              <Input
-                type="text"
-                value={jobForm.cron}
-                onChange={(e) => setJobForm((f) => ({ ...f, cron: e.target.value }))}
-                placeholder="0 9 * * 1-5"
-                className="font-mono"
-                nativeInput
-              />
-            ) : (
-              <Input
-                type="text"
-                value={jobForm.every}
-                onChange={(e) => setJobForm((f) => ({ ...f, every: e.target.value }))}
-                placeholder="30m, 2h"
-                className="font-mono"
-                nativeInput
-              />
-            )}
-          </div>
-
-          <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
-              Agent
-            </label>
-            <select
-              value={jobForm.agent_id}
-              onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
-              className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Default agent</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {isAdmin && (
-            <div className="mb-4 flex items-center gap-2">
-              <Switch
-                checked={jobForm.system_job}
-                onCheckedChange={(v) => setJobForm((f) => ({ ...f, system_job: v }))}
-              />
-              <span className="text-sm">System job</span>
-              <span className="text-xs text-muted-foreground">(broadcasts to all users)</span>
-            </div>
-          )}
-
-          <div className="mb-4 space-y-1.5">
-            <label className="block text-xs font-mono text-muted-foreground uppercase tracking-wider">
-              Message
-            </label>
-            <Textarea
-              value={jobForm.message}
-              onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
-              placeholder="What should the agent do?"
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={jobForm.enabled}
-                onCheckedChange={(v) => setJobForm((f) => ({ ...f, enabled: v }))}
-              />
-              <span className="text-sm">Enabled</span>
-            </div>
-            <Button size="sm" disabled={!isFormValid} onClick={saveJob}>
-              {editingJobId ? "Update" : "Create"}
-            </Button>
-          </div>
+    <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
+      {/* Left panel: job list */}
+      <div className="w-[320px] min-w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+            Jobs
+          </span>
+          <Button size="xs" onClick={startNew}>
+            + New
+          </Button>
         </div>
-
-        {/* Job list */}
-        <div className="divide-y divide-border">
+        <div className="flex-1 overflow-y-auto">
           {jobs.map((j) => (
-            <div key={j.id} className="py-5 group">
-              <div className="flex items-baseline justify-between gap-4">
-                <div className="flex items-baseline gap-3 flex-wrap">
-                  <span className="font-medium">{j.name}</span>
-                  <Badge size="sm" variant={j.enabled ? "success" : "outline"}>
-                    {j.enabled ? "on" : "off"}
-                  </Badge>
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {jobScheduleText(j)}
-                  </span>
-                  {j.owner_kind === "plugin" && (
-                    <Badge size="sm" variant="info">
-                      plugin:{j.plugin_id}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    loading={triggeringJobId === j.id}
-                    onClick={() => triggerJob(j)}
-                  >
-                    {triggeringJobId === j.id ? "running…" : "run now"}
-                  </Button>
-                  <Button variant="ghost" size="xs" onClick={() => toggleRuns(j.id)}>
-                    {expandedJobId === j.id ? "hide runs" : "show runs"}
-                  </Button>
-                  {j.owner_kind !== "plugin" ? (
-                    <>
-                      <Button variant="ghost" size="xs" onClick={() => toggleJob(j)}>
-                        {j.enabled ? "disable" : "enable"}
-                      </Button>
-                      <Button variant="ghost" size="xs" onClick={() => editJob(j)}>
-                        edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() =>
-                          setConfirm({ msg: "Delete this job?", action: () => doDeleteJob(j.id) })
-                        }
-                      >
-                        remove
-                      </Button>
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">managed by plugin</span>
-                  )}
-                </div>
+            <div
+              key={j.id}
+              onClick={() => selectJob(j)}
+              className={`px-4 py-3 border-b border-border/50 cursor-pointer transition-colors border-l-2 ${
+                selectedJobId === j.id
+                  ? "border-l-primary bg-primary/[0.03]"
+                  : "border-l-transparent hover:bg-muted/50"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[13px] font-medium truncate">{j.name}</span>
+                <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                  {jobScheduleText(j)}
+                </span>
               </div>
-
-              <div className="text-sm text-muted-foreground mt-1">
-                {j.owner_kind === "plugin"
-                  ? j.description || "Plugin-owned scheduled job"
-                  : j.message}
-              </div>
-
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                {j.owner_kind !== "plugin" && (
-                  <Badge size="sm" variant="outline">
-                    {j.session_mode}
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Badge size="sm" variant={j.enabled ? "success" : "outline"}>
+                  {j.enabled ? "on" : "off"}
+                </Badge>
+                {j.owner_kind === "plugin" ? (
+                  <Badge size="sm" variant="info">
+                    plugin:{j.plugin_id}
                   </Badge>
-                )}
-                {j.agent_id && (
-                  <Badge size="sm" variant="outline">
-                    {j.agent_id}
-                  </Badge>
-                )}
-                {j.owner_kind === "plugin" && (
+                ) : (
                   <>
-                    <Badge size="sm" variant="outline">
-                      key:{j.job_key}
-                    </Badge>
-                    <Badge size="sm" variant="outline">
-                      runtime:{j.runtime_name}
-                    </Badge>
+                    {j.agent_id && <span>{j.agent_id}</span>}
+                    <span className="text-muted-foreground/60">{j.session_mode}</span>
                   </>
                 )}
-                {isAdmin && j.owner_kind !== "plugin" && !j.user_id && (
-                  <Badge size="sm" variant="secondary">
-                    system
-                  </Badge>
-                )}
-                {isAdmin && j.owner_kind !== "plugin" && !!j.user_id && (
-                  <Badge size="sm" variant="outline">
-                    user:{j.user_id}
-                  </Badge>
-                )}
-                {j.last_run_at && (
-                  <Badge size="sm" variant="outline">
-                    last run: {formatTime(j.last_run_at)}
-                  </Badge>
-                )}
-                {j.last_error && (
-                  <Badge size="sm" variant="error">
-                    error: {j.last_error}
-                  </Badge>
+              </div>
+            </div>
+          ))}
+          {jobs.length === 0 && (
+            <div className="py-12 text-center">
+              <p className="text-sm text-muted-foreground">No jobs yet.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right panel: detail / form */}
+      <div className="flex-1 overflow-y-auto p-8 px-10">
+        {selectedJob ? (
+          <>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-serif text-xl tracking-tight">{selectedJob.name}</h2>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={triggeringJobId === selectedJob.id}
+                  onClick={() => triggerJob(selectedJob)}
+                >
+                  Run now
+                </Button>
+                {selectedJob.owner_kind !== "plugin" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() =>
+                      setConfirm({
+                        msg: "Delete this job?",
+                        action: () => doDeleteJob(selectedJob.id),
+                      })
+                    }
+                  >
+                    Delete
+                  </Button>
                 )}
               </div>
+            </div>
 
-              {j.owner_kind === "plugin" && j.payload && Object.keys(j.payload).length > 0 && (
-                <pre className="mt-3 text-xs bg-muted rounded-lg p-3 overflow-x-auto">
-                  {JSON.stringify(j.payload, null, 2)}
-                </pre>
-              )}
+            {selectedJob.owner_kind !== "plugin" ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                      Name
+                    </label>
+                    <Input
+                      type="text"
+                      value={jobForm.name}
+                      onChange={(e) => setJobForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="Daily summary"
+                      nativeInput
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                      Session Mode
+                    </label>
+                    <select
+                      value={jobForm.session_mode}
+                      onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
+                      className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="reuse">Reuse session</option>
+                      <option value="new">New session each run</option>
+                    </select>
+                  </div>
+                </div>
 
-              {expandedJobId === j.id && (
-                <div className="mt-3 ml-4 border-l-2 border-border pl-4 space-y-2">
-                  {!runHistories[j.id] || runHistories[j.id].length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No runs yet.</p>
+                <div className="mb-4 space-y-1.5">
+                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                    Schedule
+                  </label>
+                  <div className="flex items-center gap-4 mb-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="schedule_type"
+                        value="cron"
+                        checked={jobForm.schedule_type === "cron"}
+                        onChange={() => setJobForm((f) => ({ ...f, schedule_type: "cron" }))}
+                        className="accent-primary"
+                      />
+                      <span>Cron</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="schedule_type"
+                        value="every"
+                        checked={jobForm.schedule_type === "every"}
+                        onChange={() => setJobForm((f) => ({ ...f, schedule_type: "every" }))}
+                        className="accent-primary"
+                      />
+                      <span>Interval</span>
+                    </label>
+                  </div>
+                  {jobForm.schedule_type === "cron" ? (
+                    <Input
+                      type="text"
+                      value={jobForm.cron}
+                      onChange={(e) => setJobForm((f) => ({ ...f, cron: e.target.value }))}
+                      placeholder="0 9 * * 1-5"
+                      className="font-mono"
+                      nativeInput
+                    />
                   ) : (
-                    runHistories[j.id].map((run) => (
-                      <div key={run.id} className="flex items-center gap-3 text-xs py-1">
-                        <Badge size="sm" variant={statusBadgeVariant(run.status)}>
-                          {run.status}
-                        </Badge>
-                        <span className="text-muted-foreground">{formatTime(run.started_at)}</span>
-                        {run.duration && (
-                          <span className="font-mono text-muted-foreground">{run.duration}</span>
-                        )}
-                        {run.session_id && (
-                          <a
-                            href={"/sessions/" + encodeURIComponent(run.session_id)}
-                            className="text-primary hover:underline"
-                          >
-                            session
-                          </a>
-                        )}
-                        {run.error && (
-                          <span className="text-destructive truncate max-w-xs" title={run.error}>
-                            {run.error}
-                          </span>
-                        )}
-                      </div>
-                    ))
+                    <Input
+                      type="text"
+                      value={jobForm.every}
+                      onChange={(e) => setJobForm((f) => ({ ...f, every: e.target.value }))}
+                      placeholder="30m, 2h"
+                      className="font-mono"
+                      nativeInput
+                    />
                   )}
+                </div>
+
+                <div className="mb-4 space-y-1.5">
+                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                    Agent
+                  </label>
+                  <select
+                    value={jobForm.agent_id}
+                    onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
+                    className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Default agent</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {isAdmin && (
+                  <div className="mb-4 flex items-center gap-2">
+                    <Switch
+                      checked={jobForm.system_job}
+                      onCheckedChange={(v) => setJobForm((f) => ({ ...f, system_job: v }))}
+                    />
+                    <span className="text-sm">System job</span>
+                    <span className="text-xs text-muted-foreground">(broadcasts to all users)</span>
+                  </div>
+                )}
+
+                <div className="mb-4 space-y-1.5">
+                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                    Message
+                  </label>
+                  <Textarea
+                    value={jobForm.message}
+                    onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
+                    placeholder="What should the agent do?"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={jobForm.enabled}
+                      onCheckedChange={(v) => setJobForm((f) => ({ ...f, enabled: v }))}
+                    />
+                    <span className="text-sm">Enabled</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 mt-5 pt-5 border-t border-border">
+                  <Button size="sm" disabled={!isFormValid} onClick={saveJob}>
+                    Save
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => selectJob(selectedJob)}>
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {selectedJob.description || "Plugin-owned scheduled job"}
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge size="sm" variant="info">
+                    plugin:{selectedJob.plugin_id}
+                  </Badge>
+                  <Badge size="sm" variant="outline">
+                    key:{selectedJob.job_key}
+                  </Badge>
+                  <Badge size="sm" variant="outline">
+                    runtime:{selectedJob.runtime_name}
+                  </Badge>
+                  <Badge size="sm" variant={selectedJob.enabled ? "success" : "outline"}>
+                    {selectedJob.enabled ? "on" : "off"}
+                  </Badge>
+                </div>
+                {selectedJob.payload && Object.keys(selectedJob.payload).length > 0 && (
+                  <pre className="text-xs bg-muted rounded-lg p-3 overflow-x-auto">
+                    {JSON.stringify(selectedJob.payload, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* Run history */}
+            <div className="mt-8 pt-6 border-t border-border">
+              <h3 className="text-[13px] font-semibold mb-3">Recent runs</h3>
+              {!runs || runs.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No runs yet.</p>
+              ) : (
+                <div className="space-y-0">
+                  {runs.map((run) => (
+                    <div
+                      key={run.id}
+                      className="flex items-center gap-3 text-xs py-2 border-b border-border/50"
+                    >
+                      <Badge size="sm" variant={statusBadgeVariant(run.status)}>
+                        {run.status}
+                      </Badge>
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {formatTime(run.started_at)}
+                      </span>
+                      {run.duration && (
+                        <span className="font-mono text-[11px] text-muted-foreground/60">
+                          {run.duration}
+                        </span>
+                      )}
+                      {run.session_id && (
+                        <a
+                          href={"/sessions/" + encodeURIComponent(run.session_id)}
+                          className="text-primary hover:underline text-[11px]"
+                        >
+                          session
+                        </a>
+                      )}
+                      {run.error && (
+                        <span className="text-destructive truncate max-w-xs" title={run.error}>
+                          {run.error}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          ))}
-        </div>
+          </>
+        ) : creatingNew ? (
+          <div>
+            <h2 className="font-serif text-xl tracking-tight mb-6">New job</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  Name
+                </label>
+                <Input
+                  type="text"
+                  value={jobForm.name}
+                  onChange={(e) => setJobForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Daily summary"
+                  nativeInput
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  Session Mode
+                </label>
+                <select
+                  value={jobForm.session_mode}
+                  onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
+                  className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="reuse">Reuse session</option>
+                  <option value="new">New session each run</option>
+                </select>
+              </div>
+            </div>
 
-        {jobs.length === 0 && (
-          <div className="py-12 text-center">
-            <p className="text-sm text-muted-foreground">
-              No jobs yet. Create one above to schedule recurring tasks.
-            </p>
+            <div className="mb-4 space-y-1.5">
+              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                Schedule
+              </label>
+              <div className="flex items-center gap-4 mb-2">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="cron"
+                    checked={jobForm.schedule_type === "cron"}
+                    onChange={() => setJobForm((f) => ({ ...f, schedule_type: "cron" }))}
+                    className="accent-primary"
+                  />
+                  <span>Cron</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="every"
+                    checked={jobForm.schedule_type === "every"}
+                    onChange={() => setJobForm((f) => ({ ...f, schedule_type: "every" }))}
+                    className="accent-primary"
+                  />
+                  <span>Interval</span>
+                </label>
+              </div>
+              {jobForm.schedule_type === "cron" ? (
+                <Input
+                  type="text"
+                  value={jobForm.cron}
+                  onChange={(e) => setJobForm((f) => ({ ...f, cron: e.target.value }))}
+                  placeholder="0 9 * * 1-5"
+                  className="font-mono"
+                  nativeInput
+                />
+              ) : (
+                <Input
+                  type="text"
+                  value={jobForm.every}
+                  onChange={(e) => setJobForm((f) => ({ ...f, every: e.target.value }))}
+                  placeholder="30m, 2h"
+                  className="font-mono"
+                  nativeInput
+                />
+              )}
+            </div>
+
+            <div className="mb-4 space-y-1.5">
+              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                Agent
+              </label>
+              <select
+                value={jobForm.agent_id}
+                onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
+                className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Default agent</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isAdmin && (
+              <div className="mb-4 flex items-center gap-2">
+                <Switch
+                  checked={jobForm.system_job}
+                  onCheckedChange={(v) => setJobForm((f) => ({ ...f, system_job: v }))}
+                />
+                <span className="text-sm">System job</span>
+                <span className="text-xs text-muted-foreground">(broadcasts to all users)</span>
+              </div>
+            )}
+
+            <div className="mb-4 space-y-1.5">
+              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                Message
+              </label>
+              <Textarea
+                value={jobForm.message}
+                onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="What should the agent do?"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={jobForm.enabled}
+                  onCheckedChange={(v) => setJobForm((f) => ({ ...f, enabled: v }))}
+                />
+                <span className="text-sm">Enabled</span>
+              </div>
+              <Button size="sm" disabled={!isFormValid} onClick={saveJob}>
+                Create
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+            Select a job or create a new one
           </div>
         )}
       </div>
