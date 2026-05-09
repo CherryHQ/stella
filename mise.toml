@@ -107,7 +107,7 @@ run = [
   "dprint fmt",
   "go mod tidy",
   "golangci-lint run --fix ./...",
-  "cd web && vp check --fix",
+  "cd web && vp install && vp check --fix",
 ]
 
 # ============================================================================
