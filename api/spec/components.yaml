@@ -1327,6 +1327,22 @@ components:
       properties:
         path:
           type: string
+    StatusResponse:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: abc1234
+        buildDate:
+          type: string
+          example: "2026-05-09T12:34:56Z"
     Tool:
       type: object
       required: [name, description, category]

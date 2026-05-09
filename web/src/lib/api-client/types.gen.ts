@@ -184,6 +184,8 @@ export type AuthResponse = ComponentsAuthResponse;
 
 export type MeResponse = ComponentsMeResponse;
 
+export type StatusResponse = ComponentsStatusResponse;
+
 export type PluginView = ComponentsPluginView;
 
 export type TogglePluginRequest = ComponentsTogglePluginRequest;
@@ -824,6 +826,13 @@ export type ComponentsSourceType =
   | "rss"
   | "pdf";
 
+export type ComponentsStatusResponse = {
+  status: string;
+  version: string;
+  commit?: string;
+  buildDate?: string;
+};
+
 export type ComponentsSystemPromptResponse = {
   system_prompt: string;
 };
@@ -1175,6 +1184,8 @@ export type _1Api1Skills1Id = unknown;
 
 export type _1Api1Skills1Id1File = unknown;
 
+export type _1Api1Status = unknown;
+
 export type _1Api1Tools = unknown;
 
 export type _1Api1Auth1Users = unknown;
@@ -1196,6 +1207,22 @@ export type _1Api1Users1Id1Memories = unknown;
 export type _1Api1Users1Id1Memories1AgentId = unknown;
 
 export type _1Api1Users1Id1NotifyIdentity = unknown;
+
+export type GetStatusData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/status";
+};
+
+export type GetStatusResponses = {
+  /**
+   * Runtime status
+   */
+  200: ComponentsStatusResponse;
+};
+
+export type GetStatusResponse = GetStatusResponses[keyof GetStatusResponses];
 
 export type RegisterData = {
   body: ComponentsRegisterRequest;

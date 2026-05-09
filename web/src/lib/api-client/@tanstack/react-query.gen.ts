@@ -64,6 +64,7 @@ import {
   getSessionWorkspace,
   getSkill,
   getSkillFile,
+  getStatus,
   getVaultEntry,
   getWorkspaceFileContent,
   installAgentSkill,
@@ -304,6 +305,8 @@ import type {
   GetSkillFileError,
   GetSkillFileResponse,
   GetSkillResponse,
+  GetStatusData,
+  GetStatusResponse,
   GetVaultEntryData,
   GetVaultEntryError,
   GetVaultEntryResponse,
@@ -529,6 +532,71 @@ import type {
   UploadWorkspaceFileResponse,
 } from "../types.gen";
 
+export type QueryKey<TOptions extends Options> = [
+  Pick<TOptions, "baseUrl" | "body" | "headers" | "path" | "query"> & {
+    _id: string;
+    _infinite?: boolean;
+    tags?: ReadonlyArray<string>;
+  },
+];
+
+const createQueryKey = <TOptions extends Options>(
+  id: string,
+  options?: TOptions,
+  infinite?: boolean,
+  tags?: ReadonlyArray<string>,
+): [QueryKey<TOptions>[0]] => {
+  const params: QueryKey<TOptions>[0] = {
+    _id: id,
+    baseUrl:
+      options?.baseUrl || (options?.client ?? client).getConfig().baseUrl,
+  } as QueryKey<TOptions>[0];
+  if (infinite) {
+    params._infinite = infinite;
+  }
+  if (tags) {
+    params.tags = tags;
+  }
+  if (options?.body) {
+    params.body = options.body;
+  }
+  if (options?.headers) {
+    params.headers = options.headers;
+  }
+  if (options?.path) {
+    params.path = options.path;
+  }
+  if (options?.query) {
+    params.query = options.query;
+  }
+  return [params];
+};
+
+export const getStatusQueryKey = (options?: Options<GetStatusData>) =>
+  createQueryKey("getStatus", options);
+
+/**
+ * Get runtime status and version metadata
+ */
+export const getStatusOptions = (options?: Options<GetStatusData>) =>
+  queryOptions<
+    GetStatusResponse,
+    DefaultError,
+    GetStatusResponse,
+    ReturnType<typeof getStatusQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getStatus({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getStatusQueryKey(options),
+  });
+
 /**
  * Register a new user account
  */
@@ -600,46 +668,6 @@ export const logoutMutation = (
     },
   };
   return mutationOptions;
-};
-
-export type QueryKey<TOptions extends Options> = [
-  Pick<TOptions, "baseUrl" | "body" | "headers" | "path" | "query"> & {
-    _id: string;
-    _infinite?: boolean;
-    tags?: ReadonlyArray<string>;
-  },
-];
-
-const createQueryKey = <TOptions extends Options>(
-  id: string,
-  options?: TOptions,
-  infinite?: boolean,
-  tags?: ReadonlyArray<string>,
-): [QueryKey<TOptions>[0]] => {
-  const params: QueryKey<TOptions>[0] = {
-    _id: id,
-    baseUrl:
-      options?.baseUrl || (options?.client ?? client).getConfig().baseUrl,
-  } as QueryKey<TOptions>[0];
-  if (infinite) {
-    params._infinite = infinite;
-  }
-  if (tags) {
-    params.tags = tags;
-  }
-  if (options?.body) {
-    params.body = options.body;
-  }
-  if (options?.headers) {
-    params.headers = options.headers;
-  }
-  if (options?.path) {
-    params.path = options.path;
-  }
-  if (options?.query) {
-    params.query = options.query;
-  }
-  return [params];
 };
 
 export const getMeQueryKey = (options?: Options<GetMeData>) =>

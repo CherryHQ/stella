@@ -16,16 +16,24 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
 
 ## Release Flow
 
-1. Update `docs/content/docs/changelog.mdx` (see below)
-2. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z`
-3. Tag: `git tag vX.Y.Z`
-4. Push: `git push origin main --tags`
-5. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images
+1. Choose release tag `vX.Y.Z`; the web package version is `X.Y.Z` (without `v`).
+2. Update `web/package.json` so `.version` matches the API/server release version:
+   ```bash
+   VERSION=X.Y.Z
+   tmp=$(mktemp)
+   jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
+   test "$(jq -r '.version' web/package.json)" = "$VERSION"
+   ```
+3. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
+4. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and `web/package.json`.
+5. Tag: `git tag vX.Y.Z`.
+6. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
+7. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
 
 ## Update Changelog
 
-The changelog lives at `docs/content/docs/changelog.mdx` (rendered on the docs site).
-It has YAML frontmatter — preserve it when editing. Only modify content below the `---` block.
+The changelogs live at `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (rendered on the docs site).
+They have YAML frontmatter — preserve it when editing. Only modify content below the `---` block, and keep English and Chinese entries in sync.
 
 Gather changes since last tag:
 
@@ -34,7 +42,7 @@ git log $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-paren
 gh pr list --state merged --base main --search "merged:>=$(git log -1 --format=%aI $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD))"
 ```
 
-Apply to `docs/content/docs/changelog.mdx`:
+Apply to both changelog files:
 
 1. Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`
 2. Add fresh `[Unreleased]` section above
@@ -45,6 +53,8 @@ Apply to `docs/content/docs/changelog.mdx`:
 ## Validate and Test
 
 ```bash
+VERSION=X.Y.Z
+test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:check     # Validate .goreleaser.yaml
 mise run release:snapshot  # Test release locally (no tag needed)
 ```

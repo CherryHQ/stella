@@ -25,6 +25,7 @@ import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settin
 import { Route as AppSettingsChannelsRouteImport } from './routes/_app/settings/channels'
 import { Route as AppSettingsAgentsRouteImport } from './routes/_app/settings/agents'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
+import { Route as AppSettingsAboutRouteImport } from './routes/_app/settings/about'
 import { Route as AppSessionsSplatRouteImport } from './routes/_app/sessions.$'
 
 const ProfileRoute = ProfileRouteImport.update({
@@ -106,6 +107,11 @@ const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsAboutRoute = AppSettingsAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSessionsSplatRoute = AppSessionsSplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
+  '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/channels': typeof AppSettingsChannelsRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/sessions': typeof AppSessionsRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
+  '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/channels': typeof AppSettingsChannelsRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
+  '/_app/settings/about': typeof AppSettingsAboutRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
   '/_app/settings/agents': typeof AppSettingsAgentsRoute
   '/_app/settings/channels': typeof AppSettingsChannelsRoute
@@ -178,6 +187,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/docs/$'
     | '/sessions/$'
+    | '/settings/about'
     | '/settings/account'
     | '/settings/agents'
     | '/settings/channels'
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/docs/$'
     | '/sessions/$'
+    | '/settings/about'
     | '/settings/account'
     | '/settings/agents'
     | '/settings/channels'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/docs/$'
     | '/_app/sessions/$'
+    | '/_app/settings/about'
     | '/_app/settings/account'
     | '/_app/settings/agents'
     | '/_app/settings/channels'
@@ -346,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAccountRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/about': {
+      id: '/_app/settings/about'
+      path: '/about'
+      fullPath: '/settings/about'
+      preLoaderRoute: typeof AppSettingsAboutRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/sessions/$': {
       id: '/_app/sessions/$'
       path: '/$'
@@ -369,6 +388,7 @@ const AppSessionsRouteWithChildren = AppSessionsRoute._addFileChildren(
 )
 
 interface AppSettingsRouteChildren {
+  AppSettingsAboutRoute: typeof AppSettingsAboutRoute
   AppSettingsAccountRoute: typeof AppSettingsAccountRoute
   AppSettingsAgentsRoute: typeof AppSettingsAgentsRoute
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRoute
@@ -380,6 +400,7 @@ interface AppSettingsRouteChildren {
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAboutRoute: AppSettingsAboutRoute,
   AppSettingsAccountRoute: AppSettingsAccountRoute,
   AppSettingsAgentsRoute: AppSettingsAgentsRoute,
   AppSettingsChannelsRoute: AppSettingsChannelsRoute,

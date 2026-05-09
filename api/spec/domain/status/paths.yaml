@@ -1,0 +1,14 @@
+paths:
+  /api/status:
+    get:
+      tags: [status]
+      operationId: getStatus
+      summary: Get runtime status and version metadata
+      security: []
+      responses:
+        "200":
+          description: Runtime status
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/StatusResponse"

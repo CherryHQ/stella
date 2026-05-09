@@ -748,6 +748,14 @@ type SkillUploadResult struct {
 // SourceType defines model for SourceType.
 type SourceType string
 
+// StatusResponse defines model for StatusResponse.
+type StatusResponse struct {
+	BuildDate *string `json:"buildDate,omitempty"`
+	Commit    *string `json:"commit,omitempty"`
+	Status    string  `json:"status"`
+	Version   string  `json:"version"`
+}
+
 // SystemPromptResponse defines model for SystemPromptResponse.
 type SystemPromptResponse struct {
 	SystemPrompt string `json:"system_prompt"`

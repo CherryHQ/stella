@@ -242,6 +242,9 @@ type SkillUploadResult = externalRef0.SkillUploadResult
 // SourceType defines model for SourceType.
 type SourceType = externalRef0.SourceType
 
+// StatusResponse defines model for StatusResponse.
+type StatusResponse = externalRef0.StatusResponse
+
 // SystemPromptResponse defines model for SystemPromptResponse.
 type SystemPromptResponse = externalRef0.SystemPromptResponse
 
@@ -959,6 +962,9 @@ type ServerInterface interface {
 	// Get a skill file (admin only)
 	// (GET /api/skills/{id}/file)
 	GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params GetSkillFileParams)
+	// Get runtime status and version metadata
+	// (GET /api/status)
+	GetStatus(w http.ResponseWriter, r *http.Request)
 	// List available agent tools
 	// (GET /api/tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
@@ -5024,6 +5030,20 @@ func (siw *ServerInterfaceWrapper) GetSkillFile(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTools operation middleware
 func (siw *ServerInterfaceWrapper) ListTools(w http.ResponseWriter, r *http.Request) {
 
@@ -5466,6 +5486,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/skills/{id}", wrapper.UpdateSkill)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.DeleteSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.GetSkillFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/status", wrapper.GetStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)

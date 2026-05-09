@@ -170,6 +170,8 @@ import type {
   GetSkillFileErrors,
   GetSkillFileResponses,
   GetSkillResponses,
+  GetStatusData,
+  GetStatusResponses,
   GetVaultEntryData,
   GetVaultEntryErrors,
   GetVaultEntryResponses,
@@ -417,6 +419,17 @@ export type Options<
    */
   meta?: Record<string, unknown>;
 };
+
+/**
+ * Get runtime status and version metadata
+ */
+export const getStatus = <ThrowOnError extends boolean = false>(
+  options?: Options<GetStatusData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<GetStatusResponses, unknown, ThrowOnError>({
+    url: "/api/status",
+    ...options,
+  });
 
 /**
  * Register a new user account

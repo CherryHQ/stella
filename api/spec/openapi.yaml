@@ -49,7 +49,11 @@ tags:
   - name: profile
   - name: auth
   - name: plugins
+  - name: status
 paths:
+  # ── Status ─────────────────────────────────────────────────────────────────
+  /api/status:
+    $ref: "./domain/status/paths.yaml#/paths/~1api~1status"
   # ── Auth ───────────────────────────────────────────────────────────────────
   /api/auth/register:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1register"
@@ -451,6 +455,9 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    StatusResponse: {
+      $ref: "./components.yaml#/components/schemas/StatusResponse",
+    }
     PluginView: { $ref: "./components.yaml#/components/schemas/PluginView" }
     TogglePluginRequest: {
       $ref: "./components.yaml#/components/schemas/TogglePluginRequest",

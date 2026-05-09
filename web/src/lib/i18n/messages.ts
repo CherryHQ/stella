@@ -96,6 +96,15 @@ const en = {
   "settings.nav.plugins": "Plugins",
   "settings.nav.providers": "Providers",
   "settings.nav.users": "Users",
+  "settings.nav.about": "About",
+
+  // About
+  "about.title": "About",
+  "about.description": "Version and runtime information for this Stella instance.",
+  "about.status": "Status",
+  "about.version": "Version",
+  "about.commit": "Commit",
+  "about.buildDate": "Build date",
 
   // Agents
   "agents.title": "Agents",
@@ -377,6 +386,15 @@ const zh: Record<MessageKey, string> = {
   "settings.nav.plugins": "插件",
   "settings.nav.providers": "提供商",
   "settings.nav.users": "用户",
+  "settings.nav.about": "关于",
+
+  // About
+  "about.title": "关于",
+  "about.description": "当前 Stella 实例的版本和运行时信息。",
+  "about.status": "状态",
+  "about.version": "版本",
+  "about.commit": "Commit",
+  "about.buildDate": "构建时间",
 
   // Agents
   "agents.title": "智能体",

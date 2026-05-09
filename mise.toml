@@ -4,6 +4,7 @@ portless = "latest"
 prek = "latest"
 dprint = "latest"
 jq = "latest"
+act = "latest"
 # Go
 atlas = "0.36.0"
 go = "1.25"
@@ -14,7 +15,6 @@ go = "1.25"
 vp = "latest"
 pnpm = "latest"
 node = "24"
-act = "latest"
 
 [env]
 BINARY = "./dist/bin/stella"
@@ -29,8 +29,10 @@ description = "Build stella binary"
 depends = ["generate"]
 run = [
   "mkdir -p ./dist/bin",
-  "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
-  "go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o $BINARY ./cmd/stella",
+  "export VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
+  "export COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}",
+  "export BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}",
+  "go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE\" -o $BINARY ./cmd/stella",
 ]
 
 [tasks.clean]
