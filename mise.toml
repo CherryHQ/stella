@@ -19,17 +19,24 @@ LOG_LEVEL = "trace"
 
 [tasks.build]
 description = "Build stella binary"
-depends = ["generate", "deps:sync"]
+depends = ["generate"]
 run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/stella"
 
 [tasks.clean]
 description = "Remove build artifacts"
 run = "rm -rf bin/"
 
+# ============================================================================
+# Code Generation
+# ============================================================================
+
 [tasks.generate]
-description = "Generate templ components, sqlc queries, and OpenAPI clients"
+description = "Generate templ components, sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
-run = "templ generate && sqlc generate"
+run = """
+go generate ./internal/resources/binaries/
+sqlc generate
+"""
 
 [tasks."generate:ts-sdk"]
 description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
@@ -97,17 +104,13 @@ run = [
 # Dev
 # ============================================================================
 
-[tasks."templ:watch"]
-description = "Watch templ files and regenerate on change"
-run = "templ generate --watch --proxy=http://localhost:25678"
+[tasks.setup]
+description = "Set up the development environment"
+depends = ["hooks:install"]
 
-[tasks."deps:sync"]
-description = "Download mise binary for the host platform (embedded at build time)"
-run = "go generate ./internal/resources/binaries/"
-
-[tasks."deps:sync:tools"]
-description = "Download mise binary for a target platform (set GOOS/GOARCH env vars)"
-run = "go generate ./internal/resources/binaries/"
+[tasks."hooks:install"]
+description = "Install Git hooks"
+run = "git config --unset core.hooksPath || true && prek install --overwrite --prepare-hooks"
 
 # ============================================================================
 # Database

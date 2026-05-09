@@ -236,10 +236,12 @@ stella upgrade               # Self-update to latest release
 ## Development
 
 ```bash
-mise run build             # Build binary -> bin/stella (runs pre-build deps sync)
-mise run deps:sync         # Sync embedded third-party tools + generated system skills
+mise run setup             # Set up dev environment and install pre-commit hooks
+mise run build             # Build binary -> bin/stella
+mise run generate          # Generate code and embedded resources
 mise run test              # Run tests
 mise run format            # golangci-lint run --fix
+mise run hooks:install     # Install prek hooks that run mise run format
 mise run release:check     # Validate GoReleaser config
 mise run release:snapshot  # Build a host-only snapshot artifact
 ```
