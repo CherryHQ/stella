@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -64,9 +66,12 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	dispatcher := notify.NewDispatcher()
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
+	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
+	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
+	t.Cleanup(cancelRuntime)
 	resetWeixin := weixinplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
 		return weixinplugin.NewWeixinManagedRuntime(weixinplugin.WeixinRuntimeDeps{
-			Parent:  context.Background(),
+			Parent:  runtimeCtx,
 			Handler: testWeixinHandler{},
 			NewChannel: func(_ pkgchannel.WeixinConfig, _ pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return &weixinNoopChannel{}, nil

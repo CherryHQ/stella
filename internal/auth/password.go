@@ -2,9 +2,15 @@ package auth
 
 import "golang.org/x/crypto/bcrypt"
 
-const bcryptCost = 12
+var bcryptCost = 12
 
-// HashPassword hashes a plaintext password using bcrypt with cost 12.
+// SetBcryptCostForTesting overrides the bcrypt work factor and returns a reset func.
+func SetBcryptCostForTesting(cost int) func() {
+	orig := bcryptCost
+	bcryptCost = cost
+	return func() { bcryptCost = orig }
+}
+
 func HashPassword(plain string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
 	if err != nil {

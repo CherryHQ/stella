@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -92,9 +94,12 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
+	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
+	runtimeCtx, cancelRuntimes := context.WithCancel(context.Background())
+	t.Cleanup(cancelRuntimes)
 	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
 		return telegramplugin.NewManagedRuntime(telegramplugin.RuntimeDeps{
-			Parent:        context.Background(),
+			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
@@ -105,7 +110,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Cleanup(resetTelegramRuntime)
 	resetFeishuRuntime := feishuplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
 		return feishuplugin.NewFeishuManagedRuntime(feishuplugin.FeishuRuntimeDeps{
-			Parent:        context.Background(),
+			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
@@ -116,7 +121,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Cleanup(resetFeishuRuntime)
 	resetWeixinRuntime := weixinplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
 		return weixinplugin.NewWeixinManagedRuntime(weixinplugin.WeixinRuntimeDeps{
-			Parent:        context.Background(),
+			Parent:        runtimeCtx,
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
