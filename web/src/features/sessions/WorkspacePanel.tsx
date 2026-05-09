@@ -474,6 +474,35 @@ function TreeWithSearch({
               >
                 Open
               </button>
+              <a
+                href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "none";
+                }}
+                onClick={() => context.close({ restoreFocus: false })}
+              >
+                Open in browser
+              </a>
+              <a
+                href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
+                download={item.path.split("/").pop()}
+                style={ctxItemStyle}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "var(--accent, #f5f5f5)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "none";
+                }}
+                onClick={() => context.close({ restoreFocus: false })}
+              >
+                Download
+              </a>
               <button
                 type="button"
                 style={ctxItemStyle}
