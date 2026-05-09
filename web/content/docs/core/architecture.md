@@ -46,7 +46,7 @@ internal/
     telegram/          Telegram bot
     qq/                QQ bot
     feishu/            Feishu bot
-  admin/               HTTP API + embedded SPA (templ + Alpine.js + daisyUI)
+  admin/               HTTP API + embedded React SPA
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  SQLite, Atlas migrations, sqlc queries
   scheduler/           gocron service, heartbeat (skill via stella scheduler CLI)

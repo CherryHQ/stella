@@ -32,7 +32,6 @@ RUN mise install go@1.25 \
 # Install codegen CLIs needed to produce a fresh build from source.
 COPY go.mod go.sum ./
 RUN go mod download
-RUN GOBIN=/usr/local/bin go install github.com/a-h/templ/cmd/templ@v0.3.1001
 RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 
 ARG TARGETOS
@@ -45,7 +44,6 @@ COPY --from=web-builder /web/static/dist/ ./web/static/dist/
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go generate ./internal/resources/binaries/
 
 # Generate code, fetch embedded runtime tools for the target platform, then cross-compile.
-RUN templ generate
 RUN sqlc generate
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

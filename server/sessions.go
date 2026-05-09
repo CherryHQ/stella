@@ -760,7 +760,7 @@ func detectLanguage(path string) string {
 		return "yaml"
 	case ".md", ".mdx":
 		return "markdown"
-	case ".html", ".templ":
+	case ".html":
 		return "html"
 	case ".css":
 		return "css"

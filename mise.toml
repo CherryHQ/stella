@@ -1,13 +1,17 @@
 [tools]
+# Common
+portless = "latest"
+prek = "latest"
+dprint = "latest"
+# Go
 atlas = "0.36.0"
 go = "1.25"
-"github:a-h/templ" = "latest"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
-"npm:portless" = "latest"
-prek = "latest"
-dprint = "latest"
+# Web
+vp = "latest"
+pnpm = "latest"
 
 [env]
 BINARY_NAME = "stella"
@@ -31,7 +35,7 @@ run = "rm -rf bin/"
 # ============================================================================
 
 [tasks.generate]
-description = "Generate templ components, sqlc queries, OpenAPI clients, and embedded resources"
+description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
 run = """
 go generate ./internal/resources/binaries/

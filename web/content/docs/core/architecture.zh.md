@@ -46,7 +46,7 @@ internal/
     telegram/          Telegram 机器人
     qq/                QQ 机器人
     feishu/            飞书机器人
-  admin/               HTTP API + 嵌入式 SPA（templ + Alpine.js + daisyUI）
+  admin/               HTTP API + 嵌入式 React SPA
   auth/                RBAC/ABAC 策略引擎、会话、沙箱
   db/                  SQLite、Atlas 迁移、sqlc 查询
   scheduler/           gocron 服务、心跳、调度器工具

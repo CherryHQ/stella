@@ -22,7 +22,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/memory"
 )
 
-// Server provides HTTP handlers for the admin API and templ-rendered pages.
+// Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
 	store          config.Store
 	authStore      auth.AuthStore
