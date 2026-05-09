@@ -82,17 +82,17 @@ OKR 的 Objective、KeyResult 中的 content/notes 字段使用 `ContentBlock` �
 
 根级别内容块。
 
-| 字段       | 类型                      | 说明      |
-|----------|-------------------------|---------|
+| 字段     | 类型                    | 说明           |
+| -------- | ----------------------- | -------------- |
 | `blocks` | `ContentBlockElement[]` | 内容块元素数组 |
 
 ### ContentBlockElement
 
 内容块元素，支持段落或图库。
 
-| 字段                   | 类型                 | 说明                                         |
-|----------------------|--------------------|--------------------------------------------|
-| `block_element_type` | `BlockElementType` | 块类型：`paragraph` \| `gallery`               |
+| 字段                 | 类型               | 说明                                               |
+| -------------------- | ------------------ | -------------------------------------------------- |
+| `block_element_type` | `BlockElementType` | 块类型：`paragraph` \| `gallery`                   |
 | `paragraph`          | `ContentParagraph` | 段落内容（当 `block_element_type="paragraph"` 时） |
 | `gallery`            | `ContentGallery`   | 图库内容（当 `block_element_type="gallery"` 时）   |
 
@@ -100,28 +100,28 @@ OKR 的 Objective、KeyResult 中的 content/notes 字段使用 `ContentBlock` �
 
 段落内容。
 
-| 字段         | 类型                          | 说明          |
-|------------|-----------------------------|-------------|
+| 字段       | 类型                        | 说明                   |
+| ---------- | --------------------------- | ---------------------- |
 | `style`    | `ContentParagraphStyle`     | 段落样式（列表类型等） |
-| `elements` | `ContentParagraphElement[]` | 段落内元素数组     |
+| `elements` | `ContentParagraphElement[]` | 段落内元素数组         |
 
 ### ContentParagraphElement
 
 段落内元素，支持文本、文档链接、提及。
 
-| 字段                       | 类型                     | 说明                                        |
-|--------------------------|------------------------|-------------------------------------------|
+| 字段                     | 类型                   | 说明                                           |
+| ------------------------ | ---------------------- | ---------------------------------------------- |
 | `paragraph_element_type` | `ParagraphElementType` | 元素类型：`textRun` \| `docsLink` \| `mention` |
-| `text_run`               | `ContentTextRun`       | 文本内容                                      |
-| `docs_link`              | `ContentDocsLink`      | 飞书文档链接                                    |
-| `mention`                | `ContentMention`       | 用户提及                                      |
+| `text_run`               | `ContentTextRun`       | 文本内容                                       |
+| `docs_link`              | `ContentDocsLink`      | 飞书文档链接                                   |
+| `mention`                | `ContentMention`       | 用户提及                                       |
 
 ### ContentTextRun
 
 文本块。
 
-| 字段      | 类型                 | 说明   |
-|---------|--------------------|------|
+| 字段    | 类型               | 说明     |
+| ------- | ------------------ | -------- |
 | `text`  | `string`           | 文本内容 |
 | `style` | `ContentTextStyle` | 文本样式 |
 
@@ -129,42 +129,42 @@ OKR 的 Objective、KeyResult 中的 content/notes 字段使用 `ContentBlock` �
 
 文本样式。
 
-| 字段               | 类型             | 说明    |
-|------------------|----------------|-------|
-| `bold`           | `boolean`      | 是否粗体  |
+| 字段             | 类型           | 说明       |
+| ---------------- | -------------- | ---------- |
+| `bold`           | `boolean`      | 是否粗体   |
 | `strike_through` | `boolean`      | 是否删除线 |
-| `back_color`     | `ContentColor` | 背景颜色  |
-| `text_color`     | `ContentColor` | 文字颜色  |
-| `link`           | `ContentLink`  | 链接    |
+| `back_color`     | `ContentColor` | 背景颜色   |
+| `text_color`     | `ContentColor` | 文字颜色   |
+| `link`           | `ContentLink`  | 链接       |
 
 ### ContentColor
 
 颜色。
 
-| 字段      | 类型        | 说明           |
-|---------|-----------|--------------|
+| 字段    | 类型      | 说明             |
+| ------- | --------- | ---------------- |
 | `red`   | `int32`   | 红色通道 (0-255) |
 | `green` | `int32`   | 绿色通道 (0-255) |
 | `blue`  | `int32`   | 蓝色通道 (0-255) |
-| `alpha` | `float64` | 透明度 (0-1)    |
+| `alpha` | `float64` | 透明度 (0-1)     |
 
 ### ContentParagraphStyle
 
 段落样式。
 
-| 字段     | 类型            | 说明   |
-|--------|---------------|------|
+| 字段   | 类型          | 说明     |
+| ------ | ------------- | -------- |
 | `list` | `ContentList` | 列表样式 |
 
 ### ContentList
 
 列表样式。
 
-| 字段             | 类型         | 说明                                                                  |
-|----------------|------------|---------------------------------------------------------------------|
+| 字段           | 类型       | 说明                                                                     |
+| -------------- | ---------- | ------------------------------------------------------------------------ |
 | `list_type`    | `ListType` | 列表类型：`bullet` \| `number` \| `checkBox` \| `checkedBox` \| `indent` |
-| `indent_level` | `int32`    | 缩进层级                                                                |
-| `number`       | `int32`    | 序号（当 `list_type="number"` 时）                                        |
+| `indent_level` | `int32`    | 缩进层级                                                                 |
+| `number`       | `int32`    | 序号（当 `list_type="number"` 时）                                       |
 
 ### ContentGallery
 
@@ -173,16 +173,16 @@ OKR 的 Objective、KeyResult 中的 content/notes 字段使用 `ContentBlock` �
 由于 OKR 应用中进展页面的布局排版限制，一个 ContentGallery 元素中**仅可放置一个图片元素**，需要插入多张图片时需使用多个 ContentGallery 元素
 (同一个 ContentGallery 中添加多个 image 会导致这些图片在狭窄的横向排版空间中互相挤占，效果很差)
 
-| 字段       | 类型                   | 说明    |
-|----------|----------------------|-------|
+| 字段     | 类型                 | 说明       |
+| -------- | -------------------- | ---------- |
 | `images` | `ContentImageItem[]` | 图片项数组 |
 
 ### ContentImageItem
 
 图片项。
 
-| 字段           | 类型        | 说明       |
-|--------------|-----------|----------|
+| 字段         | 类型      | 说明       |
+| ------------ | --------- | ---------- |
 | `file_token` | `string`  | 文件 token |
 | `src`        | `string`  | 图片 URL   |
 | `width`      | `float64` | 宽度       |
@@ -194,25 +194,25 @@ OKR 的 Objective、KeyResult 中的 content/notes 字段使用 `ContentBlock` �
 
 飞书文档链接。
 
-| 字段      | 类型       | 说明     |
-|---------|----------|--------|
+| 字段    | 类型     | 说明     |
+| ------- | -------- | -------- |
 | `url`   | `string` | 链接 URL |
-| `title` | `string` | 链接标题   |
+| `title` | `string` | 链接标题 |
 
 ### ContentMention
 
 提及。
 
-| 字段        | 类型       | 说明    |
-|-----------|----------|-------|
+| 字段      | 类型     | 说明    |
+| --------- | -------- | ------- |
 | `user_id` | `string` | 用户 ID |
 
 ### ContentLink
 
 链接。
 
-| 字段    | 类型       | 说明     |
-|-------|----------|--------|
+| 字段  | 类型     | 说明     |
+| ----- | -------- | -------- |
 | `url` | `string` | 链接 URL |
 
 ## 使用示例

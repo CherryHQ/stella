@@ -16,11 +16,11 @@ lark-cli base +field-delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--field-id <id_or_name>` | 是 | 字段 ID 或字段名 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--field-id <id_or_name>` | 是   | 字段 ID 或字段名 |
 
 ## API 入参详情
 

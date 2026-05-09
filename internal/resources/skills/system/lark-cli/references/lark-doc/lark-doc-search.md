@@ -1,4 +1,3 @@
-
 # docs +search（云空间搜索：文档 / Wiki / 电子表格）
 
 > ⚠️ **此命令进入维护期，后续会下线。新用法请使用 [`drive +search`](../../lark-drive/references/lark-drive-search.md)。**
@@ -117,13 +116,13 @@ lark-cli docs +search --query "方案" --format json --page-token '<PAGE_TOKEN>'
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--query <text>` | 否 | 搜索关键词。**支持高级 Boolean 语法**以提升搜索精度：<br>1. 使用空格表示 AND（如 `方案 设计`）。<br>2. 使用 `OR` 表示逻辑或（如 `方案 OR 草稿`）。<br>3. 使用 `-` 表示排除（如 `方案 -草稿`）。<br>4. 使用双引号 `""` 表示精确匹配短语。<br>5. 使用 `intitle:` 限定关键词出现在标题中（如 `intitle:总结` 或 `intitle:"季度 总结"`）。不传/空字符串表示空搜。**凡是有关键词，都要显式通过 `--query` 传递，不要写成位置参数。** |
-| `--filter <json>` | 否 | JSON 对象。公共字段默认同时应用到 `doc_filter` / `wiki_filter`；若传 `folder_tokens`，则只发 `doc_filter`；若传 `space_ids`，则只发 `wiki_filter`；两者不能同时传 |
-| `--page-size <n>` | 否 | 每页数量（默认 15，最大 20） |
-| `--page-token <token>` | 否 | 翻页标记（配合 `has_more` 使用） |
-| `--format` | 否 | 输出格式：json（默认） \| pretty |
+| 参数                   | 必填 | 说明                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--query <text>`       | 否   | 搜索关键词。**支持高级 Boolean 语法**以提升搜索精度：<br>1. 使用空格表示 AND（如 `方案 设计`）。<br>2. 使用 `OR` 表示逻辑或（如 `方案 OR 草稿`）。<br>3. 使用 `-` 表示排除（如 `方案 -草稿`）。<br>4. 使用双引号 `""` 表示精确匹配短语。<br>5. 使用 `intitle:` 限定关键词出现在标题中（如 `intitle:总结` 或 `intitle:"季度 总结"`）。不传/空字符串表示空搜。**凡是有关键词，都要显式通过 `--query` 传递，不要写成位置参数。** |
+| `--filter <json>`      | 否   | JSON 对象。公共字段默认同时应用到 `doc_filter` / `wiki_filter`；若传 `folder_tokens`，则只发 `doc_filter`；若传 `space_ids`，则只发 `wiki_filter`；两者不能同时传                                                                                                                                                                                                                                                             |
+| `--page-size <n>`      | 否   | 每页数量（默认 15，最大 20）                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--page-token <token>` | 否   | 翻页标记（配合 `has_more` 使用）                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--format`             | 否   | 输出格式：json（默认） \| pretty                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## `--query` 高级语法
 
@@ -149,19 +148,19 @@ lark-cli docs +search --query "方案" --format json --page-token '<PAGE_TOKEN>'
 - 如果传 `space_ids`，shortcut 只发送 `wiki_filter`
 - 如果同时传 `folder_tokens` 和 `space_ids`，shortcut 直接报错，不支持同时查询文档文件夹范围和知识空间范围
 
-| 字段 | 作用范围 | 类型 | 说明 |
-|------|----------|------|------|
-| `creator_ids` | 文档 + Wiki | `string[]` | 所有者列表，**必须传 open_id**，不是 `user_id` / `union_id` / 邮箱。比如 `["ou_xxx"]`。如果只有姓名，先用 `lark-contact` 查 open_id |
-| `doc_types` | 文档 + Wiki | `string[]` | 资源类型过滤。常用值：`DOC`、`DOCX`、`SHEET`、`BITABLE`、`FILE`、`WIKI`、`SLIDES`、`FOLDER`、`CATALOG`、`SHORTCUT` |
-| `chat_ids` | 文档 + Wiki | `string[]` | 群会话 ID 列表，只搜索这些会话里分享过的文档，最多 20 个。通常传群 `chat_id`（如 `oc_xxx`）；如果用户只给群名，先用 `lark-im` 定位群 |
-| `sharer_ids` | 文档 + Wiki | `string[]` | 分享者列表，**必须传分享者 open_id**，最多 20 个。适合“某人分享过的文档”；如果只有姓名，先用 `lark-contact` 查 open_id |
-| `folder_tokens` | 仅文档 | `string[]` | 只搜索指定云空间文件夹下的文档；值通常来自文件夹 URL `/drive/folder/<folder_token>` |
-| `space_ids` | 仅 Wiki | `string[]` | 只搜索指定知识空间下的 Wiki 节点 |
-| `only_title` | 文档 + Wiki | `boolean` | 只搜标题。注意这不是“标题精确等于”，只是把搜索范围限制在标题 |
-| `only_comment` | 文档 + Wiki | `boolean` | 只搜评论。用法类似 `only_title`，只是把搜索范围限制在评论区；默认 `false` |
-| `open_time` | 文档 + Wiki | `object` | 最近打开时间范围，支持 `{ "start": "...", "end": "..." }`。shortcut 支持 ISO 8601 / `YYYY-MM-DD` / Unix 秒，并自动转成秒级时间戳 |
-| `sort_type` | 文档 + Wiki | `string` | 排序方式。常用值：`DEFAULT_TYPE`、`OPEN_TIME`、`EDIT_TIME`、`EDIT_TIME_ASC`、`CREATE_TIME` |
-| `create_time` | 文档 + Wiki | `object` | 文档 / Wiki 创建时间范围，结构与 `open_time` 相同 |
+| 字段            | 作用范围    | 类型       | 说明                                                                                                                                 |
+| --------------- | ----------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `creator_ids`   | 文档 + Wiki | `string[]` | 所有者列表，**必须传 open_id**，不是 `user_id` / `union_id` / 邮箱。比如 `["ou_xxx"]`。如果只有姓名，先用 `lark-contact` 查 open_id  |
+| `doc_types`     | 文档 + Wiki | `string[]` | 资源类型过滤。常用值：`DOC`、`DOCX`、`SHEET`、`BITABLE`、`FILE`、`WIKI`、`SLIDES`、`FOLDER`、`CATALOG`、`SHORTCUT`                   |
+| `chat_ids`      | 文档 + Wiki | `string[]` | 群会话 ID 列表，只搜索这些会话里分享过的文档，最多 20 个。通常传群 `chat_id`（如 `oc_xxx`）；如果用户只给群名，先用 `lark-im` 定位群 |
+| `sharer_ids`    | 文档 + Wiki | `string[]` | 分享者列表，**必须传分享者 open_id**，最多 20 个。适合“某人分享过的文档”；如果只有姓名，先用 `lark-contact` 查 open_id               |
+| `folder_tokens` | 仅文档      | `string[]` | 只搜索指定云空间文件夹下的文档；值通常来自文件夹 URL `/drive/folder/<folder_token>`                                                  |
+| `space_ids`     | 仅 Wiki     | `string[]` | 只搜索指定知识空间下的 Wiki 节点                                                                                                     |
+| `only_title`    | 文档 + Wiki | `boolean`  | 只搜标题。注意这不是“标题精确等于”，只是把搜索范围限制在标题                                                                         |
+| `only_comment`  | 文档 + Wiki | `boolean`  | 只搜评论。用法类似 `only_title`，只是把搜索范围限制在评论区；默认 `false`                                                            |
+| `open_time`     | 文档 + Wiki | `object`   | 最近打开时间范围，支持 `{ "start": "...", "end": "..." }`。shortcut 支持 ISO 8601 / `YYYY-MM-DD` / Unix 秒，并自动转成秒级时间戳     |
+| `sort_type`     | 文档 + Wiki | `string`   | 排序方式。常用值：`DEFAULT_TYPE`、`OPEN_TIME`、`EDIT_TIME`、`EDIT_TIME_ASC`、`CREATE_TIME`                                           |
+| `create_time`   | 文档 + Wiki | `object`   | 文档 / Wiki 创建时间范围，结构与 `open_time` 相同                                                                                    |
 
 ### 字段使用建议
 
@@ -212,6 +211,6 @@ lark-cli docs +search --query "方案" --format json --page-token '<PAGE_TOKEN>'
 
 ## 权限
 
-| 操作 | 所需 scope |
-|------|-----------|
+| 操作                                           | 所需 scope         |
+| ---------------------------------------------- | ------------------ |
 | 搜索云空间对象（含文档 / Wiki / 表格资源发现） | `search:docs:read` |

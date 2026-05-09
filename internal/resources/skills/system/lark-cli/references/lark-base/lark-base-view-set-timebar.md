@@ -26,12 +26,12 @@ lark-cli base +view-set-timebar \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--json <body>` | 是 | JSON 对象 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
+| `--json <body>`           | 是   | JSON 对象        |
 
 ## API 入参详情
 
@@ -53,16 +53,38 @@ PUT /open-apis/base/v3/bases/:base_token/tables/:table_id/views/:view_id/timebar
 - `start_time` / `end_time` 必须是时间条支持的日期类字段；当前以 `datetime` / `created_at` 这类字段为准，优先传字段 id
 - `title` 通常传主字段，用来显示条目标题
 
-
 ## JSON Schema（原文）
 
 ```json
-{"type":"object","properties":{"start_time":{"type":"string","minLength":1,"maxLength":100,"description":"start time field id or name (must be a datetime/created_at field)"},"end_time":{"type":"string","minLength":1,"maxLength":100,"description":"end time field id or name (must be a datetime/created_at field)"},"title":{"type":"string","minLength":1,"maxLength":100,"description":"title datasource field id or name"}},"required":["start_time","end_time","title"],"additionalProperties":false,"$schema":"http://json-schema.org/draft-07/schema#"}
-
+{
+  "type": "object",
+  "properties": {
+    "start_time": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "start time field id or name (must be a datetime/created_at field)"
+    },
+    "end_time": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "end time field id or name (must be a datetime/created_at field)"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "title datasource field id or name"
+    }
+  },
+  "required": ["start_time", "end_time", "title"],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
 ```
 
 ## 工作流
-
 
 1. 建议先用 `+view-get-timebar` 拉现状，再修改。
 

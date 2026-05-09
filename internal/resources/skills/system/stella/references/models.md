@@ -4,15 +4,15 @@
 
 Two tiers for different workloads, each falls back to `model` when not set:
 
-| Tier | Config Field | Use Case |
-|------|-------------|----------|
-| strong | `model_strong` | Heavy reasoning, complex tasks |
-| fast | `model_fast` | Quick responses, simple queries |
+| Tier   | Config Field   | Use Case                        |
+| ------ | -------------- | ------------------------------- |
+| strong | `model_strong` | Heavy reasoning, complex tasks  |
+| fast   | `model_fast`   | Quick responses, simple queries |
 
 ```yaml
-model: claude-sonnet-4-6          # default
-model_strong: claude-opus-4-6     # optional
-model_fast: claude-haiku-4-5      # optional
+model: claude-sonnet-4-6 # default
+model_strong: claude-opus-4-6 # optional
+model_fast: claude-haiku-4-5 # optional
 ```
 
 ## CLI commands
@@ -46,7 +46,7 @@ Or: `export ANTHROPIC_API_KEY="sk-..."`
 providers:
   openai:
     api_key: "sk-..."
-    base_url: "https://api.openai.com/v1"  # optional
+    base_url: "https://api.openai.com/v1" # optional
 ```
 
 Or: `export OPENAI_API_KEY="sk-..."`

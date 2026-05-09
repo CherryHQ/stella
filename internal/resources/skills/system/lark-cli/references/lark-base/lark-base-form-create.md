@@ -42,23 +42,23 @@ lark-cli base +form-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App token（base_token） |
-| `--table-id <id>` | 是 | 数据表 ID |
-| `--name <name>` | 是 | 表单名称 |
-| `--description <string>` | 否 | 表单描述（纯文本或 Markdown 链接，如 `[文本](https://example.com)`） |
-| `--format` | 否 | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
-| `--as` | 否 | 身份：user（默认）\| bot |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                     | 必填 | 说明                                                                 |
+| ------------------------ | ---- | -------------------------------------------------------------------- |
+| `--base-token <token>`   | 是   | 多维表格 App token（base_token）                                     |
+| `--table-id <id>`        | 是   | 数据表 ID                                                            |
+| `--name <name>`          | 是   | 表单名称                                                             |
+| `--description <string>` | 否   | 表单描述（纯文本或 Markdown 链接，如 `[文本](https://example.com)`） |
+| `--format`               | 否   | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv            |
+| `--as`                   | 否   | 身份：user（默认）\| bot                                             |
+| `--dry-run`              | 否   | 预览 API 调用，不执行                                                |
 
 ## 输出格式
 
-| 字段 | 说明 |
-|------|------|
-| `id` | 新创建的表单 ID |
-| `name` | 表单名称 |
-| `description` | 表单描述 |
+| 字段          | 说明            |
+| ------------- | --------------- |
+| `id`          | 新创建的表单 ID |
+| `name`        | 表单名称        |
+| `description` | 表单描述        |
 
 ```json
 {

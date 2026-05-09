@@ -24,14 +24,14 @@ lark-cli mail +share-to-chat --message-id <邮件ID> --receive-id oc_xxx --dry-r
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--message-id <id>` | 否（二选一） | 要分享的邮件 ID，与 `--thread-id` 互斥 |
-| `--thread-id <id>` | 否（二选一） | 要分享的邮件会话 ID，与 `--message-id` 互斥 |
-| `--receive-id <id>` | 是 | 目标接收者 ID，类型由 `--receive-id-type` 决定 |
-| `--receive-id-type <type>` | 否 | 接收者 ID 类型（默认 `chat_id`）。可选：`chat_id` / `open_id` / `user_id` / `union_id` / `email` |
-| `--mailbox <email>` | 否 | 邮箱地址（默认 `me`） |
-| `--dry-run` | 否 | 仅打印请求，不执行 |
+| 参数                       | 必填         | 说明                                                                                             |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| `--message-id <id>`        | 否（二选一） | 要分享的邮件 ID，与 `--thread-id` 互斥                                                           |
+| `--thread-id <id>`         | 否（二选一） | 要分享的邮件会话 ID，与 `--message-id` 互斥                                                      |
+| `--receive-id <id>`        | 是           | 目标接收者 ID，类型由 `--receive-id-type` 决定                                                   |
+| `--receive-id-type <type>` | 否           | 接收者 ID 类型（默认 `chat_id`）。可选：`chat_id` / `open_id` / `user_id` / `union_id` / `email` |
+| `--mailbox <email>`        | 否           | 邮箱地址（默认 `me`）                                                                            |
+| `--dry-run`                | 否           | 仅打印请求，不执行                                                                               |
 
 ## 返回值
 
@@ -72,13 +72,13 @@ lark-cli mail +share-to-chat --message-id <邮件ID> --receive-id alice@example.
 
 ## 常见错误
 
-| 症状 | 原因 | 解决 |
-|------|------|------|
-| `either --message-id or --thread-id is required` | 两个参数都未传 | 传入其中一个 |
-| `--message-id and --thread-id are mutually exclusive` | 两个参数同时传 | 只传一个 |
-| 403 `user not in chat` | 用户不在目标会话中 | 确认用户是群成员 |
-| 404 `message not found` | 邮件 ID 无效 | 确认邮件 ID 正确 |
-| 403 `permission not granted` | 缺少 `im:message` 或 `im:message.send_as_user` scope | 重新授权：`lark-cli auth login --scope "im:message,im:message.send_as_user"` |
+| 症状                                                  | 原因                                                 | 解决                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `either --message-id or --thread-id is required`      | 两个参数都未传                                       | 传入其中一个                                                                 |
+| `--message-id and --thread-id are mutually exclusive` | 两个参数同时传                                       | 只传一个                                                                     |
+| 403 `user not in chat`                                | 用户不在目标会话中                                   | 确认用户是群成员                                                             |
+| 404 `message not found`                               | 邮件 ID 无效                                         | 确认邮件 ID 正确                                                             |
+| 403 `permission not granted`                          | 缺少 `im:message` 或 `im:message.send_as_user` scope | 重新授权：`lark-cli auth login --scope "im:message,im:message.send_as_user"` |
 
 ## 相关命令
 

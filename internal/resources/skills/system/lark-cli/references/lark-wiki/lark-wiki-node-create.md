@@ -62,6 +62,7 @@ lark-cli wiki +node-create \
 > 如果节点是**以应用身份（bot）创建**的，如 `lark-cli wiki +node-create --as bot`，在创建成功后 CLI 会**尝试为当前 CLI 用户自动授予该知识库节点的 `full_access`（可管理权限）**。
 >
 > 以应用身份创建时，结果里会额外返回 `permission_grant` 字段，明确说明授权结果：
+>
 > - `status = granted`：当前 CLI 用户已获得该知识库节点的可管理权限
 > - `status = skipped`：本地没有可用的当前用户 `open_id`，因此不会自动授权；可提示用户先完成 `lark-cli auth login`，再让 AI / agent 继续使用应用身份（bot）授予当前用户权限
 > - `status = failed`：节点已创建成功，但自动授权用户失败；会带上失败原因，并提示稍后重试或继续使用 bot 身份处理该节点
@@ -72,14 +73,14 @@ lark-cli wiki +node-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--space-id` | 否 | 目标知识空间 ID；`user` 身份可传特殊值 `my_library` 表示个人知识库，`bot` 身份不支持该值 |
-| `--parent-node-token` | 否 | 父知识库节点 token；传入后会在该节点下创建新节点 |
-| `--title` | 否 | 节点标题 |
-| `--node-type` | 否 | 节点类型，默认 `origin`；可选值：`origin`、`shortcut` |
-| `--obj-type` | 否 | 节点对应对象类型，默认 `docx`；可选值：`sheet`、`mindnote`、`bitable`、`docx`、`slides` |
-| `--origin-node-token` | 否 | 当 `--node-type=shortcut` 时必填，表示快捷方式指向的源节点 token |
+| 参数                  | 必填 | 说明                                                                                     |
+| --------------------- | ---- | ---------------------------------------------------------------------------------------- |
+| `--space-id`          | 否   | 目标知识空间 ID；`user` 身份可传特殊值 `my_library` 表示个人知识库，`bot` 身份不支持该值 |
+| `--parent-node-token` | 否   | 父知识库节点 token；传入后会在该节点下创建新节点                                         |
+| `--title`             | 否   | 节点标题                                                                                 |
+| `--node-type`         | 否   | 节点类型，默认 `origin`；可选值：`origin`、`shortcut`                                    |
+| `--obj-type`          | 否   | 节点对应对象类型，默认 `docx`；可选值：`sheet`、`mindnote`、`bitable`、`docx`、`slides`  |
+| `--origin-node-token` | 否   | 当 `--node-type=shortcut` 时必填，表示快捷方式指向的源节点 token                         |
 
 ## 空间解析规则
 

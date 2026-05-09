@@ -1,0 +1,86 @@
+openapi: 3.0.3
+info:
+  title: Status schemas
+  version: "1"
+components:
+  schemas:
+    StatusRuntime:
+      type: object
+      required: [goVersion, os, arch, goroutines, memory]
+      properties:
+        goVersion:
+          type: string
+          example: go1.25.0
+        os:
+          type: string
+          example: darwin
+        arch:
+          type: string
+          example: arm64
+        goroutines:
+          type: integer
+          example: 42
+        memory:
+          $ref: "#/components/schemas/StatusMemory"
+    StatusMemory:
+      type: object
+      required: [allocBytes, heapAllocBytes, sysBytes, numGC]
+      properties:
+        allocBytes:
+          type: integer
+          format: int64
+        heapAllocBytes:
+          type: integer
+          format: int64
+        sysBytes:
+          type: integer
+          format: int64
+        numGC:
+          type: integer
+    StatusDatabase:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+        latencyMs:
+          type: number
+          format: double
+        error:
+          type: string
+    StatusPlugins:
+      type: object
+      required: [total, enabled, disabled]
+      properties:
+        total:
+          type: integer
+        enabled:
+          type: integer
+        disabled:
+          type: integer
+    StatusResponse:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: abc1234
+        buildDate:
+          type: string
+          example: "2026-05-09T12:34:56Z"
+        uptimeSeconds:
+          type: integer
+          format: int64
+        runtime:
+          $ref: "#/components/schemas/StatusRuntime"
+        database:
+          $ref: "#/components/schemas/StatusDatabase"
+        plugins:
+          $ref: "#/components/schemas/StatusPlugins"

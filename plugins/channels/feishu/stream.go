@@ -6,8 +6,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const streamEditInterval = time.Second

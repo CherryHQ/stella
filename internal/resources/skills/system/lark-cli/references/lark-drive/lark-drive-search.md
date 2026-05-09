@@ -1,4 +1,3 @@
-
 # drive +search（云空间搜索：扁平 flag，面向自然语言场景）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -23,18 +22,18 @@
 
 ### 自然语言 → 命令映射速查
 
-| 用户说 | 命令 |
-|---|---|
-| 最近一个月我编辑过的文档 | `lark-cli drive +search --query "" --edited-since 1m` |
-| 最近一个月我编辑过 且 我评论过的 | `lark-cli drive +search --query "" --edited-since 1m --commented-since 1m` |
-| 最近一周我打开过的表格 | `lark-cli drive +search --query "" --opened-since 7d --doc-types sheet` |
-| 我创建的所有文档 | `lark-cli drive +search --query "" --mine` |
-| 我 30-60 天前创建的文档（粗略"上个月"，按 30 天滑窗算） | `lark-cli drive +search --query "" --mine --created-since 2m --created-until 1m` |
-| 我 2026 年 3 月创建的文档（精确日历月） | `lark-cli drive +search --query "" --mine --created-since 2026-03-01 --created-until 2026-04-01` |
-| 关键词"预算"，最近一周我打开过，按编辑时间降序 | `lark-cli drive +search --query 预算 --opened-since 7d --sort edit_time` |
-| 某个 wiki space 下、我 30-60 天前创建的 | `lark-cli drive +search --query "" --mine --space-ids space_xxx --created-since 2m --created-until 1m` |
-| 张三创建的文档 | `lark-cli drive +search --query "" --creator-ids ou_zhangsan` |
-| 我最近 3 个月评论过的 docx | `lark-cli drive +search --query "" --commented-since 3m --doc-types docx` |
+| 用户说                                                  | 命令                                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 最近一个月我编辑过的文档                                | `lark-cli drive +search --query "" --edited-since 1m`                                                  |
+| 最近一个月我编辑过 且 我评论过的                        | `lark-cli drive +search --query "" --edited-since 1m --commented-since 1m`                             |
+| 最近一周我打开过的表格                                  | `lark-cli drive +search --query "" --opened-since 7d --doc-types sheet`                                |
+| 我创建的所有文档                                        | `lark-cli drive +search --query "" --mine`                                                             |
+| 我 30-60 天前创建的文档（粗略"上个月"，按 30 天滑窗算） | `lark-cli drive +search --query "" --mine --created-since 2m --created-until 1m`                       |
+| 我 2026 年 3 月创建的文档（精确日历月）                 | `lark-cli drive +search --query "" --mine --created-since 2026-03-01 --created-until 2026-04-01`       |
+| 关键词"预算"，最近一周我打开过，按编辑时间降序          | `lark-cli drive +search --query 预算 --opened-since 7d --sort edit_time`                               |
+| 某个 wiki space 下、我 30-60 天前创建的                 | `lark-cli drive +search --query "" --mine --space-ids space_xxx --created-since 2m --created-until 1m` |
+| 张三创建的文档                                          | `lark-cli drive +search --query "" --creator-ids ou_zhangsan`                                          |
+| 我最近 3 个月评论过的 docx                              | `lark-cli drive +search --query "" --commented-since 3m --doc-types docx`                              |
 
 ### 更多示例
 
@@ -73,45 +72,45 @@ lark-cli drive +search --query 方案 --page-token '<PAGE_TOKEN>'
 
 ### 核心
 
-| 参数 | 必填 | 说明 |
-|---|---|---|
-| `--query <text>` | 否 | 搜索关键词；支持服务端高级语法（`intitle:`、`""`、`OR`、`-`）。空字符串或省略表示纯 filter 浏览 |
-| `--page-size <n>` | 否 | 每页数量，默认 15，最大 20。超过 20 自动 clamp；非正数（≤0）回落 15；**非数字值直接返回 validation 错误** |
-| `--page-token <token>` | 否 | 上一次响应里的 `page_token`，用于翻页 |
-| `--format` | 否 | `json`（默认）/ `pretty` |
+| 参数                   | 必填 | 说明                                                                                                      |
+| ---------------------- | ---- | --------------------------------------------------------------------------------------------------------- |
+| `--query <text>`       | 否   | 搜索关键词；支持服务端高级语法（`intitle:`、`""`、`OR`、`-`）。空字符串或省略表示纯 filter 浏览           |
+| `--page-size <n>`      | 否   | 每页数量，默认 15，最大 20。超过 20 自动 clamp；非正数（≤0）回落 15；**非数字值直接返回 validation 错误** |
+| `--page-token <token>` | 否   | 上一次响应里的 `page_token`，用于翻页                                                                     |
+| `--format`             | 否   | `json`（默认）/ `pretty`                                                                                  |
 
 ### 身份（creator 维度）
 
-| 参数 | 映射 | 说明 |
-|---|---|---|
-| `--mine` | `creator_ids = [当前用户 open_id]` | bool。一键"我创建的"；从当前登录用户身份（`runtime.UserOpenId()`）解析 open_id，取不到直接报错（提示运行 `lark-cli auth login`） |
-| `--creator-ids ou_x,ou_y` | `creator_ids = [...]` | 显式 open_id 列表，逗号分隔；**与 `--mine` 互斥** |
+| 参数                      | 映射                               | 说明                                                                                                                             |
+| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--mine`                  | `creator_ids = [当前用户 open_id]` | bool。一键"我创建的"；从当前登录用户身份（`runtime.UserOpenId()`）解析 open_id，取不到直接报错（提示运行 `lark-cli auth login`） |
+| `--creator-ids ou_x,ou_y` | `creator_ids = [...]`              | 显式 open_id 列表，逗号分隔；**与 `--mine` 互斥**                                                                                |
 
 ### 时间维度（每个维度一对 since/until）
 
-| 参数 | 映射 API 字段 | 是否小时 snap |
-|---|---|---|
-| `--edited-since` / `--edited-until` | `my_edit_time.start` / `.end` | ✅ start 向下取整，end 向上取整 |
-| `--commented-since` / `--commented-until` | `my_comment_time.start` / `.end` | ✅ 同上 |
-| `--opened-since` / `--opened-until` | `open_time.start` / `.end` | ❌ 原样透传 |
-| `--created-since` / `--created-until` | `create_time.start` / `.end` | ❌ 原样透传（文档创建时间，非"我"语义）|
+| 参数                                      | 映射 API 字段                    | 是否小时 snap                           |
+| ----------------------------------------- | -------------------------------- | --------------------------------------- |
+| `--edited-since` / `--edited-until`       | `my_edit_time.start` / `.end`    | ✅ start 向下取整，end 向上取整         |
+| `--commented-since` / `--commented-until` | `my_comment_time.start` / `.end` | ✅ 同上                                 |
+| `--opened-since` / `--opened-until`       | `open_time.start` / `.end`       | ❌ 原样透传                             |
+| `--created-since` / `--created-until`     | `create_time.start` / `.end`     | ❌ 原样透传（文档创建时间，非"我"语义） |
 
 ### 作用域
 
-| 参数 | 映射 | 说明 |
-|---|---|---|
-| `--doc-types docx,sheet` | `doc_types` | 逗号分隔。允许值：`doc,sheet,bitable,mindnote,file,wiki,docx,folder,catalog,slides,shortcut` |
-| `--folder-tokens fld_a,fld_b` | `folder_tokens`（仅 doc_filter） | 存在时只发 `doc_filter`；**与 `--space-ids` 互斥** |
-| `--space-ids sp_x` | `space_ids`（仅 wiki_filter） | 存在时只发 `wiki_filter`；**与 `--folder-tokens` 互斥** |
-| `--chat-ids oc_x` | `chat_ids` | 逗号分隔 |
-| `--sharer-ids ou_x` | `sharer_ids` | 逗号分隔，open_id |
+| 参数                          | 映射                             | 说明                                                                                         |
+| ----------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `--doc-types docx,sheet`      | `doc_types`                      | 逗号分隔。允许值：`doc,sheet,bitable,mindnote,file,wiki,docx,folder,catalog,slides,shortcut` |
+| `--folder-tokens fld_a,fld_b` | `folder_tokens`（仅 doc_filter） | 存在时只发 `doc_filter`；**与 `--space-ids` 互斥**                                           |
+| `--space-ids sp_x`            | `space_ids`（仅 wiki_filter）    | 存在时只发 `wiki_filter`；**与 `--folder-tokens` 互斥**                                      |
+| `--chat-ids oc_x`             | `chat_ids`                       | 逗号分隔                                                                                     |
+| `--sharer-ids ou_x`           | `sharer_ids`                     | 逗号分隔，open_id                                                                            |
 
 ### 其他
 
-| 参数 | 映射 | 说明 |
-|---|---|---|
-| `--only-title` | `only_title: true` | bool |
-| `--only-comment` | `only_comment: true` | bool |
+| 参数             | 映射                      | 说明                                                                |
+| ---------------- | ------------------------- | ------------------------------------------------------------------- |
+| `--only-title`   | `only_title: true`        | bool                                                                |
+| `--only-comment` | `only_comment: true`      | bool                                                                |
 | `--sort <value>` | `sort_type`（转大写枚举） | 允许值：`default, edit_time, edit_time_asc, open_time, create_time` |
 
 > `--sort`：CLI 只暴露服务端**正式支持**的 5 个值。服务端 enum 里 `CREATE_TIME_ASC` 协议标注"暂不支持"，`ENTITY_CREATE_TIME_ASC` / `ENTITY_CREATE_TIME_DESC` 已废弃，CLI 直接不放出来，传了会被 cobra enum 校验拒掉。
@@ -120,16 +119,16 @@ lark-cli drive +search --query 方案 --page-token '<PAGE_TOKEN>'
 
 所有 `--*-since` / `--*-until` 共用：
 
-| 输入 | 含义 |
-|---|---|
-| `7d` / `30d` | N 天前的当前时刻 |
-| `1m` | 30 天前（固定 30 天，**不是**日历月）|
-| `3m` / `6m` | 90 / 180 天前 |
-| `1y` | 365 天前 |
-| `2026-04-01` | 本地时区 00:00:00 |
-| `2026-04-01 10:00:00` / `2026-04-01T10:00:00` | 本地时区具体时刻 |
-| `2026-04-01T10:00:00+08:00` | RFC3339 带时区 |
-| `1743523200`（≥ 10 位纯数字）| Unix 秒直接透传 |
+| 输入                                          | 含义                                  |
+| --------------------------------------------- | ------------------------------------- |
+| `7d` / `30d`                                  | N 天前的当前时刻                      |
+| `1m`                                          | 30 天前（固定 30 天，**不是**日历月） |
+| `3m` / `6m`                                   | 90 / 180 天前                         |
+| `1y`                                          | 365 天前                              |
+| `2026-04-01`                                  | 本地时区 00:00:00                     |
+| `2026-04-01 10:00:00` / `2026-04-01T10:00:00` | 本地时区具体时刻                      |
+| `2026-04-01T10:00:00+08:00`                   | RFC3339 带时区                        |
+| `1743523200`（≥ 10 位纯数字）                 | Unix 秒直接透传                       |
 
 > `m` 绑定 month（30 天），不支持 minute——因为 `my_edit_time` / `my_comment_time` 在服务端是小时聚合，分钟粒度没意义。
 
@@ -187,14 +186,14 @@ stdout 的 JSON 输出不受影响。`open_time` / `create_time` 不做 snap。
 
 ## 权限
 
-| 操作 | 所需 scope |
-|---|---|
+| 操作                                           | 所需 scope         |
+| ---------------------------------------------- | ------------------ |
 | 搜索云空间对象（文档 / Wiki / 表格等资源发现） | `search:docs:read` |
 
 ## 常见错误
 
-| code | 含义 | 处理 |
-|---|---|---|
+| code       | 含义                                                                                       | 处理                                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `99992351` | `--creator-ids` / `--sharer-ids` 里有 open_id 超出**应用的通讯录可见范围**，服务端拒绝识别 | 让管理员在开发者后台把这些用户加进应用的"通讯录可见性"授权里；或把超出范围的 open_id 从参数里去掉。这和 `search:docs:read` scope 不是一回事 —— 是"应用能看见哪些人"而不是"应用能调用哪个接口" |
 
 ## 时间范围自动裁剪（`--opened-*` 专有）
@@ -203,11 +202,11 @@ stdout 的 JSON 输出不受影响。`open_time` / `create_time` 不做 snap。
 
 CLI 在发请求前会检查 `--opened-since` 到有效 `--opened-until`（没传则取 `now`）的跨度：
 
-| 跨度 | 行为 |
-|---|---|
-| ≤ 90 天 | 原样透传 |
+| 跨度        | 行为                                                                                                                        |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ≤ 90 天     | 原样透传                                                                                                                    |
 | 91 ~ 365 天 | **自动裁剪**到"最近一个 90 天 slice"，stderr 打一条 notice 列出所有剩余 slice 的 `--opened-since` / `--opened-until` 参数值 |
-| > 365 天 | 直接报 validation 错，要求缩小范围或自行拆分多次查询 |
+| > 365 天    | 直接报 validation 错，要求缩小范围或自行拆分多次查询                                                                        |
 
 Notice 示例（用户原本要求"过去 8 个月"，会被拆成 3 个 slice）：
 

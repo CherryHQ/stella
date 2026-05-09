@@ -1,4 +1,3 @@
-
 # contact +search-user（搜索员工）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -22,12 +21,12 @@ lark-cli contact +search-user --query "张三" --format pretty
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--query <text>` | 是 | 搜索关键词 |
-| `--page-size <n>` | 否 | 分页大小（默认 20，最大 200） |
-| `--page-token <token>` | 否 | 分页标记（请求下一页） |
-| `--format` | 否 | 输出格式：json（默认） \| pretty |
+| 参数                   | 必填 | 说明                             |
+| ---------------------- | ---- | -------------------------------- |
+| `--query <text>`       | 是   | 搜索关键词                       |
+| `--page-size <n>`      | 否   | 分页大小（默认 20，最大 200）    |
+| `--page-token <token>` | 否   | 分页标记（请求下一页）           |
+| `--format`             | 否   | 输出格式：json（默认） \| pretty |
 
 ## 常见用法（给 AI）
 

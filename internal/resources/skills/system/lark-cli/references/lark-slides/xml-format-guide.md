@@ -6,12 +6,16 @@
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<presentation xmlns="http://www.larkoffice.com/sml/2.0" width="960" height="540">
+<presentation
+  xmlns="http://www.larkoffice.com/sml/2.0"
+  width="960"
+  height="540"
+>
   <title>演示文稿标题</title>
   <slide>
     <style>
       <fill>
-        <fillColor color="rgb(245, 245, 245)"/>
+        <fillColor color="rgb(245, 245, 245)" />
       </fill>
     </style>
     <data>
@@ -38,19 +42,19 @@
 
 **属性：**
 
-| 属性 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `width` | positiveInteger | 是 | 演示文稿宽度，如 `960` |
-| `height` | positiveInteger | 是 | 演示文稿高度，如 `540` |
-| `id` | string | 否 | 演示文稿标识 |
+| 属性     | 类型            | 必需 | 说明                   |
+| -------- | --------------- | ---- | ---------------------- |
+| `width`  | positiveInteger | 是   | 演示文稿宽度，如 `960` |
+| `height` | positiveInteger | 是   | 演示文稿高度，如 `540` |
+| `id`     | string          | 否   | 演示文稿标识           |
 
 **子元素：**
 
-| 元素 | 必需 | 说明 |
-|------|------|------|
-| `<title>` | 否 | 演示文稿标题 |
-| `<theme>` | 否 | 全局主题 |
-| `<slide>` | 是 | 幻灯片页面，至少 1 页，最多 100 页 |
+| 元素      | 必需 | 说明                               |
+| --------- | ---- | ---------------------------------- |
+| `<title>` | 否   | 演示文稿标题                       |
+| `<theme>` | 否   | 全局主题                           |
+| `<slide>` | 是   | 幻灯片页面，至少 1 页，最多 100 页 |
 
 ## 主题
 
@@ -71,11 +75,11 @@
 
 这些元素定义的是主题默认样式，不是页面结构。常用属性：
 
-| 属性 | 说明 |
-|------|------|
-| `fontFamily` | 字体 |
-| `fontSize` | 字号 |
-| `fontColor` | 字体颜色 |
+| 属性         | 说明     |
+| ------------ | -------- |
+| `fontFamily` | 字体     |
+| `fontSize`   | 字号     |
+| `fontColor`  | 字体颜色 |
 
 ## 幻灯片元素
 
@@ -85,17 +89,17 @@
 
 **属性：**
 
-| 属性 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `id` | string | 否 | 幻灯片标识 |
+| 属性 | 类型   | 必需 | 说明       |
+| ---- | ------ | ---- | ---------- |
+| `id` | string | 否   | 幻灯片标识 |
 
 **直接子元素只有：**
 
-| 元素 | 必需 | 说明 |
-|------|------|------|
-| `<style>` | 否 | 页面样式 |
-| `<data>` | 否 | 页面元素容器 |
-| `<note>` | 否 | 演讲者备注 |
+| 元素      | 必需 | 说明         |
+| --------- | ---- | ------------ |
+| `<style>` | 否   | 页面样式     |
+| `<data>`  | 否   | 页面元素容器 |
+| `<note>`  | 否   | 演讲者备注   |
 
 这意味着 `<title>`、`<headline>`、`<body>`、`<caption>` 不能直接放在 `<slide>` 下。
 
@@ -111,17 +115,17 @@
 
 **常用属性：**
 
-| 属性 | 说明 |
-|------|------|
-| `textType` | `title` / `headline` / `sub-headline` / `body` / `caption` |
-| `verticalAlign` | 垂直对齐 |
-| `textAlign` | 水平对齐 |
-| `lineSpacing` | 行间距 |
-| `fontSize` | 字号 |
-| `fontFamily` | 字体 |
-| `color` | 字体颜色 |
-| `bold` / `italic` / `underline` / `strikethrough` | 内容级样式 |
-| `wrap` | 是否自动换行 |
+| 属性                                              | 说明                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------- |
+| `textType`                                        | `title` / `headline` / `sub-headline` / `body` / `caption` |
+| `verticalAlign`                                   | 垂直对齐                                                   |
+| `textAlign`                                       | 水平对齐                                                   |
+| `lineSpacing`                                     | 行间距                                                     |
+| `fontSize`                                        | 字号                                                       |
+| `fontFamily`                                      | 字体                                                       |
+| `color`                                           | 字体颜色                                                   |
+| `bold` / `italic` / `underline` / `strikethrough` | 内容级样式                                                 |
+| `wrap`                                            | 是否自动换行                                               |
 
 **可包含的子元素：**
 
@@ -147,7 +151,11 @@
 
 ```xml
 <content textType="body" textAlign="left">
-  <p>普通文本 <strong>加粗</strong> <em>斜体</em> <a href="https://example.com">链接</a></p>
+  <p>
+    普通文本 <strong>加粗</strong>
+    <em>斜体</em>
+    <a href="https://example.com">链接</a>
+  </p>
   <ul>
     <li><p>列表项 1</p></li>
     <li><p>列表项 2</p></li>
@@ -174,24 +182,24 @@
 ```xml
 <shape type="rect" topLeftX="700" topLeftY="120" width="180" height="120">
   <fill>
-    <fillColor color="rgba(100, 149, 237, 0.25)"/>
+    <fillColor color="rgba(100, 149, 237, 0.25)" />
   </fill>
-  <border color="rgb(100, 149, 237)" width="2"/>
+  <border color="rgb(100, 149, 237)" width="2" />
 </shape>
 ```
 
 **属性：**
 
-| 属性 | 必需 | 说明 |
-|------|------|------|
-| `type` | 是 | 形状类型，`text` 表示文本框 |
-| `topLeftX` | 是 | 左上角 X 坐标 |
-| `topLeftY` | 是 | 左上角 Y 坐标 |
-| `width` | 是 | 宽度 |
-| `height` | 是 | 高度 |
-| `rotation` | 否 | 旋转角度 |
-| `flipX` / `flipY` | 否 | 翻转 |
-| `alpha` | 否 | 透明度 |
+| 属性              | 必需 | 说明                        |
+| ----------------- | ---- | --------------------------- |
+| `type`            | 是   | 形状类型，`text` 表示文本框 |
+| `topLeftX`        | 是   | 左上角 X 坐标               |
+| `topLeftY`        | 是   | 左上角 Y 坐标               |
+| `width`           | 是   | 宽度                        |
+| `height`          | 是   | 高度                        |
+| `rotation`        | 否   | 旋转角度                    |
+| `flipX` / `flipY` | 否   | 翻转                        |
+| `alpha`           | 否   | 透明度                      |
 
 **可选子元素：**
 
@@ -205,7 +213,7 @@
 
 ```xml
 <line startX="100" startY="200" endX="420" endY="200">
-  <border color="rgb(43, 47, 54)" width="2"/>
+  <border color="rgb(43, 47, 54)" width="2" />
 </line>
 ```
 
@@ -214,17 +222,23 @@
 ### `<img>`
 
 ```xml
-<img src="file_token_or_url" topLeftX="100" topLeftY="220" width="320" height="180"/>
+<img
+  src="file_token_or_url"
+  topLeftX="100"
+  topLeftY="220"
+  width="320"
+  height="180"
+/>
 ```
 
 `img` 使用 `topLeftX` / `topLeftY`，不是 `x` / `y`。
 
 `src` 只接受两种值：
 
-| `src` 形式 | 说明 |
-|---|---|
-| `file_token`（如 `boxcnXXXXXXXXXXXXXXXXXXXXXX`） | 通过 `slides +media-upload` 上传后返回的 token |
-| `@<本地路径>`（如 `@./assets/chart.png`） | **仅在 `slides +create --slides` 中可用**：CLI 会自动上传该文件并替换为 file_token |
+| `src` 形式                                       | 说明                                                                               |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `file_token`（如 `boxcnXXXXXXXXXXXXXXXXXXXXXX`） | 通过 `slides +media-upload` 上传后返回的 token                                     |
+| `@<本地路径>`（如 `@./assets/chart.png`）        | **仅在 `slides +create --slides` 中可用**：CLI 会自动上传该文件并替换为 file_token |
 
 > **禁止使用 http(s) 外链 URL**：飞书 slides 渲染端不会代理外链图片，`src="https://..."` 在 PPT 里通常显示破图。要用网图必须先 `curl`/下载到 CWD 内，再走上传流程拿 `file_token`。
 
@@ -236,7 +250,13 @@
 ### `<icon>`
 
 ```xml
-<icon iconType="iconpark/Base/setting.svg" topLeftX="440" topLeftY="220" width="32" height="32"/>
+<icon
+  iconType="iconpark/Base/setting.svg"
+  topLeftX="440"
+  topLeftY="220"
+  width="32"
+  height="32"
+/>
 ```
 
 ### `<table>`
@@ -271,23 +291,23 @@
 
 ```xml
 <fill>
-  <fillColor color="rgb(100, 149, 237)"/>
+  <fillColor color="rgb(100, 149, 237)" />
 </fill>
 ```
 
 ### `<border>`
 
 ```xml
-<border color="rgb(0, 0, 0)" width="2" dashArray="solid"/>
+<border color="rgb(0, 0, 0)" width="2" dashArray="solid" />
 ```
 
 ### 颜色格式
 
 ```xml
-<fillColor color="rgb(255, 0, 0)"/>
-<fillColor color="rgba(255, 0, 0, 0.5)"/>
-<fillColor color="linear-gradient(90deg, rgb(255,0,0) 0%, rgb(0,0,255) 100%)"/>
-<fillColor color="radial-gradient(circle at 50% 50%, rgb(255,0,0) 0%, rgb(0,0,255) 100%)"/>
+<fillColor color="rgb(255, 0, 0)" />
+<fillColor color="rgba(255, 0, 0, 0.5)" />
+<fillColor color="linear-gradient(90deg, rgb(255,0,0) 0%, rgb(0,0,255) 100%)" />
+<fillColor color="radial-gradient(circle at 50% 50%, rgb(255,0,0) 0%, rgb(0,0,255) 100%)" />
 ```
 
 ## 演讲者备注
@@ -306,18 +326,26 @@
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<presentation xmlns="http://www.larkoffice.com/sml/2.0" width="960" height="540">
+<presentation
+  xmlns="http://www.larkoffice.com/sml/2.0"
+  width="960"
+  height="540"
+>
   <title>季度报告</title>
   <theme>
     <textStyles>
-      <title fontFamily="思源黑体" fontSize="54" fontColor="rgba(0, 0, 0, 1)"/>
-      <body fontFamily="思源黑体" fontSize="18" fontColor="rgba(43, 47, 54, 1)"/>
+      <title fontFamily="思源黑体" fontSize="54" fontColor="rgba(0, 0, 0, 1)" />
+      <body
+        fontFamily="思源黑体"
+        fontSize="18"
+        fontColor="rgba(43, 47, 54, 1)"
+      />
     </textStyles>
   </theme>
   <slide>
     <style>
       <fill>
-        <fillColor color="rgb(245, 245, 245)"/>
+        <fillColor color="rgb(245, 245, 245)" />
       </fill>
     </style>
     <data>
@@ -338,9 +366,9 @@
       </shape>
       <shape type="rect" topLeftX="660" topLeftY="180" width="180" height="140">
         <fill>
-          <fillColor color="rgba(100, 149, 237, 0.25)"/>
+          <fillColor color="rgba(100, 149, 237, 0.25)" />
         </fill>
-        <border color="rgb(100, 149, 237)" width="2"/>
+        <border color="rgb(100, 149, 237)" width="2" />
       </shape>
     </data>
     <note>

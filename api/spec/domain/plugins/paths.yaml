@@ -11,8 +11,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/PluginView" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/PluginView",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/plugins/{kind}/{name}:
@@ -27,15 +31,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/TogglePluginRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/TogglePluginRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/plugin-status/{kind}/{name}:
@@ -52,7 +62,9 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/plugin-config/{kind}/{name}:
@@ -69,8 +81,12 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     put:
       tags: [plugins]
@@ -80,15 +96,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdatePluginConfigRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdatePluginConfigRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/plugin-config-schema/{kind}/{name}:
@@ -105,7 +127,9 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/manifest-plugins:
@@ -120,8 +144,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/ManifestPlugin" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     put:
       tags: [plugins]
@@ -136,7 +164,9 @@ paths:
               properties:
                 plugins:
                   type: array
-                  items: { $ref: "../../components.yaml#/components/schemas/ManifestPlugin" }
+                  items: {
+                    $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
+                  }
       responses:
         "200":
           description: ok
@@ -144,9 +174,15 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/ManifestPlugin" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/manifest-plugins/sync:
@@ -160,5 +196,7 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }

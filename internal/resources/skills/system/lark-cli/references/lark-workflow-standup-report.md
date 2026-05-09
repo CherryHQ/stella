@@ -65,6 +65,7 @@ lark-cli task +get-my-tasks --page-all
 ```
 
 > **注意**：不带过滤条件时可能返回大量历史待办（实测 30+ 条、100KB+），容易超出上下文限制。摘要场景建议：
+>
 > - 用 `--due-end` 过滤出目标日期前到期的任务
 > - 如果也需要无截止日期的任务，可不加过滤，但 AI 汇总时只展示**近 30 天内创建的**，其余折叠为"其他 N 项历史待办"
 
@@ -95,12 +96,12 @@ lark-cli task +get-my-tasks --page-all
 
 1. **时间转换**：API 返回 Unix timestamp，需根据 `timezone` 字段（通常为 `Asia/Shanghai`）转换为 `HH:mm` 格式
 2. **RSVP 状态映射**：
-   | API 值 | 显示文案 |
-   |--------|---------|
-   | `accept` | 已接受 |
-   | `decline` | 已拒绝 |
-   | `needs_action` | 待确认 |
-   | `tentative` | 暂定 |
+   | API 值         | 显示文案 |
+   | -------------- | -------- |
+   | `accept`       | 已接受   |
+   | `decline`      | 已拒绝   |
+   | `needs_action` | 待确认   |
+   | `tentative`    | 暂定     |
 3. **日程排序**：按开始时间升序排列
 4. **冲突检测**：按时间排序后，检查相邻日程是否有时间重叠（前一个 end\_time > 后一个 start\_time），有则在小结中列出冲突组
 5. **已拒绝日程**：标注"已拒绝"但不计入忙碌时段和冲突检测
@@ -108,10 +109,10 @@ lark-cli task +get-my-tasks --page-all
 
 ## 权限表
 
-| 命令 | 所需 scope |
-|------|-----------|
-| `calendar +agenda` | `calendar:calendar.event:read` |
-| `task +get-my-tasks` | `task:task:read` |
+| 命令                 | 所需 scope                     |
+| -------------------- | ------------------------------ |
+| `calendar +agenda`   | `calendar:calendar.event:read` |
+| `task +get-my-tasks` | `task:task:read`               |
 
 ## 参考
 

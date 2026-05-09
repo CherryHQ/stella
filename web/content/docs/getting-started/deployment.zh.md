@@ -280,9 +280,9 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 所有数据都存储在 stella 主目录下（默认为 `~/.stella`，可通过 `STELLA_HOME` 配置）。
 
-| 路径                                    | 用途                             |
-| --------------------------------------- | -------------------------------- |
-| `~/.stella/stella.db`                       | 单一数据库（配置、记忆、调度器） |
+| 路径                                      | 用途                             |
+| ----------------------------------------- | -------------------------------- |
+| `~/.stella/stella.db`                     | 单一数据库（配置、记忆、调度器） |
 | `~/.stella/workspaces/{agent-id}/skills/` | 每个 agent 安装的技能            |
 | `~/.stella/workspaces/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖 |
 | `~/.stella/cache/`                        | 模型缓存（可重新生成，安全删除） |
@@ -293,11 +293,11 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 配置通过管理面板管理（通过 `stella --open` 或 `--port`）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
 
-| 变量                | 必需 | 描述                          |
-| ------------------- | ---- | ----------------------------- |
-| `STELLA_HOME`         | 否   | Stella 主目录（默认 `~/.stella`） |
-| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥          |
-| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥             |
+| 变量                | 必需 | 描述                              |
+| ------------------- | ---- | --------------------------------- |
+| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`） |
+| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥              |
+| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
 

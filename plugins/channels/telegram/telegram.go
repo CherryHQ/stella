@@ -11,9 +11,10 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 
+	tele "gopkg.in/telebot.v4"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
-	tele "gopkg.in/telebot.v4"
 )
 
 const telegramMaxMessageLen = 4000

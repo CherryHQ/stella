@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type fakeSession struct {

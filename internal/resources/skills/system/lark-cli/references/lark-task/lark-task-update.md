@@ -19,13 +19,13 @@ lark-cli task +update --task-id "<task_guid>" --data '{"description": "New descr
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to update. Comma-separated task GUIDs are supported for multiple tasks. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
-| `--summary <text>` | No | New summary/title for the task. |
-| `--description <text>` | No | New description for the task. |
-| `--due <time>` | No | New due date (supports relative time). |
-| `--data <json>` | No | JSON payload for fields to update. |
+| Parameter              | Required | Description                                                                                                                                                                                                  |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--task-id <guid>`     | Yes      | The task GUID to update. Comma-separated task GUIDs are supported for multiple tasks. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--summary <text>`     | No       | New summary/title for the task.                                                                                                                                                                              |
+| `--description <text>` | No       | New description for the task.                                                                                                                                                                                |
+| `--due <time>`         | No       | New due date (supports relative time).                                                                                                                                                                       |
+| `--data <json>`        | No       | JSON payload for fields to update.                                                                                                                                                                           |
 
 ## Workflow
 

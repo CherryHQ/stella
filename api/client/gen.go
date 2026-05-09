@@ -244,6 +244,21 @@ type SkillUploadResult = externalRef0.SkillUploadResult
 // SourceType defines model for SourceType.
 type SourceType = externalRef0.SourceType
 
+// StatusDatabase defines model for StatusDatabase.
+type StatusDatabase = externalRef0.StatusDatabase
+
+// StatusMemory defines model for StatusMemory.
+type StatusMemory = externalRef0.StatusMemory
+
+// StatusPlugins defines model for StatusPlugins.
+type StatusPlugins = externalRef0.StatusPlugins
+
+// StatusResponse defines model for StatusResponse.
+type StatusResponse = externalRef0.StatusResponse
+
+// StatusRuntime defines model for StatusRuntime.
+type StatusRuntime = externalRef0.StatusRuntime
+
 // SystemPromptResponse defines model for SystemPromptResponse.
 type SystemPromptResponse = externalRef0.SystemPromptResponse
 
@@ -1113,6 +1128,9 @@ type ClientInterface interface {
 
 	// GetSkillFile request
 	GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStatus request
+	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTools request
 	ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3109,6 +3127,18 @@ func (c *Client) DeleteSkillFile(ctx context.Context, id string, params *DeleteS
 
 func (c *Client) GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSkillFileRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStatusRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -8374,6 +8404,33 @@ func NewGetSkillFileRequest(server string, id string, params *GetSkillFileParams
 	return req, nil
 }
 
+// NewGetStatusRequest generates requests for GetStatus
+func NewGetStatusRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/status")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListToolsRequest generates requests for ListTools
 func NewListToolsRequest(server string) (*http.Request, error) {
 	var err error
@@ -9120,6 +9177,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetSkillFileWithResponse request
 	GetSkillFileWithResponse(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*GetSkillFileResponse, error)
+
+	// GetStatusWithResponse request
+	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
 
 	// ListToolsWithResponse request
 	ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error)
@@ -13184,6 +13244,36 @@ func (r GetSkillFileResponse) ContentType() string {
 	return ""
 }
 
+type GetStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.StatusResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListToolsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -14821,6 +14911,15 @@ func (c *ClientWithResponses) GetSkillFileWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseGetSkillFileResponse(rsp)
+}
+
+// GetStatusWithResponse request returning *GetStatusResponse
+func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error) {
+	rsp, err := c.GetStatus(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStatusResponse(rsp)
 }
 
 // ListToolsWithResponse request returning *ListToolsResponse
@@ -20249,6 +20348,32 @@ func ParseGetSkillFileResponse(rsp *http.Response) (*GetSkillFileResponse, error
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetStatusResponse parses an HTTP response from a GetStatusWithResponse call
+func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.StatusResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

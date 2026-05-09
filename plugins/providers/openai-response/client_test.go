@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/openai/openai-go/responses"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func TestNewProvider(t *testing.T) {

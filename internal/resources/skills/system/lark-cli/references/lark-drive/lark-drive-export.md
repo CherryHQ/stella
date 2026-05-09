@@ -1,4 +1,3 @@
-
 # drive +export
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -64,14 +63,14 @@ lark-cli drive +export \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--token` | 是 | 源文档 token |
-| `--doc-type` | 是 | 源文档类型：`doc` / `docx` / `sheet` / `bitable` |
-| `--file-extension` | 是 | 导出格式：`docx` / `pdf` / `xlsx` / `csv` / `markdown` / `base` |
-| `--sub-id` | 条件必填 | 当 `sheet` / `bitable` 导出为 `csv` 时必填 |
-| `--output-dir` | 否 | 本地输出目录，默认当前目录 |
-| `--overwrite` | 否 | 覆盖已存在文件 |
+| 参数               | 必填     | 说明                                                            |
+| ------------------ | -------- | --------------------------------------------------------------- |
+| `--token`          | 是       | 源文档 token                                                    |
+| `--doc-type`       | 是       | 源文档类型：`doc` / `docx` / `sheet` / `bitable`                |
+| `--file-extension` | 是       | 导出格式：`docx` / `pdf` / `xlsx` / `csv` / `markdown` / `base` |
+| `--sub-id`         | 条件必填 | 当 `sheet` / `bitable` 导出为 `csv` 时必填                      |
+| `--output-dir`     | 否       | 本地输出目录，默认当前目录                                      |
+| `--overwrite`      | 否       | 覆盖已存在文件                                                  |
 
 ## 关键约束
 

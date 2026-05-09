@@ -1,4 +1,3 @@
-
 # sheets +batch-set-style（批量设置单元格样式）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -28,12 +27,12 @@ lark-cli sheets +batch-set-style --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--data <json>` | 是 | JSON 数组，每项包含 `ranges`（字符串数组）和 `style`（样式对象） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                             |
+| ----------------------------- | ---- | ---------------------------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一）                  |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                                  |
+| `--data <json>`               | 是   | JSON 数组，每项包含 `ranges`（字符串数组）和 `style`（样式对象） |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                                           |
 
 ### style 对象字段
 

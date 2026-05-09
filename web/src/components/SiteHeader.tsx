@@ -133,7 +133,7 @@ function LocaleSelector() {
   const { locale, setLocale, t } = useI18n();
 
   function toggle() {
-    setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale);
+    void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale);
   }
 
   const label = locale === "en" ? t("locale.en") : t("locale.zh");
@@ -229,7 +229,7 @@ function UserMenu() {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
     qc.clear();
-    navigate({ to: "/login" });
+    void navigate({ to: "/login" });
   }
 
   return (

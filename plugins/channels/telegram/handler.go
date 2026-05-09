@@ -9,10 +9,11 @@ import (
 	"strconv"
 	"strings"
 
+	tele "gopkg.in/telebot.v4"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
-	tele "gopkg.in/telebot.v4"
 )
 
 // atoiOr converts a string to int, returning fallback on error.

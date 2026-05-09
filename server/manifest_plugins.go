@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"gopkg.in/yaml.v3"
 )
 
 type manifestFile struct {

@@ -18,14 +18,14 @@ lark-cli base +field-search-options \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--field-id <id_or_name>` | 是 | 字段 ID 或字段名 |
-| `--keyword <text>` | 否 | 查询关键字；会映射到 API 的 `query` |
-| `--offset <n>` | 否 | 分页偏移，默认 `0` |
-| `--limit <n>` | 否 | 分页大小，默认 `30` |
+| 参数                      | 必填 | 说明                                |
+| ------------------------- | ---- | ----------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                          |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                        |
+| `--field-id <id_or_name>` | 是   | 字段 ID 或字段名                    |
+| `--keyword <text>`        | 否   | 查询关键字；会映射到 API 的 `query` |
+| `--offset <n>`            | 否   | 分页偏移，默认 `0`                  |
+| `--limit <n>`             | 否   | 分页大小，默认 `30`                 |
 
 ## API 入参详情
 

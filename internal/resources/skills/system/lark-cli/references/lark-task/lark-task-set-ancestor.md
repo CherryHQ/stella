@@ -16,10 +16,10 @@ lark-cli task +set-ancestor --task-id "guid_1"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to update. |
-| `--ancestor-id <guid>` | No | The parent task GUID. Omit it to clear the ancestor. |
+| Parameter              | Required | Description                                          |
+| ---------------------- | -------- | ---------------------------------------------------- |
+| `--task-id <guid>`     | Yes      | The task GUID to update.                             |
+| `--ancestor-id <guid>` | No       | The parent task GUID. Omit it to clear the ancestor. |
 
 ## Workflow
 
@@ -29,4 +29,3 @@ lark-cli task +set-ancestor --task-id "guid_1"
 
 > [!CAUTION]
 > This is a **Write Operation** -- You must confirm the user's intent before executing.
-

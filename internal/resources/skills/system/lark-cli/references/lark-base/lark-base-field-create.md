@@ -33,11 +33,12 @@ lark-cli base +field-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--json <body>` | 是 | 字段属性 JSON 对象 |
+| 参数                      | 必填 | 说明               |
+| ------------------------- | ---- | ------------------ |
+| `--base-token <token>`    | 是   | Base Token         |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名       |
+| `--json <body>`           | 是   | 字段属性 JSON 对象 |
+
 ## API 入参详情
 
 **HTTP 方法和路径：**
@@ -87,7 +88,6 @@ POST /open-apis/base/v3/bases/:base_token/tables/:table_id/fields
 - 返回 `field` 和 `created: true`。
 
 ## 工作流
-
 
 1. formula / lookup 字段必须先阅读对应指南；没读之前不要直接创建。
 

@@ -74,7 +74,7 @@ plugins:
 | `display_name`                | No          | Human-readable label shown in the admin UI                                         |
 | `description`                 | No          | Short description shown in the admin UI                                            |
 | `enabled`                     | No          | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries`                    | No          | CLI binaries to download and place in `$STELLA_HOME/bin`                             |
+| `binaries`                    | No          | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
 | `session_env`                 | No          | Environment variables to inject into sandbox sessions                              |
 | `oauth_provider`              | No          | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
 | `oauth_provider_config_field` | No          | Plugin config field that dynamically selects the OAuth provider, such as `brand`   |
@@ -88,7 +88,7 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 
 | Field              | Required | Description                                                                                   |
 | ------------------ | -------- | --------------------------------------------------------------------------------------------- |
-| `name`             | Yes      | Binary filename placed in `$STELLA_HOME/bin` (without extension)                                |
+| `name`             | Yes      | Binary filename placed in `$STELLA_HOME/bin` (without extension)                              |
 | `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
 | `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
 | `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |

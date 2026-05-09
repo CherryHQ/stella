@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // SQLiteStore implements Store against a SQLite database via sqlc.

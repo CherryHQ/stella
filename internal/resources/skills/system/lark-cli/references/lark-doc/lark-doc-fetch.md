@@ -1,4 +1,3 @@
-
 # docs +fetch（获取飞书云文档）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -33,23 +32,22 @@ lark-cli docs +fetch --api-version v2 --doc Z1Fj...tnAc \
 
 ## 选 `--detail`（每块详细度）
 
-| 意图 | `--detail` | 说明 |
-|------|-----------|------|
-| **只读**：浏览或总结文档内容 | `simple`（默认） | 简洁 XML/Markdown，不含 block ID、样式属性、引用元数据 |
-| **定位**：需要 block ID 与其他业务交互 | `with-ids` | 包含 block ID（如 `<p id="blkcnXXXX">`），可用于 `+update` 的 `--block-id` |
-| **编辑**：任何修改文档内容的需求 | `full` | 包含 block ID + 样式属性 + 引用元数据，提供完整文档结构信息 |
-
+| 意图                                   | `--detail`       | 说明                                                                       |
+| -------------------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| **只读**：浏览或总结文档内容           | `simple`（默认） | 简洁 XML/Markdown，不含 block ID、样式属性、引用元数据                     |
+| **定位**：需要 block ID 与其他业务交互 | `with-ids`       | 包含 block ID（如 `<p id="blkcnXXXX">`），可用于 `+update` 的 `--block-id` |
+| **编辑**：任何修改文档内容的需求       | `full`           | 包含 block ID + 样式属性 + 引用元数据，提供完整文档结构信息                |
 
 ## 选 `--scope`（读取范围）
 
 `--scope` 和 `--detail` 正交可组合。**省略 `--scope` 即读整篇；获取一小节时优先用局部读取。**
 
-| 模式 | 何时用 | 关键参数 | 行为要点 |
-|-|-|-|-|
-| `outline` | 不知道结构，先看目录 | `--max-depth`（标题层级上限） | 扁平列出所有标题，**包括嵌在容器里的内嵌标题**（如 callout 里的 h3）；这些 id 可直接作后续 `section` / `range` 端点 |
-| `section` | 读某个标题对应的整节 | `--start-block-id`（必填） | 顶层标题 → 展开到下一同级/更高级标题前；容器内节点（含内嵌标题） → 按"最小包容单元"返回容器/表格切片，不做 heading 扩展；顶层非标题块 → 仅该块 |
-| `range` | 已知精确起止 | `--start-block-id` / `--end-block-id` 至少一个；`-1` = 读到末尾 | 两端同顶层 → 顶层序列切片；两端同一容器 → 容器整体；两端同一表格 → 瘦身切片；**跨顶层 → 端点所在顶层块整块输出，不做瘦身** |
-| `keyword` | 只有模糊关键词 | `--keyword`（不区分大小写、子串，`\|` 分隔多词 OR） | 每处命中按"最小包容单元"输出；**自动去重**（同容器多命中 → 单个容器，同表格多行命中 → 合并切片） |
+| 模式      | 何时用               | 关键参数                                                        | 行为要点                                                                                                                                       |
+| --------- | -------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outline` | 不知道结构，先看目录 | `--max-depth`（标题层级上限）                                   | 扁平列出所有标题，**包括嵌在容器里的内嵌标题**（如 callout 里的 h3）；这些 id 可直接作后续 `section` / `range` 端点                            |
+| `section` | 读某个标题对应的整节 | `--start-block-id`（必填）                                      | 顶层标题 → 展开到下一同级/更高级标题前；容器内节点（含内嵌标题） → 按"最小包容单元"返回容器/表格切片，不做 heading 扩展；顶层非标题块 → 仅该块 |
+| `range`   | 已知精确起止         | `--start-block-id` / `--end-block-id` 至少一个；`-1` = 读到末尾 | 两端同顶层 → 顶层序列切片；两端同一容器 → 容器整体；两端同一表格 → 瘦身切片；**跨顶层 → 端点所在顶层块整块输出，不做瘦身**                     |
+| `keyword` | 只有模糊关键词       | `--keyword`（不区分大小写、子串，`\|` 分隔多词 OR）             | 每处命中按"最小包容单元"输出；**自动去重**（同容器多命中 → 单个容器，同表格多行命中 → 合并切片）                                               |
 
 **设置 `--scope` 时共用** `--context-before` / `--context-after` / `--max-depth`。
 
@@ -57,6 +55,7 @@ lark-cli docs +fetch --api-version v2 --doc Z1Fj...tnAc \
 - `--context-before/--context-after`：**只对整块顶层单元生效**；命中落在容器/表格内（返回容器或切片）时 before/after 被忽略，需要更大范围改用 `section` / `range` 显式指定。
 
 **决策顺序**（核心原则：**局部获取优于全量获取**，能精确到节/区间就绝不全量拉取；**任何文档的第一次读取都应从 `outline` 开始**）：
+
 1. **第一次接触文档 / 不知道结构** → 先 `outline` 探测目录（**强制首步，无论文档是"目标"还是"引用源"**），再回到 2/3 精读
 2. 改/读某个**标题对应的整节** → `section`（最省心，**首选精读方式**）
 3. 精确自定义起止 / 跨节连续区间 → `range`
@@ -98,30 +97,30 @@ lark-cli docs +fetch --api-version v2 --doc Z1Fj...tnAc \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--api-version` | 是 | 固定传 `v2` |
-| `--doc` | 是 | 文档 URL 或 token（支持 `/docx/` 和 `/wiki/`） |
-| `--doc-format` | 否 | `xml`（默认）\| `markdown` \| `text` |
-| `--detail` | 否 | `simple`（默认）\| `with-ids` \| `full` |
-| `--revision-id` | 否 | 文档版本号，`-1` = 最新（默认） |
-| `--scope` | 否 | `outline` \| `range` \| `keyword` \| `section`（省略 = 读整篇） |
-| `--start-block-id` | 否 | `range`/`section` 起始/锚点 id（`section` 必填） |
-| `--end-block-id` | 否 | `range` 结束 id；`-1` 表示读到末尾 |
-| `--keyword` | 否 | `keyword` 模式关键词；`\|` 分隔多词 OR |
-| `--context-before` | 否 | 命中前拉几个兄弟块（仅对顶层单元生效，默认 `0`） |
-| `--context-after` | 否 | 命中后拉几个兄弟块（仅对顶层单元生效，默认 `0`） |
-| `--max-depth` | 否 | `outline` = 标题层级上限；其它 = 子树深度（`-1` 不限，默认） |
-| `--format` | 否 | `json`（默认）\| `pretty` |
+| 参数               | 必填 | 说明                                                            |
+| ------------------ | ---- | --------------------------------------------------------------- |
+| `--api-version`    | 是   | 固定传 `v2`                                                     |
+| `--doc`            | 是   | 文档 URL 或 token（支持 `/docx/` 和 `/wiki/`）                  |
+| `--doc-format`     | 否   | `xml`（默认）\| `markdown` \| `text`                            |
+| `--detail`         | 否   | `simple`（默认）\| `with-ids` \| `full`                         |
+| `--revision-id`    | 否   | 文档版本号，`-1` = 最新（默认）                                 |
+| `--scope`          | 否   | `outline` \| `range` \| `keyword` \| `section`（省略 = 读整篇） |
+| `--start-block-id` | 否   | `range`/`section` 起始/锚点 id（`section` 必填）                |
+| `--end-block-id`   | 否   | `range` 结束 id；`-1` 表示读到末尾                              |
+| `--keyword`        | 否   | `keyword` 模式关键词；`\|` 分隔多词 OR                          |
+| `--context-before` | 否   | 命中前拉几个兄弟块（仅对顶层单元生效，默认 `0`）                |
+| `--context-after`  | 否   | 命中后拉几个兄弟块（仅对顶层单元生效，默认 `0`）                |
+| `--max-depth`      | 否   | `outline` = 标题层级上限；其它 = 子树深度（`-1` 不限，默认）    |
+| `--format`         | 否   | `json`（默认）\| `pretty`                                       |
 
 ## 图片、文件、画板的处理
 
 **文档中的素材以 XML 标签形式出现：**
 
 ```xml
-<img token="..." url="https://..." width="..." height="..."/>
-<source token="..." url="https://..." name="skills.zip"/>
-<whiteboard token="..."/>
+<img token="..." url="https://..." width="..." height="..." />
+<source token="..." url="https://..." name="skills.zip" />
+<whiteboard token="..." />
 ```
 
 - `<img>` / `<source>` 带 `url` 时，直接用该 URL 下载即可（普通 HTTP GET），无需走 shortcut。

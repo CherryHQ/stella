@@ -1,4 +1,3 @@
-
 # sheets +create-float-image（创建浮动图片）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -25,6 +24,7 @@ lark-cli sheets +create-float-image --url "<url>" --sheet-id "<sheetId>" \
 ```
 
 > **常见错误**：
+>
 > - 用 `drive +upload` 的 token → 报 `Wrong Float Image Token`（走的是不同的上传接口，token 格式不兼容；必须用 `sheets +media-upload`）
 
 ## 命令
@@ -43,19 +43,19 @@ lark-cli sheets +create-float-image --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token` | 否 | 表格 token |
-| `--sheet-id` | 是 | 工作表 ID |
-| `--float-image-token` | 是 | 图片 token（通过上方「前置步骤」的素材上传接口获取，不能用 `drive +upload` 的 token） |
-| `--range` | 是 | 锚定单元格，必须是单格（如 `sheetId!A1:A1`）。CLI 会校验前缀必须等于 `--sheet-id` |
-| `--width` | 否 | 图片宽度（像素，`>=20`；不传则使用图片原始宽度） |
-| `--height` | 否 | 图片高度（像素，`>=20`；不传则使用图片原始高度） |
-| `--offset-x` | 否 | 图片**左上角**到**锚定单元格左上角**的横向距离（向右为正，像素）；`>=0` 且**小于锚定单元格的宽度**（超限由服务端拒绝） |
-| `--offset-y` | 否 | 图片**左上角**到**锚定单元格左上角**的纵向距离（向下为正，像素）；`>=0` 且**小于锚定单元格的高度**（超限由服务端拒绝） |
-| `--float-image-id` | 否 | 自定义 10 位字母数字 ID（不传则自动生成） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                  | 必填 | 说明                                                                                                                   |
+| --------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--url`               | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一）                                                                        |
+| `--spreadsheet-token` | 否   | 表格 token                                                                                                             |
+| `--sheet-id`          | 是   | 工作表 ID                                                                                                              |
+| `--float-image-token` | 是   | 图片 token（通过上方「前置步骤」的素材上传接口获取，不能用 `drive +upload` 的 token）                                  |
+| `--range`             | 是   | 锚定单元格，必须是单格（如 `sheetId!A1:A1`）。CLI 会校验前缀必须等于 `--sheet-id`                                      |
+| `--width`             | 否   | 图片宽度（像素，`>=20`；不传则使用图片原始宽度）                                                                       |
+| `--height`            | 否   | 图片高度（像素，`>=20`；不传则使用图片原始高度）                                                                       |
+| `--offset-x`          | 否   | 图片**左上角**到**锚定单元格左上角**的横向距离（向右为正，像素）；`>=0` 且**小于锚定单元格的宽度**（超限由服务端拒绝） |
+| `--offset-y`          | 否   | 图片**左上角**到**锚定单元格左上角**的纵向距离（向下为正，像素）；`>=0` 且**小于锚定单元格的高度**（超限由服务端拒绝） |
+| `--float-image-id`    | 否   | 自定义 10 位字母数字 ID（不传则自动生成）                                                                              |
+| `--dry-run`           | 否   | 仅打印参数，不执行请求                                                                                                 |
 
 ## 输出
 

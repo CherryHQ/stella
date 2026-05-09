@@ -1,4 +1,3 @@
-
 # drive +add-comment
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -126,13 +125,13 @@ lark-cli drive +add-comment \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--doc` | 是 | 文档 URL / token、sheet / slides URL，或可解析到 `doc`/`docx`/`sheet`/`slides` 的 wiki URL |
-| `--type` | 裸 token 时必填 | 文档类型：`doc`、`docx`、`sheet`、`slides`。URL 输入时自动识别，无需传 |
-| `--content` | 是 | `reply_elements` JSON 数组字符串。示例：`'[{"type":"text","text":"文本"},{"type":"mention_user","text":"ou_xxx"},{"type":"link","text":"https://example.com"}]'` |
-| `--full-comment` | 否 | 显式指定创建全文评论；未传 `--block-id` 时也会默认走全文评论（不适用于 sheet） |
-| `--block-id` | 局部评论时必填 | 目标块 ID，可通过 `docs +fetch --api-version v2 --detail with-ids` 获取。**Sheet 评论**：格式为 `<sheetId>!<cell>`（如 `a281f9!D6`） |
+| 参数             | 必填            | 说明                                                                                                                                                             |
+| ---------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--doc`          | 是              | 文档 URL / token、sheet / slides URL，或可解析到 `doc`/`docx`/`sheet`/`slides` 的 wiki URL                                                                       |
+| `--type`         | 裸 token 时必填 | 文档类型：`doc`、`docx`、`sheet`、`slides`。URL 输入时自动识别，无需传                                                                                           |
+| `--content`      | 是              | `reply_elements` JSON 数组字符串。示例：`'[{"type":"text","text":"文本"},{"type":"mention_user","text":"ou_xxx"},{"type":"link","text":"https://example.com"}]'` |
+| `--full-comment` | 否              | 显式指定创建全文评论；未传 `--block-id` 时也会默认走全文评论（不适用于 sheet）                                                                                   |
+| `--block-id`     | 局部评论时必填  | 目标块 ID，可通过 `docs +fetch --api-version v2 --detail with-ids` 获取。**Sheet 评论**：格式为 `<sheetId>!<cell>`（如 `a281f9!D6`）                             |
 
 ## 行为说明
 
@@ -142,9 +141,9 @@ lark-cli drive +add-comment \
 - **Sheet 评论**：当 `--doc` 为 sheet URL 或 wiki 解析为 sheet 时，使用 `--block-id "<sheetId>!<cell>"` 指定单元格（如 `a281f9!D6`）；sheet 没有全文评论，`--full-comment` 不可用。
 - **Slide 评论**：当 `--doc` 为 slides URL、`--type slides`，或 wiki 解析为 slides 时，必须传 `--block-id "<SLIDE_BLOCK_TYPE>!<XML_ELEMENT_ID>"`。CLI 会将其拆分映射到 `anchor.block_id` / `anchor.slide_block_type`。此时 `--full-comment` 和 `--selection-with-ellipsis` 不可用。
 - **Slide 参数映射示例**：`--block-id` 由 PPT XML 元素类型和元素 `id` 组成。例如：
-    - `<slide id="pkk">` 对应 `--block-id slide!pkk`，表示给整页评论。
-    - `<img id="bPk" ... />` 对应 `--block-id img!bPk`，表示给图片元素评论。
-    - `<shape type="text" id="bPq">...</shape>` 对应 `--block-id shape!bPq`，表示给文本 shape 评论。
+  - `<slide id="pkk">` 对应 `--block-id slide!pkk`，表示给整页评论。
+  - `<img id="bPk" ... />` 对应 `--block-id img!bPk`，表示给图片元素评论。
+  - `<shape type="text" id="bPq">...</shape>` 对应 `--block-id shape!bPq`，表示给文本 shape 评论。
 
 - `--content` 接收结构化评论元素数组；`type` 支持 `text`、`mention_user`、`link`。为便于书写，`mention_user` / `link` 元素可以直接把用户 ID 或链接地址放在 `text` 字段中，shortcut 会转换成 OpenAPI 所需字段。
 - `type=text` 的评论文本不能直接包含 `<`、`>`；应优先传 `&lt;`、`&gt;`。shortcut 在发送前也会自动将 `<`、`>` 转义为 `&lt;`、`&gt;` 作为兜底。

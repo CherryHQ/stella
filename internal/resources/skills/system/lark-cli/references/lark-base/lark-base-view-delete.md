@@ -15,11 +15,11 @@ lark-cli base +view-delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
 
 ## API 入参详情
 
@@ -34,7 +34,6 @@ DELETE /open-apis/base/v3/bases/:base_token/tables/:table_id/views/:view_id
 - 返回删除成功状态和目标视图标识。
 
 ## 工作流
-
 
 1. 建议先用 `+view-get` 确认目标视图。
 2. 删除前必须让用户确认。

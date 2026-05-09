@@ -29,12 +29,12 @@ lark-cli base +view-set-filter \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--json <body>` | 是 | JSON 对象 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
+| `--json <body>`           | 是   | JSON 对象        |
 
 ## API 入参详情
 
@@ -66,16 +66,124 @@ PUT /open-apis/base/v3/bases/:base_token/tables/:table_id/views/:view_id/filter
 - `checkbox`：`true` / `false`
 - `datetime` / `created_at` / `updated_at`：`"ExactDate(YYYY-MM-DD)"`、`"Today"`、`"Tomorrow"`、`"Yesterday"`
 
-
 ## JSON Schema（原文）
 
 ```json
-{"type":"object","properties":{"logic":{"type":"string","enum":["and","or"],"default":"and","description":"Filter Condition Logic"},"conditions":{"type":"array","items":{"type":"array","minItems":3,"maxItems":3,"items":[{"type":"string","minLength":1,"maxLength":100,"description":"Field id or name"},{"type":"string","enum":["==","!=",">",">=","<","<=","intersects","disjoint","empty","non_empty"],"description":"Condition operator"},{"anyOf":[{"not":{}},{"anyOf":[{"anyOf":[{"type":"string","description":"text & formula & location field support string as filter value"},{"type":"number","description":"number & auto_number(the underfly incremental_number) field support number as filter value"},{"type":"array","items":{"type":"string","description":"option name"},"description":"select field support one option: [\"option1\"] or multiple options: `[\"option1\", \"option2\"]` as filter value."},{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","description":"record id"}},"required":["id"],"additionalProperties":false},"description":"link field support record id list as filter value"},{"type":"string","description":"\ndatetime & create_at & updated_at field support relative and absolute filter value.\nabsolute:\n- \"ExactDate(yyyy-MM-dd)\"\nrelative:\n- Today\n- Tomorrow\n- Yesterday\n"},{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","description":"user id"}},"required":["id"],"additionalProperties":false},"description":"user field support user id list as filter value"},{"type":"boolean","description":"checkbox field support boolean as filter value"}]},{"type":"null"}]}]}],"description":"one condition expression. shape: [field_id, filter_operator, value]. when operator is \"empty\" or \"non_empty\", the value is not required."},"default":[]}},"additionalProperties":false,"$schema":"http://json-schema.org/draft-07/schema#"}
-
+{
+  "type": "object",
+  "properties": {
+    "logic": {
+      "type": "string",
+      "enum": ["and", "or"],
+      "default": "and",
+      "description": "Filter Condition Logic"
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Field id or name"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "==",
+              "!=",
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "intersects",
+              "disjoint",
+              "empty",
+              "non_empty"
+            ],
+            "description": "Condition operator"
+          },
+          {
+            "anyOf": [
+              { "not": {} },
+              {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "text & formula & location field support string as filter value"
+                      },
+                      {
+                        "type": "number",
+                        "description": "number & auto_number(the underfly incremental_number) field support number as filter value"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "description": "option name"
+                        },
+                        "description": "select field support one option: [\"option1\"] or multiple options: `[\"option1\", \"option2\"]` as filter value."
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "record id"
+                            }
+                          },
+                          "required": ["id"],
+                          "additionalProperties": false
+                        },
+                        "description": "link field support record id list as filter value"
+                      },
+                      {
+                        "type": "string",
+                        "description": "\ndatetime & create_at & updated_at field support relative and absolute filter value.\nabsolute:\n- \"ExactDate(yyyy-MM-dd)\"\nrelative:\n- Today\n- Tomorrow\n- Yesterday\n"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": { "type": "string", "description": "user id" }
+                          },
+                          "required": ["id"],
+                          "additionalProperties": false
+                        },
+                        "description": "user field support user id list as filter value"
+                      },
+                      {
+                        "type": "boolean",
+                        "description": "checkbox field support boolean as filter value"
+                      }
+                    ]
+                  },
+                  { "type": "null" }
+                ]
+              }
+            ]
+          }
+        ],
+        "description": "one condition expression. shape: [field_id, filter_operator, value]. when operator is \"empty\" or \"non_empty\", the value is not required."
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
 ```
 
 ## 工作流
-
 
 1. 建议先用 `+view-get-filter` 拉现状，再做最小化修改。
 

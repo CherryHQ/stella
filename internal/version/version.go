@@ -7,6 +7,12 @@ package version
 // Version is the stella build version. Set via ldflags.
 var Version = "dev"
 
+// Commit is the git commit for this build. Set via ldflags.
+var Commit = ""
+
+// BuildDate is the build timestamp. Set via ldflags.
+var BuildDate = ""
+
 // IsDev reports whether the current build is a dev build (not a tagged release).
 // Tagged releases set Version to a semver like "0.1.0" or "v0.1.0"; dev builds
 // produce values like "dev" or "v0.1.0-5-gabcdef-dirty".

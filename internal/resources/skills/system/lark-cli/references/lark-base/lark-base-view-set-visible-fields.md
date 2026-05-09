@@ -24,12 +24,12 @@ lark-cli base +view-set-visible-fields \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--json <body>` | 是 | JSON 对象，且必须包含 `visible_fields` |
+| 参数                      | 必填 | 说明                                   |
+| ------------------------- | ---- | -------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                             |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                           |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名                       |
+| `--json <body>`           | 是   | JSON 对象，且必须包含 `visible_fields` |
 
 ## API 入参详情
 

@@ -22,11 +22,11 @@ lark-cli base +record-share-link-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id>` | 是 | 表 ID |
-| `--record-ids <ids...>` | 是 | 记录 ID 列表，逗号分隔或重复使用该标志，最多 100 条 |
+| 参数                    | 必填 | 说明                                                |
+| ----------------------- | ---- | --------------------------------------------------- |
+| `--base-token <token>`  | 是   | Base Token                                          |
+| `--table-id <id>`       | 是   | 表 ID                                               |
+| `--record-ids <ids...>` | 是   | 记录 ID 列表，逗号分隔或重复使用该标志，最多 100 条 |
 
 ## API 入参详情
 

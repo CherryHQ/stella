@@ -44,7 +44,7 @@ lark-cli api POST /open-apis/vc/v1/rooms/search --data '{"query":"5F"}'
 
 文件放在 `skills/lark-<name>/SKILL.md`：
 
-```markdown
+````markdown
 ---
 name: lark-<name>
 version: 1.0.0
@@ -54,7 +54,6 @@ metadata:
     bins: ["lark-cli"]
 ---
 
-
 # <标题>
 
 > **前置条件：** 先阅读 [`./lark-shared.md`](./lark-shared.md)。
@@ -62,20 +61,25 @@ metadata:
 ## 命令
 
 \```bash
+
 # 单步操作
+
 lark-cli api POST /open-apis/xxx --data '{...}'
 
 # 多步编排：说明步骤间数据传递
+
 # Step 1: ...（记录返回的 xxx_id）
+
 # Step 2: 使用 Step 1 的 xxx_id
+
 \```
 
 ## 权限
 
-| 操作 | 所需 scope |
-|------|-----------|
-| xxx | `scope:name` |
-```
+| 操作 | 所需 scope   |
+| ---- | ------------ |
+| xxx  | `scope:name` |
+````
 
 ## 关键原则
 

@@ -29,7 +29,7 @@ title: 配置
 
 | 列              | 类型    | 描述                                                                     |
 | --------------- | ------- | ------------------------------------------------------------------------ |
-| `id`            | TEXT    | Agent 标识（例如 `stella`）                                                |
+| `id`            | TEXT    | Agent 标识（例如 `stella`）                                              |
 | `name`          | TEXT    | 显示名称                                                                 |
 | `model`         | TEXT    | 默认模型，格式为 `provider/model`                                        |
 | `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model`                                    |
@@ -137,13 +137,13 @@ title: 配置
 
 ## 目录结构
 
-| 路径                                         | 用途                                | 类别 |
-| -------------------------------------------- | ----------------------------------- | ---- |
-| `~/.stella/stella.db`                            | SQLite 数据库（配置、记忆、调度器） | 数据 |
+| 路径                                           | 用途                                | 类别 |
+| ---------------------------------------------- | ----------------------------------- | ---- |
+| `~/.stella/stella.db`                          | SQLite 数据库（配置、记忆、调度器） | 数据 |
 | `~/.stella/plugins/bundled/`                   | 捆绑的运行时插件清单                | 数据 |
 | `~/.stella/plugins/installed/`                 | 用户安装的运行时插件                | 数据 |
 | `~/.stella/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能               | 数据 |
-| `~/.stella/workspaces/{agent-id}/stella.log`     | 每个 agent 的日志文件               | 数据 |
+| `~/.stella/workspaces/{agent-id}/stella.log`   | 每个 agent 的日志文件               | 数据 |
 | `~/.stella/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                 | 数据 |
 | `~/.stella/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                  | 数据 |
 | `~/.stella/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                            | 数据 |
@@ -178,14 +178,14 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 
 旧的 `STELLA_*` 前缀覆盖所有配置字段的方式已被移除。现在只识别以下环境变量：
 
-| 变量                 | 用途                                                                                                                                               |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`          | 覆盖主目录（默认为 `~/.stella`）                                                                                                                     |
-| `STELLA_HOME_HOST`     | 当 stella 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`STELLA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
-| `ANTHROPIC_API_KEY`  | Anthropic 提供商的备用 API 密钥                                                                                                                    |
-| `ANTHROPIC_BASE_URL` | Anthropic 提供商的备用基础 URL                                                                                                                     |
-| `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                       |
-| `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                        |
+| 变量                 | 用途                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `STELLA_HOME`        | 覆盖主目录（默认为 `~/.stella`）                                                                                                                       |
+| `STELLA_HOME_HOST`   | 当 stella 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`STELLA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
+| `ANTHROPIC_API_KEY`  | Anthropic 提供商的备用 API 密钥                                                                                                                        |
+| `ANTHROPIC_BASE_URL` | Anthropic 提供商的备用基础 URL                                                                                                                         |
+| `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                           |
+| `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                            |
 
 所有其他配置必须通过管理面板（`stella --open`）或直接在数据库中设置。
 

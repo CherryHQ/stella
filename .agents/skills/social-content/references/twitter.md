@@ -40,10 +40,12 @@ For feature deep-dives, architecture decisions, or design stories. Each tweet sh
 Show a concrete scenario in 1-2 sentences. No setup preamble.
 
 Good:
+
 - "Started a conversation in my terminal. Picked it up on Telegram an hour later. Stella remembered exactly where we left off — mid-thought, mid-context."
 - "Asked Stella what I discussed with her last Tuesday. She pulled up the full thread, including a tangent about database migrations I'd forgotten."
 
 Bad:
+
 - "Excited to announce Stella now supports multi-channel memory!" (too marketing)
 - "Stella is the best AI assistant for developers!" (empty claim)
 
@@ -52,10 +54,12 @@ Bad:
 Share a specific decision, trade-off, or change. Explain the "why" briefly.
 
 Good:
+
 - "Added session compaction to Stella today. The problem: context windows fill up. The solution: DAG-based compression that preserves every detail while fitting in context. No lossy summarization."
 - "Spent the morning on Stella's plugin system. Went with JavaScript over Lua — broader ecosystem, easier for users to extend without learning a new language."
 
 Bad:
+
 - "Shipped a new feature! Check it out!" (no substance)
 - "v0.5.2 released with bug fixes" (release notes belong in changelogs)
 
@@ -64,10 +68,12 @@ Bad:
 Highlight what memory enables that stateless assistants cannot. Focus on the user's experience.
 
 Good:
+
 - "Most AI assistants forget you the moment the window closes. Stella doesn't. Your preferences, your project context, your naming conventions — all still there next week."
 - "Stella's memory isn't a chat log. It's structured context that survives compression. You can ask 'what did we decide about the auth migration?' and get an actual answer."
 
 Bad:
+
 - "Memory is revolutionary!" (hype)
 - "Unlike ChatGPT, Stella..." (avoid direct competitor bashing)
 
@@ -76,10 +82,12 @@ Bad:
 Emphasize control, privacy, simplicity. Speak to people who care about self-hosting.
 
 Good:
+
 - "One binary. One SQLite file. Your API keys, your machine. Stella doesn't phone home."
 - "Self-hosted means your conversations stay on your hardware. No cloud sync, no third-party storage. Just `stella chat`."
 
 Bad:
+
 - "Stop letting Big Tech read your conversations!" (fear-mongering)
 
 ### Stella in daily life
@@ -87,10 +95,12 @@ Bad:
 Show a workflow moment — the kind of thing that makes someone think "I want that."
 
 Good:
+
 - "Set a reminder in my terminal: 'check staging deploy at 3pm.' At 3pm, Stella pinged me on Telegram. Same session, different device."
 - "Monday morning. Instead of re-explaining my project to an AI, I just said 'continue from Friday.' Stella knew exactly what I meant."
 
 Bad:
+
 - "Stella makes your life so much easier!" (generic)
 
 ### Designing Stella
@@ -98,10 +108,12 @@ Bad:
 Share brand, visual, or persona decisions. This humanizes the project.
 
 Good:
+
 - "Spent time on Stella's avatar today. The brief: looks like a real person, but clearly a digital assistant. 70% photographic, 30% brand. Deep navy, warm gold accents."
 - "Stella's voice rules: calm, confident, clear. Warm but not clingy. No hype. The hardest part is resisting the urge to oversell."
 
 Bad:
+
 - "Check out our cool new logo!" (shallow)
 
 ## Hashtags and Mentions

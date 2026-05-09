@@ -14,9 +14,10 @@ import (
 	"runtime"
 	"strings"
 
+	ucli "github.com/urfave/cli/v2"
+
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
-	ucli "github.com/urfave/cli/v2"
 )
 
 const (

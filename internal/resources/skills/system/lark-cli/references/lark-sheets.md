@@ -13,6 +13,7 @@ metadata:
 **CRITICAL — 开始前 MUST 先用 Read 工具读取 [`./lark-shared.md`](./lark-shared.md)，其中包含认证、权限处理**
 
 ## 快速决策
+
 - 按标题或关键词找云空间里的表格文件，先用 `lark-cli docs +search`。
 - `docs +search` 会直接返回 `SHEET` 结果，不要把它误解成只能搜文档 / Wiki。
 - 已知 spreadsheet URL / token 后，再进入 `sheets +info`、`sheets +read`、`sheets +find` 等对象内部操作。
@@ -25,13 +26,13 @@ metadata:
 
 ### 文档 URL 格式与 Token 处理
 
-| URL 格式 | 示例                                                      | Token 类型 | 处理方式 |
-|----------|---------------------------------------------------------|-----------|----------|
-| `/docx/` | `https://example.larksuite.com/docx/doxcnxxxxxxxxx`    | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/doc/` | `https://example.larksuite.com/doc/doccnxxxxxxxxx`     | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/wiki/` | `https://example.larksuite.com/wiki/wikcnxxxxxxxxx`    | `wiki_token` | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token` |
-| `/sheets/` | `https://example.larksuite.com/sheets/shtcnxxxxxxxxx`  | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/drive/folder/` | `https://example.larksuite.com/drive/folder/fldcnxxxx` | `folder_token` | URL 路径中的 token 作为文件夹 token 使用 |
+| URL 格式         | 示例                                                   | Token 类型     | 处理方式                                             |
+| ---------------- | ------------------------------------------------------ | -------------- | ---------------------------------------------------- |
+| `/docx/`         | `https://example.larksuite.com/docx/doxcnxxxxxxxxx`    | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/doc/`          | `https://example.larksuite.com/doc/doccnxxxxxxxxx`     | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/wiki/`         | `https://example.larksuite.com/wiki/wikcnxxxxxxxxx`    | `wiki_token`   | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token` |
+| `/sheets/`       | `https://example.larksuite.com/sheets/shtcnxxxxxxxxx`  | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/drive/folder/` | `https://example.larksuite.com/drive/folder/fldcnxxxx` | `folder_token` | URL 路径中的 token 作为文件夹 token 使用             |
 
 ### Wiki 链接特殊处理（关键！）
 
@@ -51,15 +52,15 @@ metadata:
 
 3. **根据 `obj_type` 使用对应的 API**
 
-   | obj_type | 说明 | 使用的 API |
-   |----------|------|-----------|
-   | `docx` | 新版云文档 | `drive file.comments.*`、`docx.*` |
-   | `doc` | 旧版云文档 | `drive file.comments.*` |
-   | `sheet` | 电子表格 | `sheets.*` |
-   | `bitable` | 多维表格 | `bitable.*` |
-   | `slides` | 幻灯片 | `drive.*` |
-   | `file` | 文件 | `drive.*` |
-   | `mindnote` | 思维导图 | `drive.*` |
+   | obj_type   | 说明       | 使用的 API                        |
+   | ---------- | ---------- | --------------------------------- |
+   | `docx`     | 新版云文档 | `drive file.comments.*`、`docx.*` |
+   | `doc`      | 旧版云文档 | `drive file.comments.*`           |
+   | `sheet`    | 电子表格   | `sheets.*`                        |
+   | `bitable`  | 多维表格   | `bitable.*`                       |
+   | `slides`   | 幻灯片     | `drive.*`                         |
+   | `file`     | 文件       | `drive.*`                         |
+   | `mindnote` | 思维导图   | `drive.*`                         |
 
 #### 查询示例
 
@@ -69,15 +70,16 @@ lark-cli wiki spaces get_node --params '{"token":"wiki_token"}'
 ```
 
 返回结果示例：
+
 ```json
 {
-   "node": {
-      "obj_type": "docx",
-      "obj_token": "xxxx",
-      "title": "标题",
-      "node_type": "origin",
-      "space_id": "12345678910"
-   }
+  "node": {
+    "obj_type": "docx",
+    "obj_token": "xxxx",
+    "title": "标题",
+    "node_type": "origin",
+    "space_id": "12345678910"
+  }
 }
 ```
 
@@ -138,6 +140,7 @@ lark-cli sheets spreadsheet.sheet.filters update \
 ```
 
 **常见错误：**
+
 - `Wrong Filter Value`：筛选已存在，需要先 delete 再 create
 - `Excess Limit`：update 时重复添加同一列条件
 
@@ -145,18 +148,18 @@ lark-cli sheets spreadsheet.sheet.filters update \
 
 接受二维数组的 shortcut（`+write`/`+append` 的 `--values`、`+create` 的 `--data`）中，每个单元格值支持以下类型。**公式、带文本链接、@人、@文档、下拉列表必须使用对象格式**，直接传字符串会被当作纯文本存储。
 
-| 类型 | 写入格式 | 示例 |
-|------|---------|------|
-| 字符串 | `"文本"` | `"hello"` |
-| 数字 | `数字` | `123`、`3.14` |
-| 日期 | `数字`（自 1899-12-30 起的天数，需先设单元格日期格式） | `42101` |
-| 链接（纯 URL） | `"URL 字符串"` | `"https://example.com"` |
-| 链接（带文本） | `{"type":"url","text":"显示文本","link":"URL"}` | `{"type":"url","text":"飞书","link":"https://www.feishu.cn"}` |
-| 邮箱 | `"邮箱字符串"` | `"user@example.com"` |
-| **公式** | `{"type":"formula","text":"=公式"}` | `{"type":"formula","text":"=SUM(A1:A10)"}` |
-| @人 | `{"type":"mention","text":"标识","textType":"email\|openId\|unionId","notify":false}` | `{"type":"mention","text":"user@example.com","textType":"email","notify":false}`（notify 可选，默认 false；仅在用户明确要求通知时设为 true） |
-| @文档 | `{"type":"mention","textType":"fileToken","text":"token","objType":"类型"}` | `{"type":"mention","textType":"fileToken","text":"shtXXX","objType":"sheet"}` |
-| 下拉列表 | `{"type":"multipleValue","values":[值1,值2]}` | `{"type":"multipleValue","values":["选项A","选项B"]}` |
+| 类型           | 写入格式                                                                              | 示例                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 字符串         | `"文本"`                                                                              | `"hello"`                                                                                                                                    |
+| 数字           | `数字`                                                                                | `123`、`3.14`                                                                                                                                |
+| 日期           | `数字`（自 1899-12-30 起的天数，需先设单元格日期格式）                                | `42101`                                                                                                                                      |
+| 链接（纯 URL） | `"URL 字符串"`                                                                        | `"https://example.com"`                                                                                                                      |
+| 链接（带文本） | `{"type":"url","text":"显示文本","link":"URL"}`                                       | `{"type":"url","text":"飞书","link":"https://www.feishu.cn"}`                                                                                |
+| 邮箱           | `"邮箱字符串"`                                                                        | `"user@example.com"`                                                                                                                         |
+| **公式**       | `{"type":"formula","text":"=公式"}`                                                   | `{"type":"formula","text":"=SUM(A1:A10)"}`                                                                                                   |
+| @人            | `{"type":"mention","text":"标识","textType":"email\|openId\|unionId","notify":false}` | `{"type":"mention","text":"user@example.com","textType":"email","notify":false}`（notify 可选，默认 false；仅在用户明确要求通知时设为 true） |
+| @文档          | `{"type":"mention","textType":"fileToken","text":"token","objType":"类型"}`           | `{"type":"mention","textType":"fileToken","text":"shtXXX","objType":"sheet"}`                                                                |
+| 下拉列表       | `{"type":"multipleValue","values":[值1,值2]}`                                         | `{"type":"multipleValue","values":["选项A","选项B"]}`                                                                                        |
 
 **写入公式示例**：
 
@@ -173,6 +176,7 @@ lark-cli sheets +write --url "URL" --sheet-id "sheetId" --range "C6" \
 > **公式语法参考**：涉及 ARRAYFORMULA、原生数组函数、MAP/LAMBDA、日期差、Excel 公式改写等飞书特有规则时，先阅读 [`./lark-sheets/lark-sheets-formula.md`](./lark-sheets/lark-sheets-formula.md)。
 
 **限制**：
+
 - 公式支持 IMPORTRANGE 跨表引用（最多 5 层嵌套、每个工作表最多 100 个引用）
 - @人仅支持同租户用户，单次最多 50 人
 - 下拉列表需**先配置下拉选项**，否则 `multipleValue` 写入会变成纯文本。配置方法见 [`./lark-sheets/lark-sheets-set-dropdown.md`](./lark-sheets/lark-sheets-set-dropdown.md)。值中的字符串不能包含逗号
@@ -181,56 +185,56 @@ lark-cli sheets +write --url "URL" --sheet-id "sheetId" --range "C6" \
 
 Shortcut 是对常用操作的高级封装（`lark-cli sheets +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+info`](./lark-sheets/lark-sheets-info.md) | View spreadsheet and sheet information |
-| [`+read`](./lark-sheets/lark-sheets-read.md) | Read spreadsheet cell values |
-| [`+write`](./lark-sheets/lark-sheets-write.md) | Write to spreadsheet cells (overwrite mode) |
-| [`+write-image`](./lark-sheets/lark-sheets-write-image.md) | Write an image into a spreadsheet cell |
-| [`+append`](./lark-sheets/lark-sheets-append.md) | Append rows to a spreadsheet |
-| [`+find`](./lark-sheets/lark-sheets-find.md) | Find cells in a spreadsheet |
-| [`+create`](./lark-sheets/lark-sheets-create.md) | Create a spreadsheet (optional header row and initial data) |
-| [`+export`](./lark-sheets/lark-sheets-export.md) | Export a spreadsheet (async task polling + optional download) |
-| [`+merge-cells`](./lark-sheets/lark-sheets-merge-cells.md) | Merge cells in a spreadsheet |
-| [`+unmerge-cells`](./lark-sheets/lark-sheets-unmerge-cells.md) | Unmerge (split) cells in a spreadsheet |
-| [`+replace`](./lark-sheets/lark-sheets-replace.md) | Find and replace cell values |
-| [`+set-style`](./lark-sheets/lark-sheets-set-style.md) | Set cell style for a range |
-| [`+batch-set-style`](./lark-sheets/lark-sheets-batch-set-style.md) | Batch set cell styles for multiple ranges |
-| [`+add-dimension`](./lark-sheets/lark-sheets-add-dimension.md) | Add rows or columns at the end of a sheet |
-| [`+insert-dimension`](./lark-sheets/lark-sheets-insert-dimension.md) | Insert rows or columns at a specified position |
-| [`+update-dimension`](./lark-sheets/lark-sheets-update-dimension.md) | Update row or column properties (visibility, size) |
-| [`+move-dimension`](./lark-sheets/lark-sheets-move-dimension.md) | Move rows or columns to a new position |
-| [`+delete-dimension`](./lark-sheets/lark-sheets-delete-dimension.md) | Delete rows or columns |
-| [`+create-filter-view`](./lark-sheets/lark-sheets-create-filter-view.md) | Create a filter view |
-| [`+update-filter-view`](./lark-sheets/lark-sheets-update-filter-view.md) | Update a filter view |
-| [`+list-filter-views`](./lark-sheets/lark-sheets-list-filter-views.md) | List all filter views in a sheet |
-| [`+get-filter-view`](./lark-sheets/lark-sheets-get-filter-view.md) | Get a filter view by ID |
-| [`+delete-filter-view`](./lark-sheets/lark-sheets-delete-filter-view.md) | Delete a filter view |
-| [`+create-filter-view-condition`](./lark-sheets/lark-sheets-create-filter-view-condition.md) | Create a filter condition on a filter view |
-| [`+update-filter-view-condition`](./lark-sheets/lark-sheets-update-filter-view-condition.md) | Update a filter condition |
-| [`+list-filter-view-conditions`](./lark-sheets/lark-sheets-list-filter-view-conditions.md) | List all filter conditions of a filter view |
-| [`+get-filter-view-condition`](./lark-sheets/lark-sheets-get-filter-view-condition.md) | Get a filter condition by column |
-| [`+delete-filter-view-condition`](./lark-sheets/lark-sheets-delete-filter-view-condition.md) | Delete a filter condition |
+| Shortcut                                                                                     | 说明                                                          |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`+info`](./lark-sheets/lark-sheets-info.md)                                                 | View spreadsheet and sheet information                        |
+| [`+read`](./lark-sheets/lark-sheets-read.md)                                                 | Read spreadsheet cell values                                  |
+| [`+write`](./lark-sheets/lark-sheets-write.md)                                               | Write to spreadsheet cells (overwrite mode)                   |
+| [`+write-image`](./lark-sheets/lark-sheets-write-image.md)                                   | Write an image into a spreadsheet cell                        |
+| [`+append`](./lark-sheets/lark-sheets-append.md)                                             | Append rows to a spreadsheet                                  |
+| [`+find`](./lark-sheets/lark-sheets-find.md)                                                 | Find cells in a spreadsheet                                   |
+| [`+create`](./lark-sheets/lark-sheets-create.md)                                             | Create a spreadsheet (optional header row and initial data)   |
+| [`+export`](./lark-sheets/lark-sheets-export.md)                                             | Export a spreadsheet (async task polling + optional download) |
+| [`+merge-cells`](./lark-sheets/lark-sheets-merge-cells.md)                                   | Merge cells in a spreadsheet                                  |
+| [`+unmerge-cells`](./lark-sheets/lark-sheets-unmerge-cells.md)                               | Unmerge (split) cells in a spreadsheet                        |
+| [`+replace`](./lark-sheets/lark-sheets-replace.md)                                           | Find and replace cell values                                  |
+| [`+set-style`](./lark-sheets/lark-sheets-set-style.md)                                       | Set cell style for a range                                    |
+| [`+batch-set-style`](./lark-sheets/lark-sheets-batch-set-style.md)                           | Batch set cell styles for multiple ranges                     |
+| [`+add-dimension`](./lark-sheets/lark-sheets-add-dimension.md)                               | Add rows or columns at the end of a sheet                     |
+| [`+insert-dimension`](./lark-sheets/lark-sheets-insert-dimension.md)                         | Insert rows or columns at a specified position                |
+| [`+update-dimension`](./lark-sheets/lark-sheets-update-dimension.md)                         | Update row or column properties (visibility, size)            |
+| [`+move-dimension`](./lark-sheets/lark-sheets-move-dimension.md)                             | Move rows or columns to a new position                        |
+| [`+delete-dimension`](./lark-sheets/lark-sheets-delete-dimension.md)                         | Delete rows or columns                                        |
+| [`+create-filter-view`](./lark-sheets/lark-sheets-create-filter-view.md)                     | Create a filter view                                          |
+| [`+update-filter-view`](./lark-sheets/lark-sheets-update-filter-view.md)                     | Update a filter view                                          |
+| [`+list-filter-views`](./lark-sheets/lark-sheets-list-filter-views.md)                       | List all filter views in a sheet                              |
+| [`+get-filter-view`](./lark-sheets/lark-sheets-get-filter-view.md)                           | Get a filter view by ID                                       |
+| [`+delete-filter-view`](./lark-sheets/lark-sheets-delete-filter-view.md)                     | Delete a filter view                                          |
+| [`+create-filter-view-condition`](./lark-sheets/lark-sheets-create-filter-view-condition.md) | Create a filter condition on a filter view                    |
+| [`+update-filter-view-condition`](./lark-sheets/lark-sheets-update-filter-view-condition.md) | Update a filter condition                                     |
+| [`+list-filter-view-conditions`](./lark-sheets/lark-sheets-list-filter-view-conditions.md)   | List all filter conditions of a filter view                   |
+| [`+get-filter-view-condition`](./lark-sheets/lark-sheets-get-filter-view-condition.md)       | Get a filter condition by column                              |
+| [`+delete-filter-view-condition`](./lark-sheets/lark-sheets-delete-filter-view-condition.md) | Delete a filter condition                                     |
 
 ### 下拉列表
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+set-dropdown`](./lark-sheets/lark-sheets-set-dropdown.md) | 设置下拉列表（`multipleValue` 写入的前置步骤） |
-| [`+update-dropdown`](./lark-sheets/lark-sheets-update-dropdown.md) | 更新下拉列表选项 |
-| [`+get-dropdown`](./lark-sheets/lark-sheets-get-dropdown.md) | 查询下拉列表配置 |
-| [`+delete-dropdown`](./lark-sheets/lark-sheets-delete-dropdown.md) | 删除下拉列表 |
+| Shortcut                                                           | 说明                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------- |
+| [`+set-dropdown`](./lark-sheets/lark-sheets-set-dropdown.md)       | 设置下拉列表（`multipleValue` 写入的前置步骤） |
+| [`+update-dropdown`](./lark-sheets/lark-sheets-update-dropdown.md) | 更新下拉列表选项                               |
+| [`+get-dropdown`](./lark-sheets/lark-sheets-get-dropdown.md)       | 查询下拉列表配置                               |
+| [`+delete-dropdown`](./lark-sheets/lark-sheets-delete-dropdown.md) | 删除下拉列表                                   |
 
 ### 浮动图片
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+media-upload`](./lark-sheets/lark-sheets-media-upload.md) | 上传本地图片素材，返回 `file_token`（供 `+create-float-image` 使用；>20MB 自动分片） |
-| [`+create-float-image`](./lark-sheets/lark-sheets-create-float-image.md) | 创建浮动图片 |
-| [`+update-float-image`](./lark-sheets/lark-sheets-update-float-image.md) | 更新浮动图片属性 |
-| [`+get-float-image`](./lark-sheets/lark-sheets-get-float-image.md) | 获取浮动图片 |
-| [`+list-float-images`](./lark-sheets/lark-sheets-list-float-images.md) | 查询所有浮动图片 |
-| [`+delete-float-image`](./lark-sheets/lark-sheets-delete-float-image.md) | 删除浮动图片 |
+| Shortcut                                                                 | 说明                                                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| [`+media-upload`](./lark-sheets/lark-sheets-media-upload.md)             | 上传本地图片素材，返回 `file_token`（供 `+create-float-image` 使用；>20MB 自动分片） |
+| [`+create-float-image`](./lark-sheets/lark-sheets-create-float-image.md) | 创建浮动图片                                                                         |
+| [`+update-float-image`](./lark-sheets/lark-sheets-update-float-image.md) | 更新浮动图片属性                                                                     |
+| [`+get-float-image`](./lark-sheets/lark-sheets-get-float-image.md)       | 获取浮动图片                                                                         |
+| [`+list-float-images`](./lark-sheets/lark-sheets-list-float-images.md)   | 查询所有浮动图片                                                                     |
+| [`+delete-float-image`](./lark-sheets/lark-sheets-delete-float-image.md) | 删除浮动图片                                                                         |
 
 > 浮动图片相关的读接口只返回元数据（含 `float_image_token`），**不包含图片字节**。要读取图片内容，用 token 调 `lark-cli docs +media-preview --token "<float_image_token>" --output ./image.png`。
 
@@ -245,44 +249,43 @@ lark-cli sheets <resource> <method> [flags] # 调用 API
 
 ### spreadsheets
 
-  - `create` — 创建电子表格
-  - `get` — 获取电子表格信息
-  - `patch` — 修改电子表格属性
+- `create` — 创建电子表格
+- `get` — 获取电子表格信息
+- `patch` — 修改电子表格属性
 
 ### spreadsheet.sheet.filters
 
-  - `create` — 创建筛选
-  - `delete` — 删除筛选
-  - `get` — 获取筛选
-  - `update` — 更新筛选
+- `create` — 创建筛选
+- `delete` — 删除筛选
+- `get` — 获取筛选
+- `update` — 更新筛选
 
 ### spreadsheet.sheets
 
-  - `find` — 查找单元格
+- `find` — 查找单元格
 
 ### spreadsheet.sheet.float_images
 
-  - `create` — 创建浮动图片
-  - `patch` — 更新浮动图片
-  - `get` — 获取浮动图片
-  - `query` — 查询所有浮动图片
-  - `delete` — 删除浮动图片
+- `create` — 创建浮动图片
+- `patch` — 更新浮动图片
+- `get` — 获取浮动图片
+- `query` — 查询所有浮动图片
+- `delete` — 删除浮动图片
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `spreadsheets.create` | `sheets:spreadsheet:create` |
-| `spreadsheets.get` | `sheets:spreadsheet.meta:read` |
-| `spreadsheets.patch` | `sheets:spreadsheet.meta:write_only` |
-| `spreadsheet.sheet.filters.create` | `sheets:spreadsheet:write_only` |
-| `spreadsheet.sheet.filters.delete` | `sheets:spreadsheet:write_only` |
-| `spreadsheet.sheet.filters.get` | `sheets:spreadsheet:read` |
-| `spreadsheet.sheet.filters.update` | `sheets:spreadsheet:write_only` |
-| `spreadsheet.sheets.find` | `sheets:spreadsheet:read` |
-| `spreadsheet.sheet.float_images.create` | `sheets:spreadsheet:write_only` |
-| `spreadsheet.sheet.float_images.patch` | `sheets:spreadsheet:write_only` |
-| `spreadsheet.sheet.float_images.get` | `sheets:spreadsheet:read` |
-| `spreadsheet.sheet.float_images.query` | `sheets:spreadsheet:read` |
-| `spreadsheet.sheet.float_images.delete` | `sheets:spreadsheet:write_only` |
-
+| 方法                                    | 所需 scope                           |
+| --------------------------------------- | ------------------------------------ |
+| `spreadsheets.create`                   | `sheets:spreadsheet:create`          |
+| `spreadsheets.get`                      | `sheets:spreadsheet.meta:read`       |
+| `spreadsheets.patch`                    | `sheets:spreadsheet.meta:write_only` |
+| `spreadsheet.sheet.filters.create`      | `sheets:spreadsheet:write_only`      |
+| `spreadsheet.sheet.filters.delete`      | `sheets:spreadsheet:write_only`      |
+| `spreadsheet.sheet.filters.get`         | `sheets:spreadsheet:read`            |
+| `spreadsheet.sheet.filters.update`      | `sheets:spreadsheet:write_only`      |
+| `spreadsheet.sheets.find`               | `sheets:spreadsheet:read`            |
+| `spreadsheet.sheet.float_images.create` | `sheets:spreadsheet:write_only`      |
+| `spreadsheet.sheet.float_images.patch`  | `sheets:spreadsheet:write_only`      |
+| `spreadsheet.sheet.float_images.get`    | `sheets:spreadsheet:read`            |
+| `spreadsheet.sheet.float_images.query`  | `sheets:spreadsheet:read`            |
+| `spreadsheet.sheet.float_images.delete` | `sheets:spreadsheet:write_only`      |

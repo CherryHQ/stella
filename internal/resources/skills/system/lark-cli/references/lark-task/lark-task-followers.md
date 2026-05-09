@@ -16,11 +16,11 @@ lark-cli task +followers --task-id "<task_guid>" --remove "ou_aaa"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
-| `--add <ids>` | No | Comma-separated list of user `open_id`s to add as followers. |
-| `--remove <ids>` | No | Comma-separated list of user `open_id`s to remove from followers. |
+| Parameter          | Required | Description                                                                                                                                     |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--task-id <guid>` | Yes      | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--add <ids>`      | No       | Comma-separated list of user `open_id`s to add as followers.                                                                                    |
+| `--remove <ids>`   | No       | Comma-separated list of user `open_id`s to remove from followers.                                                                               |
 
 ## Workflow
 

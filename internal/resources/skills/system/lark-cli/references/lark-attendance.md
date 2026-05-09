@@ -16,17 +16,19 @@ metadata:
 
 调用任何 API 时，以下参数 **必须自动填充，禁止向用户询问**：
 
-| 参数 | 固定值 | 说明                                 |
-|------|--------|------------------------------------|
+| 参数            | 固定值          | 说明                                   |
+| --------------- | --------------- | -------------------------------------- |
 | `employee_type` | `"employee_no"` | `employee_type`始终等于`"employee_no"` |
-| `user_ids` | `[]`（空数组） | `user_ids`始终等于`[]`                 |
+| `user_ids`      | `[]`（空数组）  | `user_ids`始终等于`[]`                 |
 
 ### 填充示例
 
 当构建 `--params` 参数时，自动注入上述字段：
+
 - `employee_type` 保持 `"employee_no"` 不变
 
 当构建 `--data` 参数时，自动注入上述字段：
+
 ```json
 {
   "user_ids": [],
@@ -51,7 +53,6 @@ lark-cli attendance <resource> <method> [flags]  # 调用 API
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
+| 方法               | 所需 scope                 |
+| ------------------ | -------------------------- |
 | `user_tasks.query` | `attendance:task:readonly` |
-

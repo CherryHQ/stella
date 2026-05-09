@@ -13,6 +13,7 @@ metadata:
 **CRITICAL — 开始前 MUST 先用 Read 工具读取 [`./lark-shared.md`](./lark-shared.md)，其中包含认证、权限处理**
 
 > **成员管理硬限制：**
+>
 > - 如果目标是“部门”，先判断身份，再决定是否继续。
 > - `--as bot` 对应 `tenant_access_token`。官方限制：这种身份下不能使用部门 ID (`opendepartmentid`) 添加知识空间成员。
 > - 遇到“部门 + --as bot”时，禁止先调用 `lark-cli wiki members create` 试错；直接说明该路径不可行。
@@ -52,10 +53,10 @@ metadata:
 
 Shortcut 是对常用操作的高级封装（`lark-cli wiki +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+move`](./lark-wiki/lark-wiki-move.md) | Move a wiki node, or move a Drive document into Wiki |
-| [`+node-create`](./lark-wiki/lark-wiki-node-create.md) | Create a wiki node with automatic space resolution |
+| Shortcut                                                 | 说明                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| [`+move`](./lark-wiki/lark-wiki-move.md)                 | Move a wiki node, or move a Drive document into Wiki           |
+| [`+node-create`](./lark-wiki/lark-wiki-node-create.md)   | Create a wiki node with automatic space resolution             |
 | [`+delete-space`](./lark-wiki/lark-wiki-delete-space.md) | Delete a wiki space, polling the async delete task when needed |
 
 ## API Resources
@@ -88,16 +89,15 @@ lark-cli wiki <resource> <method> [flags] # 调用 API
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `spaces.create` | `wiki:space:write_only` |
-| `spaces.get` | `wiki:space:read` |
-| `spaces.get_node` | `wiki:node:read` |
-| `spaces.list` | `wiki:space:retrieve` |
-| `members.create` | `wiki:member:create` |
-| `members.delete` | `wiki:member:update` |
-| `members.list` | `wiki:member:retrieve` |
-| `nodes.copy` | `wiki:node:copy` |
-| `nodes.create` | `wiki:node:create` |
-| `nodes.list` | `wiki:node:retrieve` |
-
+| 方法              | 所需 scope              |
+| ----------------- | ----------------------- |
+| `spaces.create`   | `wiki:space:write_only` |
+| `spaces.get`      | `wiki:space:read`       |
+| `spaces.get_node` | `wiki:node:read`        |
+| `spaces.list`     | `wiki:space:retrieve`   |
+| `members.create`  | `wiki:member:create`    |
+| `members.delete`  | `wiki:member:update`    |
+| `members.list`    | `wiki:member:retrieve`  |
+| `nodes.copy`      | `wiki:node:copy`        |
+| `nodes.create`    | `wiki:node:create`      |
+| `nodes.list`      | `wiki:node:retrieve`    |

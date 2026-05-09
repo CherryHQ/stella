@@ -14,10 +14,10 @@ lark-cli base +workflow-enable \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 Base Token（`Basc` 开头） |
-| `--workflow-id <id>` | 是 | 工作流 ID（`wkf` 开头） |
+| 参数                   | 必填 | 说明                               |
+| ---------------------- | ---- | ---------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 Base Token（`Basc` 开头） |
+| `--workflow-id <id>`   | 是   | 工作流 ID（`wkf` 开头）            |
 
 ## 如何从链接中提取参数
 
@@ -42,10 +42,10 @@ PATCH /open-apis/base/v3/bases/:base_token/workflows/:workflow_id/enable
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 Base Token |
-| `workflow_id` | 是 | 工作流唯一标识 |
+| 参数          | 必填 | 说明                |
+| ------------- | ---- | ------------------- |
+| `base_token`  | 是   | 多维表格 Base Token |
+| `workflow_id` | 是   | 工作流唯一标识      |
 
 **Request Body：** 无
 
@@ -53,10 +53,10 @@ PATCH /open-apis/base/v3/bases/:base_token/workflows/:workflow_id/enable
 
 **Response `data` 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `workflow_id` | string | 工作流唯一标识符 |
-| `status` | string | 操作后的最新状态，固定为 `enabled` |
+| 字段          | 类型   | 说明                               |
+| ------------- | ------ | ---------------------------------- |
+| `workflow_id` | string | 工作流唯一标识符                   |
+| `status`      | string | 操作后的最新状态，固定为 `enabled` |
 
 ## 返回值
 

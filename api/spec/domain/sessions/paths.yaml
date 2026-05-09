@@ -20,8 +20,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/Session" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/Session",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
     post:
       tags: [sessions]
       summary: Create a new session
@@ -30,15 +34,23 @@ paths:
         required: false
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/CreateSessionRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateSessionRequest",
+            }
       responses:
         "201":
           description: created
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Session" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Session",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/sessions/{sessionID}:
     parameters:
@@ -52,8 +64,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SessionDetail" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionDetail",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -83,7 +99,9 @@ paths:
                 items:
                   type: object
                   additionalProperties: {}
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     post:
@@ -94,15 +112,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/SendMessageRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SendMessageRequest",
+            }
       responses:
         "200":
           description: SSE stream of session events
           content:
             text/event-stream:
               schema: { type: string }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/sessions/{sessionID}/workspace:
@@ -122,8 +146,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionWorkspace",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -138,15 +166,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceCreateRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/WorkspaceCreateRequest",
+            }
       responses:
         "201":
           description: created
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionWorkspace",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
@@ -157,15 +193,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceDeleteRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/WorkspaceDeleteRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionWorkspace",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
@@ -176,15 +220,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceMoveRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/WorkspaceMoveRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SessionWorkspace" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionWorkspace",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -211,11 +263,17 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent",
+              }
             application/octet-stream:
               schema: { type: string, format: binary }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     put:
@@ -226,15 +284,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUpdateContentRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/WorkspaceUpdateContentRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WorkspaceFileContent",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -262,9 +328,15 @@ paths:
           description: uploaded
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/WorkspaceUploadResponse" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WorkspaceUploadResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -280,7 +352,11 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/SystemPromptResponse" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SystemPromptResponse",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

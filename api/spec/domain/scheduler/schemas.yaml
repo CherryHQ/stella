@@ -9,29 +9,47 @@ components:
       type: object
       required: [id, name, message, session_mode, enabled]
       properties:
-        id:           { type: string }
-        owner_kind:   { type: string, description: "Ownership class: 'user' or 'plugin'" }
-        plugin_id:    { type: string }
-        job_key:      { type: string }
+        id: { type: string }
+        owner_kind: {
+          type: string,
+          description: "Ownership class: 'user' or 'plugin'",
+        }
+        plugin_id: { type: string }
+        job_key: { type: string }
         runtime_name: { type: string }
-        name:         { type: string }
-        description:  { type: string }
-        cron:         { type: string, description: "Cron expression (mutually exclusive with every/at)" }
-        every:        { type: string, description: "Go duration string, e.g. '30m' (mutually exclusive with cron/at)" }
-        at:           { type: string, description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)" }
-        message:      { type: string, description: "Prompt/instruction to run on schedule" }
+        name: { type: string }
+        description: { type: string }
+        cron: {
+          type: string,
+          description: "Cron expression (mutually exclusive with every/at)",
+        }
+        every: {
+          type: string,
+          description: "Go duration string, e.g. '30m' (mutually exclusive with cron/at)",
+        }
+        at: {
+          type: string,
+          description: "RFC3339 one-time timestamp (mutually exclusive with cron/every)",
+        }
+        message: {
+          type: string,
+          description: "Prompt/instruction to run on schedule",
+        }
         payload:
           type: object
           additionalProperties: {}
           description: "Arbitrary structured data for plugin-owned jobs"
-        session_mode: { type: string, description: "Session behaviour: 'reuse' or 'new'" }
-        enabled:      { type: boolean }
-        agent_id:     { type: string }
-        user_id:      { type: integer, format: int64 }
-        created_at:   { type: string, format: date-time }
-        updated_at:   { type: string, format: date-time }
-        last_run_at:  { type: string, format: date-time, nullable: true }
-        last_error:   { type: string }
+        session_mode: {
+          type: string,
+          description: "Session behaviour: 'reuse' or 'new'",
+        }
+        enabled: { type: boolean }
+        agent_id: { type: string }
+        user_id: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_run_at: { type: string, format: date-time, nullable: true }
+        last_error: { type: string }
 
     JobList:
       type: object
@@ -43,30 +61,34 @@ components:
       type: object
       description: "Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required."
       properties:
-        name:         { type: string }
-        description:  { type: string }
-        cron:         { type: string }
-        every:        { type: string }
-        at:           { type: string }
-        message:      { type: string }
+        name: { type: string }
+        description: { type: string }
+        cron: { type: string }
+        every: { type: string }
+        at: { type: string }
+        message: { type: string }
         session_mode: { type: string }
-        enabled:      { type: boolean }
-        agent_id:     { type: string }
-        user_id:      { type: integer, format: int64, description: "Admin-only: set 0 for system jobs" }
+        enabled: { type: boolean }
+        agent_id: { type: string }
+        user_id: {
+          type: integer,
+          format: int64,
+          description: "Admin-only: set 0 for system jobs",
+        }
 
     JobRun:
       type: object
       required: [id, job_id, session_id, status, started_at]
       properties:
-        id:          { type: string }
-        job_id:      { type: string }
-        session_id:  { type: string }
-        user_id:     { type: integer, format: int64 }
-        status:      { type: string }
-        started_at:  { type: string }
+        id: { type: string }
+        job_id: { type: string }
+        session_id: { type: string }
+        user_id: { type: integer, format: int64 }
+        status: { type: string }
+        started_at: { type: string }
         finished_at: { type: string }
-        error:       { type: string }
-        duration:    { type: string }
+        error: { type: string }
+        duration: { type: string }
 
     JobRunList:
       type: array

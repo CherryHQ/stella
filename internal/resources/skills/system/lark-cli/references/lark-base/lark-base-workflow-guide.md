@@ -3,6 +3,7 @@
 本文档提供 Workflow 的完整构造示例、常见模式和错误避免指南。
 
 > **配套文档**:
+>
 > - Workflow 的数据结构参考：[lark-base-workflow-schema.md](lark-base-workflow-schema.md)
 > - 创建命令：[lark-base-workflow-create.md](lark-base-workflow-create.md)
 > - 更新命令：[lark-base-workflow-update.md](lark-base-workflow-update.md)
@@ -36,7 +37,9 @@
       "title": "发送通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "user", "value": {"id": "ou_xxxx", "name": "张三"} }],
+        "receiver": [
+          { "value_type": "user", "value": { "id": "ou_xxxx", "name": "张三" } }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "新订单提醒" }],
         "content": [
@@ -53,13 +56,13 @@
 
 ## 场景速查表
 
-| 场景 | 步骤组合 | 示例 |
-|------|---------|------|
-| 新增触发+通知 | AddRecordTrigger → LarkMessageAction | [下方](#示例1-新增记录触发--发送消息) |
-| 定时+循环 | TimerTrigger → FindRecordAction → Loop → LarkMessageAction | [下方](#示例2-定时触发--查找记录--循环遍历--发送消息) |
-| 条件判断 | ... → IfElseBranch → 分支处理 | [下方](#示例3-条件分支-ifelsebranch) |
-| 多路分类 | ... → SwitchBranch → 多分支处理 | [下方](#示例4-多路分支-switchbranch) |
-| 复杂组合 | 定时+查找+循环+分支+消息 | [下方](#示例5-组合场景-定时查找循环分支消息) |
+| 场景          | 步骤组合                                                   | 示例                                                  |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| 新增触发+通知 | AddRecordTrigger → LarkMessageAction                       | [下方](#示例1-新增记录触发--发送消息)                 |
+| 定时+循环     | TimerTrigger → FindRecordAction → Loop → LarkMessageAction | [下方](#示例2-定时触发--查找记录--循环遍历--发送消息) |
+| 条件判断      | ... → IfElseBranch → 分支处理                              | [下方](#示例3-条件分支-ifelsebranch)                  |
+| 多路分类      | ... → SwitchBranch → 多分支处理                            | [下方](#示例4-多路分支-switchbranch)                  |
+| 复杂组合      | 定时+查找+循环+分支+消息                                   | [下方](#示例5-组合场景-定时查找循环分支消息)          |
 
 ---
 
@@ -91,7 +94,9 @@
       "title": "发送订单通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "ref", "value": "$.step_trigger.fldManager" }],
+        "receiver": [
+          { "value_type": "ref", "value": "$.step_trigger.fldManager" }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "新订单提醒" }],
         "content": [
@@ -104,7 +109,9 @@
           {
             "text": "查看订单",
             "btn_action": "openLink",
-            "link": [{ "value_type": "ref", "value": "$.step_trigger.recordLink" }]
+            "link": [
+              { "value_type": "ref", "value": "$.step_trigger.recordLink" }
+            ]
           }
         ]
       }
@@ -114,6 +121,7 @@
 ```
 
 **关键点**:
+
 - `AddRecordTrigger` 监控 `table_name` 表的 `watched_field_name` 字段
 - 使用 `ref` 引用触发器输出的字段值（注意是 fieldId，不是字段名）
 - `recordLink` 是触发器内置输出，表示记录链接
@@ -155,7 +163,9 @@
             {
               "field_name": "状态",
               "operator": "is",
-              "value": [{ "value_type": "option", "value": { "name": "待处理" } }]
+              "value": [
+                { "value_type": "option", "value": { "name": "待处理" } }
+              ]
             }
           ]
         }
@@ -194,9 +204,15 @@
         "title": [{ "value_type": "text", "value": "订单处理提醒" }],
         "content": [
           { "value_type": "text", "value": "您好，您的订单 " },
-          { "value_type": "ref", "value": "$.step_loop_customers.item.fldName" },
+          {
+            "value_type": "ref",
+            "value": "$.step_loop_customers.item.fldName"
+          },
           { "value_type": "text", "value": " 金额 ¥" },
-          { "value_type": "ref", "value": "$.step_loop_customers.item.fldAmount" },
+          {
+            "value_type": "ref",
+            "value": "$.step_loop_customers.item.fldAmount"
+          },
           { "value_type": "text", "value": " 正在处理中。" }
         ],
         "btn_list": []
@@ -207,6 +223,7 @@
 ```
 
 **关键点**:
+
 - `Loop.data` 必须传入 `ref` 类型的数据源（通常是 FindRecordAction 的 `fieldRecords`）
 - `Loop.children.links` 必须包含 `kind: "loop_start"` 的链接指向循环体
 - 循环体内用 `$.{loopStepId}.item.{fieldId}` 引用当前遍历记录的字段
@@ -239,8 +256,18 @@
       "title": "判断是否为大额订单",
       "children": {
         "links": [
-          { "kind": "if_true", "to": "step_notify_manager", "label": "high", "desc": "金额>=10000" },
-          { "kind": "if_false", "to": "step_auto_approve", "label": "normal", "desc": "金额<10000" }
+          {
+            "kind": "if_true",
+            "to": "step_notify_manager",
+            "label": "high",
+            "desc": "金额>=10000"
+          },
+          {
+            "kind": "if_false",
+            "to": "step_auto_approve",
+            "label": "normal",
+            "desc": "金额<10000"
+          }
         ]
       },
       "next": "step_log",
@@ -252,7 +279,10 @@
               "conjunction": "and",
               "conditions": [
                 {
-                  "left_value": { "value_type": "ref", "value": "$.step_trigger.fldAmount" },
+                  "left_value": {
+                    "value_type": "ref",
+                    "value": "$.step_trigger.fldAmount"
+                  },
                   "operator": "isGreaterEqual",
                   "right_value": [{ "value_type": "number", "value": 10000 }]
                 }
@@ -268,7 +298,12 @@
       "title": "通知主管审批大额订单",
       "next": "step_log",
       "data": {
-        "receiver": [{ "value_type": "user", "value": {"id": "ou_manager", "name": "主管"} }],
+        "receiver": [
+          {
+            "value_type": "user",
+            "value": { "id": "ou_manager", "name": "主管" }
+          }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "大额订单待审批" }],
         "content": [
@@ -290,7 +325,9 @@
         "field_values": [
           {
             "field_name": "审批状态",
-            "value": [{ "value_type": "option", "value": { "name": "已自动审核" } }]
+            "value": [
+              { "value_type": "option", "value": { "name": "已自动审核" } }
+            ]
           }
         ]
       }
@@ -312,6 +349,7 @@
 ```
 
 **关键点**:
+
 - `IfElseBranch.children.links` 必须包含 `if_true` 和 `if_false` 两个分支
 - `next` 指向两个分支汇合后的步骤（可选，为 null 则分支结束）
 - `condition` 使用 OrGroup 结构，支持 `(A and B) or (C and D)` 的复杂条件
@@ -344,10 +382,30 @@
       "title": "按优先级分类",
       "children": {
         "links": [
-          { "kind": "case", "to": "step_p0_handler", "label": "p0", "desc": "P0-紧急" },
-          { "kind": "case", "to": "step_p1_handler", "label": "p1", "desc": "P1-高优先级" },
-          { "kind": "case", "to": "step_p2_handler", "label": "p2", "desc": "P2-普通" },
-          { "kind": "case", "to": "step_other_handler", "label": "other", "desc": "其他" }
+          {
+            "kind": "case",
+            "to": "step_p0_handler",
+            "label": "p0",
+            "desc": "P0-紧急"
+          },
+          {
+            "kind": "case",
+            "to": "step_p1_handler",
+            "label": "p1",
+            "desc": "P1-高优先级"
+          },
+          {
+            "kind": "case",
+            "to": "step_p2_handler",
+            "label": "p2",
+            "desc": "P2-普通"
+          },
+          {
+            "kind": "case",
+            "to": "step_other_handler",
+            "label": "other",
+            "desc": "其他"
+          }
         ]
       },
       "next": null,
@@ -364,9 +422,14 @@
                   "conjunction": "and",
                   "conditions": [
                     {
-                      "left_value": { "value_type": "ref", "value": "$.step_trigger.fldPriority" },
+                      "left_value": {
+                        "value_type": "ref",
+                        "value": "$.step_trigger.fldPriority"
+                      },
                       "operator": "is",
-                      "right_value": [{ "value_type": "option", "value": { "name": "P0" } }]
+                      "right_value": [
+                        { "value_type": "option", "value": { "name": "P0" } }
+                      ]
                     }
                   ]
                 }
@@ -382,9 +445,14 @@
                   "conjunction": "and",
                   "conditions": [
                     {
-                      "left_value": { "value_type": "ref", "value": "$.step_trigger.fldPriority" },
+                      "left_value": {
+                        "value_type": "ref",
+                        "value": "$.step_trigger.fldPriority"
+                      },
                       "operator": "is",
-                      "right_value": [{ "value_type": "option", "value": { "name": "P1" } }]
+                      "right_value": [
+                        { "value_type": "option", "value": { "name": "P1" } }
+                      ]
                     }
                   ]
                 }
@@ -400,9 +468,14 @@
                   "conjunction": "and",
                   "conditions": [
                     {
-                      "left_value": { "value_type": "ref", "value": "$.step_trigger.fldPriority" },
+                      "left_value": {
+                        "value_type": "ref",
+                        "value": "$.step_trigger.fldPriority"
+                      },
                       "operator": "is",
-                      "right_value": [{ "value_type": "option", "value": { "name": "P2" } }]
+                      "right_value": [
+                        { "value_type": "option", "value": { "name": "P2" } }
+                      ]
                     }
                   ]
                 }
@@ -418,10 +491,17 @@
       "title": "P0紧急处理",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "user", "value": {"id": "ou_director", "name": "总监"} }],
+        "receiver": [
+          {
+            "value_type": "user",
+            "value": { "id": "ou_director", "name": "总监" }
+          }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "🚨 P0 紧急订单" }],
-        "content": [{ "value_type": "text", "value": "有新的 P0 紧急订单需要立即处理" }],
+        "content": [
+          { "value_type": "text", "value": "有新的 P0 紧急订单需要立即处理" }
+        ],
         "btn_list": []
       }
     },
@@ -434,7 +514,10 @@
         "table_name": "订单表",
         "ref_info": { "step_id": "step_trigger" },
         "field_values": [
-          { "field_name": "处理状态", "value": [{ "value_type": "text", "value": "高优先级待处理" }] }
+          {
+            "field_name": "处理状态",
+            "value": [{ "value_type": "text", "value": "高优先级待处理" }]
+          }
         ]
       }
     },
@@ -454,7 +537,10 @@
         "table_name": "订单表",
         "ref_info": { "step_id": "step_trigger" },
         "field_values": [
-          { "field_name": "处理状态", "value": [{ "value_type": "text", "value": "待分类" }] }
+          {
+            "field_name": "处理状态",
+            "value": [{ "value_type": "text", "value": "待分类" }]
+          }
         ]
       }
     }
@@ -463,6 +549,7 @@
 ```
 
 **关键点**:
+
 - `SwitchBranch` 适合 3 路及以上的分支场景（少于 3 路用 `IfElseBranch` 更简洁）
 - `children.links` 中 `kind: "case"` 的 `label` 对应 `child_branch_list` 中的条件
 - `mode: "exclusive"` 表示排他执行（第一个匹配的分支执行后停止）
@@ -502,7 +589,11 @@
         "filter_info": {
           "conjunction": "and",
           "conditions": [
-            { "field_name": "创建时间", "operator": "isGreaterEqual", "value": [{ "value_type": "date", "value": "yesterday" }] }
+            {
+              "field_name": "创建时间",
+              "operator": "isGreaterEqual",
+              "value": [{ "value_type": "date", "value": "yesterday" }]
+            }
           ]
         }
       }
@@ -520,7 +611,9 @@
       "data": {
         "loop_mode": "continue",
         "max_loop_times": 500,
-        "data": [{ "value_type": "ref", "value": "$.step_find_orders.fieldRecords" }]
+        "data": [
+          { "value_type": "ref", "value": "$.step_find_orders.fieldRecords" }
+        ]
       }
     },
     {
@@ -529,8 +622,18 @@
       "title": "按金额分类",
       "children": {
         "links": [
-          { "kind": "case", "to": "step_vip_notify", "label": "vip", "desc": "VIP >= 10万" },
-          { "kind": "case", "to": "step_normal_notify", "label": "normal", "desc": "普通 < 10万" }
+          {
+            "kind": "case",
+            "to": "step_vip_notify",
+            "label": "vip",
+            "desc": "VIP >= 10万"
+          },
+          {
+            "kind": "case",
+            "to": "step_normal_notify",
+            "label": "normal",
+            "desc": "普通 < 10万"
+          }
         ]
       },
       "next": null,
@@ -547,9 +650,14 @@
                   "conjunction": "and",
                   "conditions": [
                     {
-                      "left_value": { "value_type": "ref", "value": "$.step_loop.item.fldAmount" },
+                      "left_value": {
+                        "value_type": "ref",
+                        "value": "$.step_loop.item.fldAmount"
+                      },
                       "operator": "isGreaterEqual",
-                      "right_value": [{ "value_type": "number", "value": 100000 }]
+                      "right_value": [
+                        { "value_type": "number", "value": 100000 }
+                      ]
                     }
                   ]
                 }
@@ -565,9 +673,14 @@
                   "conjunction": "and",
                   "conditions": [
                     {
-                      "left_value": { "value_type": "ref", "value": "$.step_loop.item.fldAmount" },
+                      "left_value": {
+                        "value_type": "ref",
+                        "value": "$.step_loop.item.fldAmount"
+                      },
                       "operator": "isLess",
-                      "right_value": [{ "value_type": "number", "value": 100000 }]
+                      "right_value": [
+                        { "value_type": "number", "value": 100000 }
+                      ]
                     }
                   ]
                 }
@@ -583,7 +696,9 @@
       "title": "VIP订单通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "ref", "value": "$.step_loop.item.fldSales" }],
+        "receiver": [
+          { "value_type": "ref", "value": "$.step_loop.item.fldSales" }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "🌟 VIP大额订单" }],
         "content": [
@@ -601,7 +716,9 @@
       "title": "普通订单通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "ref", "value": "$.step_loop.item.fldSales" }],
+        "receiver": [
+          { "value_type": "ref", "value": "$.step_loop.item.fldSales" }
+        ],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "新订单通知" }],
         "content": [
@@ -651,13 +768,13 @@
 
 ### 字段值构造
 
-| 字段类型 | value_type | 示例 |
-|---------|------------|------|
-| 文本 | `text` | `{"value_type": "text", "value": "张三"}` |
-| 数字 | `number` | `{"value_type": "number", "value": 100}` |
-| 单选 | `option` | `{"value_type": "option", "value": {"name": "已完成"}}` |
-| 人员 | `user` | `{"value_type": "user", "value": {"id": "ou_xxxx"}}` |
-| 引用 | `ref` | `{"value_type": "ref", "value": "$.step_1.fldxxx"}` |
+| 字段类型 | value_type | 示例                                                    |
+| -------- | ---------- | ------------------------------------------------------- |
+| 文本     | `text`     | `{"value_type": "text", "value": "张三"}`               |
+| 数字     | `number`   | `{"value_type": "number", "value": 100}`                |
+| 单选     | `option`   | `{"value_type": "option", "value": {"name": "已完成"}}` |
+| 人员     | `user`     | `{"value_type": "user", "value": {"id": "ou_xxxx"}}`    |
+| 引用     | `ref`      | `{"value_type": "ref", "value": "$.step_1.fldxxx"}`     |
 
 ---
 
@@ -665,22 +782,23 @@
 
 ### Top 10 高频错误
 
-| # | 错误信息 | 原因 | 解决方案 |
-|---|---------|------|---------|
-| 1 | `path "xxx" does not exist in the output path tree` | ref 引用路径错误或 stepId 不存在 | 检查 stepId 是否在 steps 数组中；使用 fieldId 而非字段名；确保路径以 `$.` 开头 |
-| 2 | `recordInfo.conditions must be non-empty` | `condition_list` 为空数组 `[]` | 改用 `null` 或省略该字段 |
-| 3 | `At least one of filter info and ref info is required` | SetRecordAction/FindRecordAction 缺少定位条件 | 必须提供 `filter_info` 或 `ref_info` 之一 |
-| 4 | `client token is empty` | 缺少 `client_token` | 每次请求传入唯一值（时间戳或随机字符串） |
-| 5 | `valueType 'text' not allowed for fieldType '3'` | select 类型字段值格式错误 | 改用 `option` 类型 |
-| 6 | `Undefined Step Type` | 使用了不支持的 StepType | 使用 `AddRecordTrigger` 而非 `CreateRecordTrigger` |
-| 7 | `prompt references an unknown reference from step` | 引用的 stepId 不存在 | 确保引用的 step 在同一 workflow 的 steps 数组中 |
-| 8 | `[2200] Internal Error` | 1. steps[].id 重复 2. next/children.links 引用了不存在的 step | 确保所有 step id 唯一；检查引用关系 |
-| 9 | 工作流结构不完整 | Branch/Loop 节点缺少 `children` | 仅 Branch（IfElseBranch/SwitchBranch）和 Loop 节点需要 `children`，Trigger/Action 节点无需设置 |
-| 10 | 嵌套分支过于复杂 | 多层 IfElseBranch 嵌套 | 3+ 路分支用 SwitchBranch 替代嵌套 IfElseBranch |
+| #  | 错误信息                                               | 原因                                                          | 解决方案                                                                                       |
+| -- | ------------------------------------------------------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 1  | `path "xxx" does not exist in the output path tree`    | ref 引用路径错误或 stepId 不存在                              | 检查 stepId 是否在 steps 数组中；使用 fieldId 而非字段名；确保路径以 `$.` 开头                 |
+| 2  | `recordInfo.conditions must be non-empty`              | `condition_list` 为空数组 `[]`                                | 改用 `null` 或省略该字段                                                                       |
+| 3  | `At least one of filter info and ref info is required` | SetRecordAction/FindRecordAction 缺少定位条件                 | 必须提供 `filter_info` 或 `ref_info` 之一                                                      |
+| 4  | `client token is empty`                                | 缺少 `client_token`                                           | 每次请求传入唯一值（时间戳或随机字符串）                                                       |
+| 5  | `valueType 'text' not allowed for fieldType '3'`       | select 类型字段值格式错误                                     | 改用 `option` 类型                                                                             |
+| 6  | `Undefined Step Type`                                  | 使用了不支持的 StepType                                       | 使用 `AddRecordTrigger` 而非 `CreateRecordTrigger`                                             |
+| 7  | `prompt references an unknown reference from step`     | 引用的 stepId 不存在                                          | 确保引用的 step 在同一 workflow 的 steps 数组中                                                |
+| 8  | `[2200] Internal Error`                                | 1. steps[].id 重复 2. next/children.links 引用了不存在的 step | 确保所有 step id 唯一；检查引用关系                                                            |
+| 9  | 工作流结构不完整                                       | Branch/Loop 节点缺少 `children`                               | 仅 Branch（IfElseBranch/SwitchBranch）和 Loop 节点需要 `children`，Trigger/Action 节点无需设置 |
+| 10 | 嵌套分支过于复杂                                       | 多层 IfElseBranch 嵌套                                        | 3+ 路分支用 SwitchBranch 替代嵌套 IfElseBranch                                                 |
 
 ### 其他常见错误
 
 **1. condition_list 为空数组**
+
 ```json
 // ❌ 错误
 { "condition_list": [] }
@@ -691,6 +809,7 @@
 ```
 
 **2. filter_info 和 ref_info 同时提供**
+
 ```json
 // ❌ 错误
 { "filter_info": {...}, "ref_info": {...} }
@@ -701,6 +820,7 @@
 ```
 
 **3. 使用字段名而非 fieldId**
+
 ```json
 // ❌ 错误
 { "value": "$.step_1.客户名称" }

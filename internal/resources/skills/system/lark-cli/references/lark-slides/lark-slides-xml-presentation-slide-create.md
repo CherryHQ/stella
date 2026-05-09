@@ -12,10 +12,10 @@ lark-cli slides xml_presentation.slide create --as user --params '<json_params>'
 
 ## 参数说明
 
-| 参数 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `--params` | JSON string | 是 | 路径参数与查询参数 |
-| `--data` | JSON string | 是 | 请求体，包含新页面内容 |
+| 参数       | 类型        | 必需 | 说明                   |
+| ---------- | ----------- | ---- | ---------------------- |
+| `--params` | JSON string | 是   | 路径参数与查询参数     |
+| `--data`   | JSON string | 是   | 请求体，包含新页面内容 |
 
 ### params JSON 结构
 
@@ -27,11 +27,11 @@ lark-cli slides xml_presentation.slide create --as user --params '<json_params>'
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `xml_presentation_id` | string | 是 | 目标演示文稿的唯一标识符 |
-| `revision_id` | integer | 否 | 演示文稿版本号，`-1` 表示最新版本 |
-| `tid` | string | 否 | 锁的事务 ID |
+| 字段                  | 类型    | 必需 | 说明                              |
+| --------------------- | ------- | ---- | --------------------------------- |
+| `xml_presentation_id` | string  | 是   | 目标演示文稿的唯一标识符          |
+| `revision_id`         | integer | 否   | 演示文稿版本号，`-1` 表示最新版本 |
+| `tid`                 | string  | 否   | 锁的事务 ID                       |
 
 ### data JSON 结构
 
@@ -45,11 +45,11 @@ lark-cli slides xml_presentation.slide create --as user --params '<json_params>'
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `slide.slide_id` | string | 否 | 幻灯片页面 short ID |
-| `slide.content` | string | 否 | 新幻灯片的 XML 内容 |
-| `before_slide_id` | string | 否 | 插入到指定页面之前 |
+| 字段              | 类型   | 必需 | 说明                |
+| ----------------- | ------ | ---- | ------------------- |
+| `slide.slide_id`  | string | 否   | 幻灯片页面 short ID |
+| `slide.content`   | string | 否   | 新幻灯片的 XML 内容 |
+| `before_slide_id` | string | 否   | 插入到指定页面之前  |
 
 ## slide XML 结构
 
@@ -152,18 +152,18 @@ lark-cli slides xml_presentation.slide create --as user \
 
 ### 返回字段说明
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `data.slide_id` | string | 新幻灯片的唯一标识 |
+| 字段               | 类型    | 说明               |
+| ------------------ | ------- | ------------------ |
+| `data.slide_id`    | string  | 新幻灯片的唯一标识 |
 | `data.revision_id` | integer | 演示文稿最新版本号 |
 
 ## slide 元素可用子元素
 
-| 元素 | 说明 |
-|------|------|
-| `<style>` | 页面样式（背景填充） |
-| `<data>` | 图形元素容器（shape、img、table、chart 等） |
-| `<note>` | 演讲者备注 |
+| 元素      | 说明                                        |
+| --------- | ------------------------------------------- |
+| `<style>` | 页面样式（背景填充）                        |
+| `<data>`  | 图形元素容器（shape、img、table、chart 等） |
+| `<note>`  | 演讲者备注                                  |
 
 > [!IMPORTANT]
 > **本地图片必须先上传**：`xml_presentation.slide.create` 不识别 `@./local.png` 占位符（那是 `+create --slides` 的语法糖）。直接调本接口添加带图新页时，必须先用 [`slides +media-upload`](lark-slides-media-upload.md) 拿到 `file_token`，再写进 `<img src="<file_token>">`。
@@ -172,12 +172,12 @@ lark-cli slides xml_presentation.slide create --as user \
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 404 | 演示文稿不存在 | 检查 `xml_presentation_id` 是否正确 |
-| 400 | XML 格式错误 | 检查 `slide.content` 是否是完整 `<slide>` 元素 |
-| 400 | 请求体结构错误 | 检查是否按 `slide.content` 和 `before_slide_id` 包装 |
-| 403 | 权限不足 | 检查是否拥有 `slides:presentation:update` 或 `slides:presentation:write_only` scope |
+| 错误码 | 含义           | 解决方案                                                                            |
+| ------ | -------------- | ----------------------------------------------------------------------------------- |
+| 404    | 演示文稿不存在 | 检查 `xml_presentation_id` 是否正确                                                 |
+| 400    | XML 格式错误   | 检查 `slide.content` 是否是完整 `<slide>` 元素                                      |
+| 400    | 请求体结构错误 | 检查是否按 `slide.content` 和 `before_slide_id` 包装                                |
+| 403    | 权限不足       | 检查是否拥有 `slides:presentation:update` 或 `slides:presentation:write_only` scope |
 
 ## 注意事项
 

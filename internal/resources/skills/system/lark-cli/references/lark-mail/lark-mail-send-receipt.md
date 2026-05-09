@@ -28,13 +28,13 @@ lark-cli mail +send-receipt --message-id <message-id> --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 默认 | 说明 |
-|------|------|------|------|
-| `--message-id <id>` | 是 | — | 请求了已读回执的原邮件 message ID |
-| `--mailbox <email>` | 否 | `me` | 回执邮件归属的邮箱 |
-| `--from <email>` | 否 | 邮箱主地址 | 回执 From 头 |
-| `--yes` | 是 | — | 确认高危写操作。仅在用户明确同意发回执后附上 |
-| `--dry-run` | 否 | — | 仅打印请求，不执行 |
+| 参数                | 必填 | 默认       | 说明                                         |
+| ------------------- | ---- | ---------- | -------------------------------------------- |
+| `--message-id <id>` | 是   | —          | 请求了已读回执的原邮件 message ID            |
+| `--mailbox <email>` | 否   | `me`       | 回执邮件归属的邮箱                           |
+| `--from <email>`    | 否   | 邮箱主地址 | 回执 From 头                                 |
+| `--yes`             | 是   | —          | 确认高危写操作。仅在用户明确同意发回执后附上 |
+| `--dry-run`         | 否   | —          | 仅打印请求，不执行                           |
 
 > **没有 `--body` 参数**：回执正文**由命令自动生成**（见下方"行为细节"），对齐业界惯例（Outlook / Thunderbird / Lark 客户端等均不支持逐封自定义回执正文）。若真需要自由回复，请改用 `mail +reply`——那本来就是"自由回复"的命令，不该与"已读回执"混用。
 
@@ -42,17 +42,17 @@ lark-cli mail +send-receipt --message-id <message-id> --dry-run
 
 - **Subject**：按原邮件主题语言（`detectSubjectLang`）自动选前缀 —— <code>已读回执：&lt;原邮件主题&gt;</code>（zh）或 <code>Read receipt:&nbsp;&lt;原邮件主题&gt;</code>（en）。后端 `GetRealSubject` 正则剥除这两类前缀用于会话聚合，zh 已内置；en 需在 TCC `MailPrefixConfig.SubjectPrefixListForAdvancedSearch` 加入 `Read receipt:`。
 - **正文**（自动生成，纯文本 + HTML 双版本走 `multipart/alternative`）：
-    - 按原邮件主题语言（`detectSubjectLang`）在 `zh` 与 `en` 之间切换，label 套通过 `receiptMetaLabels` 集中维护
-    - 结构化 4 行（纯文本版，zh）：
-      ```text
-      您发送的邮件已被阅读，详情如下：
-      > 主题：<原邮件主题>
-      > 收件人：<回执发件人地址>
-      > 发送时间：<原邮件发送时间>
-      > 阅读时间：<当前时间>
-      ```
-    - en 版：`Your message has been read. Details:` + <code>Subject:&nbsp;</code> / <code>To:&nbsp;</code> / <code>Sent:&nbsp;</code> / <code>Read:&nbsp;</code>
-    - HTML 版同信息量，包在一个浅灰 quote-block
+  - 按原邮件主题语言（`detectSubjectLang`）在 `zh` 与 `en` 之间切换，label 套通过 `receiptMetaLabels` 集中维护
+  - 结构化 4 行（纯文本版，zh）：
+    ```text
+    您发送的邮件已被阅读，详情如下：
+    > 主题：<原邮件主题>
+    > 收件人：<回执发件人地址>
+    > 发送时间：<原邮件发送时间>
+    > 阅读时间：<当前时间>
+    ```
+  - en 版：`Your message has been read. Details:` + <code>Subject:&nbsp;</code> / <code>To:&nbsp;</code> / <code>Sent:&nbsp;</code> / <code>Read:&nbsp;</code>
+  - HTML 版同信息量，包在一个浅灰 quote-block
 - **会话挂接**：自动设置 `In-Reply-To`（原信的 SMTP Message-ID）和 `References`（原信 references + 原信 SMTP Message-ID），保证在发件人邮箱里聚合到原邮件回复链。
 - **发送路径**：走现有 drafts raw 路径（`drafts.create` + `drafts.send`），与 `+send` / `+reply` 共用基础设施。后端会自动标记这是一封回执邮件并在原邮件会话里清除"请求回执"状态。
 - **即时发送**：本命令不支持保存草稿——回执邮件按语义是"立即告知对方已读"，保存草稿无意义。
@@ -63,8 +63,8 @@ lark-cli mail +send-receipt --message-id <message-id> --dry-run
 {
   "ok": true,
   "data": {
-    "message_id":             "回执邮件的 message ID",
-    "thread_id":              "挂到原会话的 thread ID",
+    "message_id": "回执邮件的 message ID",
+    "thread_id": "挂到原会话的 thread ID",
     "receipt_for_message_id": "原邮件的 message ID"
   }
 }

@@ -13,10 +13,10 @@ lark-cli task +comment --task-id "<task_guid>" --content "Looks good!"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to comment on. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
-| `--content <text>` | Yes | The text content of the comment. |
+| Parameter          | Required | Description                                                                                                                                         |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--task-id <guid>` | Yes      | The task GUID to comment on. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--content <text>` | Yes      | The text content of the comment.                                                                                                                    |
 
 ## Workflow
 

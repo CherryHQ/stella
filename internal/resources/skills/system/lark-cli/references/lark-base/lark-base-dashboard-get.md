@@ -14,12 +14,12 @@ lark-cli base +dashboard-get \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID |
-| `--format <fmt>` | 否 | 输出格式 |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                  |
+| ---------------------- | ---- | --------------------- |
+| `--base-token <token>` | 是   | Base Token            |
+| `--dashboard-id <id>`  | 是   | 仪表盘 ID             |
+| `--format <fmt>`       | 否   | 输出格式              |
+| `--dry-run`            | 否   | 预览 API 调用，不执行 |
 
 ## 返回示例
 
@@ -47,12 +47,12 @@ lark-cli base +dashboard-get \
 
 ## 返回重点
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `dashboard_id` | string | 仪表盘 ID（如 `blkxxxxxxxxxxxx`）|
-| `name` | string | 仪表盘名称 |
-| `theme.theme_style` | string | 主题风格：`default` / `SimpleBlue` / `DarkGreen` / `summerBreeze` / `simplistic` / `energetic` / `deepDark` / `futuristic` |
-| `blocks` | []object | 组件列表，每项包含 `block_id`（组件ID）、`block_name`（名称）、`block_type`（类型，如 `column`/`line`/`pie`）|
+| 字段                | 类型     | 说明                                                                                                                       |
+| ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `dashboard_id`      | string   | 仪表盘 ID（如 `blkxxxxxxxxxxxx`）                                                                                          |
+| `name`              | string   | 仪表盘名称                                                                                                                 |
+| `theme.theme_style` | string   | 主题风格：`default` / `SimpleBlue` / `DarkGreen` / `summerBreeze` / `simplistic` / `energetic` / `deepDark` / `futuristic` |
+| `blocks`            | []object | 组件列表，每项包含 `block_id`（组件ID）、`block_name`（名称）、`block_type`（类型，如 `column`/`line`/`pie`）              |
 
 ## 参考
 

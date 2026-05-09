@@ -1,4 +1,3 @@
-
 # calendar +create
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -30,16 +29,16 @@ lark-cli calendar +create --summary "..." --start "..." --end "..." \
 
 参数：
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--summary <text>` | 否 | 日程标题。注意：标题中不应该出现时间、地点、人物信息 |
-| `--start <time>` | 是 | 开始时间（ISO 8601，如 `2026-03-12T14:00+08:00`） |
-| `--end <time>` | 是 | 结束时间（ISO 8601） |
-| `--description <text>` | 否 | 日程详细描述。提供会议议程、活动内容、注意事项或链接等。与 summary 配合使用，仅关注当前日程信息 |
-| `--attendee-ids <id_list>` | 否 | 参与人 ID 列表（逗号分隔）。支持用户（`ou_`）、群组（`oc_`）和会议室（`omm_`）。AI 提取时请务必保留对应前缀 |
-| `--calendar-id <id>` | 否 | 日历 ID（省略则使用主日历） |
-| `--rrule <rrule>` | 否 | 重复日程的重复性规则，规则设置方式参考rfc5545。**【⚠️注意：系统绝对不支持 COUNT，如需限制重复次数，必须转为 UNTIL】**。示例值："FREQ=DAILY;INTERVAL=1" |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                       | 必填 | 说明                                                                                                                                                  |
+| -------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--summary <text>`         | 否   | 日程标题。注意：标题中不应该出现时间、地点、人物信息                                                                                                  |
+| `--start <time>`           | 是   | 开始时间（ISO 8601，如 `2026-03-12T14:00+08:00`）                                                                                                     |
+| `--end <time>`             | 是   | 结束时间（ISO 8601）                                                                                                                                  |
+| `--description <text>`     | 否   | 日程详细描述。提供会议议程、活动内容、注意事项或链接等。与 summary 配合使用，仅关注当前日程信息                                                       |
+| `--attendee-ids <id_list>` | 否   | 参与人 ID 列表（逗号分隔）。支持用户（`ou_`）、群组（`oc_`）和会议室（`omm_`）。AI 提取时请务必保留对应前缀                                           |
+| `--calendar-id <id>`       | 否   | 日历 ID（省略则使用主日历）                                                                                                                           |
+| `--rrule <rrule>`          | 否   | 重复日程的重复性规则，规则设置方式参考rfc5545。**【⚠️注意：系统绝对不支持 COUNT，如需限制重复次数，必须转为 UNTIL】**。示例值："FREQ=DAILY;INTERVAL=1" |
+| `--dry-run`                | 否   | 预览 API 调用，不执行                                                                                                                                 |
 
 > **⚠️ `rrule` 规则限制：飞书日历系统不支持 `COUNT` 参数。遇到限制重复次数的需求，必须根据开始时间和频率自行推算并转换成 `UNTIL=<具体日期>` 格式。**
 > 自动设置 `attendee_ability: "can_modify_event"`，参会人可查看彼此并编辑日程。
@@ -52,6 +51,7 @@ lark-cli calendar +create --summary "..." --start "..." --end "..." \
 
 如需配置 `location`（地理位置，不含会议室位置）、`visibility`（日程公开范围）、自定义 `reminders`（提醒设置）、自定义 `attendee_ability`（参与人权限）、自定义 `free_busy_status`（日程忙闲状态）、参与人可选参加状态或全天日程等高级参数，请使用完整的 API 命令：
 **注意**：
+
 - 全天日程的开始日期和结束日期必须分别是日程开始的第一天和结束的最后一天。如果只有一天的话，开始日期和结束日期是相同。
 
 ```bash
@@ -84,7 +84,6 @@ lark-cli schema calendar.events.delete
 lark-cli calendar events delete \
   --calendar-id <CALENDAR_ID> --event-id <EVENT_ID> \
   --params '{"need_notification":false}'
-
 ```
 
 > 完整 API 命令的时间参数是 **Unix 秒字符串**（非 ISO 8601）。
@@ -92,12 +91,12 @@ lark-cli calendar events delete \
 
 ## 参会人类型
 
-| `type` | `user_id` 格式 | 说明 |
-|--------|---------------|------|
-| `user` | `ou_xxx`（open_id） | 飞书用户 |
-| `group` | `oc_xxx` | 飞书群组 |
-| `resource` | `omm_xxx` | 会议室 |
-| `third_party` | 邮箱地址 | 外部参会人 |
+| `type`        | `user_id` 格式      | 说明       |
+| ------------- | ------------------- | ---------- |
+| `user`        | `ou_xxx`（open_id） | 飞书用户   |
+| `group`       | `oc_xxx`            | 飞书群组   |
+| `resource`    | `omm_xxx`           | 会议室     |
+| `third_party` | 邮箱地址            | 外部参会人 |
 
 > [!CAUTION]
 > 这是**写入操作** -- 执行前必须确认用户意图。

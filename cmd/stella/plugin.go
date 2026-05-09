@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/config"
 	ucli "github.com/urfave/cli/v2"
+
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 func pluginCommand() *ucli.Command {

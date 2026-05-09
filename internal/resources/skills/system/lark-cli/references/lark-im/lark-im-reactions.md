@@ -19,12 +19,12 @@ It focuses on:
 
 ## Command Overview
 
-| Method | HTTP | Path | Purpose |
-|---|---|---|---|
-| `im.reactions.create` | `POST` | `/open-apis/im/v1/messages/{message_id}/reactions` | Add a reaction to one message |
-| `im.reactions.list` | `GET` | `/open-apis/im/v1/messages/{message_id}/reactions` | List reaction records on one message |
-| `im.reactions.delete` | `DELETE` | `/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}` | Delete one specific reaction record |
-| `im.reactions.batch_query` | `POST` | `/open-apis/im/v1/messages/reactions/batch_query` | Query reactions for multiple messages in one request |
+| Method                     | HTTP     | Path                                                             | Purpose                                              |
+| -------------------------- | -------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
+| `im.reactions.create`      | `POST`   | `/open-apis/im/v1/messages/{message_id}/reactions`               | Add a reaction to one message                        |
+| `im.reactions.list`        | `GET`    | `/open-apis/im/v1/messages/{message_id}/reactions`               | List reaction records on one message                 |
+| `im.reactions.delete`      | `DELETE` | `/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}` | Delete one specific reaction record                  |
+| `im.reactions.batch_query` | `POST`   | `/open-apis/im/v1/messages/reactions/batch_query`                | Query reactions for multiple messages in one request |
 
 ## Common Notes
 
@@ -94,13 +94,13 @@ lark-cli im reactions list --params '{"message_id":"om_xxx","user_id_type":"open
 
 ### Request Parameters (`--params`)
 
-| Parameter | Required | Description |
-|---|---|---|
-| `message_id` | Yes | Message ID (`om_xxx`) |
-| `reaction_type` | No | Filter by one emoji type such as `SMILE` or `LAUGH` |
-| `page_size` | No | Number of records per page. Default is 20 |
-| `page_token` | No | Pagination token from the previous page |
-| `user_id_type` | No | Returned operator ID type when `operator_type=user`: `open_id`, `union_id`, or `user_id` |
+| Parameter       | Required | Description                                                                              |
+| --------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `message_id`    | Yes      | Message ID (`om_xxx`)                                                                    |
+| `reaction_type` | No       | Filter by one emoji type such as `SMILE` or `LAUGH`                                      |
+| `page_size`     | No       | Number of records per page. Default is 20                                                |
+| `page_token`    | No       | Pagination token from the previous page                                                  |
+| `user_id_type`  | No       | Returned operator ID type when `operator_type=user`: `open_id`, `union_id`, or `user_id` |
 
 ### Response Shape
 
@@ -126,27 +126,27 @@ lark-cli im reactions list --params '{"message_id":"om_xxx","user_id_type":"open
 
 ### Top-Level Fields
 
-| Field | Type | Meaning |
-|---|---|---|
-| `items` | `array<object>` | Reaction records for the current page |
-| `has_more` | `boolean` | Whether more pages are available |
-| `page_token` | `string` | Token for the next page when `has_more=true` |
+| Field        | Type            | Meaning                                      |
+| ------------ | --------------- | -------------------------------------------- |
+| `items`      | `array<object>` | Reaction records for the current page        |
+| `has_more`   | `boolean`       | Whether more pages are available             |
+| `page_token` | `string`        | Token for the next page when `has_more=true` |
 
 ### `items[]` Fields
 
-| Field | Type | Meaning |
-|---|---|---|
-| `reaction_id` | `string` | Unique ID of this reaction record |
-| `operator` | `object` | Identity of the user or app that added the reaction |
-| `action_time` | `string` | Unix timestamp in milliseconds |
-| `reaction_type` | `object` | Reaction payload. The key field is `emoji_type` |
+| Field           | Type     | Meaning                                             |
+| --------------- | -------- | --------------------------------------------------- |
+| `reaction_id`   | `string` | Unique ID of this reaction record                   |
+| `operator`      | `object` | Identity of the user or app that added the reaction |
+| `action_time`   | `string` | Unix timestamp in milliseconds                      |
+| `reaction_type` | `object` | Reaction payload. The key field is `emoji_type`     |
 
 ### `operator` Fields
 
-| Field | Type | Meaning |
-|---|---|---|
-| `operator.operator_id` | `string` | Operator ID. If `operator_type=user`, the returned ID type follows `user_id_type`; if `operator_type=app`, this is the app ID |
-| `operator.operator_type` | `string` | `user` or `app` |
+| Field                    | Type     | Meaning                                                                                                                       |
+| ------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `operator.operator_id`   | `string` | Operator ID. If `operator_type=user`, the returned ID type follows `user_id_type`; if `operator_type=app`, this is the app ID |
+| `operator.operator_type` | `string` | `user` or `app`                                                                                                               |
 
 ## delete
 
@@ -192,29 +192,29 @@ lark-cli im reactions batch_query \
 
 #### `--params`
 
-| Parameter | Required | Description |
-|---|---|---|
-| `user_id_type` | No | Returned user ID type in operator info: `open_id`, `union_id`, or `user_id` |
+| Parameter      | Required | Description                                                                 |
+| -------------- | -------- | --------------------------------------------------------------------------- |
+| `user_id_type` | No       | Returned user ID type in operator info: `open_id`, `union_id`, or `user_id` |
 
 #### `--data`
 
-| Field | Required | Description |
-|---|---|---|
-| `queries` | Yes | Array of target messages |
-| `queries[].message_id` | No | Message ID to query |
-| `queries[].page_token` | No | Continuation token for that message |
-| `page_size_per_message` | No | Max reactions returned per message |
-| `reaction_type` | No | Filter by one emoji type |
+| Field                   | Required | Description                         |
+| ----------------------- | -------- | ----------------------------------- |
+| `queries`               | Yes      | Array of target messages            |
+| `queries[].message_id`  | No       | Message ID to query                 |
+| `queries[].page_token`  | No       | Continuation token for that message |
+| `page_size_per_message` | No       | Max reactions returned per message  |
+| `reaction_type`         | No       | Filter by one emoji type            |
 
 ### Response
 
 The meta definition contains three top-level result groups:
 
-| Field | Meaning |
-|---|---|
-| `success_msg_reaction_details` | Per-message reaction detail records |
-| `success_msg_reaction_counts` | Per-message aggregated reaction counts |
-| `fail_msg_reaction_details` | Query failures for individual messages |
+| Field                          | Meaning                                |
+| ------------------------------ | -------------------------------------- |
+| `success_msg_reaction_details` | Per-message reaction detail records    |
+| `success_msg_reaction_counts`  | Per-message aggregated reaction counts |
+| `fail_msg_reaction_details`    | Query failures for individual messages |
 
 #### `success_msg_reaction_details`
 

@@ -21,10 +21,10 @@ lark-cli mail +signature --from shared@example.com
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--from <email>` | 否 | 邮箱地址（默认 `me`） |
-| `--detail <id>` | 否 | 签名 ID，查看详情。省略则列出所有签名 |
+| 参数             | 必填 | 说明                                  |
+| ---------------- | ---- | ------------------------------------- |
+| `--from <email>` | 否   | 邮箱地址（默认 `me`）                 |
+| `--detail <id>`  | 否   | 签名 ID，查看详情。省略则列出所有签名 |
 
 ## 返回值
 
@@ -66,9 +66,13 @@ lark-cli mail +signature --from shared@example.com
     "is_send_default": true,
     "is_reply_default": true,
     "images": [
-      {"cid": "76CEB29E-...", "file_key": "121011...", "image_name": "image.png"}
+      {
+        "cid": "76CEB29E-...",
+        "file_key": "121011...",
+        "image_name": "image.png"
+      }
     ],
-    "template_vars": {"B-NAME": "陈煌", "B-DEPARTMENT": "研发团队"},
+    "template_vars": { "B-NAME": "陈煌", "B-DEPARTMENT": "研发团队" },
     "content_preview": "企业签名 姓名：陈煌 部门：研发团队"
   }
 }
@@ -76,14 +80,14 @@ lark-cli mail +signature --from shared@example.com
 
 ## 字段说明
 
-| 字段 | 说明 |
-|------|------|
-| `type` | `USER`（用户签名，可编辑）或 `TENANT`（企业签名，管理员模板控制） |
-| `is_send_default` | 是否为新邮件的默认签名 |
-| `is_reply_default` | 是否为回复/转发的默认签名 |
-| `images` | 签名内联图片元数据（仅详情模式） |
-| `template_vars` | TENANT 签名的模板变量已替换值（仅详情模式） |
-| `content_preview` | 签名内容的纯文本预览（`<img>` 显示为 `[image]`，最长 200 字符） |
+| 字段               | 说明                                                              |
+| ------------------ | ----------------------------------------------------------------- |
+| `type`             | `USER`（用户签名，可编辑）或 `TENANT`（企业签名，管理员模板控制） |
+| `is_send_default`  | 是否为新邮件的默认签名                                            |
+| `is_reply_default` | 是否为回复/转发的默认签名                                         |
+| `images`           | 签名内联图片元数据（仅详情模式）                                  |
+| `template_vars`    | TENANT 签名的模板变量已替换值（仅详情模式）                       |
+| `content_preview`  | 签名内容的纯文本预览（`<img>` 显示为 `[image]`，最长 200 字符）   |
 
 ## 与 compose shortcut 配合
 

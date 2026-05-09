@@ -25,15 +25,14 @@ lark-cli base +record-upload-attachment \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--record-id <id>` | 是 | 记录 ID |
-| `--field-id <id_or_name>` | 是 | 附件字段 ID 或字段名 |
-| `--file <path>` | 是 | 本地文件路径，最大 2GB |
-| `--name <name>` | 否 | 写入附件字段时显示的文件名，默认使用本地文件名 |
-
+| 参数                      | 必填 | 说明                                           |
+| ------------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                     |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                                   |
+| `--record-id <id>`        | 是   | 记录 ID                                        |
+| `--field-id <id_or_name>` | 是   | 附件字段 ID 或字段名                           |
+| `--file <path>`           | 是   | 本地文件路径，最大 2GB                         |
+| `--name <name>`           | 否   | 写入附件字段时显示的文件名，默认使用本地文件名 |
 
 ## 工作流
 

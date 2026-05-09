@@ -7,6 +7,7 @@
 在实现上，每个 `messages[]` 项与 `mail +message` 的构建方式一致：安全元数据字段直接透传，正文/附件辅助字段由 shortcut 派生。每条邮件使用统一的 `attachments[]` 列表，涵盖普通附件和内嵌图片。
 
 本 skill 对应 shortcut `lark-cli mail +thread`，内部调用：
+
 - `GET /open-apis/mail/v1/user_mailboxes/{mailbox}/threads/{thread_id}` — 获取会话中所有邮件的完整内容
 
 ## 命令
@@ -30,13 +31,13 @@ lark-cli mail +thread --thread-id <thread-id> --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--thread-id <id>` | 是 | — | 会话 ID（`thread_id`） |
-| `--mailbox <email>` | 否 | 当前用户 | 邮箱地址（`user_mailbox_id`） |
-| `--html` | 否 | true | 是否返回 HTML 正文（`false` 仅返回纯文本，减少带宽） |
-| `--format <mode>` | 否 | json | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
-| `--dry-run` | 否 | — | 仅打印请求，不执行 |
+| 参数                | 必填 | 默认值   | 说明                                                            |
+| ------------------- | ---- | -------- | --------------------------------------------------------------- |
+| `--thread-id <id>`  | 是   | —        | 会话 ID（`thread_id`）                                          |
+| `--mailbox <email>` | 否   | 当前用户 | 邮箱地址（`user_mailbox_id`）                                   |
+| `--html`            | 否   | true     | 是否返回 HTML 正文（`false` 仅返回纯文本，减少带宽）            |
+| `--format <mode>`   | 否   | json     | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
+| `--dry-run`         | 否   | —        | 仅打印请求，不执行                                              |
 
 ## 返回值
 
@@ -55,11 +56,11 @@ lark-cli mail +thread --thread-id <thread-id> --dry-run
 
 顶层字段：
 
-| 字段 | 说明 |
-|------|------|
-| `thread_id` | `--thread-id` 请求的会话 ID |
-| `message_count` | 成功获取的邮件数量 |
-| `messages` | 按 `internal_date` 升序排列的邮件列表（最早的在前） |
+| 字段            | 说明                                                |
+| --------------- | --------------------------------------------------- |
+| `thread_id`     | `--thread-id` 请求的会话 ID                         |
+| `message_count` | 成功获取的邮件数量                                  |
+| `messages`      | 按 `internal_date` 升序排列的邮件列表（最早的在前） |
 
 每个 `messages[]` 项使用与 [`mail +message`](./lark-mail-message.md#返回值) 相同的结构。完整字段列表参见 [`+message` 字段说明](./lark-mail-message.md#字段说明) 和 [`+message` security_level](./lark-mail-message.md#security_level)。
 

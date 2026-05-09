@@ -1,4 +1,3 @@
-
 # sheets +set-style（设置单元格样式）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -34,32 +33,32 @@ lark-cli sheets +set-style --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--range <range>` | 是 | 单元格范围（`<sheetId>!A1:B2`，或配合 `--sheet-id`） |
-| `--sheet-id <id>` | 否 | 工作表 ID（用于相对范围） |
-| `--style <json>` | 是 | 样式 JSON 对象 |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                 |
+| ----------------------------- | ---- | ---------------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一）      |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                      |
+| `--range <range>`             | 是   | 单元格范围（`<sheetId>!A1:B2`，或配合 `--sheet-id`） |
+| `--sheet-id <id>`             | 否   | 工作表 ID（用于相对范围）                            |
+| `--style <json>`              | 是   | 样式 JSON 对象                                       |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                               |
 
 ### style JSON 字段
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `font.bold` | bool | 加粗 |
-| `font.italic` | bool | 斜体 |
-| `font.font_size` | string | 字号，如 `"12pt/1.5"` |
-| `font.clean` | bool | 清除字体格式 |
-| `textDecoration` | int | 0=无, 1=下划线, 2=删除线, 3=两者 |
-| `formatter` | string | 数字格式 |
-| `hAlign` | int | 水平对齐：0=左, 1=居中, 2=右 |
-| `vAlign` | int | 垂直对齐：0=上, 1=居中, 2=下 |
-| `foreColor` | string | 字体颜色（hex，如 `"#000000"`） |
-| `backColor` | string | 背景色（hex） |
-| `borderType` | string | 边框：FULL_BORDER, OUTER_BORDER, INNER_BORDER, NO_BORDER 等 |
-| `borderColor` | string | 边框颜色（hex） |
-| `clean` | bool | 清除所有格式 |
+| 字段             | 类型   | 说明                                                        |
+| ---------------- | ------ | ----------------------------------------------------------- |
+| `font.bold`      | bool   | 加粗                                                        |
+| `font.italic`    | bool   | 斜体                                                        |
+| `font.font_size` | string | 字号，如 `"12pt/1.5"`                                       |
+| `font.clean`     | bool   | 清除字体格式                                                |
+| `textDecoration` | int    | 0=无, 1=下划线, 2=删除线, 3=两者                            |
+| `formatter`      | string | 数字格式                                                    |
+| `hAlign`         | int    | 水平对齐：0=左, 1=居中, 2=右                                |
+| `vAlign`         | int    | 垂直对齐：0=上, 1=居中, 2=下                                |
+| `foreColor`      | string | 字体颜色（hex，如 `"#000000"`）                             |
+| `backColor`      | string | 背景色（hex）                                               |
+| `borderType`     | string | 边框：FULL_BORDER, OUTER_BORDER, INNER_BORDER, NO_BORDER 等 |
+| `borderColor`    | string | 边框颜色（hex）                                             |
+| `clean`          | bool   | 清除所有格式                                                |
 
 ## 输出
 

@@ -5,6 +5,7 @@
 编辑已有的邮件草稿。命令会读取当前原始 EML，应用最小化补丁，然后将更新后的草稿写回。
 
 简单元数据编辑使用直接参数：
+
 - `--set-subject`
 - `--set-to`
 - `--set-cc`
@@ -16,16 +17,17 @@
 
 正文编辑通过 `--patch-file` 传入，有两个 op 可选：
 
-| 情况 | op | 行为 |
-|------|-----|------|
-| 普通草稿（无引用区） | `set_body` | 替换用户撰写内容 |
+| 情况                            | op               | 行为                                                                                          |
+| ------------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| 普通草稿（无引用区）            | `set_body`       | 替换用户撰写内容                                                                              |
 | 回复/转发草稿，编辑用户撰写部分 | `set_reply_body` | 替换用户撰写部分，自动重新拼接引用区。传入的 value 只包含新的用户撰写内容，**不要包含引用区** |
-| 回复/转发草稿，编辑引用区内容 | `set_body` | 传入含完整引用区的 HTML 进行替换 |
-| 用户明确要去掉引用区 | `set_body` | 不包含引用区即可 |
+| 回复/转发草稿，编辑引用区内容   | `set_body`       | 传入含完整引用区的 HTML 进行替换                                                              |
+| 用户明确要去掉引用区            | `set_body`       | 不包含引用区即可                                                                              |
 
 **判断方法：** 运行 `--inspect`，若返回 `has_quoted_content: true`，说明草稿包含引用区（由 `+reply` 或 `+forward` 生成）。
 
 **关键区别：**
+
 - `set_reply_body` 的 value = **纯用户撰写内容**（不含引用区），引用区会自动重新拼接
 - `set_body` 的 value = 可含可不含引用区
 
@@ -38,6 +40,7 @@
 ## 安全约束
 
 此命令会更新真实草稿。调用前须与用户确认：
+
 1. 草稿 ID
 2. 最终收件人范围（To/Cc/Bcc）
 3. 最终主题和正文
@@ -64,21 +67,21 @@ lark-cli mail +draft-edit --draft-id <draft-id> --set-subject '测试' --dry-run
 
 ## 通用参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--mailbox <email>` | 否 | 邮箱地址，指定草稿所属的邮箱（默认回退到 `--from`，再回退到 `me`）。优先于 `--from`。可通过 `accessible_mailboxes` 查询可用邮箱 |
-| `--draft-id <id>` | 是 | 目标草稿 ID。仅当单独使用 `--print-patch-template` 时可省略 |
-| `--set-subject <text>` | 否 | 用此值替换主题 |
-| `--set-to <emails>` | 否 | 用此处提供的地址替换整个 To 收件人列表 |
-| `--set-cc <emails>` | 否 | 用此处提供的地址替换整个 Cc 抄送列表 |
-| `--set-bcc <emails>` | 否 | 用此处提供的地址替换整个 Bcc 密送列表 |
-| `--set-priority <level>` | 否 | 设置邮件优先级：`high`、`normal`、`low`。设为 `normal` 会清除已有优先级 |
-| `--patch-file <path>` | 否 | 所有正文编辑、增量收件人编辑、邮件头编辑、附件变更和内嵌图片变更的入口。相对路径。先运行 `--print-patch-template` 查看 JSON 结构 |
-| `--print-patch-template` | 否 | 打印 `--patch-file` 的 JSON 模板和支持的操作。建议在生成补丁文件前先运行此命令。不会读取或写入草稿 |
-| `--inspect` | 否 | 查看草稿但不修改。返回包含 `has_quoted_content`（是否有引用区）、`attachments_summary`（普通附件，含 `part_id`/`cid`/`filename`）、`large_attachments_summary`（超大附件，含 `token`/`filename`/`size_bytes`）和 `inline_summary` 的草稿投影 |
-| `--request-receipt` | 否 | 在草稿上追加 `Disposition-Notification-To: <草稿的 From 地址>` 头，请求已读回执（RFC 3798）。本质上是在 patch 中注入一个 `set_header` op；已有的 DNT 值会被覆盖。可以与其他 `--set-*` / `--patch-file` 编辑组合，也可以单独使用 |
-| `--format <mode>` | 否 | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
-| `--dry-run` | 否 | 仅打印请求，不执行 |
+| 参数                     | 必填 | 说明                                                                                                                                                                                                                                         |
+| ------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--mailbox <email>`      | 否   | 邮箱地址，指定草稿所属的邮箱（默认回退到 `--from`，再回退到 `me`）。优先于 `--from`。可通过 `accessible_mailboxes` 查询可用邮箱                                                                                                              |
+| `--draft-id <id>`        | 是   | 目标草稿 ID。仅当单独使用 `--print-patch-template` 时可省略                                                                                                                                                                                  |
+| `--set-subject <text>`   | 否   | 用此值替换主题                                                                                                                                                                                                                               |
+| `--set-to <emails>`      | 否   | 用此处提供的地址替换整个 To 收件人列表                                                                                                                                                                                                       |
+| `--set-cc <emails>`      | 否   | 用此处提供的地址替换整个 Cc 抄送列表                                                                                                                                                                                                         |
+| `--set-bcc <emails>`     | 否   | 用此处提供的地址替换整个 Bcc 密送列表                                                                                                                                                                                                        |
+| `--set-priority <level>` | 否   | 设置邮件优先级：`high`、`normal`、`low`。设为 `normal` 会清除已有优先级                                                                                                                                                                      |
+| `--patch-file <path>`    | 否   | 所有正文编辑、增量收件人编辑、邮件头编辑、附件变更和内嵌图片变更的入口。相对路径。先运行 `--print-patch-template` 查看 JSON 结构                                                                                                             |
+| `--print-patch-template` | 否   | 打印 `--patch-file` 的 JSON 模板和支持的操作。建议在生成补丁文件前先运行此命令。不会读取或写入草稿                                                                                                                                           |
+| `--inspect`              | 否   | 查看草稿但不修改。返回包含 `has_quoted_content`（是否有引用区）、`attachments_summary`（普通附件，含 `part_id`/`cid`/`filename`）、`large_attachments_summary`（超大附件，含 `token`/`filename`/`size_bytes`）和 `inline_summary` 的草稿投影 |
+| `--request-receipt`      | 否   | 在草稿上追加 `Disposition-Notification-To: <草稿的 From 地址>` 头，请求已读回执（RFC 3798）。本质上是在 patch 中注入一个 `set_header` op；已有的 DNT 值会被覆盖。可以与其他 `--set-*` / `--patch-file` 编辑组合，也可以单独使用              |
+| `--format <mode>`        | 否   | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv`                                                                                                                                                                              |
+| `--dry-run`              | 否   | 仅打印请求，不执行                                                                                                                                                                                                                           |
 
 ## `--patch-file` 格式
 
@@ -143,13 +146,22 @@ lark-cli mail +draft-edit --draft-id <draft-id> --set-subject '测试' --dry-run
 `set_recipients`
 
 ```json
-{ "op": "set_recipients", "field": "to", "addresses": [{ "address": "alice@example.com", "name": "Alice" }] }
+{
+  "op": "set_recipients",
+  "field": "to",
+  "addresses": [{ "address": "alice@example.com", "name": "Alice" }]
+}
 ```
 
 `add_recipient`
 
 ```json
-{ "op": "add_recipient", "field": "cc", "address": "alice@example.com", "name": "Alice" }
+{
+  "op": "add_recipient",
+  "field": "cc",
+  "address": "alice@example.com",
+  "name": "Alice"
+}
 ```
 
 `remove_recipient`
@@ -361,6 +373,7 @@ lark-cli mail +draft-edit --draft-id <draft_id> --patch-file ./patch.json
 ```
 
 内嵌图片的增删改通过 HTML 正文自动联动：
+
 - **添加**：在 HTML 中写 `<img src="./image.png" />`，自动创建 MIME 部分
 - **删除**：从 HTML 中移除 `<img>` 标签，对应 MIME 部分自动清理
 - **替换**：将 `src` 改为新的相对路径，旧 MIME 部分自动移除、新部分自动创建

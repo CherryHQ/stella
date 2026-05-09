@@ -15,11 +15,11 @@ lark-cli base +table-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--name <name>` | 是 | 新表名 |
+| 参数                      | 必填 | 说明         |
+| ------------------------- | ---- | ------------ |
+| `--base-token <token>`    | 是   | Base Token   |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名 |
+| `--name <name>`           | 是   | 新表名       |
 
 ## API 入参详情
 
@@ -35,7 +35,6 @@ PATCH /open-apis/base/v3/bases/:base_token/tables/:table_id
 - 当前只支持更新名称。
 
 ## 工作流
-
 
 1. 建议先用 `+table-get` 确认目标表。
 

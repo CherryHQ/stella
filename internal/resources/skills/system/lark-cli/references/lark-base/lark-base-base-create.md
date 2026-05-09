@@ -18,11 +18,11 @@ lark-cli base +base-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--name <name>` | 是 | 新 Base 名称 |
-| `--folder-token <token>` | 否 | 目标文件夹 token |
-| `--time-zone <tz>` | 否 | 时区，如 `Asia/Shanghai` |
+| 参数                     | 必填 | 说明                     |
+| ------------------------ | ---- | ------------------------ |
+| `--name <name>`          | 是   | 新 Base 名称             |
+| `--folder-token <token>` | 否   | 目标文件夹 token         |
+| `--time-zone <tz>`       | 否   | 时区，如 `Asia/Shanghai` |
 
 ## API 入参详情
 
@@ -45,6 +45,7 @@ POST /open-apis/base/v3/bases
 > 如果 Base 是**以应用身份（bot）创建**的，shortcut 会在创建成功后自动尝试为当前 CLI 用户添加该 Base 的 `full_access`（管理员）权限，并在输出中附带 `permission_grant` 字段。
 >
 > `permission_grant.status` 语义如下：
+>
 > - `granted`：当前 CLI 用户已获得该 Base 的管理员权限
 > - `skipped`：Base 已创建成功，但没有可授权的当前 CLI 用户，或创建结果缺少可授权 token
 > - `failed`：Base 已创建成功，但自动授权失败；结果中会包含失败原因，用户可稍后重试授权，或继续使用应用身份（bot）处理该 Base

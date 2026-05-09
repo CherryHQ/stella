@@ -8,12 +8,12 @@ components:
     CreateSkillRequest:
       type: object
       properties:
-        scope:                    { type: string }
-        user_id:                  { type: integer, format: int64 }
-        agent_id:                 { type: string }
-        name:                     { type: string }
-        description:              { type: string }
-        status:                   { type: string }
+        scope: { type: string }
+        user_id: { type: integer, format: int64 }
+        agent_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { type: string }
         disable_model_invocation: { type: boolean }
         files:
           type: object
@@ -23,9 +23,9 @@ components:
       type: object
       required: [source]
       properties:
-        source:   { type: string }
-        scope:    { type: string }
-        user_id:  { type: integer, format: int64 }
+        source: { type: string }
+        scope: { type: string }
+        user_id: { type: integer, format: int64 }
         agent_id: { type: string }
 
     ProfileInstallSkillRequest:
@@ -37,22 +37,25 @@ components:
     SkillSearchResult:
       type: object
       properties:
-        id:       { type: string }
-        skillId:  { type: string }
-        name:     { type: string }
+        id: { type: string }
+        skillId: { type: string }
+        name: { type: string }
         installs: { type: integer }
-        source:   { type: string }
+        source: { type: string }
 
     SkillSearchResultList:
       type: object
       required: [items]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/SkillSearchResult" } }
+        items: {
+          type: array,
+          items: { $ref: "#/components/schemas/SkillSearchResult" },
+        }
 
     SkillFileResponse:
       type: object
       properties:
-        path:    { type: string }
+        path: { type: string }
         content: { type: string }
 
     DeleteFileResult:

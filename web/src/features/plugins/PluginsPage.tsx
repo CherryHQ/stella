@@ -208,29 +208,45 @@ export function PluginsPage() {
     })();
   }, [loadPlugins, loadManifestPlugins]);
 
+  function updatePluginEnabled(id: string, enabled: boolean) {
+    setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
+  }
+
   // Plugin toggle
   async function togglePlugin(id: string, enabled: boolean) {
     try {
-      await api("PATCH", pluginToggleURLByID(id, plugins), { enabled });
-      await loadPlugins();
+      updatePluginEnabled(id, enabled);
+      const updated = await api<Plugin>("PATCH", pluginToggleURLByID(id, plugins), { enabled });
+      updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(id + (enabled ? " enabled" : " disabled"));
+      void loadPlugins();
     } catch (e) {
+      updatePluginEnabled(id, !enabled);
       showToast((e as Error).message, "error");
     }
   }
 
   async function toggleSandboxPlugin(id: string, enabled: boolean) {
+    const previous = new Map(sandboxPlugins.map((p) => [p.id, p.enabled]));
     try {
       if (enabled) {
+        for (const other of sandboxPlugins.filter((p) => p.id !== id)) {
+          updatePluginEnabled(other.id, false);
+        }
         const others = sandboxPlugins.filter((p) => p.id !== id && p.enabled);
         for (const other of others) {
           await api("PATCH", pluginToggleURL(other), { enabled: false });
         }
       }
-      await api("PATCH", pluginToggleURLByID(id, plugins), { enabled });
-      await loadPlugins();
+      updatePluginEnabled(id, enabled);
+      const updated = await api<Plugin>("PATCH", pluginToggleURLByID(id, plugins), { enabled });
+      updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(enabled ? id + " set as active sandbox" : id + " disabled");
+      void loadPlugins();
     } catch (e) {
+      for (const [pluginID, wasEnabled] of previous) {
+        updatePluginEnabled(pluginID, wasEnabled);
+      }
       showToast((e as Error).message, "error");
     }
   }
@@ -244,14 +260,17 @@ export function PluginsPage() {
   }
 
   async function toggleManifestPlugin(id: string, enabled: boolean) {
+    const previous = manifestPlugins;
     try {
       const updated = manifestPlugins.map((p) => (p.id === id ? { ...p, enabled } : p));
+      setManifestPlugins(updated);
       await api("PUT", "/api/manifest-plugins", { plugins: updated });
+      await syncManifest(true);
       await loadManifestPlugins();
       await loadPlugins();
-      await syncManifest(true);
       showToast(id + (enabled ? " enabled" : " disabled"));
     } catch (e) {
+      setManifestPlugins(previous);
       showToast((e as Error).message, "error");
     }
   }
@@ -784,7 +803,7 @@ export function PluginsPage() {
             pluginConfigDrafts={pluginConfigDrafts}
             manifestInstallOpen={manifestInstallOpen}
             manifestInstallDrafts={manifestInstallDrafts}
-            onToggle={(p, e) => togglePlugin(p.id, e)}
+            onToggle={toggleSemanticPlugin}
             onToggleConfigEditor={togglePluginConfigEditor}
             onDraftChange={(pluginID, field, value) =>
               setPluginConfigDrafts((prev) => ({
@@ -980,7 +999,7 @@ export function PluginsPage() {
             pluginConfigDrafts={pluginConfigDrafts}
             manifestInstallOpen={manifestInstallOpen}
             manifestInstallDrafts={manifestInstallDrafts}
-            onToggle={(p, e) => togglePlugin(p.id, e)}
+            onToggle={toggleSemanticPlugin}
             onToggleConfigEditor={togglePluginConfigEditor}
             onDraftChange={(pluginID, field, value) =>
               setPluginConfigDrafts((prev) => ({

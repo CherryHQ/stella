@@ -25,10 +25,10 @@ llms.txt                          ← 顶层索引，列出所有模块文档链
 
 文档入口：
 
-| 品牌 | 入口 URL |
-|------|----------|
-| 飞书 (Feishu) | `https://open.feishu.cn/llms.txt` |
-| Lark | `https://open.larksuite.com/llms.txt` |
+| 品牌          | 入口 URL                              |
+| ------------- | ------------------------------------- |
+| 飞书 (Feishu) | `https://open.feishu.cn/llms.txt`     |
+| Lark          | `https://open.larksuite.com/llms.txt` |
 
 > 所有文档以**中文**编写。如果用户使用英文交流，需将文档内容翻译为英文后输出。
 

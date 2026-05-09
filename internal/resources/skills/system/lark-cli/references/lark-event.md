@@ -14,27 +14,25 @@ metadata:
 
 ## Core commands
 
-| Command | Purpose |
-|------|------|
-| `lark-cli event list [--json]` | List all subscribable EventKeys |
-| `lark-cli event schema <EventKey> [--json]` | Show an EventKey's params and output schema |
-| `lark-cli event consume <EventKey> [flags]` | Blocking consume; events → stdout NDJSON |
-| `lark-cli event status [--json] [--fail-on-orphan]` | Inspect the local bus daemon status |
-| `lark-cli event stop [--all] [--force]` | Stop the bus daemon |
-
+| Command                                             | Purpose                                     |
+| --------------------------------------------------- | ------------------------------------------- |
+| `lark-cli event list [--json]`                      | List all subscribable EventKeys             |
+| `lark-cli event schema <EventKey> [--json]`         | Show an EventKey's params and output schema |
+| `lark-cli event consume <EventKey> [flags]`         | Blocking consume; events → stdout NDJSON    |
+| `lark-cli event status [--json] [--fail-on-orphan]` | Inspect the local bus daemon status         |
+| `lark-cli event stop [--all] [--force]`             | Stop the bus daemon                         |
 
 ## Common flags
 
-| Flag | Description |
-|---|---|
-| `--param key=value` / `-p` | Business params (repeatable; comma-separated for multi-value). Unknown keys fail with valid names listed inline |
-| `--jq <expr>` | jq expression to filter / transform each event; empty output skips the event |
-| `--max-events N` | Exit after N events. Default 0 = unlimited |
-| `--timeout D` | Exit after duration D (e.g. `30s`, `2m`). Default 0 = no timeout. Whichever of `--max-events` / `--timeout` fires first wins |
-| `--output-dir <dir>` | Write each event as a file (relative paths only; prevents traversal) |
-| `--quiet` | Suppress stderr diagnostics. **AI should not use this** — it silences the ready marker |
-| `--as user\|bot\|auto` | Identity for the session (see lark-shared) |
-
+| Flag                       | Description                                                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--param key=value` / `-p` | Business params (repeatable; comma-separated for multi-value). Unknown keys fail with valid names listed inline              |
+| `--jq <expr>`              | jq expression to filter / transform each event; empty output skips the event                                                 |
+| `--max-events N`           | Exit after N events. Default 0 = unlimited                                                                                   |
+| `--timeout D`              | Exit after duration D (e.g. `30s`, `2m`). Default 0 = no timeout. Whichever of `--max-events` / `--timeout` fires first wins |
+| `--output-dir <dir>`       | Write each event as a file (relative paths only; prevents traversal)                                                         |
+| `--quiet`                  | Suppress stderr diagnostics. **AI should not use this** — it silences the ready marker                                       |
+| `--as user\|bot\|auto`     | Identity for the session (see lark-shared)                                                                                   |
 
 ## Examples
 
@@ -52,7 +50,6 @@ lark-cli event consume im.message.receive_v1 --timeout 10m --as bot
 lark-cli event consume im.message.receive_v1          --as bot > receive.ndjson &
 lark-cli event consume im.message.reaction.created_v1 --as bot > reaction.ndjson &
 wait
-
 ```
 
 ## Call flow
@@ -78,12 +75,12 @@ wait
 
 On exit, the last stderr line is `[event] exited — received N event(s) in Xs (reason: ...)`.
 
-| exit code | reason | Trigger |
-|---|---|---|
-| 0 | `reason: limit` | `--max-events` reached |
-| 0 | `reason: timeout` | `--timeout` reached |
-| 0 | `reason: signal` | Ctrl+C / SIGTERM / stdin EOF |
-| non-0 | `Error: ...` (no `exited` line) | Startup / runtime failure (permissions, network, params, config) |
+| exit code | reason                          | Trigger                                                          |
+| --------- | ------------------------------- | ---------------------------------------------------------------- |
+| 0         | `reason: limit`                 | `--max-events` reached                                           |
+| 0         | `reason: timeout`               | `--timeout` reached                                              |
+| 0         | `reason: signal`                | Ctrl+C / SIGTERM / stdin EOF                                     |
+| non-0     | `Error: ...` (no `exited` line) | Startup / runtime failure (permissions, network, params, config) |
 
 Orchestrators should treat `reason: limit/timeout/signal` (all exit 0) as "business completion" and non-zero as "failure".
 
@@ -116,9 +113,21 @@ Each field carries `type` / `description`, and some also have `format`. Snippet 
 
 ```json
 {
-  "chat_id":     {"type":"string", "format":"chat_id",      "description":"Chat ID, prefixed with oc_"},
-  "sender_id":   {"type":"string", "format":"open_id",      "description":"Sender open_id, prefixed with ou_"},
-  "create_time": {"type":"string", "format":"timestamp_ms", "description":"Send time as ms-epoch string"}
+  "chat_id": {
+    "type": "string",
+    "format": "chat_id",
+    "description": "Chat ID, prefixed with oc_"
+  },
+  "sender_id": {
+    "type": "string",
+    "format": "open_id",
+    "description": "Sender open_id, prefixed with ou_"
+  },
+  "create_time": {
+    "type": "string",
+    "format": "timestamp_ms",
+    "description": "Send time as ms-epoch string"
+  }
 }
 ```
 
@@ -140,6 +149,6 @@ Lark-defined semantic tags (**not** JSON Schema's standard `format`). Common val
 
 ## Topic index
 
-| Topic | Reference | Coverage |
-|---|---|---|
-| IM | [`./lark-event/lark-event-im.md`](./lark-event/lark-event-im.md) | Catalog of 11 IM EventKeys + shape notes (flat vs V2 envelope) + `im.message.receive_v1` field gotchas (`sender_id` is open_id only; `.content` is plain text except for `interactive` cards) + common jq recipes (filter by chat_type / message_type / sender) |
+| Topic | Reference                                                        | Coverage                                                                                                                                                                                                                                                        |
+| ----- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IM    | [`./lark-event/lark-event-im.md`](./lark-event/lark-event-im.md) | Catalog of 11 IM EventKeys + shape notes (flat vs V2 envelope) + `im.message.receive_v1` field gotchas (`sender_id` is open_id only; `.content` is plain text except for `interactive` cards) + common jq recipes (filter by chat_type / message_type / sender) |

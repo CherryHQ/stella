@@ -15,9 +15,10 @@ metadata:
 **CRITICAL — 凡涉及【预约日程/会议】或【查询/搜索会议室】，第一步 MUST 强制使用 Read 工具读取 [`./lark-calendar/lark-calendar-schedule-meeting.md`](./lark-calendar/lark-calendar-schedule-meeting.md)。禁止跳过此步直接调用 API 或 Shortcut！**
 **CRITICAL — 术语约束：用户日常表达中常说的“帮我约个日历”、“查一下今天的日历”等，其实际意图通常是针对 日程（Event） 的创建或查询，而非操作 日历（Calendar） 容器本身。请自动将口语化的“日历”意图映射为“日程”操作（如 `+create`, `+agenda`）。**
 **CRITICAL — 会议与日程的意图路由：**
+
 - **查询过去时间的会议**：如果用户明确查询过去时间的会议（如“昨天的会议”、“上周的会议”），**优先使用 [`./lark-vc.md`](./lark-vc.md) 搜索会议记录**。因为会议数据不仅包含从日程发起的视频会议，还包含即时会议，仅查询日程数据会导致结果不全。
 - **查询日历/日程或未来时间的会议**：如果用户明确表达的是“日历”、“日程”，或者涉及**未来时间**的安排，则属于本技能（lark-calendar）的业务域，请继续使用本技能处理。
-**CRITICAL — 任务类型分流：处理“预约/改约日程、添加/移除参会人、添加/更换会议室、调整时间”时，必须先判断用户是在“新建日程”还是“编辑已有日程”。**
+  **CRITICAL — 任务类型分流：处理“预约/改约日程、添加/移除参会人、添加/更换会议室、调整时间”时，必须先判断用户是在“新建日程”还是“编辑已有日程”。**
 - **编辑已有日程的强信号**：用户明确提到某个已存在的日程锚点（如标题、时间段、`这个日程`、`这场会`）并表达修改动作（如“添加”“移除”“改到”“换会议室”“调整时间”）。这类请求默认走**编辑已有日程**，绝不能直接按新建处理。
 - **编辑已有日程的前置步骤**：一旦判定为编辑，MUST 先定位目标日程或具体实例的 `event_id`，再继续后续流程。若是重复性日程，MUST 先定位到对应实例的 `event_id`。
 - **新建日程**：只有当用户表达的是“新约一个会/创建一个日程/安排一次会议”等新增意图，且没有指向某个既有日程的修改动作时，才进入新建流程。
@@ -28,6 +29,7 @@ metadata:
 
 **时间与日期推断规范：**
 为确保准确性，在涉及时间推断时，请严格遵循以下规则：
+
 - **星期的定义**：周一是一周的第一天，周日是一周的最后一天。计算`下周一`等相对日期时，务必基于当前真实日期和星期基准进行推算，避免算错日期。
 - **一天的范围**：当用户提到`明天`、`今天`等泛指某一天时，时间范围应默认覆盖整天时间范围。**切勿**自行缩减查询范围，以免遗漏晚上的时间安排。
 - **历史时间约束**：不能预约已经完全过去的时间。唯一的例外情况是“跨越当前时间”的日程，即日程的开始时间在过去，但结束时间在未来。
@@ -35,6 +37,7 @@ metadata:
 ## 核心场景
 
 ### 1. 预约新日程/会议、编辑已有日程、查询/搜索可用会议室
+
 **BLOCKING REQUIREMENT (阻塞性要求): 只要用户的意图包含“预约日程/会议”或“查询/搜索可用会议室”，你必须立即停止其他思考，优先使用 Read 工具完整读取 [`./lark-calendar/lark-calendar-schedule-meeting.md`](./lark-calendar/lark-calendar-schedule-meeting.md)！未读取该文件前，绝对禁止执行任何日程创建或会议室查询操作。**
 **CRITICAL: 必须严格按照上述文档中定义的工作流（Workflow）执行后续操作。处理该场景时，默认做“智能助理”，不要做“表单填写机”。能补全的默认值先补全，只有在时间冲突、结果无法唯一确定、时间语义存在歧义时才主动追问。**
 **CRITICAL: 执行顺序必须固定为：先判断任务类型（新建/编辑）；若为编辑先定位目标日程 `event_id`；再补默认值或继承已定位日程的已知信息；再判断时间是否明确；最后进入“明确时间”或“模糊时间/无时间信息”分支。不要跳步。**
@@ -47,7 +50,7 @@ metadata:
 
 - **日历（Calendar）**：日程的容器。每个用户有一个主日历（primary calendar），也可以创建或订阅共享日历。
 - **日程（Event）**：日历中的单个日程，包含起止时间、地点、标题、参与人等属性。支持单次日程和重复日程，遵循RFC5545 iCalendar国际标准。
-- ***全天日程（All-day Event）***: 只按日期占用、没有具体起止时刻的日程，结束日期是包含在日程时间内的。
+- _**全天日程（All-day Event）**_: 只按日期占用、没有具体起止时刻的日程，结束日期是包含在日程时间内的。
 - **日程实例（Instance）**：日程的具体时间实例，本质是对日程的展开。普通日程和例外日程对应1个Instance，重复性日程对应N个Instance。在按时间段查询时，可通过实例视图将重复日程展开为独立的实例返回，以便在时间线上准确展示和管理。
 - **重复规则（Rrule/Recurrence Rule）**：定义重复性日程的重复规则，比如`FREQ=DAILY;UNTIL=20230307T155959Z;INTERVAL=14`表示每14天重复一次。
 - **例外日程（Exception）**：重复性日程中与原重复性日程不一致的日程。
@@ -70,15 +73,15 @@ Calendar (日历)
 
 Shortcut 是对常用操作的高级封装（`lark-cli calendar +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+agenda`](./lark-calendar/lark-calendar-agenda.md) | 查看日程安排（默认今天） |
-| [`+create`](./lark-calendar/lark-calendar-create.md) | 创建日程并邀请参会人（ISO 8601 时间） |
-| [`+update`](./lark-calendar/lark-calendar-update.md) | 更新既有日程字段，或独立增量添加/移除参会人和会议室 |
-| [`+freebusy`](./lark-calendar/lark-calendar-freebusy.md) | 查询用户主日历的忙闲信息和rsvp的状态 |
-| [`+room-find`](./lark-calendar/lark-calendar-room-find.md) | 针对一个或多个**明确的**时间块查找可用会议室（**无明确时间时禁止直接调用，需先走 +suggestion**） |
-| [`+rsvp`](./lark-calendar/lark-calendar-rsvp.md) | 回复日程（接受/拒绝/待定） |
-| [`+suggestion`](./lark-calendar/lark-calendar-suggestion.md) | 根据非明确时间或一段时间范围，推荐多个可用时间块方案 |
+| Shortcut                                                     | 说明                                                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| [`+agenda`](./lark-calendar/lark-calendar-agenda.md)         | 查看日程安排（默认今天）                                                                         |
+| [`+create`](./lark-calendar/lark-calendar-create.md)         | 创建日程并邀请参会人（ISO 8601 时间）                                                            |
+| [`+update`](./lark-calendar/lark-calendar-update.md)         | 更新既有日程字段，或独立增量添加/移除参会人和会议室                                              |
+| [`+freebusy`](./lark-calendar/lark-calendar-freebusy.md)     | 查询用户主日历的忙闲信息和rsvp的状态                                                             |
+| [`+room-find`](./lark-calendar/lark-calendar-room-find.md)   | 针对一个或多个**明确的**时间块查找可用会议室（**无明确时间时禁止直接调用，需先走 +suggestion**） |
+| [`+rsvp`](./lark-calendar/lark-calendar-rsvp.md)             | 回复日程（接受/拒绝/待定）                                                                       |
+| [`+suggestion`](./lark-calendar/lark-calendar-suggestion.md) | 根据非明确时间或一段时间范围，推荐多个可用时间块方案                                             |
 
 ## 会议室相关规则
 
@@ -99,56 +102,57 @@ lark-cli calendar <resource> <method> [flags] # 调用 API
 
 ### calendars
 
-  - `create` — 创建共享日历
-  - `delete` — 删除共享日历
-  - `get` — 查询日历信息
-  - `list` — 查询日历列表
-  - `patch` — 更新日历信息
-  - `primary` — 查询用户主日历
-  - `search` — 搜索日历
+- `create` — 创建共享日历
+- `delete` — 删除共享日历
+- `get` — 查询日历信息
+- `list` — 查询日历列表
+- `patch` — 更新日历信息
+- `primary` — 查询用户主日历
+- `search` — 搜索日历
 
 ### event.attendees
 
-  - `batch_delete` — 删除日程参与人
-  - `create` — 添加日程参与人
-  - `list` — 获取日程参与人列表
+- `batch_delete` — 删除日程参与人
+- `create` — 添加日程参与人
+- `list` — 获取日程参与人列表
 
 ### events
 
-  - `create` — 创建日程
-  - `delete` — 删除日程
-  - `get` — 获取日程
-  - `instance_view` — 查询日程视图
-  - `patch` — 更新日程
-  - `search_event` — 搜索日程（注：目前只会返回日程id、日程主题、日程时间的信息，需要更多的日程详情，需要走 `events get` 命令）
-  - `share_info` — 获取日程分享链接
+- `create` — 创建日程
+- `delete` — 删除日程
+- `get` — 获取日程
+- `instance_view` — 查询日程视图
+- `patch` — 更新日程
+- `search_event` — 搜索日程（注：目前只会返回日程id、日程主题、日程时间的信息，需要更多的日程详情，需要走 `events get` 命令）
+- `share_info` — 获取日程分享链接
 
 ### freebusys
 
-  - `list` — 查询主日历日程忙闲信息
+- `list` — 查询主日历日程忙闲信息
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `calendars.create` | `calendar:calendar:create` |
-| `calendars.delete` | `calendar:calendar:delete` |
-| `calendars.get` | `calendar:calendar:read` |
-| `calendars.list` | `calendar:calendar:read` |
-| `calendars.patch` | `calendar:calendar:update` |
-| `calendars.primary` | `calendar:calendar:read` |
-| `calendars.search` | `calendar:calendar:read` |
-| `event.attendees.batch_delete` | `calendar:calendar.event:update` |
-| `event.attendees.create` | `calendar:calendar.event:update` |
-| `event.attendees.list` | `calendar:calendar.event:read` |
-| `events.create` | `calendar:calendar.event:create` |
-| `events.delete` | `calendar:calendar.event:delete` |
-| `events.get` | `calendar:calendar.event:read` |
-| `events.instance_view` | `calendar:calendar.event:read` |
-| `events.patch` | `calendar:calendar.event:update` |
-| `events.search_event` | `calendar:calendar.event:read` |
-| `events.share_info` | `calendar:calendar.event:read` |
-| `freebusys.list` | `calendar:calendar.free_busy:read` |
+| 方法                           | 所需 scope                         |
+| ------------------------------ | ---------------------------------- |
+| `calendars.create`             | `calendar:calendar:create`         |
+| `calendars.delete`             | `calendar:calendar:delete`         |
+| `calendars.get`                | `calendar:calendar:read`           |
+| `calendars.list`               | `calendar:calendar:read`           |
+| `calendars.patch`              | `calendar:calendar:update`         |
+| `calendars.primary`            | `calendar:calendar:read`           |
+| `calendars.search`             | `calendar:calendar:read`           |
+| `event.attendees.batch_delete` | `calendar:calendar.event:update`   |
+| `event.attendees.create`       | `calendar:calendar.event:update`   |
+| `event.attendees.list`         | `calendar:calendar.event:read`     |
+| `events.create`                | `calendar:calendar.event:create`   |
+| `events.delete`                | `calendar:calendar.event:delete`   |
+| `events.get`                   | `calendar:calendar.event:read`     |
+| `events.instance_view`         | `calendar:calendar.event:read`     |
+| `events.patch`                 | `calendar:calendar.event:update`   |
+| `events.search_event`          | `calendar:calendar.event:read`     |
+| `events.share_info`            | `calendar:calendar.event:read`     |
+| `freebusys.list`               | `calendar:calendar.free_busy:read` |
 
 **注意（强制性）：**
+
 - 涉及日期（时间）字符串与时间戳的相互转换时，务必调用系统命令或脚本代码等外部工具进行处理，以确保转换的绝对准确。违者将导致严重的逻辑错误！

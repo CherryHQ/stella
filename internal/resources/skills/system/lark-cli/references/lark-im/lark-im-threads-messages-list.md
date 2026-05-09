@@ -35,15 +35,15 @@ lark-cli im +threads-messages-list --thread omt_xxx --dry-run
 
 ## Parameters
 
-| Parameter | Required | Description |
-|------|------|------|
-| `--thread <id>` | Yes | Thread ID (`om_xxx` or `omt_xxx` format) |
-| `--sort <order>` | No | Sort order: `asc` (default) / `desc` |
-| `--page-size <n>` | No | Number of items per page (default 50, range 1-500) |
-| `--page-token <token>` | No | Pagination token for the next page |
-| `--format <fmt>` | No | Output format: `json` (default) / `pretty` / `table` / `ndjson` / `csv` |
-| `--as <identity>` | No | Identity type: `user` (default) / `bot` |
-| `--dry-run` | No | Print the request only, do not execute it |
+| Parameter              | Required | Description                                                             |
+| ---------------------- | -------- | ----------------------------------------------------------------------- |
+| `--thread <id>`        | Yes      | Thread ID (`om_xxx` or `omt_xxx` format)                                |
+| `--sort <order>`       | No       | Sort order: `asc` (default) / `desc`                                    |
+| `--page-size <n>`      | No       | Number of items per page (default 50, range 1-500)                      |
+| `--page-token <token>` | No       | Pagination token for the next page                                      |
+| `--format <fmt>`       | No       | Output format: `json` (default) / `pretty` / `table` / `ndjson` / `csv` |
+| `--as <identity>`      | No       | Identity type: `user` (default) / `bot`                                 |
+| `--dry-run`            | No       | Print the request only, do not execute it                               |
 
 ## Core Constraints
 
@@ -62,11 +62,11 @@ Thread messages do not support `start_time` / `end_time` filtering because of Fe
 
 ### 4. Recommended expansion strategy
 
-| Scenario | Recommended Parameters |
-|------|---------|
-| Quickly inspect recent replies | `--sort desc --page-size 10` |
+| Scenario                                    | Recommended Parameters                               |
+| ------------------------------------------- | ---------------------------------------------------- |
+| Quickly inspect recent replies              | `--sort desc --page-size 10`                         |
 | Read the full thread in chronological order | `--sort asc --page-size 50`, then paginate as needed |
-| Just confirm whether replies exist | `--sort desc --page-size 1` |
+| Just confirm whether replies exist          | `--sort desc --page-size 1`                          |
 
 ## Usage Scenarios
 
@@ -98,11 +98,11 @@ Other resource types (files, audio, video) still need to be downloaded manually 
 
 ## Common Errors and Troubleshooting
 
-| Symptom | Root Cause | Solution |
-|---------|---------|---------|
-| "Invalid thread ID format" | `thread_id` does not start with `om_` or `omt_` | Use a valid `om_xxx` or `omt_xxx` value |
-| Empty thread result | Wrong thread_id or no replies in the thread | Confirm the thread_id came from `im +chat-messages-list` output |
-| Permission denied | The user is not authorized or is not a conversation member | Make sure OAuth authorization is complete and the identity is a chat member |
+| Symptom                    | Root Cause                                                 | Solution                                                                    |
+| -------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
+| "Invalid thread ID format" | `thread_id` does not start with `om_` or `omt_`            | Use a valid `om_xxx` or `omt_xxx` value                                     |
+| Empty thread result        | Wrong thread_id or no replies in the thread                | Confirm the thread_id came from `im +chat-messages-list` output             |
+| Permission denied          | The user is not authorized or is not a conversation member | Make sure OAuth authorization is complete and the identity is a chat member |
 
 ## References
 

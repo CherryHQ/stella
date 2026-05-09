@@ -1,4 +1,3 @@
-
 # docs +media-preview（预览文档素材）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -23,10 +22,10 @@ lark-cli docs +media-preview --token "Z1Fjxxxxxxxx" --output ./asset.png
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--token <token>` | 是 | 素材 token，即 `file_token` |
-| `--output <path>` | 是 | 本地保存路径；不带扩展名会自动补全 |
+| 参数              | 必填 | 说明                               |
+| ----------------- | ---- | ---------------------------------- |
+| `--token <token>` | 是   | 素材 token，即 `file_token`        |
+| `--output <path>` | 是   | 本地保存路径；不带扩展名会自动补全 |
 
 ## token 从哪里来
 

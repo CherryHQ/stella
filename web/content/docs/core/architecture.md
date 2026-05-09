@@ -46,7 +46,7 @@ internal/
     telegram/          Telegram bot
     qq/                QQ bot
     feishu/            Feishu bot
-  admin/               HTTP API + embedded SPA (templ + Alpine.js + daisyUI)
+  admin/               HTTP API + embedded React SPA
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  SQLite, Atlas migrations, sqlc queries
   scheduler/           gocron service, heartbeat (skill via stella scheduler CLI)
@@ -127,10 +127,10 @@ type Tool interface {
 
 ### Plugin Tools (toggleable via admin)
 
-| Tool       | Description                                                    |
-| ---------- | -------------------------------------------------------------- |
+| Tool       | Description                                                      |
+| ---------- | ---------------------------------------------------------------- |
 | `mcp`      | Proxy configured MCP servers through one generic Stella MCP tool |
-| `webfetch` | Fetch web page contents                                        |
+| `webfetch` | Fetch web page contents                                          |
 
 The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
 

@@ -34,6 +34,7 @@ tap browser open <url> && tap browser network wait --url-pattern "*/api/*" --bod
 ```
 
 **When you need metadata** (title, author, published-at) without a second fetch:
+
 ```bash
 m=/tmp/recally-$(echo -n "<url>" | md5 | cut -c1-8)-meta.json
 tap fetch --json <url> > $m
@@ -42,6 +43,7 @@ jq -r .markdown $m > $f
 ```
 
 **Errors**:
+
 - 403/401: escalate through `--lp` → Jina → `-b`. If all fail, report paywall/login-required.
 - 404: dead link, inform user, stop.
 - Empty body (<100 chars): try next method; if all empty, save what exists and warn.
@@ -51,6 +53,7 @@ jq -r .markdown $m > $f
 Read `$f` and produce: **Title**, **Author**, **Tags** (3-7 lowercase), **Source Type**, **Worth-Reading tier**, and a **structured summary**.
 
 **Worth-Reading tier** — pick exactly one full label:
+
 - `⭐ Top pick` — high novelty or insight density
 - `👍 Good read` — solid and informative
 - `📖 Skim` — low depth or mostly known
@@ -101,7 +104,7 @@ stella recally save \
 - `tier-text-only` is `Top pick`, `Good read`, or `Skim` — no emoji.
 - `--source-type`: web / twitter / youtube / github / rss / pdf.
 
-**Output** (always JSON): `id`, `file_path`, `created` (true=new, false=updated existing).  
+**Output** (always JSON): `id`, `file_path`, `created` (true=new, false=updated existing).\
 When `created` is false: record was updated — inform the user, not an error.
 
 To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then re-run save with `--content-file $f`.

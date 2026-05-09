@@ -36,16 +36,16 @@ lark-cli base +dashboard-block-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID |
-| `--block-id <id>` | 是 | Block ID |
-| `--name <name>` | 否 | 新名称 |
-| `--data-config <json>` | 否 | 数据配置 JSON。**结构随 block 的 `type` 变化**。**⚠️ 必须阅读 [dashboard-block-data-config.md](dashboard-block-data-config.md) 了解如何构造** |
-| `--user-id-type <type>` | 否 | 用户 ID 类型，filter 涉及人员字段时使用 |
-| `--no-validate` | 否 | 跳过 data_config 本地校验（用于兼容特殊场景） |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                    | 必填 | 说明                                                                                                                                         |
+| ----------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--base-token <token>`  | 是   | Base Token                                                                                                                                   |
+| `--dashboard-id <id>`   | 是   | 仪表盘 ID                                                                                                                                    |
+| `--block-id <id>`       | 是   | Block ID                                                                                                                                     |
+| `--name <name>`         | 否   | 新名称                                                                                                                                       |
+| `--data-config <json>`  | 否   | 数据配置 JSON。**结构随 block 的 `type` 变化**。**⚠️ 必须阅读 [dashboard-block-data-config.md](dashboard-block-data-config.md) 了解如何构造** |
+| `--user-id-type <type>` | 否   | 用户 ID 类型，filter 涉及人员字段时使用                                                                                                      |
+| `--no-validate`         | 否   | 跳过 data_config 本地校验（用于兼容特殊场景）                                                                                                |
+| `--dry-run`             | 否   | 预览 API 调用，不执行                                                                                                                        |
 
 ## 返回示例
 
@@ -57,8 +57,8 @@ lark-cli base +dashboard-block-update \
     "type": "column",
     "data_config": {
       "table_name": "订单表",
-      "series": [{"field_name": "金额", "rollup": "SUM"}],
-      "group_by": [{"field_name": "类别", "mode": "integrated"}]
+      "series": [{ "field_name": "金额", "rollup": "SUM" }],
+      "group_by": [{ "field_name": "类别", "mode": "integrated" }]
     }
   },
   "updated": true
@@ -67,13 +67,13 @@ lark-cli base +dashboard-block-update \
 
 ## 返回重点
 
-| 字段 | 说明 |
-|------|------|
-| `block.block_id` | 组件 ID |
-| `block.name` | 更新后的名称 |
-| `block.type` | 组件类型（不可修改）|
-| `block.data_config` | 更新后的数据配置 |
-| `updated` | 是否更新成功 |
+| 字段                | 说明                 |
+| ------------------- | -------------------- |
+| `block.block_id`    | 组件 ID              |
+| `block.name`        | 更新后的名称         |
+| `block.type`        | 组件类型（不可修改） |
+| `block.data_config` | 更新后的数据配置     |
+| `updated`           | 是否更新成功         |
 
 > [!CAUTION]
 > 这是**写入操作** — 执行前必须向用户确认。

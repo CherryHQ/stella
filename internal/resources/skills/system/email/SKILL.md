@@ -1,14 +1,14 @@
 ---
 name: email
 description: |
-    Standard IMAP/SMTP email client for Gmail, Outlook, and self-hosted accounts.
-    Use when user mentions email, inbox, send email, check mail, read message,
-    compose, reply, set up email, add email account, configure email
-    (non-Lark/Feishu accounts).
+  Standard IMAP/SMTP email client for Gmail, Outlook, and self-hosted accounts.
+  Use when user mentions email, inbox, send email, check mail, read message,
+  compose, reply, set up email, add email account, configure email
+  (non-Lark/Feishu accounts).
 metadata:
-    author: CherryHQ/stella
-    owner_plugin: system/email
-    version: "1.0"
+  author: CherryHQ/stella
+  owner_plugin: system/email
+  version: "1.0"
 ---
 
 # Email

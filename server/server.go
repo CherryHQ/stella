@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"filippo.io/age"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/memory"
 )
 
-// Server provides HTTP handlers for the admin API and templ-rendered pages.
+// Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
 	store          config.Store
 	authStore      auth.AuthStore
@@ -43,6 +44,7 @@ type Server struct {
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
+	startedAt      time.Time
 }
 
 // New creates an admin server with all API routes mounted.
@@ -78,6 +80,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		corsOriginV: corsOrigin,
 		credSvc:     credSvc,
 		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome())),
+		startedAt:   time.Now(),
 	}
 
 	s.registerRoutes()

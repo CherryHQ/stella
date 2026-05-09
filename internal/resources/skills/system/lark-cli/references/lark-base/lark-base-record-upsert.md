@@ -18,12 +18,12 @@ lark-cli base +record-upsert --base-token <base_token> --table-id <table_id> --r
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--record-id <id>` | 否 | 传入时走更新，不传时走创建 |
-| `--json <body>` | 是 | 字段写入对象，类型 `Map<FieldNameOrID, CellValue>` |
+| 参数                      | 必填 | 说明                                               |
+| ------------------------- | ---- | -------------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                         |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                                       |
+| `--record-id <id>`        | 否   | 传入时走更新，不传时走创建                         |
+| `--json <body>`           | 是   | 字段写入对象，类型 `Map<FieldNameOrID, CellValue>` |
 
 ## API
 

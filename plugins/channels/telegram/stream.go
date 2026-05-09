@@ -8,8 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // streamEditInterval controls how often we edit the message during streaming.

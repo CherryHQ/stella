@@ -1,4 +1,3 @@
-
 # slides +media-upload（上传本地图片到飞书幻灯片）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -44,10 +43,10 @@ lark-cli slides +media-upload --file ./pic.png --presentation $PRES_ID --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--file` | 是 | 本地图片路径，**必须是 CWD 内的相对路径**（如 `./pic.png`）。**最大 20 MB**（slides upload API 不支持分片上传） |
-| `--presentation` | 是 | `xml_presentation_id`、`/slides/<token>` URL，或 `/wiki/<token>` URL |
+| 参数             | 必填 | 说明                                                                                                            |
+| ---------------- | ---- | --------------------------------------------------------------------------------------------------------------- |
+| `--file`         | 是   | 本地图片路径，**必须是 CWD 内的相对路径**（如 `./pic.png`）。**最大 20 MB**（slides upload API 不支持分片上传） |
+| `--presentation` | 是   | `xml_presentation_id`、`/slides/<token>` URL，或 `/wiki/<token>` URL                                            |
 
 > [!IMPORTANT]
 > **路径必须在 CWD 内**：`--file /abs/path/x.png` 或 `--file ../up/x.png` 会被 CLI 拒绝（报 `unsafe file path`）。如果素材在别的目录，先 `cd` 过去再执行。
@@ -114,12 +113,12 @@ lark-cli slides +replace-slide --as user \
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 1061002 | params error / 不支持的 parent_type | 不要用原生 API 自己拼 parent_type；用 `+media-upload` 即可 |
+| 错误码  | 含义                                      | 解决方案                                                                                                                                                                                                    |
+| ------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1061002 | params error / 不支持的 parent_type       | 不要用原生 API 自己拼 parent_type；用 `+media-upload` 即可                                                                                                                                                  |
 | 1061004 | forbidden：当前身份对该演示文稿无编辑权限 | 确认当前身份（user 或 bot）对目标 PPT 有编辑权限。bot 模式常见原因：PPT 不是该 bot 创建的——可用 `+create --as bot` 新建，或以 user 身份给 bot 授权 `lark-cli drive permission.members create --as user ...` |
-| 1061044 | parent node not exist | `--presentation` 给的 token 不对，或不是 slides 类型 |
-| 403 | 权限不足 | 检查 `docs:document.media:upload` scope；wiki URL 还需要 `wiki:node:read` |
+| 1061044 | parent node not exist                     | `--presentation` 给的 token 不对，或不是 slides 类型                                                                                                                                                        |
+| 403     | 权限不足                                  | 检查 `docs:document.media:upload` scope；wiki URL 还需要 `wiki:node:read`                                                                                                                                   |
 
 ## 相关命令
 

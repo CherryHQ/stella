@@ -31,13 +31,13 @@ When creating a lookup field, the Agent should:
 
 A Lookup field is defined by five fields:
 
-| Field | Meaning | JSON key | Required |
-|-------|---------|----------|----------|
-| **type** | Must be `"lookup"` | `type` | Yes |
-| **from** | Source table to pull data from | `from` | Yes |
-| **select** | Field in the source table to retrieve | `select` | Yes |
-| **where** | Filter conditions on the source table | `where` | Yes (at least one condition) |
-| **aggregate** | How to aggregate multiple matching records | `aggregate` | No (default: `raw_value`) |
+| Field         | Meaning                                    | JSON key    | Required                     |
+| ------------- | ------------------------------------------ | ----------- | ---------------------------- |
+| **type**      | Must be `"lookup"`                         | `type`      | Yes                          |
+| **from**      | Source table to pull data from             | `from`      | Yes                          |
+| **select**    | Field in the source table to retrieve      | `select`    | Yes                          |
+| **where**     | Filter conditions on the source table      | `where`     | Yes (at least one condition) |
+| **aggregate** | How to aggregate multiple matching records | `aggregate` | No (default: `raw_value`)    |
 
 **SQL analogy**:
 
@@ -66,10 +66,10 @@ Current table row 2 → filter source table → matching records → select fiel
 
 Lookup and Link serve **different purposes**. Creating a Lookup does NOT require a Link field to exist first.
 
-| Dimension | Link | Lookup | Formula |
-|-----------|------|--------|---------|
-| Purpose | Establish record relationships (read-write) | Pull and aggregate data from another table (read-only) | Compute values from expressions (read-only) |
-| When to use | "link" / "associate" / "bind" two tables | "look up" / "reference" / "aggregate" / "count" from another table | Calculations, text manipulation, conditional logic |
+| Dimension   | Link                                        | Lookup                                                             | Formula                                            |
+| ----------- | ------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| Purpose     | Establish record relationships (read-write) | Pull and aggregate data from another table (read-only)             | Compute values from expressions (read-only)        |
+| When to use | "link" / "associate" / "bind" two tables    | "look up" / "reference" / "aggregate" / "count" from another table | Calculations, text manipulation, conditional logic |
 
 **Common mistake**: Creating a Link field just to create a Lookup. If two tables share a matching text/number field, Lookup can match directly — no Link required.
 
@@ -118,7 +118,11 @@ Each condition is a **tuple** (array) of 2 or 3 elements: `[field, operator, val
 {
   "logic": "and",
   "conditions": [
-    ["<source table field>", "<operator>", { "type": "constant", "value": "<val>" }]
+    [
+      "<source table field>",
+      "<operator>",
+      { "type": "constant", "value": "<val>" }
+    ]
   ]
 }
 ```
@@ -149,21 +153,22 @@ For `empty` / `non_empty`, the value can be omitted (2-element tuple):
 
 The `value` inside `{ "type": "constant", "value": ... }` varies by field type:
 
-| Field type | Constant value format | Example |
-|-----------|----------------------|---------|
-| Text / Phone / Email / Url | String | `"已完成"` |
-| Number / Currency / Progress / Rating | Number | `100`, `0.8` |
-| DateTime / CreatedTime / ModifiedTime | Duration tuple | `["ExactDate", "2025-01-01"]`, `["Today"]`, `["Yesterday"]`, `["Tomorrow"]` |
-| SingleSelect / MultiSelect | Option ID or ID array | `"opt_xxx"`, `["opt_xxx", "opt_yyy"]` |
-| Link (SingleLink / DuplexLink) | Record ID or ID array | `"rec_xxx"`, `["rec_xxx", "rec_yyy"]` |
-| User | User ID or ID array | `"123"`, `["123", "456"]` |
-| Checkbox | Boolean | `true`, `false` |
-| Attachment / Location | Only `empty` / `non_empty` | value must be `null` or omitted |
-| AutoNumber | Not supported for constant comparison | Use dynamic field\_ref instead |
-| Formula / Lookup (exact type) | Follow the underlying type rules | — |
-| Formula / Lookup (fuzzy type) | String | `"some text"` |
+| Field type                            | Constant value format                 | Example                                                                     |
+| ------------------------------------- | ------------------------------------- | --------------------------------------------------------------------------- |
+| Text / Phone / Email / Url            | String                                | `"已完成"`                                                                  |
+| Number / Currency / Progress / Rating | Number                                | `100`, `0.8`                                                                |
+| DateTime / CreatedTime / ModifiedTime | Duration tuple                        | `["ExactDate", "2025-01-01"]`, `["Today"]`, `["Yesterday"]`, `["Tomorrow"]` |
+| SingleSelect / MultiSelect            | Option ID or ID array                 | `"opt_xxx"`, `["opt_xxx", "opt_yyy"]`                                       |
+| Link (SingleLink / DuplexLink)        | Record ID or ID array                 | `"rec_xxx"`, `["rec_xxx", "rec_yyy"]`                                       |
+| User                                  | User ID or ID array                   | `"123"`, `["123", "456"]`                                                   |
+| Checkbox                              | Boolean                               | `true`, `false`                                                             |
+| Attachment / Location                 | Only `empty` / `non_empty`            | value must be `null` or omitted                                             |
+| AutoNumber                            | Not supported for constant comparison | Use dynamic field\_ref instead                                              |
+| Formula / Lookup (exact type)         | Follow the underlying type rules      | —                                                                           |
+| Formula / Lookup (fuzzy type)         | String                                | `"some text"`                                                               |
 
 **DateTime notes**:
+
 - Only `ExactDate`, `Today`, `Yesterday`, `Tomorrow` are supported as duration formats
 - `["ExactDate", "2025-01-01"]` means the exact moment `2025-01-01 00:00:00`, NOT the entire day
 - For complex or relative date filtering, consider using a Formula field instead
@@ -177,34 +182,35 @@ When using `{ "type": "field_ref", "field": "..." }`, values from both sides are
 
 **Conversion rules by field type**:
 
-| Field type | Converted to |
-|-----------|-------------|
-| Text / Phone / Email / Url | Single-element string set |
-| Number / Currency / AutoNumber / DateTime | Single-element number set |
-| SingleSelect / MultiSelect | Set of option name strings |
-| User | Set of user name strings |
-| Link (SingleLink / DuplexLink) | Set of linked records' primary field string representations |
-| Formula / Lookup | The computed value set |
+| Field type                                | Converted to                                                |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| Text / Phone / Email / Url                | Single-element string set                                   |
+| Number / Currency / AutoNumber / DateTime | Single-element number set                                   |
+| SingleSelect / MultiSelect                | Set of option name strings                                  |
+| User                                      | Set of user name strings                                    |
+| Link (SingleLink / DuplexLink)            | Set of linked records' primary field string representations |
+| Formula / Lookup                          | The computed value set                                      |
 
 **Examples**:
+
 - User field `["name1", "name2"]` **intersects** text `"name1"` → true; **==** text `"name1"` → false (sets not equal)
 - User field `["name1"]` **==** text `"name1"` → true (single-element sets are equal)
 - Link field referencing records → converted to primary field strings, then compared
 
 ### Supported operators
 
-| Operator | Meaning | Applicable types |
-|----------|---------|-----------------|
-| `==` | Equal (exact match) | All types |
-| `!=` | Not equal | All types |
-| `>` | Greater than | Number, DateTime |
-| `>=` | Greater than or equal | Number, DateTime |
-| `<` | Less than | Number, DateTime |
-| `<=` | Less than or equal | Number, DateTime |
+| Operator     | Meaning                              | Applicable types                                      |
+| ------------ | ------------------------------------ | ----------------------------------------------------- |
+| `==`         | Equal (exact match)                  | All types                                             |
+| `!=`         | Not equal                            | All types                                             |
+| `>`          | Greater than                         | Number, DateTime                                      |
+| `>=`         | Greater than or equal                | Number, DateTime                                      |
+| `<`          | Less than                            | Number, DateTime                                      |
+| `<=`         | Less than or equal                   | Number, DateTime                                      |
 | `intersects` | Has intersection (non-empty overlap) | All types (most commonly used for dynamic field\_ref) |
-| `disjoint` | No intersection | All types |
-| `empty` | Field is empty | All types (value must be null or omitted) |
-| `non_empty` | Field is not empty | All types (value must be null or omitted) |
+| `disjoint`   | No intersection                      | All types                                             |
+| `empty`      | Field is empty                       | All types (value must be null or omitted)             |
+| `non_empty`  | Field is not empty                   | All types (value must be null or omitted)             |
 
 ### Constraints
 
@@ -215,20 +221,21 @@ When using `{ "type": "field_ref", "field": "..." }`, values from both sides are
 
 ## Section 4: Aggregate Rules
 
-| Aggregate | Common user phrasing | Select field should be | Result type |
-|-----------|---------------------|----------------------|-------------|
-| `sum` | "total" / "sum" / "cumulative amount" | Numeric field (e.g., amount) | Number |
-| `average` | "average" / "mean" | Numeric field | Number |
-| `max` | "maximum" / "latest" / "most recent" | Numeric / DateTime field | Same as source |
-| `min` | "minimum" / "earliest" | Numeric / DateTime field | Same as source |
-| `counta` | "count" / "how many" / "total number" | Any field | Number |
-| `unique_counta` | "count distinct" / "how many different" | Field to deduplicate | Number |
-| `unique` | "list distinct" / "which ones" / "show different" | Field to display | List |
-| `raw_value` | "list all" / "show all values" (default) | Field to display | List |
+| Aggregate       | Common user phrasing                              | Select field should be       | Result type    |
+| --------------- | ------------------------------------------------- | ---------------------------- | -------------- |
+| `sum`           | "total" / "sum" / "cumulative amount"             | Numeric field (e.g., amount) | Number         |
+| `average`       | "average" / "mean"                                | Numeric field                | Number         |
+| `max`           | "maximum" / "latest" / "most recent"              | Numeric / DateTime field     | Same as source |
+| `min`           | "minimum" / "earliest"                            | Numeric / DateTime field     | Same as source |
+| `counta`        | "count" / "how many" / "total number"             | Any field                    | Number         |
+| `unique_counta` | "count distinct" / "how many different"           | Field to deduplicate         | Number         |
+| `unique`        | "list distinct" / "which ones" / "show different" | Field to display             | List           |
+| `raw_value`     | "list all" / "show all values" (default)          | Field to display             | List           |
 
 **Common confusion**: `unique` returns a **deduplicated list**, `unique_counta` returns a **count**. "Which categories are involved" → `unique`; "How many categories" → `unique_counta`.
 
 **Important**:
+
 - Enum values are **snake_case lowercase**: `sum` not `Sum`, `average` not `Average`
 - **Count is `counta`, NOT `count`** — this is the most common enum mistake
 
@@ -302,7 +309,11 @@ Artwork table:    ArtworkName (primaryField),             ← source table (Link
   "where": {
     "logic": "and",
     "conditions": [
-      ["Exhibition", "intersects", { "type": "field_ref", "field": "ExhibitionName" }]
+      [
+        "Exhibition",
+        "intersects",
+        { "type": "field_ref", "field": "ExhibitionName" }
+      ]
     ]
   }
 }
@@ -329,7 +340,11 @@ Inventory table: ProductName (primaryField),                        ← current 
   "where": {
     "logic": "and",
     "conditions": [
-      ["SupplierName", "intersects", { "type": "field_ref", "field": "Supplier" }]
+      [
+        "SupplierName",
+        "intersects",
+        { "type": "field_ref", "field": "Supplier" }
+      ]
     ]
   }
 }
@@ -399,7 +414,11 @@ Combine row-level matching with fixed-value filtering using `logic: "and"`:
     "logic": "and",
     "conditions": [
       ["ProjectName", "==", { "type": "field_ref", "field": "ProjectName" }],
-      ["CreatedDate", ">=", { "type": "constant", "value": ["ExactDate", "2025-01-01"] }]
+      [
+        "CreatedDate",
+        ">=",
+        { "type": "constant", "value": ["ExactDate", "2025-01-01"] }
+      ]
     ]
   }
 }

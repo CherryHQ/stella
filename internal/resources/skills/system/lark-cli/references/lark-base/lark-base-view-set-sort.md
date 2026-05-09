@@ -24,12 +24,12 @@ lark-cli base +view-set-sort \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--json <body>` | 是 | JSON 对象或数组 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
+| `--json <body>`           | 是   | JSON 对象或数组  |
 
 ## API 入参详情
 
@@ -52,16 +52,36 @@ PUT /open-apis/base/v3/bases/:base_token/tables/:table_id/views/:view_id/sort
 - `--json` 既可传对象 `{"sort_config":[...]}`，也可直接传数组 `[...]`
 - 直接传数组时，CLI 会自动包装成 `sort_config`
 
-
 ## JSON Schema（原文）
 
 ```json
-{"type":"array","items":{"type":"object","properties":{"field":{"type":"string","minLength":1,"maxLength":100,"description":"Field id or name"},"desc":{"type":"boolean","default":false,"description":"define how to sort records"}},"required":["field"],"additionalProperties":false},"minItems":0,"maxItems":10,"$schema":"http://json-schema.org/draft-07/schema#"}
-
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "field": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "Field id or name"
+      },
+      "desc": {
+        "type": "boolean",
+        "default": false,
+        "description": "define how to sort records"
+      }
+    },
+    "required": ["field"],
+    "additionalProperties": false
+  },
+  "minItems": 0,
+  "maxItems": 10,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
 ```
 
 ## 工作流
-
 
 1. 优先用字段 id，避免同名字段和后续改名影响。
 

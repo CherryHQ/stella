@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 
+	ucli "github.com/urfave/cli/v2"
+
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	ucli "github.com/urfave/cli/v2"
 )
 
 func recallyFeedCommand() *ucli.Command {

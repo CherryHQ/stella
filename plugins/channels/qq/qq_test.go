@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tencent-connect/botgo/dto"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
-	"github.com/tencent-connect/botgo/dto"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {

@@ -62,6 +62,7 @@ LLM Provider (Anthropic / OpenAI / any compatible API)
 The memory system stores every message in SQLite and organizes summaries into a directed acyclic graph. When the conversation gets long, older messages are grouped and summarized into leaf nodes. Groups of leaf nodes get condensed into higher-level nodes. This happens automatically.
 
 The agent carries a unified `memory` tool with four actions:
+
 - `grep` -- search messages and summaries by keyword
 - `describe` -- inspect a summary node's metadata and lineage
 - `expand` -- drill into a summary to retrieve the source content
@@ -86,13 +87,13 @@ In Telegram, use `/agent` to switch between agents. In DMs, your default agent i
 
 Five channels, all sharing the same memory:
 
-| Channel | Connection | Streaming | Groups |
-|---------|-----------|-----------|--------|
-| Terminal | Local TUI (Bubble Tea) | Token-by-token | n/a |
-| Telegram | Long polling, no public IP | Draft API | Mention / always / disabled |
-| QQ | WebSocket | Native Stream API | Mention support |
-| Feishu | WebSocket, no public IP | Edit-in-place | Mention support |
-| WeChat | Long polling (iLink Bot) | Non-streaming | DM only |
+| Channel  | Connection                 | Streaming         | Groups                      |
+| -------- | -------------------------- | ----------------- | --------------------------- |
+| Terminal | Local TUI (Bubble Tea)     | Token-by-token    | n/a                         |
+| Telegram | Long polling, no public IP | Draft API         | Mention / always / disabled |
+| QQ       | WebSocket                  | Native Stream API | Mention support             |
+| Feishu   | WebSocket, no public IP    | Edit-in-place     | Mention support             |
+| WeChat   | Long polling (iLink Bot)   | Non-streaming     | DM only                     |
 
 You can run multiple bot instances for the same platform. Leave a channel unbound to let users switch agents with `/agent`, or bind a channel instance to a dedicated agent so that bot always routes to that agent.
 
@@ -156,10 +157,10 @@ Stella uses Docker for local agent code execution on all platforms (Linux, macOS
 
 Per-agent network policy can be configured through the admin panel:
 
-| Mode | Description |
-|------|-------------|
-| `disabled` | No outbound network (default) |
-| `allow_all` | Unrestricted outbound access |
+| Mode        | Description                   |
+| ----------- | ----------------------------- |
+| `disabled`  | No outbound network (default) |
+| `allow_all` | Unrestricted outbound access  |
 
 Runner startup fails closed when Docker is unavailable. Remote MCP servers are a separate trust boundary: local MCP stdio transport is runtime-mediated via `Session.StartProcess`, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
 
@@ -214,31 +215,35 @@ stella upgrade               # Self-update to latest release
 
 ## Documentation
 
-| Document | Description |
-|----------|------------|
-| [Configuration](docs/content/docs/getting-started/configuration.md) | Full config reference, admin panel, defaults |
-| [Deployment](docs/content/docs/getting-started/deployment.md) | Binary install, Docker, systemd, compose |
-| [Architecture](docs/content/docs/core/architecture.md) | System design, packages, providers, tools |
-| [Models](docs/content/docs/core/models.md) | Tiers, CLI commands, provider setup |
-| [Memory System](docs/content/docs/core/memory-system.md) | LCM deep dive, DAG structure, retrieval tools |
-| [Session Compaction](docs/content/docs/core/session-compaction.md) | How context compression works |
-| [Telegram](docs/content/docs/channels/telegram.md) | Bot setup, streaming, groups, access control |
-| [QQ Bot](docs/content/docs/channels/qq.md) | Bot setup, webhook, streaming |
-| [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
-| [WeChat Bot](docs/content/docs/channels/weixin.md) | iLink Bot setup, QR login, DM |
-| [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
-| [Recally](docs/content/docs/features/recally.md) | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `stella serve`; needs `STELLA_TOKEN`) |
-| [CLI as REST client](docs/content/docs/core/cli-as-client.md) | API-first model — every CLI command is a thin HTTP client of `stella serve` |
-| [Plugin System](docs/content/docs/features/plugin-system.md) | Unified subprocess plugin model for tools and channels |
-| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
+| Document                                                                 | Description                                                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| [Configuration](docs/content/docs/getting-started/configuration.md)      | Full config reference, admin panel, defaults                                                                                |
+| [Deployment](docs/content/docs/getting-started/deployment.md)            | Binary install, Docker, systemd, compose                                                                                    |
+| [Architecture](docs/content/docs/core/architecture.md)                   | System design, packages, providers, tools                                                                                   |
+| [Models](docs/content/docs/core/models.md)                               | Tiers, CLI commands, provider setup                                                                                         |
+| [Memory System](docs/content/docs/core/memory-system.md)                 | LCM deep dive, DAG structure, retrieval tools                                                                               |
+| [Session Compaction](docs/content/docs/core/session-compaction.md)       | How context compression works                                                                                               |
+| [Telegram](docs/content/docs/channels/telegram.md)                       | Bot setup, streaming, groups, access control                                                                                |
+| [QQ Bot](docs/content/docs/channels/qq.md)                               | Bot setup, webhook, streaming                                                                                               |
+| [Feishu Bot](docs/content/docs/channels/feishu.md)                       | Bot setup, WebSocket, streaming                                                                                             |
+| [WeChat Bot](docs/content/docs/channels/weixin.md)                       | iLink Bot setup, QR login, DM                                                                                               |
+| [Scheduler System](docs/content/docs/features/scheduler-system.md)       | Scheduler system, heartbeat, persistence                                                                                    |
+| [Recally](docs/content/docs/features/recally.md)                         | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `stella serve`; needs `STELLA_TOKEN`) |
+| [CLI as REST client](docs/content/docs/core/cli-as-client.md)            | API-first model — every CLI command is a thin HTTP client of `stella serve`                                                 |
+| [Plugin System](docs/content/docs/features/plugin-system.md)             | Unified subprocess plugin model for tools and channels                                                                      |
+| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing                                                                                               |
 
 ## Development
 
+Development requires [mise](https://mise.jdx.dev/). On a fresh clone, run setup once to install the development hooks:
+
 ```bash
-mise run build             # Build binary -> bin/stella (runs pre-build deps sync)
-mise run deps:sync         # Sync embedded third-party tools + generated system skills
+mise run setup             # Set up dev environment and install pre-commit hooks
+mise run build             # Build binary -> bin/stella
+mise run generate          # Generate code and embedded resources
 mise run test              # Run tests
 mise run format            # golangci-lint run --fix
+mise run hooks:install     # Install prek hooks that run mise run format
 mise run release:check     # Validate GoReleaser config
 mise run release:snapshot  # Build a host-only snapshot artifact
 ```

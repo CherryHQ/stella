@@ -9,19 +9,27 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/RegisterRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/RegisterRequest",
+            }
       responses:
         "201":
           description: created
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/AuthResponse" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "409":
           description: username already taken
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Error" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/auth/login:
     post:
@@ -33,15 +41,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/LoginRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LoginRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/AuthResponse" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/logout:
     post:
@@ -57,7 +73,9 @@ paths:
                 type: object
                 properties:
                   status: { type: string }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/me:
     get:
@@ -69,5 +87,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/MeResponse" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MeResponse",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }

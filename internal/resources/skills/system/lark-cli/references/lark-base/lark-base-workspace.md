@@ -6,11 +6,11 @@ base / workspace 相关命令索引。
 
 ## 命令导航
 
-| 文档 | 命令 | 说明 |
-|------|------|------|
-| [lark-base-base-create.md](lark-base-base-create.md) | `+base-create` | 创建 Base |
-| [lark-base-base-get.md](lark-base-base-get.md) | `+base-get` | 获取 Base 详情 |
-| [lark-base-base-copy.md](lark-base-base-copy.md) | `+base-copy` | 复制 Base |
+| 文档                                                 | 命令           | 说明           |
+| ---------------------------------------------------- | -------------- | -------------- |
+| [lark-base-base-create.md](lark-base-base-create.md) | `+base-create` | 创建 Base      |
+| [lark-base-base-get.md](lark-base-base-get.md)       | `+base-get`    | 获取 Base 详情 |
+| [lark-base-base-copy.md](lark-base-base-copy.md)     | `+base-copy`   | 复制 Base      |
 
 ## 说明
 

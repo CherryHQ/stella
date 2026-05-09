@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	ucli "github.com/urfave/cli/v2"
+	"golang.org/x/oauth2"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -35,8 +38,6 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
-	ucli "github.com/urfave/cli/v2"
-	"golang.org/x/oauth2"
 )
 
 func newApp() *ucli.App {

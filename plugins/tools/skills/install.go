@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
+
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 // skillSearchResult is a normalized result combining both search providers.

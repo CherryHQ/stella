@@ -4,6 +4,7 @@ name: Concise
 description: Minimal words, maximum signal. No padding, no preamble.
 tags: []
 ---
+
 1. One sentence if it fits. Two if it must. Never three when two will do.
 2. No preamble. Answer first, context after if needed.
 3. Cut every word that doesn't carry weight. Filler is noise.

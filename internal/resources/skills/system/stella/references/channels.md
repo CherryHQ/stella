@@ -10,6 +10,7 @@ All channel configuration is stored in the database and managed via the admin pa
 - **Fallback**: First enabled agent
 
 Commands available in all channels:
+
 - `/agent` -- List available agents or switch to a specific one
 - `/new` -- Start a fresh session (with the current agent)
 - `/compact` -- Compress conversation history
@@ -23,6 +24,7 @@ Commands available in all channels:
 3. Run `stella --open` and add it in the Channels tab
 
 Telegram channel config (JSON):
+
 ```json
 {
   "token": "BOT_TOKEN",
@@ -46,6 +48,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 ### Group support
 
 Set `group_mode` in the channel config:
+
 - `"mention"` -- respond when @mentioned (default)
 - `"always"` -- respond to all messages
 - `"disabled"` -- ignore group messages
@@ -65,6 +68,7 @@ Set `enable_notify: true` for proactive messages (scheduler results, notify tool
 3. Run `stella --open` and add it in the Channels tab
 
 QQ channel config (JSON):
+
 ```json
 {
   "app_id": "YOUR_APP_ID",
@@ -93,6 +97,7 @@ Connects via WebSocket (no public URL needed). QQ supports the same channel inst
 4. Run `stella --open` and add it in the Channels tab
 
 Feishu channel config (JSON):
+
 ```json
 {
   "app_id": "YOUR_APP_ID",
@@ -123,6 +128,7 @@ Connects via WebSocket (no public URL or webhook needed).
 4. Credentials are saved automatically on confirmation
 
 WeChat channel config (JSON):
+
 ```json
 {
   "bot_token": "OBTAINED_VIA_QR",

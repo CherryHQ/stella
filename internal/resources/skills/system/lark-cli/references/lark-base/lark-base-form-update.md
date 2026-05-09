@@ -39,16 +39,16 @@ lark-cli base +form-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App token（base_token） |
-| `--table-id <id>` | 是 | 数据表 ID |
-| `--form-id <id>` | 是 | 表单 ID |
-| `--name <name>` | 否 | 新的表单名称 |
-| `--description <string>` | 否 | 新的表单描述（纯文本或 Markdown 链接，如 `[文本](https://example.com)`） |
-| `--format` | 否 | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
-| `--as` | 否 | 身份：user（默认）\| bot |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                     | 必填 | 说明                                                                     |
+| ------------------------ | ---- | ------------------------------------------------------------------------ |
+| `--base-token <token>`   | 是   | 多维表格 App token（base_token）                                         |
+| `--table-id <id>`        | 是   | 数据表 ID                                                                |
+| `--form-id <id>`         | 是   | 表单 ID                                                                  |
+| `--name <name>`          | 否   | 新的表单名称                                                             |
+| `--description <string>` | 否   | 新的表单描述（纯文本或 Markdown 链接，如 `[文本](https://example.com)`） |
+| `--format`               | 否   | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv                |
+| `--as`                   | 否   | 身份：user（默认）\| bot                                                 |
+| `--dry-run`              | 否   | 预览 API 调用，不执行                                                    |
 
 > `--name` 和 `--description` 至少传一个，否则无实际变更。
 

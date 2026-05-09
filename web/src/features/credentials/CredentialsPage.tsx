@@ -101,7 +101,7 @@ export function CredentialsPage() {
       const providers = await loadOAuthProviders();
       await Promise.all(providers.map((p) => checkOAuthConnected(p.provider)));
     };
-    init();
+    void init();
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       for (const key of Object.keys(pollAbortRef.current)) {

@@ -40,14 +40,14 @@ All content MUST follow these voice rules:
 
 Each post fits one pillar. Ask the user which pillar, or infer from their topic:
 
-| Pillar | Focus |
-|---|---|
-| **Stella can do this** | One capability demo — a sentence + a scenario |
-| **Built Stella today** | Build in public — new feature, design decision, update log |
-| **Memory is a feature** | Long-term context, info retrieval, conversation continuity |
-| **Local-first assistant** | Self-hosted, data control, single binary, no cloud dependency |
-| **Stella in daily life** | Reminders, notifications, cross-device workflow, daily routines |
-| **Designing Stella** | Avatar, brand voice, visual identity, persona decisions |
+| Pillar                    | Focus                                                           |
+| ------------------------- | --------------------------------------------------------------- |
+| **Stella can do this**    | One capability demo — a sentence + a scenario                   |
+| **Built Stella today**    | Build in public — new feature, design decision, update log      |
+| **Memory is a feature**   | Long-term context, info retrieval, conversation continuity      |
+| **Local-first assistant** | Self-hosted, data control, single binary, no cloud dependency   |
+| **Stella in daily life**  | Reminders, notifications, cross-device workflow, daily routines |
+| **Designing Stella**      | Avatar, brand voice, visual identity, persona decisions         |
 
 ### Content Ratio Target
 
@@ -65,16 +65,16 @@ Each post fits one pillar. Ask the user which pillar, or infer from their topic:
 4. Draft the post following platform format and voice rules
 5. Present the draft for user review — never assume auto-posting
 6. **Posting to Twitter/X** (only when the user explicitly asks to post):
-   a. Present the final tweet text and ask: *"Ready to post this to X? (yes/no)"*
+   a. Present the final tweet text and ask: _"Ready to post this to X? (yes/no)"_
    b. **Wait for explicit user approval** — do NOT proceed without a clear "yes"
    c. Run the posting script:
-      ```bash
-      uv run --script ./scripts/post_twitter.py "TWEET_TEXT"
-      ```
+   ```bash
+   uv run --script ./scripts/post_twitter.py "TWEET_TEXT"
+   ```
    d. Use `--dry-run` first if the user wants to preview without posting:
-      ```bash
-      uv run --script ./scripts/post_twitter.py --dry-run "TWEET_TEXT"
-      ```
+   ```bash
+   uv run --script ./scripts/post_twitter.py --dry-run "TWEET_TEXT"
+   ```
    e. Report the result back to the user
 
    **Requirements:** `X_CLIENT_ID` and `X_CLIENT_SECRET` must be set in the environment. On first run, the script will prompt for OAuth2 authorization in the browser; tokens are cached at `~/.stella/x_tokens.json` for subsequent use.

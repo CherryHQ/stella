@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // Session is the subset of MCP client session behavior used by Stella's runtime.

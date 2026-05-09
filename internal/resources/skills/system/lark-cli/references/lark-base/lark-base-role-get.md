@@ -16,11 +16,11 @@ lark-cli base +role-get \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token，27 位字母数字字符串 |
-| `--role-id <id>` | 是 | 角色 ID，格式 `rol` + 8 位字母数字 |
-| `--format <fmt>` | 否 | 输出格式：json / pretty / table / csv / ndjson |
+| 参数                   | 必填 | 说明                                           |
+| ---------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token，27 位字母数字字符串                |
+| `--role-id <id>`       | 是   | 角色 ID，格式 `rol` + 8 位字母数字             |
+| `--format <fmt>`       | 否   | 输出格式：json / pretty / table / csv / ndjson |
 
 ## API 入参详情
 
@@ -32,10 +32,10 @@ GET /open-apis/base/v3/bases/:base_token/roles/:role_id
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | Base 的唯一标识 |
-| `role_id` | 是 | 角色 ID |
+| 参数         | 必填 | 说明            |
+| ------------ | ---- | --------------- |
+| `base_token` | 是   | Base 的唯一标识 |
+| `role_id`    | 是   | 角色 ID         |
 
 无 Query 参数，无 Request Body。
 
@@ -45,15 +45,15 @@ GET /open-apis/base/v3/bases/:base_token/roles/:role_id
 
 完整的 AdvPermBaseRole 对象（结构详见 [role-config.md](role-config.md)）：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `role_id` | string | 角色 ID |
-| `role_name` | string | 角色名称 |
-| `role_type` | string | 角色类型 |
-| `base_rule_map` | map\<string, bool\> | Base 级权限（copy/download） |
-| `table_rule_map` | map\<string, TableRule\> | 数据表权限配置 |
-| `dashboard_rule_map` | map\<string, DashboardRule\> | 仪表盘权限配置 |
-| `docx_rule_map` | map\<string, DocxRule\> | 文档权限配置 |
+| 字段                 | 类型                         | 说明                         |
+| -------------------- | ---------------------------- | ---------------------------- |
+| `role_id`            | string                       | 角色 ID                      |
+| `role_name`          | string                       | 角色名称                     |
+| `role_type`          | string                       | 角色类型                     |
+| `base_rule_map`      | map\<string, bool\>          | Base 级权限（copy/download） |
+| `table_rule_map`     | map\<string, TableRule\>     | 数据表权限配置               |
+| `dashboard_rule_map` | map\<string, DashboardRule\> | 仪表盘权限配置               |
+| `docx_rule_map`      | map\<string, DocxRule\>      | 文档权限配置                 |
 
 ## 返回值
 

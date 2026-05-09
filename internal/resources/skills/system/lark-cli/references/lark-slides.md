@@ -54,20 +54,20 @@ lark-cli slides +create --title "演示文稿标题" --slides '[
 
 ### 必读（每次创建前）
 
-| 文档 | 说明 |
-|------|------|
+| 文档                                                             | 说明                         |
+| ---------------------------------------------------------------- | ---------------------------- |
 | [xml-schema-quick-ref.md](./lark-slides/xml-schema-quick-ref.md) | **XML 元素和属性速查，必读** |
 
 ### 选读（需要时查阅）
 
-| 场景 | 文档 |
-|------|------|
-| 需要了解详细 XML 结构 | [xml-format-guide.md](./lark-slides/xml-format-guide.md) |
-| 需要 CLI 调用示例 | [examples.md](./lark-slides/examples.md) |
-| 需要参考真实 PPT 的 XML | [slides_demo.xml](./lark-slides/slides_demo.xml) |
+| 场景                          | 文档                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| 需要了解详细 XML 结构         | [xml-format-guide.md](./lark-slides/xml-format-guide.md)                                          |
+| 需要 CLI 调用示例             | [examples.md](./lark-slides/examples.md)                                                          |
+| 需要参考真实 PPT 的 XML       | [slides_demo.xml](./lark-slides/slides_demo.xml)                                                  |
 | 需要用 table/chart 等复杂元素 | [slides_xml_schema_definition.xml](./lark-slides/slides_xml_schema_definition.xml)（完整 Schema） |
-| 需要编辑已有 PPT 的单个页面 | [lark-slides-edit-workflows.md](./lark-slides/lark-slides-edit-workflows.md) |
-| 需要了解某个命令的详细参数 | 对应命令的 reference 文档（见下方参考文档章节） |
+| 需要编辑已有 PPT 的单个页面   | [lark-slides-edit-workflows.md](./lark-slides/lark-slides-edit-workflows.md)                      |
+| 需要了解某个命令的详细参数    | 对应命令的 reference 文档（见下方参考文档章节）                                                   |
 
 ## Workflow
 
@@ -136,25 +136,25 @@ lark-cli slides xml_presentation.slide create \
 
 > **注意**：渐变色必须使用 `rgba()` 格式并带百分比停靠点，如 `linear-gradient(135deg,rgba(15,23,42,1) 0%,rgba(56,97,140,1) 100%)`。使用 `rgb()` 或省略停靠点会导致服务端回退为白色。
 
-| 场景/主题 | 推荐风格 | 背景 | 主色 | 文字色 |
-|----------|---------|------|------|-------|
-| 科技/AI/产品 | 深色科技风 | 深蓝渐变 `linear-gradient(135deg,rgba(15,23,42,1) 0%,rgba(56,97,140,1) 100%)` | 蓝色系 `rgb(59,130,246)` | 白色 |
-| 商务汇报/季度总结 | 浅色商务风 | 浅灰 `rgb(248,250,252)` | 深蓝 `rgb(30,60,114)` | 深灰 `rgb(30,41,59)` |
-| 教育/培训 | 清新明亮风 | 白色 `rgb(255,255,255)` | 绿色系 `rgb(34,197,94)` | 深灰 `rgb(51,65,85)` |
-| 创意/设计 | 渐变活力风 | 紫粉渐变 `linear-gradient(135deg,rgba(88,28,135,1) 0%,rgba(190,24,93,1) 100%)` | 粉紫色系 | 白色 |
-| 周报/日常汇报 | 简约专业风 | 浅灰 `rgb(248,250,252)` + 顶部彩色渐变条 | 蓝色 `rgb(59,130,246)` | 深色 `rgb(15,23,42)` |
-| 用户未指定 | 默认简约专业风 | 同上 | 同上 | 同上 |
+| 场景/主题         | 推荐风格       | 背景                                                                           | 主色                     | 文字色               |
+| ----------------- | -------------- | ------------------------------------------------------------------------------ | ------------------------ | -------------------- |
+| 科技/AI/产品      | 深色科技风     | 深蓝渐变 `linear-gradient(135deg,rgba(15,23,42,1) 0%,rgba(56,97,140,1) 100%)`  | 蓝色系 `rgb(59,130,246)` | 白色                 |
+| 商务汇报/季度总结 | 浅色商务风     | 浅灰 `rgb(248,250,252)`                                                        | 深蓝 `rgb(30,60,114)`    | 深灰 `rgb(30,41,59)` |
+| 教育/培训         | 清新明亮风     | 白色 `rgb(255,255,255)`                                                        | 绿色系 `rgb(34,197,94)`  | 深灰 `rgb(51,65,85)` |
+| 创意/设计         | 渐变活力风     | 紫粉渐变 `linear-gradient(135deg,rgba(88,28,135,1) 0%,rgba(190,24,93,1) 100%)` | 粉紫色系                 | 白色                 |
+| 周报/日常汇报     | 简约专业风     | 浅灰 `rgb(248,250,252)` + 顶部彩色渐变条                                       | 蓝色 `rgb(59,130,246)`   | 深色 `rgb(15,23,42)` |
+| 用户未指定        | 默认简约专业风 | 同上                                                                           | 同上                     | 同上                 |
 
 ### 页面布局建议
 
-| 页面类型 | 布局要点 |
-|---------|---------|
-| 封面页 | 居中大标题 + 副标题 + 底部信息，背景用渐变或深色 |
-| 数据概览页 | 指标卡片横排（rect 背景 + 大号数字 + 小号说明），下方列表或图表 |
-| 内容页 | 左侧竖线装饰 + 标题，下方分栏或列表 |
-| 对比/表格页 | table 元素或并列卡片，表头深色背景白字 |
-| 图表页 | chart 元素（column/line/pie），配合文字说明 |
-| 结尾页 | 居中感谢语 + 装饰线，风格与封面呼应 |
+| 页面类型    | 布局要点                                                        |
+| ----------- | --------------------------------------------------------------- |
+| 封面页      | 居中大标题 + 副标题 + 底部信息，背景用渐变或深色                |
+| 数据概览页  | 指标卡片横排（rect 背景 + 大号数字 + 小号说明），下方列表或图表 |
+| 内容页      | 左侧竖线装饰 + 标题，下方分栏或列表                             |
+| 对比/表格页 | table 元素或并列卡片，表头深色背景白字                          |
+| 图表页      | chart 元素（column/line/pie），配合文字说明                     |
+| 结尾页      | 居中感谢语 + 装饰线，风格与封面呼应                             |
 
 ### 大纲模板
 
@@ -183,10 +183,10 @@ N. 结尾页：[结尾文案]
 
 ### URL 格式与 Token
 
-| URL 格式 | 示例 | Token 类型 | 处理方式 |
-|----------|------|-----------|----------|
+| URL 格式   | 示例                                                  | Token 类型            | 处理方式                                               |
+| ---------- | ----------------------------------------------------- | --------------------- | ------------------------------------------------------ |
 | `/slides/` | `https://example.larkoffice.com/slides/xxxxxxxxxxxxx` | `xml_presentation_id` | URL 路径中的 token 直接作为 `xml_presentation_id` 使用 |
-| `/wiki/` | `https://example.larkoffice.com/wiki/wikcnxxxxxxxxx` | `wiki_token` | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token` |
+| `/wiki/`   | `https://example.larkoffice.com/wiki/wikcnxxxxxxxxx`  | `wiki_token`          | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token`   |
 
 > `+replace-slide` 和 `+media-upload` shortcut 会自动解析以上两种 URL；直接调用原生 API 时仍需手动解析 wiki 链接。
 
@@ -216,15 +216,16 @@ lark-cli wiki spaces get_node --as user --params '{"token":"wikcnxxxxxxxxx"}'
 ```
 
 返回结果示例：
+
 ```json
 {
-   "node": {
-      "obj_type": "slides",
-      "obj_token": "xxxxxxxxxxxx",
-      "title": "2026 产品年度总结",
-      "node_type": "origin",
-      "space_id": "1234567890"
-   }
+  "node": {
+    "obj_type": "slides",
+    "obj_token": "xxxxxxxxxxxx",
+    "title": "2026 产品年度总结",
+    "node_type": "origin",
+    "space_id": "1234567890"
+  }
 }
 ```
 
@@ -251,10 +252,10 @@ Slides (演示文稿)
 
 Shortcut 是对常用操作的高级封装（`lark-cli slides +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+create`](./lark-slides/lark-slides-create.md) | 创建 PPT（可选 `--slides` 一步添加页面，支持 `<img src="@./local.png">` 占位符自动上传），bot 模式自动授权 |
-| [`+media-upload`](./lark-slides/lark-slides-media-upload.md) | 上传本地图片到指定演示文稿，返回 `file_token`（用作 `<img src="...">`），最大 20 MB |
+| Shortcut                                                       | 说明                                                                                                           |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [`+create`](./lark-slides/lark-slides-create.md)               | 创建 PPT（可选 `--slides` 一步添加页面，支持 `<img src="@./local.png">` 占位符自动上传），bot 模式自动授权     |
+| [`+media-upload`](./lark-slides/lark-slides-media-upload.md)   | 上传本地图片到指定演示文稿，返回 `file_token`（用作 `<img src="...">`），最大 20 MB                            |
 | [`+replace-slide`](./lark-slides/lark-slides-replace-slide.md) | 对已有幻灯片页面进行块级替换/插入（`block_replace` / `block_insert`），自动注入 id 和 `<content/>`，不改变页序 |
 
 ## API Resources
@@ -268,14 +269,14 @@ lark-cli slides <resource> <method> [flags] # 调用 API
 
 ### xml_presentations
 
-  - `get` — 读取演示文稿全文信息，XML 格式返回
+- `get` — 读取演示文稿全文信息，XML 格式返回
 
 ### xml_presentation.slide
 
-  - `create` — 在指定 XML 演示文稿下创建页面
-  - `delete` — 在指定 XML 演示文稿下删除页面
-  - `get` — 获取指定 XML 演示文稿的单个页面 XML 内容
-  - `replace` — 对指定 XML 演示文稿页面进行元素级别的局部替换
+- `create` — 在指定 XML 演示文稿下创建页面
+- `delete` — 在指定 XML 演示文稿下删除页面
+- `get` — 获取指定 XML 演示文稿的单个页面 XML 内容
+- `replace` — 对指定 XML 演示文稿页面进行元素级别的局部替换
 
 ## 核心规则
 
@@ -290,32 +291,32 @@ lark-cli slides <resource> <method> [flags] # 调用 API
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `slides +create` | `slides:presentation:create`, `slides:presentation:write_only`（含 `@` 占位符时还需 `docs:document.media:upload`） |
-| `slides +media-upload` | `docs:document.media:upload`（wiki URL 解析还需 `wiki:node:read`） |
-| `slides +replace-slide` | `slides:presentation:update`（wiki URL 解析还需 `wiki:node:read`） |
-| `xml_presentations.get` | `slides:presentation:read` |
-| `xml_presentation.slide.create` | `slides:presentation:update` 或 `slides:presentation:write_only` |
-| `xml_presentation.slide.delete` | `slides:presentation:update` 或 `slides:presentation:write_only` |
-| `xml_presentation.slide.get` | `slides:presentation:read` |
-| `xml_presentation.slide.replace` | `slides:presentation:update` |
+| 方法                             | 所需 scope                                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `slides +create`                 | `slides:presentation:create`, `slides:presentation:write_only`（含 `@` 占位符时还需 `docs:document.media:upload`） |
+| `slides +media-upload`           | `docs:document.media:upload`（wiki URL 解析还需 `wiki:node:read`）                                                 |
+| `slides +replace-slide`          | `slides:presentation:update`（wiki URL 解析还需 `wiki:node:read`）                                                 |
+| `xml_presentations.get`          | `slides:presentation:read`                                                                                         |
+| `xml_presentation.slide.create`  | `slides:presentation:update` 或 `slides:presentation:write_only`                                                   |
+| `xml_presentation.slide.delete`  | `slides:presentation:update` 或 `slides:presentation:write_only`                                                   |
+| `xml_presentation.slide.get`     | `slides:presentation:read`                                                                                         |
+| `xml_presentation.slide.replace` | `slides:presentation:update`                                                                                       |
 
 ## 常见错误速查
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 400 | XML 格式错误 | 检查 XML 语法，确保标签闭合 |
-| 400 | 请求包装错误 | 检查 `--data` 是否按 schema 传入 `xml_presentation.content` 或 `slide.content` |
-| 404 | 演示文稿不存在 | 检查 `xml_presentation_id` 是否正确 |
-| 404 | 幻灯片不存在 | 检查 `slide_id` 是否正确 |
-| 403 | 权限不足 | 检查是否拥有对应的 scope |
-| 400 | 无法删除唯一幻灯片 | 演示文稿至少保留一页幻灯片 |
-| 1061002 | params error（媒体上传时） | 用 `slides +media-upload`，不要手拼原生 `medias/upload_all`；slides 唯一可用 `parent_type` 是 `slide_file` |
-| 1061004 | forbidden：当前身份对演示文稿无编辑权限 | 确认 user/bot 对目标 PPT 有编辑权限；bot 常见于 PPT 非该 bot 创建，需先授权或用 `+create --as bot` 新建 |
-| 3350001 | `xml_presentation.slide.replace` 失败（catch-all） | 检查 `block_replace` 替换根是否带 `id=<block_id>`；`<shape>` 是否含 `<content/>`；坐标是否在 960×540 内。详见 [lark-slides-replace-slide.md](./lark-slides/lark-slides-replace-slide.md) |
-| 3350002 | `revision_id` 大于当前版本 | 用 `-1` 取当前版本，或重新读 `xml_presentations.get` 取最新 `revision_id` |
-| validation: unsafe file path | `--file` 给了绝对路径或上层路径 | `--file` 必须是 CWD 内相对路径；先 `cd` 到素材目录再执行 |
+| 错误码                       | 含义                                               | 解决方案                                                                                                                                                                                 |
+| ---------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400                          | XML 格式错误                                       | 检查 XML 语法，确保标签闭合                                                                                                                                                              |
+| 400                          | 请求包装错误                                       | 检查 `--data` 是否按 schema 传入 `xml_presentation.content` 或 `slide.content`                                                                                                           |
+| 404                          | 演示文稿不存在                                     | 检查 `xml_presentation_id` 是否正确                                                                                                                                                      |
+| 404                          | 幻灯片不存在                                       | 检查 `slide_id` 是否正确                                                                                                                                                                 |
+| 403                          | 权限不足                                           | 检查是否拥有对应的 scope                                                                                                                                                                 |
+| 400                          | 无法删除唯一幻灯片                                 | 演示文稿至少保留一页幻灯片                                                                                                                                                               |
+| 1061002                      | params error（媒体上传时）                         | 用 `slides +media-upload`，不要手拼原生 `medias/upload_all`；slides 唯一可用 `parent_type` 是 `slide_file`                                                                               |
+| 1061004                      | forbidden：当前身份对演示文稿无编辑权限            | 确认 user/bot 对目标 PPT 有编辑权限；bot 常见于 PPT 非该 bot 创建，需先授权或用 `+create --as bot` 新建                                                                                  |
+| 3350001                      | `xml_presentation.slide.replace` 失败（catch-all） | 检查 `block_replace` 替换根是否带 `id=<block_id>`；`<shape>` 是否含 `<content/>`；坐标是否在 960×540 内。详见 [lark-slides-replace-slide.md](./lark-slides/lark-slides-replace-slide.md) |
+| 3350002                      | `revision_id` 大于当前版本                         | 用 `-1` 取当前版本，或重新读 `xml_presentations.get` 取最新 `revision_id`                                                                                                                |
+| validation: unsafe file path | `--file` 给了绝对路径或上层路径                    | `--file` 必须是 CWD 内相对路径；先 `cd` 到素材目录再执行                                                                                                                                 |
 
 ## 创建前自查
 
@@ -331,44 +332,44 @@ lark-cli slides <resource> <method> [flags] # 调用 API
 
 ## 症状 → 修复表
 
-| 看到的问题 | 改什么 |
-|-----------|--------|
-| 文字被截断/看不全 | 增大 shape 的 `width` 或 `height` |
-| 元素重叠 | 调整 `topLeftX`/`topLeftY`，拉开间距 |
-| 页面大面积空白 | 缩小元素间距，或增加内容填充 |
-| 文字和背景色太接近 | 深色背景用浅色文字，浅色背景用深色文字 |
-| 表格列宽不合理 | 调整 `colgroup` 中 `col` 的 `width` 值 |
-| 图表没有显示 | 检查 `chartPlotArea` 和 `chartData` 是否都包含，`dim1`/`dim2` 数据数量是否匹配 |
-| 图片被裁掉一部分 | `<img>` 的 `width`/`height` 是裁剪后尺寸，比例和原图不一致时会自动裁剪；要整图显示就让 `width:height` 对齐原图比例 |
-| 只想改某页的单个元素（文字/图片/形状） | 用 `+replace-slide` 块级替换，不要整页重建 |
-| 想给已有页加一张图（不动原有元素） | ① `+media-upload` 拿 `file_token` ② `+replace-slide` 用 `block_insert` 插入 `<img src="<file_token>" .../>`；不要再用 "整页 create + delete" 的老流程 |
-| 新插入的 `<img>` 挡住/重叠原有元素 | `slide.get` 读原页，对照已有块的 `topLeftX/Y/width/height` 挑空白位置；空间不够就在同一批 `--parts` 里先 `block_replace` 缩小/挪动现有块再 `block_insert` 图片 |
-| 渐变背景变成白色 | 渐变必须用 `rgba()` 格式 + 百分比停靠点，如 `linear-gradient(135deg,rgba(30,60,114,1) 0%,rgba(59,130,246,1) 100%)`；用 `rgb()` 或省略停靠点会被回退为白色 |
-| 渐变方向不对 | 调整 `linear-gradient` 的角度（`90deg` 水平、`180deg` 垂直、`135deg` 对角线） |
-| 整体风格不统一 | 封面页和结尾页用同一背景，内容页保持一致的配色和字号体系 |
-| API 返回 400 | 检查 XML 语法：标签闭合、属性引号、特殊字符转义 |
-| API 返回 3350001 | `block_replace` 根元素缺 `id=<block_id>` 或 `<shape>` 缺 `<content/>`，详见 replace-slide 文档 |
-| 图片不显示 / `<img src>` 仍是 `@path` | `@` 占位符**只在 `+create --slides` 中替换**；直接调 `xml_presentation.slide.create` 必须先用 `+media-upload` 拿 `file_token` 写进 src |
-| 上传图片报 1061002 params error | `parent_type` 必须是 `slide_file`（slides 唯一接受值）；不要手拼，用 `slides +media-upload` |
+| 看到的问题                             | 改什么                                                                                                                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文字被截断/看不全                      | 增大 shape 的 `width` 或 `height`                                                                                                                              |
+| 元素重叠                               | 调整 `topLeftX`/`topLeftY`，拉开间距                                                                                                                           |
+| 页面大面积空白                         | 缩小元素间距，或增加内容填充                                                                                                                                   |
+| 文字和背景色太接近                     | 深色背景用浅色文字，浅色背景用深色文字                                                                                                                         |
+| 表格列宽不合理                         | 调整 `colgroup` 中 `col` 的 `width` 值                                                                                                                         |
+| 图表没有显示                           | 检查 `chartPlotArea` 和 `chartData` 是否都包含，`dim1`/`dim2` 数据数量是否匹配                                                                                 |
+| 图片被裁掉一部分                       | `<img>` 的 `width`/`height` 是裁剪后尺寸，比例和原图不一致时会自动裁剪；要整图显示就让 `width:height` 对齐原图比例                                             |
+| 只想改某页的单个元素（文字/图片/形状） | 用 `+replace-slide` 块级替换，不要整页重建                                                                                                                     |
+| 想给已有页加一张图（不动原有元素）     | ① `+media-upload` 拿 `file_token` ② `+replace-slide` 用 `block_insert` 插入 `<img src="<file_token>" .../>`；不要再用 "整页 create + delete" 的老流程          |
+| 新插入的 `<img>` 挡住/重叠原有元素     | `slide.get` 读原页，对照已有块的 `topLeftX/Y/width/height` 挑空白位置；空间不够就在同一批 `--parts` 里先 `block_replace` 缩小/挪动现有块再 `block_insert` 图片 |
+| 渐变背景变成白色                       | 渐变必须用 `rgba()` 格式 + 百分比停靠点，如 `linear-gradient(135deg,rgba(30,60,114,1) 0%,rgba(59,130,246,1) 100%)`；用 `rgb()` 或省略停靠点会被回退为白色      |
+| 渐变方向不对                           | 调整 `linear-gradient` 的角度（`90deg` 水平、`180deg` 垂直、`135deg` 对角线）                                                                                  |
+| 整体风格不统一                         | 封面页和结尾页用同一背景，内容页保持一致的配色和字号体系                                                                                                       |
+| API 返回 400                           | 检查 XML 语法：标签闭合、属性引号、特殊字符转义                                                                                                                |
+| API 返回 3350001                       | `block_replace` 根元素缺 `id=<block_id>` 或 `<shape>` 缺 `<content/>`，详见 replace-slide 文档                                                                 |
+| 图片不显示 / `<img src>` 仍是 `@path`  | `@` 占位符**只在 `+create --slides` 中替换**；直接调 `xml_presentation.slide.create` 必须先用 `+media-upload` 拿 `file_token` 写进 src                         |
+| 上传图片报 1061002 params error        | `parent_type` 必须是 `slide_file`（slides 唯一接受值）；不要手拼，用 `slides +media-upload`                                                                    |
 
 ## 参考文档
 
-| 文档 | 说明 |
-|------|------|
-| [lark-slides-create.md](./lark-slides/lark-slides-create.md) | **+create Shortcut：创建 PPT（支持 `--slides` 一步添加页面，含 `@` 占位符自动上传图片）** |
-| [lark-slides-media-upload.md](./lark-slides/lark-slides-media-upload.md) | **+media-upload Shortcut：上传本地图片，返回 `file_token`** |
-| [lark-slides-replace-slide.md](./lark-slides/lark-slides-replace-slide.md) | **+replace-slide Shortcut：块级替换/插入，含合法根元素速查与 3350001 排错** |
-| [lark-slides-edit-workflows.md](./lark-slides/lark-slides-edit-workflows.md) | 编辑已有页面的读-改-写流程与 action 决策树 |
-| [xml-schema-quick-ref.md](./lark-slides/xml-schema-quick-ref.md) | **XML Schema 精简速查（必读）** |
-| [slide-templates.md](./lark-slides/slide-templates.md) | 可复制的 Slide XML 模板 |
-| [xml-format-guide.md](./lark-slides/xml-format-guide.md) | XML 详细结构与示例 |
-| [examples.md](./lark-slides/examples.md) | CLI 调用示例 |
-| [slides_demo.xml](./lark-slides/slides_demo.xml) | 真实 PPT 的完整 XML |
-| [slides_xml_schema_definition.xml](./lark-slides/slides_xml_schema_definition.xml) | **完整 Schema 定义**（唯一协议依据） |
-| [lark-slides-xml-presentations-get.md](./lark-slides/lark-slides-xml-presentations-get.md) | 读取 PPT 命令详情 |
-| [lark-slides-xml-presentation-slide-create.md](./lark-slides/lark-slides-xml-presentation-slide-create.md) | 添加幻灯片命令详情 |
-| [lark-slides-xml-presentation-slide-delete.md](./lark-slides/lark-slides-xml-presentation-slide-delete.md) | 删除幻灯片命令详情 |
-| [lark-slides-xml-presentation-slide-get.md](./lark-slides/lark-slides-xml-presentation-slide-get.md) | 读取单个幻灯片命令详情 |
-| [lark-slides-xml-presentation-slide-replace.md](./lark-slides/lark-slides-xml-presentation-slide-replace.md) | 原生 slide.replace API 命令详情 |
+| 文档                                                                                                         | 说明                                                                                      |
+| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| [lark-slides-create.md](./lark-slides/lark-slides-create.md)                                                 | **+create Shortcut：创建 PPT（支持 `--slides` 一步添加页面，含 `@` 占位符自动上传图片）** |
+| [lark-slides-media-upload.md](./lark-slides/lark-slides-media-upload.md)                                     | **+media-upload Shortcut：上传本地图片，返回 `file_token`**                               |
+| [lark-slides-replace-slide.md](./lark-slides/lark-slides-replace-slide.md)                                   | **+replace-slide Shortcut：块级替换/插入，含合法根元素速查与 3350001 排错**               |
+| [lark-slides-edit-workflows.md](./lark-slides/lark-slides-edit-workflows.md)                                 | 编辑已有页面的读-改-写流程与 action 决策树                                                |
+| [xml-schema-quick-ref.md](./lark-slides/xml-schema-quick-ref.md)                                             | **XML Schema 精简速查（必读）**                                                           |
+| [slide-templates.md](./lark-slides/slide-templates.md)                                                       | 可复制的 Slide XML 模板                                                                   |
+| [xml-format-guide.md](./lark-slides/xml-format-guide.md)                                                     | XML 详细结构与示例                                                                        |
+| [examples.md](./lark-slides/examples.md)                                                                     | CLI 调用示例                                                                              |
+| [slides_demo.xml](./lark-slides/slides_demo.xml)                                                             | 真实 PPT 的完整 XML                                                                       |
+| [slides_xml_schema_definition.xml](./lark-slides/slides_xml_schema_definition.xml)                           | **完整 Schema 定义**（唯一协议依据）                                                      |
+| [lark-slides-xml-presentations-get.md](./lark-slides/lark-slides-xml-presentations-get.md)                   | 读取 PPT 命令详情                                                                         |
+| [lark-slides-xml-presentation-slide-create.md](./lark-slides/lark-slides-xml-presentation-slide-create.md)   | 添加幻灯片命令详情                                                                        |
+| [lark-slides-xml-presentation-slide-delete.md](./lark-slides/lark-slides-xml-presentation-slide-delete.md)   | 删除幻灯片命令详情                                                                        |
+| [lark-slides-xml-presentation-slide-get.md](./lark-slides/lark-slides-xml-presentation-slide-get.md)         | 读取单个幻灯片命令详情                                                                    |
+| [lark-slides-xml-presentation-slide-replace.md](./lark-slides/lark-slides-xml-presentation-slide-replace.md) | 原生 slide.replace API 命令详情                                                           |
 
 > **注意**：如果 md 内容与 `slides_xml_schema_definition.xml` 或 `lark-cli schema slides.<resource>.<method>` 输出不一致，以后两者为准。

@@ -8,8 +8,9 @@ import (
 	"os"
 	"time"
 
-	apiclient "github.com/CherryHQ/stella/api/client"
 	ucli "github.com/urfave/cli/v2"
+
+	apiclient "github.com/CherryHQ/stella/api/client"
 )
 
 func recallySaveCommand() *ucli.Command {

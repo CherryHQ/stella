@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
-	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
 // --- splitMessage (now uses channel.SplitMessage) ---

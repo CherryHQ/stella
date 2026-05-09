@@ -15,9 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
-	"gopkg.in/yaml.v3"
 )
 
 const (

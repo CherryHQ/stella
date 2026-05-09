@@ -15,10 +15,10 @@ lark-cli base +table-delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
+| 参数                      | 必填 | 说明         |
+| ------------------------- | ---- | ------------ |
+| `--base-token <token>`    | 是   | Base Token   |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名 |
 
 ## API 入参详情
 

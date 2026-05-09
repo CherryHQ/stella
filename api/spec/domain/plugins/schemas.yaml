@@ -8,19 +8,19 @@ components:
     PluginView:
       type: object
       properties:
-        id:           { type: string }
-        kind:         { type: string }
-        name:         { type: string }
-        enabled:      { type: boolean }
-        config:       { type: object, additionalProperties: true }
+        id: { type: string }
+        kind: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        config: { type: object, additionalProperties: true }
         display_name: { type: string }
-        description:  { type: string }
-        managed:      { type: boolean }
+        description: { type: string }
+        managed: { type: boolean }
         admin_visible: { type: boolean }
-        has_config:   { type: boolean }
-        has_status:   { type: boolean }
+        has_config: { type: boolean }
+        has_status: { type: boolean }
         capabilities: { type: array, items: { type: string } }
-        persisted:    { type: boolean }
+        persisted: { type: boolean }
         persisted_id: { type: string }
 
     TogglePluginRequest:

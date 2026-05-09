@@ -6,13 +6,13 @@ table 相关命令索引。
 
 ## 命令导航
 
-| 文档 | 命令 | 说明 |
-|------|------|------|
-| [lark-base-table-list.md](lark-base-table-list.md) | `+table-list` | 分页列出数据表 |
-| [lark-base-table-get.md](lark-base-table-get.md) | `+table-get` | 获取单表概要、字段和视图 |
+| 文档                                                   | 命令            | 说明                          |
+| ------------------------------------------------------ | --------------- | ----------------------------- |
+| [lark-base-table-list.md](lark-base-table-list.md)     | `+table-list`   | 分页列出数据表                |
+| [lark-base-table-get.md](lark-base-table-get.md)       | `+table-get`    | 获取单表概要、字段和视图      |
 | [lark-base-table-create.md](lark-base-table-create.md) | `+table-create` | 创建数据表，可附带字段 / 视图 |
-| [lark-base-table-update.md](lark-base-table-update.md) | `+table-update` | 重命名数据表 |
-| [lark-base-table-delete.md](lark-base-table-delete.md) | `+table-delete` | 删除数据表 |
+| [lark-base-table-update.md](lark-base-table-update.md) | `+table-update` | 重命名数据表                  |
+| [lark-base-table-delete.md](lark-base-table-delete.md) | `+table-delete` | 删除数据表                    |
 
 ## 说明
 

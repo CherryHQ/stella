@@ -1,4 +1,3 @@
-
 # slides +create（创建飞书幻灯片）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -45,6 +44,7 @@ lark-cli slides +create --title "项目汇报" --slides '[...]' --dry-run
 > 如果演示文稿是**以应用身份（bot）创建**的，如 `lark-cli slides +create --as bot`，CLI 会**尝试为当前 CLI 用户自动授予该演示文稿的 `full_access`（可管理权限）**。
 >
 > 以应用身份创建时，结果里会额外返回 `permission_grant` 字段，明确说明授权结果：
+>
 > - `status = granted`：当前 CLI 用户已获得该演示文稿的可管理权限
 > - `status = skipped`：本地没有可用的当前用户 `open_id`，因此不会自动授权
 > - `status = failed`：演示文稿已创建成功，但自动授权用户失败
@@ -53,10 +53,10 @@ lark-cli slides +create --title "项目汇报" --slides '[...]' --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--title` | 否 | 演示文稿标题（不传则默认 "Untitled"） |
-| `--slides` | 否 | slide 内容 JSON 数组，每个元素是一个 `<slide>` XML 字符串（最多 10 个；超过 10 页请先用 `+create` 创建空白 PPT，再用 `xml_presentation.slide create` 逐页添加） |
+| 参数       | 必填 | 说明                                                                                                                                                            |
+| ---------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--title`  | 否   | 演示文稿标题（不传则默认 "Untitled"）                                                                                                                           |
+| `--slides` | 否   | slide 内容 JSON 数组，每个元素是一个 `<slide>` XML 字符串（最多 10 个；超过 10 页请先用 `+create` 创建空白 PPT，再用 `xml_presentation.slide create` 逐页添加） |
 
 ## `--slides` 参数格式
 
@@ -126,10 +126,10 @@ lark-cli slides xml_presentation.slide create --as user \
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 400 | 参数错误 | 检查参数格式是否正确 |
-| 403 | 权限不足 | 检查是否拥有 `slides:presentation:create` 和 `slides:presentation:write_only` scope |
+| 错误码 | 含义     | 解决方案                                                                            |
+| ------ | -------- | ----------------------------------------------------------------------------------- |
+| 400    | 参数错误 | 检查参数格式是否正确                                                                |
+| 403    | 权限不足 | 检查是否拥有 `slides:presentation:create` 和 `slides:presentation:write_only` scope |
 
 ## 相关命令
 

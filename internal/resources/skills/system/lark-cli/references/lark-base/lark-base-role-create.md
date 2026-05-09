@@ -1,7 +1,7 @@
 # base +role-create
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
-> 
+>
 > **前置条件：** 需要base开启了高级权限，如果调用这个接口返回没有开启高级权限，可以参考 [`lark-base-advperm-enable.md`](lark-base-advperm-enable.md) 了解高级权限启用规则。
 
 在指定 Base 中创建一个自定义角色，需传入完整的 AdvPermBaseRoleConfig 作为角色配置。
@@ -22,10 +22,10 @@ lark-cli base +role-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token，27 位字母数字字符串 |
-| `--json <body>` | 是 | AdvPermBaseRoleConfig JSON，包含角色名称、类型、权限配置 |
+| 参数                   | 必填 | 说明                                                     |
+| ---------------------- | ---- | -------------------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token，27 位字母数字字符串                          |
+| `--json <body>`        | 是   | AdvPermBaseRoleConfig JSON，包含角色名称、类型、权限配置 |
 
 ## API 入参详情
 
@@ -37,9 +37,9 @@ POST /open-apis/base/v3/bases/:base_token/roles
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | Base 的唯一标识，27 位字母数字字符串 |
+| 参数         | 必填 | 说明                                 |
+| ------------ | ---- | ------------------------------------ |
+| `base_token` | 是   | Base 的唯一标识，27 位字母数字字符串 |
 
 **Request Body（JSON — AdvPermBaseRoleConfig）：**
 
@@ -49,11 +49,11 @@ POST /open-apis/base/v3/bases/:base_token/roles
 
 **Response：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `code` | int32 | 错误码，0 表示成功 |
-| `message` | string | 错误信息 |
-| `data` | string | 创建成功时为空 |
+| 字段      | 类型   | 说明               |
+| --------- | ------ | ------------------ |
+| `code`    | int32  | 错误码，0 表示成功 |
+| `message` | string | 错误信息           |
+| `data`    | string | 创建成功时为空     |
 
 ## 返回值
 
@@ -69,7 +69,6 @@ POST /open-apis/base/v3/bases/:base_token/roles
 ```
 
 ## 工作流
-
 
 1. 向用户确认 `--base-token` 和角色配置 JSON
 2. 执行命令

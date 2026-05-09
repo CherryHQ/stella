@@ -3,8 +3,9 @@ package anthropic
 import (
 	"fmt"
 
-	"github.com/CherryHQ/stella/pkg/ai"
 	sdk "github.com/anthropics/anthropic-sdk-go"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func convertMessages(ctx ai.Context) []sdk.MessageParam {

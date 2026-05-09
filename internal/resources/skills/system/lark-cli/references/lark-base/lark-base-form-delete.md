@@ -23,13 +23,13 @@ lark-cli base +form-delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App token（base_token） |
-| `--table-id <id>` | 是 | 数据表 ID |
-| `--form-id <id>` | 是 | 要删除的表单 ID |
-| `--as` | 否 | 身份：user（默认）\| bot |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                             |
+| ---------------------- | ---- | -------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 App token（base_token） |
+| `--table-id <id>`      | 是   | 数据表 ID                        |
+| `--form-id <id>`       | 是   | 要删除的表单 ID                  |
+| `--as`                 | 否   | 身份：user（默认）\| bot         |
+| `--dry-run`            | 否   | 预览 API 调用，不执行            |
 
 ## 输出格式
 

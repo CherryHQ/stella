@@ -27,7 +27,6 @@ metadata:
 4. 如果是会议的妙记，应优先使用 [vc +search](./lark-vc/lark-vc-search.md) 先定位会议，再按需通过 [vc +recording](./lark-vc/lark-vc-recording.md) 获取 `minute_token`。
 5. 会议场景的妙记路由，以及"参与的妙记"如何解释，统一以 [minutes +search](./lark-minutes/lark-minutes-search.md) 为准。
 
-
 ### 2. 查看妙记基础信息
 
 1. 当用户只需要确认某条妙记的标题、封面、时长、所有者、URL 等基础信息时，使用 `minutes minutes get`。
@@ -86,8 +85,8 @@ Minutes (妙记) ← minute_token 标识
 
 Shortcut 是对常用操作的高级封装（`lark-cli minutes +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut                                           | 说明                                                              |
-| -------------------------------------------------- | --------------------------------------------------------------- |
+| Shortcut                                               | 说明                                                            |
+| ------------------------------------------------------ | --------------------------------------------------------------- |
 | [`+search`](./lark-minutes/lark-minutes-search.md)     | Search minutes by keyword, owners, participants, and time range |
 | [`+download`](./lark-minutes/lark-minutes-download.md) | Download audio/video media file of a minute                     |
 
@@ -111,7 +110,7 @@ lark-cli minutes <resource> <method> [flags] # 调用 API
 
 ## 权限表
 
-| 方法            | 所需 scope                       |
+| 方法          | 所需 scope                     |
 | ------------- | ------------------------------ |
 | `+search`     | `minutes:minutes.search:read`  |
 | `minutes.get` | `minutes:minutes:readonly`     |

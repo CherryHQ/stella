@@ -24,12 +24,12 @@ lark-cli calendar +rsvp --calendar-id cal_xxx --event-id evt_xxx --rsvp-status a
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--event-id <id>` | **是** | 日程 ID |
+| 参数                     | 必填   | 说明                                                                    |
+| ------------------------ | ------ | ----------------------------------------------------------------------- |
+| `--event-id <id>`        | **是** | 日程 ID                                                                 |
 | `--rsvp-status <status>` | **是** | 回复状态，可选值：`accept` (接受), `decline` (拒绝), `tentative` (待定) |
-| `--calendar-id <id>` | 否 | 日历 ID（省略则使用主日历） |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| `--calendar-id <id>`     | 否     | 日历 ID（省略则使用主日历）                                             |
+| `--dry-run`              | 否     | 预览 API 调用，不执行                                                   |
 
 ## 提示
 

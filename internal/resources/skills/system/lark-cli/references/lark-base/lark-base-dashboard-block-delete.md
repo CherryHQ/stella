@@ -15,12 +15,12 @@ lark-cli base +dashboard-block-delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID |
-| `--block-id <id>` | 是 | Block ID |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                  |
+| ---------------------- | ---- | --------------------- |
+| `--base-token <token>` | 是   | Base Token            |
+| `--dashboard-id <id>`  | 是   | 仪表盘 ID             |
+| `--block-id <id>`      | 是   | Block ID              |
+| `--dry-run`            | 否   | 预览 API 调用，不执行 |
 
 ## 返回示例
 
@@ -33,10 +33,10 @@ lark-cli base +dashboard-block-delete \
 
 ## 返回重点
 
-| 字段 | 说明 |
-|------|------|
+| 字段       | 说明            |
+| ---------- | --------------- |
 | `block_id` | 被删除的组件 ID |
-| `deleted` | 是否删除成功 |
+| `deleted`  | 是否删除成功    |
 
 > [!CAUTION]
 > 这是**写入操作**且**不可逆** — 执行前必须向用户确认。

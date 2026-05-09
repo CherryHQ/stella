@@ -37,12 +37,12 @@ stella scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
 
 Top-level package (under `internal/`). Five files:
 
-| File                                                  | Purpose                                                  |
-| ----------------------------------------------------- | -------------------------------------------------------- |
-| `internal/scheduler/job.go`                           | `Job` and `Schedule` types                               |
-| `internal/scheduler/service.go`                       | `Service` -- gocron wrapper, scheduling, job CRUD        |
-| `internal/scheduler/heartbeat.go`                     | Heartbeat polling -- decide/execute/notify via LLM       |
-| `internal/scheduler/persistence.go`                   | Database persistence (load/save/migrate jobs)            |
+| File                                                  | Purpose                                                    |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
+| `internal/scheduler/job.go`                           | `Job` and `Schedule` types                                 |
+| `internal/scheduler/service.go`                       | `Service` -- gocron wrapper, scheduling, job CRUD          |
+| `internal/scheduler/heartbeat.go`                     | Heartbeat polling -- decide/execute/notify via LLM         |
+| `internal/scheduler/persistence.go`                   | Database persistence (load/save/migrate jobs)              |
 | `internal/resources/skills/system/scheduler/SKILL.md` | Builtin skill -- documents `stella scheduler` CLI commands |
 
 ### Key Types

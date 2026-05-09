@@ -136,12 +136,12 @@ On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `me
 
 Visibility rules:
 
-| Write path                                           | Current session sees it? | Why                                                                  |
-| ---------------------------------------------------- | ------------------------ | -------------------------------------------------------------------- |
+| Write path                                             | Current session sees it? | Why                                                                  |
+| ------------------------------------------------------ | ------------------------ | -------------------------------------------------------------------- |
 | User asks Stella to remember something via memory tool | Yes, from the next turn  | The memory tool advances the current session snapshot                |
-| User adds/removes a constraint via memory tool       | Yes, from the next turn  | The snapshot advances after the foreground write                     |
-| Reflect updates profile/knowledge in the background  | No                       | Reflect has no active session context and does not advance snapshots |
-| A new session starts                                 | Yes                      | It snapshots the latest memory version                               |
+| User adds/removes a constraint via memory tool         | Yes, from the next turn  | The snapshot advances after the foreground write                     |
+| Reflect updates profile/knowledge in the background    | No                       | Reflect has no active session context and does not advance snapshots |
+| A new session starts                                   | Yes                      | It snapshots the latest memory version                               |
 
 This keeps foreground user intent immediate while preventing background reflection from causing behavior drift inside an ongoing session.
 

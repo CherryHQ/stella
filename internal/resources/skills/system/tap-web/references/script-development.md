@@ -25,6 +25,7 @@ tap browser network wait --url-pattern "*/api/*" --body --timeout 30s
 ```
 
 Focus on:
+
 - request URL and params
 - auth mechanism (cookies / CSRF / bearer token)
 - response shape

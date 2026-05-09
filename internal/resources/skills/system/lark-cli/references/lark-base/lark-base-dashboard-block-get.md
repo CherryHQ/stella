@@ -15,14 +15,14 @@ lark-cli base +dashboard-block-get \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID |
-| `--block-id <id>` | 是 | Block ID |
-| `--user-id-type <type>` | 否 | 用户 ID 类型：open_id / union_id / user_id |
-| `--format <fmt>` | 否 | 输出格式 |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                    | 必填 | 说明                                       |
+| ----------------------- | ---- | ------------------------------------------ |
+| `--base-token <token>`  | 是   | Base Token                                 |
+| `--dashboard-id <id>`   | 是   | 仪表盘 ID                                  |
+| `--block-id <id>`       | 是   | Block ID                                   |
+| `--user-id-type <type>` | 否   | 用户 ID 类型：open_id / union_id / user_id |
+| `--format <fmt>`        | 否   | 输出格式                                   |
+| `--dry-run`             | 否   | 预览 API 调用，不执行                      |
 
 ## 返回示例
 
@@ -34,23 +34,23 @@ lark-cli base +dashboard-block-get \
     "type": "column",
     "data_config": {
       "table_name": "电商交易明细",
-      "series": [{"field_name": "营销费用", "rollup": "SUM"}],
-      "group_by": [{"field_name": "品类", "mode": "integrated"}]
+      "series": [{ "field_name": "营销费用", "rollup": "SUM" }],
+      "group_by": [{ "field_name": "品类", "mode": "integrated" }]
     },
-    "layout": {"x": 0, "y": 0, "w": 6, "h": 4}
+    "layout": { "x": 0, "y": 0, "w": 6, "h": 4 }
   }
 }
 ```
 
 ## 返回重点
 
-| 字段 | 说明                            |
-|------|-------------------------------|
-| `block.block_id` | 组件 ID                         |
-| `block.name` | 组件名称                          |
-| `block.type` | 组件类型（如 `column`/`line`/`pie`） |
-| `block.data_config` | 数据配置（新建/编辑组件时可基于此字段修改）        |
-| `block.layout` | 布局信息（只读，x/y/w/h 坐标和尺寸）        |
+| 字段                | 说明                                        |
+| ------------------- | ------------------------------------------- |
+| `block.block_id`    | 组件 ID                                     |
+| `block.name`        | 组件名称                                    |
+| `block.type`        | 组件类型（如 `column`/`line`/`pie`）        |
+| `block.data_config` | 数据配置（新建/编辑组件时可基于此字段修改） |
+| `block.layout`      | 布局信息（只读，x/y/w/h 坐标和尺寸）        |
 
 ## 参考
 

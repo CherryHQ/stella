@@ -1,4 +1,3 @@
-
 # vc +recording
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -28,12 +27,12 @@ lark-cli vc +recording --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--meeting-ids <ids>` | 二选一 | 会议 ID，逗号分隔支持批量 |
-| `--calendar-event-ids <ids>` | 二选一 | 日程事件 ID，逗号分隔支持批量 |
-| `--format <fmt>` | 否 | 输出格式：json (默认) / pretty / table / ndjson / csv |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                         | 必填   | 说明                                                  |
+| ---------------------------- | ------ | ----------------------------------------------------- |
+| `--meeting-ids <ids>`        | 二选一 | 会议 ID，逗号分隔支持批量                             |
+| `--calendar-event-ids <ids>` | 二选一 | 日程事件 ID，逗号分隔支持批量                         |
+| `--format <fmt>`             | 否     | 输出格式：json (默认) / pretty / table / ndjson / csv |
+| `--dry-run`                  | 否     | 预览 API 调用，不执行                                 |
 
 ## 核心约束
 
@@ -57,20 +56,20 @@ lark-cli vc +recording --meeting-ids 69xxxxxxxxxxxxx28 --dry-run
 
 返回 `recordings` 数组，每条记录包含：
 
-| 字段 | 说明 |
-|------|------|
-| `meeting_id` | 会议 ID |
+| 字段                | 说明                                          |
+| ------------------- | --------------------------------------------- |
+| `meeting_id`        | 会议 ID                                       |
 | `calendar_event_id` | 日历事件 ID（仅 `--calendar-event-ids` 路径） |
-| `minute_token` | 从录制 URL 中解析的妙记 Token |
-| `recording_url` | 录制 URL |
-| `duration` | 录制时长（毫秒） |
-| `error` | 错误信息（仅查询失败时存在） |
+| `minute_token`      | 从录制 URL 中解析的妙记 Token                 |
+| `recording_url`     | 录制 URL                                      |
+| `duration`          | 录制时长（毫秒）                              |
+| `error`             | 错误信息（仅查询失败时存在）                  |
 
 ## 如何获取输入参数
 
-| 输入参数 | 获取方式 |
-|---------|---------|
-| `meeting_id` | 使用 `lark-cli vc +search` 搜索历史会议，取结果中的 `id` 字段 |
+| 输入参数            | 获取方式                                                              |
+| ------------------- | --------------------------------------------------------------------- |
+| `meeting_id`        | 使用 `lark-cli vc +search` 搜索历史会议，取结果中的 `id` 字段         |
 | `calendar_event_id` | 使用 `lark-cli calendar +agenda` 查看日程，取结果中的 `event_id` 字段 |
 
 ## Agent 组合场景
@@ -130,13 +129,13 @@ lark-cli minutes +download --minute-token <minute_token>
 
 ## 常见错误与排查
 
-| 错误现象 | 根本原因 | 解决方案 |
-|---------|---------|---------|
-| `exactly one of ... is required` | 未传入参数或同时传了多种 | 只指定一种输入方式 |
-| `no recording available` | 该会议无录制或录制未完成 | 确认会议已结束且开启了录制 |
-| `121005 no permission` | 无权查看该会议录制 | 确认是会议参与者或有录制权限 |
-| `124002 recording generating` | 录制文件仍在生成中 | 等待录制完成后重试 |
-| `missing required scope(s)` | 权限不足 | 按提示运行 `auth login --scope` |
+| 错误现象                         | 根本原因                 | 解决方案                        |
+| -------------------------------- | ------------------------ | ------------------------------- |
+| `exactly one of ... is required` | 未传入参数或同时传了多种 | 只指定一种输入方式              |
+| `no recording available`         | 该会议无录制或录制未完成 | 确认会议已结束且开启了录制      |
+| `121005 no permission`           | 无权查看该会议录制       | 确认是会议参与者或有录制权限    |
+| `124002 recording generating`    | 录制文件仍在生成中       | 等待录制完成后重试              |
+| `missing required scope(s)`      | 权限不足                 | 按提示运行 `auth login --scope` |
 
 ## 提示
 

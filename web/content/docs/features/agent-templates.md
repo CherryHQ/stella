@@ -12,7 +12,7 @@ Four resource kinds are shipped:
 | ------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
 | **Skill**     | Reusable knowledge/playbook the agent can load on demand          | DB-synced into `skills(scope='system')` on startup |
 | **Soul**      | Persona/tone fragment layered into the agent's system prompt      | Copied into an agent at creation time              |
-| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$STELLA_HOME/agents/` on startup       |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$STELLA_HOME/agents/` on startup     |
 | **Template**  | Full agent bootstrap (model + system prompt + soul)               | Read once at agent creation; no persistent link    |
 
 ## Templates

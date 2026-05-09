@@ -17,6 +17,7 @@
 7. **调用命令时，请将 body 数据直接通过 --json 传入，禁止创建任何的临时文件，即禁止使用 --json @filename**
 
 **常见错误**:
+
 - ❌ 缺少 `client_token` → 报错: `client token is empty`
 - ❌ 猜测 StepType → 报错: `unknown step type 'CreateTrigger'`（应该是 `AddRecordTrigger`）
 - ❌ 字段引用路径错误 → 报错: `prompt references an unknown reference`
@@ -33,10 +34,10 @@ lark-cli base +workflow-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 Base Token（`Basc` 开头） |
-| `--json <body>` | 是 | 工作流 body JSON，包含 `title` 和 `steps` |
+| 参数                   | 必填 | 说明                                      |
+| ---------------------- | ---- | ----------------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 Base Token（`Basc` 开头）        |
+| `--json <body>`        | 是   | 工作流 body JSON，包含 `title` 和 `steps` |
 
 ## 如何从链接中提取参数
 
@@ -58,22 +59,23 @@ POST /open-apis/base/v3/bases/:base_token/workflows
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 Base Token |
+| 参数         | 必填 | 说明                |
+| ------------ | ---- | ------------------- |
+| `base_token` | 是   | 多维表格 Base Token |
 
 **Request Body（JSON）：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `client_token` | string | **是** | 幂等键，每次创建必须传一个唯一随机值（如时间戳 `"1704067200"`），防重复提交，缺失会报错 |
-| `title` | string | 否 | 工作流标题 |
-| `steps` | WorkflowStep[] | 否 | 步骤列表 |
-| `user_id_type` | string | 否 | 用户 ID 类型：`open_id` / `union_id` / `user_id`，默认 `open_id` |
+| 字段           | 类型           | 必填   | 说明                                                                                    |
+| -------------- | -------------- | ------ | --------------------------------------------------------------------------------------- |
+| `client_token` | string         | **是** | 幂等键，每次创建必须传一个唯一随机值（如时间戳 `"1704067200"`），防重复提交，缺失会报错 |
+| `title`        | string         | 否     | 工作流标题                                                                              |
+| `steps`        | WorkflowStep[] | 否     | 步骤列表                                                                                |
+| `user_id_type` | string         | 否     | 用户 ID 类型：`open_id` / `union_id` / `user_id`，默认 `open_id`                        |
 
 > **步骤数据结构非常复杂，详见 [lark-base-workflow-schema.md](lark-base-workflow-schema.md)**
 
 **Request Body 示例：**
+
 ```json
 {
   "client_token": "124131231421312312",
@@ -95,7 +97,7 @@ POST /open-apis/base/v3/bases/:base_token/workflows
       "title": "发送通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "user", "value": {"id": "ou_xxxx"} }],
+        "receiver": [{ "value_type": "user", "value": { "id": "ou_xxxx" } }],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "新订单提醒" }],
         "content": [
@@ -113,16 +115,16 @@ POST /open-apis/base/v3/bases/:base_token/workflows
 
 **Response `data` 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `workflow_id` | string | 新建工作流的唯一 ID（`wkf` 开头） |
-| `title` | string | 工作流标题 |
-| `status` | string | 工作流状态，新建固定为 `disabled` |
-| `steps` | WorkflowStep[] | 完整步骤列表 |
-| `creator_id` | string | 创建人 OpenID |
-| `updater_id` | string | 最后修改人 OpenID |
-| `create_time` | number | 创建时间（Unix 秒级时间戳） |
-| `update_time` | number | 更新时间（Unix 秒级时间戳） |
+| 字段          | 类型           | 说明                              |
+| ------------- | -------------- | --------------------------------- |
+| `workflow_id` | string         | 新建工作流的唯一 ID（`wkf` 开头） |
+| `title`       | string         | 工作流标题                        |
+| `status`      | string         | 工作流状态，新建固定为 `disabled` |
+| `steps`       | WorkflowStep[] | 完整步骤列表                      |
+| `creator_id`  | string         | 创建人 OpenID                     |
+| `updater_id`  | string         | 最后修改人 OpenID                 |
+| `create_time` | number         | 创建时间（Unix 秒级时间戳）       |
+| `update_time` | number         | 更新时间（Unix 秒级时间戳）       |
 
 ## 返回值
 
@@ -158,15 +160,15 @@ POST /open-apis/base/v3/bases/:base_token/workflows
 - ⚠️ **新建后默认禁用**：`status` 固定返回 `disabled`，需要额外调用 `+workflow-enable` 才能让工作流生效；不要误报"创建成功即启用"
 - ⚠️ **steps 中 id 字段必须唯一**：每个步骤的 `id` 由调用方指定，且在工作流内必须唯一；`next` 和 `children.links[].to` 引用的 ID 必须在同一 steps 数组中存在，否则服务端返回 `[2200] Internal Error`
 - ⚠️ **字段类型校验**：设置字段值时，`value_type` 必须与字段实际类型匹配：
-   - **select 类型字段**（单选/多选/流程）：必须用 `option`，不能用 `text`
-     ```json
-     // ✅ 正确
-     { "field_name": "大区", "value": [{"value_type": "option", "value": {"name": "华东"}}] }
-     // ❌ 错误 - 会报错 valueType 'text' not allowed for fieldType '3'
-     { "field_name": "大区", "value": [{"value_type": "text", "value": "华东"}] }
-     ```
-   - **SetRecordTrigger 的 field_watch_info** 同样受此限制，select 类型字段的 value 必须用 `option`
-     常见 action 输出：`FindRecordAction` → `$.step_id.recordNum`（记录数）、`$.step_id.fieldRecords`（查找到的记录列表）；`AddRecordAction` → `$.step_id.recordId`
+  - **select 类型字段**（单选/多选/流程）：必须用 `option`，不能用 `text`
+    ```json
+    // ✅ 正确
+    { "field_name": "大区", "value": [{"value_type": "option", "value": {"name": "华东"}}] }
+    // ❌ 错误 - 会报错 valueType 'text' not allowed for fieldType '3'
+    { "field_name": "大区", "value": [{"value_type": "text", "value": "华东"}] }
+    ```
+  - **SetRecordTrigger 的 field_watch_info** 同样受此限制，select 类型字段的 value 必须用 `option`
+    常见 action 输出：`FindRecordAction` → `$.step_id.recordNum`（记录数）、`$.step_id.fieldRecords`（查找到的记录列表）；`AddRecordAction` → `$.step_id.recordId`
 - ⚠️ **权限不足**：如遇 `permission denied`，先确认当前身份（bot 或 user）是否对该 Base 有编辑权限，再检查 scope 是否已开通。参考 [lark-shared](../../lark-shared/SKILL.md) 中的权限不足处理流程
 - ⚠️ **user_id_type**：涉及用户的 `value_type: "user"` 的 value 字段传 OpenID，服务端会根据 `user_id_type`（默认 `open_id`）解析；如需传 `user_id` 格式需在 body 里显式声明 `"user_id_type": "user_id"`
 

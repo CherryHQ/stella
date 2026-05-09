@@ -166,17 +166,17 @@ Feishu supports the standard chat commands:
 }
 ```
 
-| Field                | Description                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `app_id`             | Feishu app ID                                                                                                      |
-| `app_secret`         | Feishu app secret                                                                                                  |
-| `encrypt_key`        | Optional event encryption key                                                                                      |
-| `verification_token` | Optional event verification token                                                                                  |
-| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`                                                         |
-| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                 |
+| Field                | Description                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `app_id`             | Feishu app ID                                                                                                        |
+| `app_secret`         | Feishu app secret                                                                                                    |
+| `encrypt_key`        | Optional event encryption key                                                                                        |
+| `verification_token` | Optional event verification token                                                                                    |
+| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`                                                           |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                   |
 | `tenant_key`         | Your enterprise tenant key. Optional: stella can auto-detect it at startup, but setting it explicitly is recommended |
 | `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                               |
-| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                              |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                |
 
 ## Troubleshooting Auto-Provisioning
 

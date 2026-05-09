@@ -24,11 +24,11 @@ lark-cli base +role-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token，27 位字母数字字符串 |
-| `--role-id <id>` | 是 | 角色 ID，格式 `rol` + 8 位字母数字 |
-| `--json <body>` | 是 | 增量 AdvPermBaseRoleConfig JSON，仅含需变更的字段 |
+| 参数                   | 必填 | 说明                                              |
+| ---------------------- | ---- | ------------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token，27 位字母数字字符串                   |
+| `--role-id <id>`       | 是   | 角色 ID，格式 `rol` + 8 位字母数字                |
+| `--json <body>`        | 是   | 增量 AdvPermBaseRoleConfig JSON，仅含需变更的字段 |
 
 ## API 入参详情
 
@@ -40,10 +40,10 @@ PUT /open-apis/base/v3/bases/:base_token/roles/:role_id
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | Base 的唯一标识 |
-| `role_id` | 是 | 角色 ID |
+| 参数         | 必填 | 说明            |
+| ------------ | ---- | --------------- |
+| `base_token` | 是   | Base 的唯一标识 |
+| `role_id`    | 是   | 角色 ID         |
 
 **Request Body（JSON — 增量 AdvPermBaseRoleConfig）：**
 
@@ -53,11 +53,11 @@ PUT /open-apis/base/v3/bases/:base_token/roles/:role_id
 
 **Response：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `code` | int32 | 错误码，0 表示成功 |
-| `message` | string | 错误信息 |
-| `data` | string | 更新成功时为空 |
+| 字段      | 类型   | 说明               |
+| --------- | ------ | ------------------ |
+| `code`    | int32  | 错误码，0 表示成功 |
+| `message` | string | 错误信息           |
+| `data`    | string | 更新成功时为空     |
 
 ## 返回值
 

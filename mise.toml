@@ -1,14 +1,23 @@
 [tools]
+# Common
+portless = "0.13.0"
+prek = "0.3.8"
+dprint = "0.54.0"
+jq = "1.8.1"
+act = "0.2.88"
+# Go
 atlas = "0.36.0"
-go = "1.25"
-"github:a-h/templ" = "latest"
+go = "1.25.9"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
-"npm:portless" = "latest"
+# Web
+vp = "0.1.20"
+pnpm = "10.33.0"
+node = "24.14.1"
 
 [env]
-BINARY_NAME = "stella"
+BINARY = "./dist/bin/stella"
 LOG_LEVEL = "trace"
 
 # ============================================================================
@@ -17,17 +26,30 @@ LOG_LEVEL = "trace"
 
 [tasks.build]
 description = "Build stella binary"
-depends = ["generate", "deps:sync"]
-run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/stella"
+depends = ["generate"]
+run = [
+  "mkdir -p ./dist/bin",
+  "export VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
+  "export COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo '')}",
+  "export BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}",
+  "go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION -X github.com/CherryHQ/stella/internal/version.Commit=$COMMIT -X github.com/CherryHQ/stella/internal/version.BuildDate=$BUILD_DATE\" -o $BINARY ./cmd/stella",
+]
 
 [tasks.clean]
 description = "Remove build artifacts"
-run = "rm -rf bin/"
+run = "rm -rf ./dist"
+
+# ============================================================================
+# Code Generation
+# ============================================================================
 
 [tasks.generate]
-description = "Generate templ components, sqlc queries, and OpenAPI clients"
+description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
-run = "templ generate && sqlc generate"
+run = """
+go generate ./internal/resources/binaries/
+sqlc generate
+"""
 
 [tasks."generate:ts-sdk"]
 description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
@@ -40,6 +62,7 @@ run = """
 yq eval-all '. as $item ireduce ({}; . *+ $item) | .info.title = "stella API Components" | .info.description = "Assembled from api/spec/components/common.yaml + api/spec/domain/*/schemas.yaml — DO NOT EDIT"' \
   api/spec/components/common.yaml api/spec/domain/*/schemas.yaml \
   > /tmp/stella-components.yaml && mv /tmp/stella-components.yaml api/spec/components.yaml
+dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
 go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
@@ -61,7 +84,7 @@ run = 'portless stella vp dev'
 [tasks."dev:api"]
 description = "Start stella API server"
 depends = ["build"]
-run = 'STELLA_HOME="$HOME/.stella-dev" ./bin/$BINARY_NAME'
+run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY'
 
 # ============================================================================
 # Code Quality
@@ -84,24 +107,25 @@ description = "Run tests with race detection and coverage report (CI)"
 run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks.format]
-description = "Fix and format Go code"
-run = "golangci-lint run --fix ./..."
+description = "Fix and format files"
+run = [
+  "dprint fmt",
+  "go mod tidy",
+  "golangci-lint run --fix ./...",
+  "cd web && vp install && vp check --fix",
+]
 
 # ============================================================================
 # Dev
 # ============================================================================
 
-[tasks."templ:watch"]
-description = "Watch templ files and regenerate on change"
-run = "templ generate --watch --proxy=http://localhost:25678"
+[tasks.setup]
+description = "Set up the development environment"
+depends = ["hooks:install"]
 
-[tasks."deps:sync"]
-description = "Download mise binary for the host platform (embedded at build time)"
-run = "go generate ./internal/resources/binaries/"
-
-[tasks."deps:sync:tools"]
-description = "Download mise binary for a target platform (set GOOS/GOARCH env vars)"
-run = "go generate ./internal/resources/binaries/"
+[tasks."hooks:install"]
+description = "Install Git hooks"
+run = "git config --unset core.hooksPath || true && prek install --overwrite --prepare-hooks"
 
 # ============================================================================
 # Database

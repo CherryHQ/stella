@@ -1,6 +1,7 @@
 # Browser Reference
 
 Tap's public browser model is:
+
 - one default browser context
 - one current tab
 - explicit attach flow for existing Chrome targets
@@ -108,11 +109,13 @@ tap browser open https://example.com --show
 ## Resolution rules
 
 When browser-specific overrides are omitted, tap resolves:
+
 1. explicit one-shot override (`--browser-url`, `--profile-dir`)
 2. persisted default context from `tap attach ...`
 3. managed local default context
 
 Tab resolution is:
+
 1. explicit hidden `--tab` override
 2. current tab
 3. only live tab

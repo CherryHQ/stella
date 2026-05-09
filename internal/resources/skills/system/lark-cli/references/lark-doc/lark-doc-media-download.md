@@ -1,4 +1,3 @@
-
 # docs +media-download（下载文档素材/画板缩略图）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -26,11 +25,11 @@ lark-cli docs +media-download --type whiteboard --token "wbcnxxxxxxxx" --output 
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--token <token>` | 是 | 资源 token：素材为 `file_token`，画板为 `whiteboard_id` |
-| `--output <path>` | 是 | 本地保存路径；不带扩展名会自动补全 |
-| `--type <type>` | 否 | `media`（默认）或 `whiteboard` |
+| 参数              | 必填 | 说明                                                    |
+| ----------------- | ---- | ------------------------------------------------------- |
+| `--token <token>` | 是   | 资源 token：素材为 `file_token`，画板为 `whiteboard_id` |
+| `--output <path>` | 是   | 本地保存路径；不带扩展名会自动补全                      |
+| `--type <type>`   | 否   | `media`（默认）或 `whiteboard`                          |
 
 ## token 从哪里来
 

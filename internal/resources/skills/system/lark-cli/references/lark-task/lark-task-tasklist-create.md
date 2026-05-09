@@ -19,11 +19,11 @@ lark-cli task +tasklist-create --name "Launch Checklist" --data '[{"summary": "C
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--name <text>` | Yes | The name of the tasklist. |
-| `--member <ids>` | No | Comma-separated list of user `open_id`s to add as editors. |
-| `--data <json>` | No | JSON array of task definitions to create and add to the tasklist automatically. |
+| Parameter        | Required | Description                                                                     |
+| ---------------- | -------- | ------------------------------------------------------------------------------- |
+| `--name <text>`  | Yes      | The name of the tasklist.                                                       |
+| `--member <ids>` | No       | Comma-separated list of user `open_id`s to add as editors.                      |
+| `--data <json>`  | No       | JSON array of task definitions to create and add to the tasklist automatically. |
 
 ## Workflow
 

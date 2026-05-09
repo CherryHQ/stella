@@ -17,22 +17,22 @@ lark-cli base +dashboard-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--page-size <n>` | 否 | 每页数量 |
-| `--page-token <token>` | 否 | 分页标记 |
-| `--format <fmt>` | 否 | 输出格式：json / pretty / table / csv / ndjson |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                                           |
+| ---------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token                                     |
+| `--page-size <n>`      | 否   | 每页数量                                       |
+| `--page-token <token>` | 否   | 分页标记                                       |
+| `--format <fmt>`       | 否   | 输出格式：json / pretty / table / csv / ndjson |
+| `--dry-run`            | 否   | 预览 API 调用，不执行                          |
 
 ## 返回示例
 
 ```json
 {
   "items": [
-    {"dashboard_id": "blkxxxxxxxxxxxx", "name": "商品总览仪表盘"},
-    {"dashboard_id": "blkxxxxxxxxxxxx", "name": "订单总览仪表盘"},
-    {"dashboard_id": "blkxxxxxxxxxxxx", "name": "销售数据分析仪表盘"}
+    { "dashboard_id": "blkxxxxxxxxxxxx", "name": "商品总览仪表盘" },
+    { "dashboard_id": "blkxxxxxxxxxxxx", "name": "订单总览仪表盘" },
+    { "dashboard_id": "blkxxxxxxxxxxxx", "name": "销售数据分析仪表盘" }
   ],
   "total": 3,
   "has_more": false
@@ -41,11 +41,11 @@ lark-cli base +dashboard-list \
 
 ## 返回重点
 
-| 字段 | 说明 |
-|------|------|
-| `items` | 仪表盘列表，每项包含 `dashboard_id`（ID）和 `name`（名称）|
-| `total` | 总数 |
-| `has_more` | 是否有下一页（为 `true` 时需用 `page_token` 继续获取）|
+| 字段       | 说明                                                       |
+| ---------- | ---------------------------------------------------------- |
+| `items`    | 仪表盘列表，每项包含 `dashboard_id`（ID）和 `name`（名称） |
+| `total`    | 总数                                                       |
+| `has_more` | 是否有下一页（为 `true` 时需用 `page_token` 继续获取）     |
 
 ## 参考
 

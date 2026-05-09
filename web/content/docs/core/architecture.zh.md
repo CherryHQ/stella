@@ -46,7 +46,7 @@ internal/
     telegram/          Telegram 机器人
     qq/                QQ 机器人
     feishu/            飞书机器人
-  admin/               HTTP API + 嵌入式 SPA（templ + Alpine.js + daisyUI）
+  admin/               HTTP API + 嵌入式 React SPA
   auth/                RBAC/ABAC 策略引擎、会话、沙箱
   db/                  SQLite、Atlas 迁移、sqlc 查询
   scheduler/           gocron 服务、心跳、调度器工具
@@ -124,10 +124,10 @@ type Tool interface {
 
 ### 插件工具（通过管理面板切换）
 
-| 工具       | 描述                                              |
-| ---------- | ------------------------------------------------- |
+| 工具       | 描述                                                |
+| ---------- | --------------------------------------------------- |
 | `mcp`      | 通过一个通用 Stella MCP 工具代理已配置的 MCP 服务器 |
-| `webfetch` | 获取网页内容                                      |
+| `webfetch` | 获取网页内容                                        |
 
 核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
 

@@ -39,7 +39,7 @@ export function LoginPage() {
         return;
       }
       await queryClient.invalidateQueries(meQueryOptions);
-      navigate({ to: "/sessions" as any });
+      void navigate({ to: "/sessions" as any });
     } catch (e) {
       setError((e as Error).message || t("login.loginFailed"));
     } finally {
@@ -71,7 +71,7 @@ export function LoginPage() {
         return;
       }
       await queryClient.invalidateQueries(meQueryOptions);
-      navigate({ to: "/sessions" as any });
+      void navigate({ to: "/sessions" as any });
     } catch (e) {
       setError((e as Error).message || t("login.registrationFailed"));
     } finally {
