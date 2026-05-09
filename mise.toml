@@ -12,6 +12,7 @@ go = "1.25"
 # Web
 vp = "latest"
 pnpm = "latest"
+node = "24"
 
 [env]
 BINARY = "./dist/bin/stella"
