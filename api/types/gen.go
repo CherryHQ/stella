@@ -748,12 +748,47 @@ type SkillUploadResult struct {
 // SourceType defines model for SourceType.
 type SourceType string
 
+// StatusDatabase defines model for StatusDatabase.
+type StatusDatabase struct {
+	Error     *string  `json:"error,omitempty"`
+	LatencyMs *float64 `json:"latencyMs,omitempty"`
+	Status    string   `json:"status"`
+}
+
+// StatusMemory defines model for StatusMemory.
+type StatusMemory struct {
+	AllocBytes     int64 `json:"allocBytes"`
+	HeapAllocBytes int64 `json:"heapAllocBytes"`
+	NumGC          int   `json:"numGC"`
+	SysBytes       int64 `json:"sysBytes"`
+}
+
+// StatusPlugins defines model for StatusPlugins.
+type StatusPlugins struct {
+	Disabled int `json:"disabled"`
+	Enabled  int `json:"enabled"`
+	Total    int `json:"total"`
+}
+
 // StatusResponse defines model for StatusResponse.
 type StatusResponse struct {
-	BuildDate *string `json:"buildDate,omitempty"`
-	Commit    *string `json:"commit,omitempty"`
-	Status    string  `json:"status"`
-	Version   string  `json:"version"`
+	BuildDate     *string         `json:"buildDate,omitempty"`
+	Commit        *string         `json:"commit,omitempty"`
+	Database      *StatusDatabase `json:"database,omitempty"`
+	Plugins       *StatusPlugins  `json:"plugins,omitempty"`
+	Runtime       *StatusRuntime  `json:"runtime,omitempty"`
+	Status        string          `json:"status"`
+	UptimeSeconds *int64          `json:"uptimeSeconds,omitempty"`
+	Version       string          `json:"version"`
+}
+
+// StatusRuntime defines model for StatusRuntime.
+type StatusRuntime struct {
+	Arch       string       `json:"arch"`
+	GoVersion  string       `json:"goVersion"`
+	Goroutines int          `json:"goroutines"`
+	Memory     StatusMemory `json:"memory"`
+	Os         string       `json:"os"`
 }
 
 // SystemPromptResponse defines model for SystemPromptResponse.

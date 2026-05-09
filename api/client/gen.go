@@ -244,8 +244,20 @@ type SkillUploadResult = externalRef0.SkillUploadResult
 // SourceType defines model for SourceType.
 type SourceType = externalRef0.SourceType
 
+// StatusDatabase defines model for StatusDatabase.
+type StatusDatabase = externalRef0.StatusDatabase
+
+// StatusMemory defines model for StatusMemory.
+type StatusMemory = externalRef0.StatusMemory
+
+// StatusPlugins defines model for StatusPlugins.
+type StatusPlugins = externalRef0.StatusPlugins
+
 // StatusResponse defines model for StatusResponse.
 type StatusResponse = externalRef0.StatusResponse
+
+// StatusRuntime defines model for StatusRuntime.
+type StatusRuntime = externalRef0.StatusRuntime
 
 // SystemPromptResponse defines model for SystemPromptResponse.
 type SystemPromptResponse = externalRef0.SystemPromptResponse

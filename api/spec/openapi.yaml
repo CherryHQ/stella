@@ -455,6 +455,18 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    StatusMemory: {
+      $ref: "./components.yaml#/components/schemas/StatusMemory",
+    }
+    StatusRuntime: {
+      $ref: "./components.yaml#/components/schemas/StatusRuntime",
+    }
+    StatusDatabase: {
+      $ref: "./components.yaml#/components/schemas/StatusDatabase",
+    }
+    StatusPlugins: {
+      $ref: "./components.yaml#/components/schemas/StatusPlugins",
+    }
     StatusResponse: {
       $ref: "./components.yaml#/components/schemas/StatusResponse",
     }

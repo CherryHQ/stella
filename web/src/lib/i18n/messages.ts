@@ -105,6 +105,15 @@ const en = {
   "about.version": "Version",
   "about.commit": "Commit",
   "about.buildDate": "Build date",
+  "about.versionInfo": "Version",
+  "about.adminInfo": "System diagnostics",
+  "about.uptime": "Uptime",
+  "about.database": "Database",
+  "about.runtime": "Runtime",
+  "about.goroutines": "Goroutines",
+  "about.memory": "Memory",
+  "about.plugins": "Plugins",
+  "about.pluginsEnabled": "enabled",
 
   // Agents
   "agents.title": "Agents",
@@ -395,6 +404,15 @@ const zh: Record<MessageKey, string> = {
   "about.version": "版本",
   "about.commit": "Commit",
   "about.buildDate": "构建时间",
+  "about.versionInfo": "版本",
+  "about.adminInfo": "系统诊断",
+  "about.uptime": "运行时长",
+  "about.database": "数据库",
+  "about.runtime": "运行时",
+  "about.goroutines": "Goroutine",
+  "about.memory": "内存",
+  "about.plugins": "插件",
+  "about.pluginsEnabled": "已启用",
 
   // Agents
   "agents.title": "智能体",

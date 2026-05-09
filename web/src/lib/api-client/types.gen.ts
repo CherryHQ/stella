@@ -184,6 +184,14 @@ export type AuthResponse = ComponentsAuthResponse;
 
 export type MeResponse = ComponentsMeResponse;
 
+export type StatusMemory = ComponentsStatusMemory;
+
+export type StatusRuntime = ComponentsStatusRuntime;
+
+export type StatusDatabase = ComponentsStatusDatabase;
+
+export type StatusPlugins = ComponentsStatusPlugins;
+
 export type StatusResponse = ComponentsStatusResponse;
 
 export type PluginView = ComponentsPluginView;
@@ -826,11 +834,42 @@ export type ComponentsSourceType =
   | "rss"
   | "pdf";
 
+export type ComponentsStatusDatabase = {
+  status: string;
+  latencyMs?: number;
+  error?: string;
+};
+
+export type ComponentsStatusMemory = {
+  allocBytes: number;
+  heapAllocBytes: number;
+  sysBytes: number;
+  numGC: number;
+};
+
+export type ComponentsStatusPlugins = {
+  total: number;
+  enabled: number;
+  disabled: number;
+};
+
 export type ComponentsStatusResponse = {
   status: string;
   version: string;
   commit?: string;
   buildDate?: string;
+  uptimeSeconds?: number;
+  runtime?: ComponentsStatusRuntime;
+  database?: ComponentsStatusDatabase;
+  plugins?: ComponentsStatusPlugins;
+};
+
+export type ComponentsStatusRuntime = {
+  goVersion: string;
+  os: string;
+  arch: string;
+  goroutines: number;
+  memory: ComponentsStatusMemory;
 };
 
 export type ComponentsSystemPromptResponse = {

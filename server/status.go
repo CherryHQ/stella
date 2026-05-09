@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"runtime"
+	"time"
 
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/version"
@@ -18,5 +21,57 @@ func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
 	if version.BuildDate != "" {
 		resp.BuildDate = &version.BuildDate
 	}
+	if info := UserFromContext(r.Context()); info != nil && info.IsAdmin {
+		uptimeSeconds := int64(time.Since(s.startedAt).Seconds())
+		resp.UptimeSeconds = &uptimeSeconds
+		resp.Runtime = s.statusRuntime()
+		resp.Database = s.statusDatabase(r.Context())
+		resp.Plugins = s.statusPlugins(r.Context())
+	}
 	writeData(w, http.StatusOK, resp)
+}
+
+func (s *Server) statusRuntime() *types.StatusRuntime {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	return &types.StatusRuntime{
+		GoVersion:  runtime.Version(),
+		Os:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		Goroutines: runtime.NumGoroutine(),
+		Memory: types.StatusMemory{
+			AllocBytes:     int64(mem.Alloc),
+			HeapAllocBytes: int64(mem.HeapAlloc),
+			SysBytes:       int64(mem.Sys),
+			NumGC:          int(mem.NumGC),
+		},
+	}
+}
+
+func (s *Server) statusDatabase(ctx context.Context) *types.StatusDatabase {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := s.db.PingContext(ctx); err != nil {
+		msg := err.Error()
+		return &types.StatusDatabase{Status: "error", Error: &msg}
+	}
+	latency := float64(time.Since(start).Microseconds()) / 1000
+	return &types.StatusDatabase{Status: "ok", LatencyMs: &latency}
+}
+
+func (s *Server) statusPlugins(ctx context.Context) *types.StatusPlugins {
+	plugins, err := s.pluginHost.ListAdminVisiblePlugins(ctx)
+	if err != nil {
+		return nil
+	}
+	out := types.StatusPlugins{Total: len(plugins)}
+	for _, plugin := range plugins {
+		if plugin.State.Enabled {
+			out.Enabled++
+		} else {
+			out.Disabled++
+		}
+	}
+	return &out
 }
