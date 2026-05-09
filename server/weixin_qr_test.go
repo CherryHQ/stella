@@ -12,9 +12,17 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 )
+
+type weixinNoopChannel struct{}
+
+func (c *weixinNoopChannel) Name() string                                              { return "weixin" }
+func (c *weixinNoopChannel) Start(ctx context.Context) error                           { <-ctx.Done(); return ctx.Err() }
+func (c *weixinNoopChannel) Stop()                                                     {}
+func (c *weixinNoopChannel) Notify(_ context.Context, _ pkgchannel.Notification) error { return nil }
 
 type testWeixinHandler struct{}
 
@@ -56,6 +64,16 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	dispatcher := notify.NewDispatcher()
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
+	resetWeixin := weixinplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
+		return weixinplugin.NewWeixinManagedRuntime(weixinplugin.WeixinRuntimeDeps{
+			Parent:  context.Background(),
+			Handler: testWeixinHandler{},
+			NewChannel: func(_ pkgchannel.WeixinConfig, _ pkgchannel.Handler) (pkgchannel.Channel, error) {
+				return &weixinNoopChannel{}, nil
+			},
+		}), nil
+	})
+	t.Cleanup(resetWeixin)
 	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
