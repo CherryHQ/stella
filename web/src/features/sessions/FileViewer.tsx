@@ -68,6 +68,7 @@ export function FileViewer({
   const [editContent, setEditContent] = useState("");
   const [highlighted, setHighlighted] = useState<string>("");
   const [highlightReady, setHighlightReady] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const ext = extOf(path);
   const fileName = path.split("/").pop() ?? path;
@@ -77,7 +78,26 @@ export function FileViewer({
     setEditing(false);
     setHighlighted("");
     setHighlightReady(false);
+    setPdfBlobUrl(null);
   }, [path]);
+
+  useEffect(() => {
+    if (!isPdf(path) || loading) return;
+    let url: string | null = null;
+    let cancelled = false;
+    fetch(rawUrl)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+        setPdfBlobUrl(url);
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [path, rawUrl, loading]);
 
   useEffect(() => {
     if (loading || editing || isImage(path) || isPdf(path) || isBinary(path)) return;
@@ -249,9 +269,15 @@ export function FileViewer({
           </div>
         )}
 
-        {!loading && isPdf(path) && (
-          <iframe src={rawUrl} title={fileName} className="w-full h-full border-0" />
-        )}
+        {!loading &&
+          isPdf(path) &&
+          (pdfBlobUrl ? (
+            <iframe src={pdfBlobUrl} title={fileName} className="w-full h-full border-0" />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+            </div>
+          ))}
 
         {!loading && !isPdf(path) && isBinary(path) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
