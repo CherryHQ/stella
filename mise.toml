@@ -3,6 +3,7 @@
 portless = "latest"
 prek = "latest"
 dprint = "latest"
+jq = "latest"
 # Go
 atlas = "0.36.0"
 go = "1.25"
@@ -13,6 +14,7 @@ go = "1.25"
 vp = "latest"
 pnpm = "latest"
 node = "24"
+act = "latest"
 
 [env]
 BINARY = "./dist/bin/stella"
