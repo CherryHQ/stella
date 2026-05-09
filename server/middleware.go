@@ -50,7 +50,6 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			path == "/api/auth/login" ||
 			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
-			path == "/api/status" ||
 			strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback") {
 			next.ServeHTTP(w, r)
 			return
@@ -65,6 +64,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// Try to load session.
 		sessionID, err := auth.GetSessionCookie(r)
 		if err != nil {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			s.denyAccess(w, r)
 			return
 		}
@@ -74,6 +77,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		session, err := s.authStore.GetSession(ctx, sessionID)
 		if err != nil {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			auth.ClearSessionCookie(w)
 			s.denyAccess(w, r)
 			return
@@ -81,6 +88,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Check expiry.
 		if time.Now().After(session.ExpiresAt) {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			_ = s.authStore.DeleteSession(ctx, sessionID)
 			auth.ClearSessionCookie(w)
 			s.denyAccess(w, r)
@@ -93,6 +104,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// Load user.
 		user, err := s.authStore.GetUser(ctx, session.UserID)
 		if err != nil {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			_ = s.authStore.DeleteSession(ctx, sessionID)
 			auth.ClearSessionCookie(w)
 			s.denyAccess(w, r)
@@ -100,6 +115,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		if !user.IsActive {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			_ = s.authStore.DeleteSession(ctx, sessionID)
 			auth.ClearSessionCookie(w)
 			s.denyAccess(w, r)
