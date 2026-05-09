@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { SkillSearchResult } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export function SkillInstallModal({
   onUpload,
   showToast,
 }: Props) {
+  const { t } = useI18n();
   const { skillInstallScope, isAdmin, editingId } = state;
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SkillSearchResult[]>([]);
@@ -177,7 +179,7 @@ export function SkillInstallModal({
                         loading={installing && installSource === `${s.source}@${s.skillId}`}
                         size="sm"
                       >
-                        Install
+                        {t("agents.skills.install")}
                       </Button>
                     </div>
                     {s.description && (
@@ -215,7 +217,7 @@ export function SkillInstallModal({
                   loading={installing}
                   size="sm"
                 >
-                  Install
+                  {t("agents.skills.install")}
                 </Button>
               </div>
             </div>

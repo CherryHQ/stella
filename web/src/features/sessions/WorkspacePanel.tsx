@@ -11,6 +11,7 @@ import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { FileViewer } from "./FileViewer";
+import { useI18n } from "@/lib/i18n";
 
 function buildTheme(): TreeThemeInput {
   const style = getComputedStyle(document.documentElement);
@@ -60,6 +61,7 @@ interface ViewerState {
 }
 
 export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReload }: Props) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<ViewMode>("tree");
   const [viewer, setViewer] = useState<ViewerState | null>(null);
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
@@ -160,7 +162,7 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
       <div className="w-full flex flex-col overflow-hidden bg-background h-full">
         <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border flex-shrink-0">
           <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
-            Workspace
+            {t("sessions.workspace.title")}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -286,7 +288,7 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
               autoComplete="off"
             />
             <Button type="submit" size="xs" className="h-6 min-h-0 text-[11px]">
-              Add
+              {t("common.add")}
             </Button>
             <button
               type="button"
@@ -372,6 +374,7 @@ function TreeWithSearch({
   onNewFile,
   onNewFolder,
 }: TreeWithSearchProps) {
+  const { t } = useI18n();
   const enc = encodeURIComponent(sessionID);
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
@@ -499,7 +502,7 @@ function TreeWithSearch({
                   onDelete(item.path).catch(console.error);
                 }}
               >
-                Delete
+                {t("common.delete")}
               </button>
               <div
                 style={{

@@ -1,6 +1,7 @@
 import type { User } from "@/lib/types";
 import type { AgentsPageState } from "../AgentsPage";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemoveUser }: Props) {
+  const { t } = useI18n();
   const { assignedUsers, addUserId } = state;
 
   return (
@@ -28,12 +30,12 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
               size="xs"
               className="text-destructive"
             >
-              remove
+              {t("common.remove")}
             </Button>
           </div>
         ))}
         {assignedUsers.length === 0 && (
-          <div className="text-xs text-muted-foreground py-2">No users assigned.</div>
+          <div className="text-xs text-muted-foreground py-2">{t("agents.users.noUsers")}</div>
         )}
       </div>
       <div className="flex gap-2">
@@ -50,7 +52,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
           ))}
         </select>
         <Button onClick={onAddUser} disabled={!addUserId} size="sm">
-          Add
+          {t("common.add")}
         </Button>
       </div>
     </div>

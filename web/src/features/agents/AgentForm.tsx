@@ -2,6 +2,7 @@ import type { Skill, User } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useI18n } from "@/lib/i18n";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { PromptTab } from "./tabs/PromptTab";
 import { SkillsTab } from "./tabs/SkillsTab";
@@ -50,6 +51,7 @@ export function AgentForm({
   onSavePersonalisationProfile,
   onOpenSkillInstallModal,
 }: Props) {
+  const { t } = useI18n();
   const { showForm, editingId, activeTab, isAdmin, form } = state;
 
   if (!showForm) {
@@ -87,12 +89,12 @@ export function AgentForm({
             variant="underline"
             className="w-full justify-start px-2 border-b border-border rounded-none bg-muted/20 gap-0"
           >
-            <TabsTrigger value="config">Config</TabsTrigger>
-            <TabsTrigger value="prompt">Prompt</TabsTrigger>
-            <TabsTrigger value="skills">Skills</TabsTrigger>
-            <TabsTrigger value="advanced">Advanced</TabsTrigger>
-            {isAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
-            {editingId && <TabsTrigger value="personal">Personal</TabsTrigger>}
+            <TabsTrigger value="config">{t("agents.tabs.config")}</TabsTrigger>
+            <TabsTrigger value="prompt">{t("agents.tabs.prompt")}</TabsTrigger>
+            <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
+            <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
+            {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
+            {editingId && <TabsTrigger value="personal">{t("agents.tabs.personal")}</TabsTrigger>}
           </TabsList>
           <div className="p-4 space-y-4">
             <TabsContent value="config">
@@ -139,10 +141,10 @@ export function AgentForm({
         </Tabs>
         <div className="border-t border-border px-4 py-3 flex items-center justify-end gap-2 bg-muted/20">
           <Button onClick={onCancel} variant="ghost" size="sm">
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={onSave} size="sm">
-            {editingId ? "Update" : "Create"}
+            {editingId ? t("common.update") : t("common.create")}
           </Button>
         </div>
       </div>

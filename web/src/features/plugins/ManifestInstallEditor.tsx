@@ -3,6 +3,7 @@ import type { ManifestInstallDraft } from "./pluginUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   draft: ManifestInstallDraft;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Props) {
+  const { t } = useI18n();
   function update(partial: Partial<ManifestInstallDraft>) {
     onChange({ ...draft, ...partial });
   }
@@ -199,7 +201,7 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                     size="xs"
                     className="text-destructive"
                   >
-                    Remove
+                    {t("common.remove")}
                   </Button>
                 </div>
               ))}
@@ -270,7 +272,7 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
                     size="xs"
                     className="text-destructive"
                   >
-                    Remove
+                    {t("common.remove")}
                   </Button>
                 </div>
               ))}

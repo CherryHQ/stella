@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import type { Message, Session, Tool } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -23,6 +24,7 @@ export function SessionDetail({
   onToggleLeft,
   onToggleRight,
 }: Props) {
+  const { t } = useI18n();
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -675,7 +677,7 @@ export function SessionDetail({
                   handleFileSelect(files).catch(console.error);
                 }
               }}
-              placeholder="Message…"
+              placeholder={t("sessions.composer.placeholder")}
               className={cn(
                 "w-full px-4 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto",
                 attachments.length > 0 ? "pt-2" : "pt-3",
@@ -742,7 +744,7 @@ export function SessionDetail({
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
                     </svg>
-                    Send
+                    {t("sessions.composer.send")}
                   </Button>
                 )}
               </div>

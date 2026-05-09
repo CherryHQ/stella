@@ -15,20 +15,22 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
-
-const appNavItems = [
-  { label: "Sessions", href: "/sessions" },
-  { label: "Scheduler", href: "/scheduler" },
-  { label: "Settings", href: "/settings" },
-];
-
-const utilNavItems = [{ label: "Docs", href: "/docs" }];
+import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const qc = useQueryClient();
   const me = qc.getQueryData(meQueryOptions.queryKey);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { t } = useI18n();
+
+  const appNavItems = [
+    { label: t("nav.sessions"), href: "/sessions" },
+    { label: t("nav.scheduler"), href: "/scheduler" },
+    { label: t("nav.settings"), href: "/settings" },
+  ];
+
+  const utilNavItems = [{ label: t("nav.docs"), href: "/docs" }];
 
   return (
     <header className="border-b border-border h-14 flex items-center px-6 bg-background shrink-0 relative z-30">
@@ -52,7 +54,7 @@ export function SiteHeader() {
 
       <div className="flex-1" />
 
-      {/* Right side — utility nav, GitHub, auth */}
+      {/* Right side — utility nav, locale selector, GitHub, auth */}
       <div className="flex items-center gap-1">
         <nav className="hidden sm:flex items-center h-full">
           {utilNavItems.map((item) => (
@@ -64,6 +66,7 @@ export function SiteHeader() {
             />
           ))}
         </nav>
+        <LocaleSelector />
         <GithubLink />
         {me ? (
           <UserMenu />
@@ -72,7 +75,7 @@ export function SiteHeader() {
             to="/login"
             className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5"
           >
-            Login
+            {t("header.login")}
           </Link>
         )}
 
@@ -123,6 +126,27 @@ export function SiteHeader() {
         </Sheet>
       </div>
     </header>
+  );
+}
+
+function LocaleSelector() {
+  const { locale, setLocale, t } = useI18n();
+
+  function toggle() {
+    setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale);
+  }
+
+  const label = locale === "en" ? t("locale.en") : t("locale.zh");
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      aria-label={`Switch language — current: ${label}`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -198,6 +222,7 @@ function UserMenu() {
   const { data: me } = useQuery(meQueryOptions);
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   if (!me) return null;
 
@@ -228,14 +253,16 @@ function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link to={"/sessions" as never} />}>Dashboard</DropdownMenuItem>
+          <DropdownMenuItem render={<Link to={"/sessions" as never} />}>
+            {t("header.dashboard")}
+          </DropdownMenuItem>
           <DropdownMenuItem render={<Link to={"/settings/account" as never} />}>
-            Account settings
+            {t("header.accountSettings")}
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={logout}>
-          Log out
+          {t("header.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -3,12 +3,7 @@
 import { createSseClient } from "../core/serverSentEvents.gen";
 import type { HttpMethod } from "../core/types.gen";
 import { getValidRequestBody } from "../core/utils.gen";
-import type {
-  Client,
-  Config,
-  RequestOptions,
-  ResolvedRequestOptions,
-} from "./types.gen";
+import type { Client, Config, RequestOptions, ResolvedRequestOptions } from "./types.gen";
 import {
   buildUrl,
   createConfig,
@@ -34,12 +29,7 @@ export const createClient = (config: Config = {}): Client => {
     return getConfig();
   };
 
-  const interceptors = createInterceptors<
-    Request,
-    Response,
-    unknown,
-    ResolvedRequestOptions
-  >();
+  const interceptors = createInterceptors<Request, Response, unknown, ResolvedRequestOptions>();
 
   const beforeRequest = async <
     TData = unknown,
@@ -69,9 +59,7 @@ export const createClient = (config: Config = {}): Client => {
     }
 
     if (opts.body !== undefined && opts.bodySerializer) {
-      opts.serializedBody = opts.bodySerializer(opts.body) as
-        | string
-        | undefined;
+      opts.serializedBody = opts.bodySerializer(opts.body) as string | undefined;
     }
 
     // remove Content-Type header if body is empty to avoid sending invalid requests
@@ -132,10 +120,7 @@ export const createClient = (config: Config = {}): Client => {
             ? getParseAs(response.headers.get("Content-Type"))
             : opts.parseAs) ?? "json";
 
-        if (
-          response.status === 204 ||
-          response.headers.get("Content-Length") === "0"
-        ) {
+        if (response.status === 204 || response.headers.get("Content-Length") === "0") {
           let emptyData: any;
           switch (parseAs) {
             case "arrayBuffer":
@@ -219,12 +204,7 @@ export const createClient = (config: Config = {}): Client => {
 
       for (const fn of interceptors.error.fns) {
         if (fn) {
-          finalError = await fn(
-            finalError,
-            response,
-            request,
-            options as ResolvedRequestOptions,
-          );
+          finalError = await fn(finalError, response, request, options as ResolvedRequestOptions);
         }
       }
 
@@ -245,36 +225,30 @@ export const createClient = (config: Config = {}): Client => {
     }
   };
 
-  const makeMethodFn =
-    (method: Uppercase<HttpMethod>) => (options: RequestOptions) =>
-      request({ ...options, method });
+  const makeMethodFn = (method: Uppercase<HttpMethod>) => (options: RequestOptions) =>
+    request({ ...options, method });
 
-  const makeSseFn =
-    (method: Uppercase<HttpMethod>) => async (options: RequestOptions) => {
-      const { opts, url } = await beforeRequest(options);
-      return createSseClient({
-        ...opts,
-        body: opts.body as BodyInit | null | undefined,
-        method,
-        onRequest: async (url, init) => {
-          let request = new Request(url, init);
-          for (const fn of interceptors.request.fns) {
-            if (fn) {
-              request = await fn(request, opts);
-            }
+  const makeSseFn = (method: Uppercase<HttpMethod>) => async (options: RequestOptions) => {
+    const { opts, url } = await beforeRequest(options);
+    return createSseClient({
+      ...opts,
+      body: opts.body as BodyInit | null | undefined,
+      method,
+      onRequest: async (url, init) => {
+        let request = new Request(url, init);
+        for (const fn of interceptors.request.fns) {
+          if (fn) {
+            request = await fn(request, opts);
           }
-          return request;
-        },
-        serializedBody: getValidRequestBody(opts) as
-          | BodyInit
-          | null
-          | undefined,
-        url,
-      });
-    };
+        }
+        return request;
+      },
+      serializedBody: getValidRequestBody(opts) as BodyInit | null | undefined,
+      url,
+    });
+  };
 
-  const _buildUrl: Client["buildUrl"] = (options) =>
-    buildUrl({ ..._config, ...options });
+  const _buildUrl: Client["buildUrl"] = (options) => buildUrl({ ..._config, ...options });
 
   return {
     buildUrl: _buildUrl,

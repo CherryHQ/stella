@@ -5,10 +5,12 @@ import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useI18n } from "@/lib/i18n";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
 export function CredentialsPage() {
+  const { t } = useI18n();
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
@@ -208,7 +210,7 @@ export function CredentialsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="font-serif text-3xl tracking-tight">Credentials</h1>
+        <h1 className="font-serif text-3xl tracking-tight">{t("credentials.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Manage OAuth connections and vault secrets.
         </p>
@@ -335,7 +337,7 @@ export function CredentialsPage() {
                           variant="destructive-outline"
                           onClick={() => deleteVaultEntry(entry.name)}
                         >
-                          Delete
+                          {t("common.delete")}
                         </Button>
                       </td>
                     </tr>

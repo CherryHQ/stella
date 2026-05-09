@@ -1,5 +1,6 @@
 import type { McpServer, McpStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -37,6 +38,7 @@ export function McpTab({
   onToggleMcpPlugin,
   onSave,
 }: Props) {
+  const { t } = useI18n();
   const validation = validateMcpServers(mcpServers);
   const mcpHasErrors = validation.global.length > 0 || validation.byIndex.some((e) => e.length > 0);
 
@@ -230,7 +232,7 @@ export function McpTab({
             variant="default"
             size="sm"
           >
-            Save
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -287,7 +289,7 @@ export function McpTab({
                     size="xs"
                     className="text-destructive"
                   >
-                    Remove
+                    {t("common.remove")}
                   </Button>
                   <Switch
                     checked={server.enabled}
@@ -401,7 +403,7 @@ export function McpTab({
                           Arguments
                         </label>
                         <Button onClick={() => addArg(index)} variant="ghost" size="xs">
-                          Add
+                          {t("common.add")}
                         </Button>
                       </div>
                       {server.args.map((arg, argIndex) => (
@@ -438,7 +440,7 @@ export function McpTab({
                           Environment variables
                         </label>
                         <Button onClick={() => addKeyValue(index, "env")} variant="ghost" size="xs">
-                          Add
+                          {t("common.add")}
                         </Button>
                       </div>
                       {server.env.map((row, rowIndex) => (
@@ -502,7 +504,7 @@ export function McpTab({
                           variant="ghost"
                           size="xs"
                         >
-                          Add
+                          {t("common.add")}
                         </Button>
                       </div>
                       {server.headers.map((row, rowIndex) => (

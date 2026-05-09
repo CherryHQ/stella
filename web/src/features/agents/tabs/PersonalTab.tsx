@@ -2,6 +2,7 @@ import type { AgentsPageState } from "../AgentsPage";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Props) {
+  const { t } = useI18n();
   const { personalisation } = state;
 
   const setPers = (patch: Partial<typeof personalisation>) =>
@@ -45,7 +47,7 @@ export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Pr
           size="xs"
           className="text-primary mt-1"
         >
-          Save
+          {t("common.save")}
         </Button>
       </div>
       <div>
@@ -67,7 +69,7 @@ export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Pr
           size="xs"
           className="text-primary mt-1"
         >
-          Save
+          {t("common.save")}
         </Button>
       </div>
     </div>

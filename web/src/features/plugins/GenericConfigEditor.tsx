@@ -1,5 +1,6 @@
 import type { Plugin, PluginSchemaProperty } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,7 @@ export function GenericConfigEditor({
   onSave,
   onReset,
 }: Props) {
+  const { t } = useI18n();
   const fields = pluginSchemaFields(plugin, schemas);
 
   return (
@@ -51,10 +53,10 @@ export function GenericConfigEditor({
           <div className="flex items-center gap-2">
             {isLoading && <Spinner className="size-4" />}
             <Button onClick={onReset} disabled={isLoading || isSaving} variant="ghost" size="xs">
-              Reset
+              {t("common.reset")}
             </Button>
             <Button onClick={onSave} disabled={isLoading || isSaving} variant="default" size="xs">
-              Save
+              {t("common.save")}
             </Button>
           </div>
         </div>

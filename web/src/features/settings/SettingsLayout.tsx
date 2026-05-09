@@ -1,14 +1,20 @@
+import type { ReactNode } from "react";
 import { Link, Outlet } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
+import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 
-const settingsNav = [
+const settingsNav: {
+  section: string;
+  items: { id: string; label: MessageKey; href: string; adminOnly: boolean; icon: ReactNode }[];
+}[] = [
   {
     section: "Configuration",
     items: [
       {
         id: "providers",
-        label: "Providers",
+        label: "settings.nav.providers",
         href: "/settings/providers",
         adminOnly: true,
         icon: (
@@ -29,7 +35,7 @@ const settingsNav = [
       },
       {
         id: "agents",
-        label: "Agents",
+        label: "settings.nav.agents",
         href: "/settings/agents",
         adminOnly: false,
         icon: (
@@ -50,7 +56,7 @@ const settingsNav = [
       },
       {
         id: "channels",
-        label: "Channels",
+        label: "settings.nav.channels",
         href: "/settings/channels",
         adminOnly: false,
         icon: (
@@ -71,7 +77,7 @@ const settingsNav = [
       },
       {
         id: "credentials",
-        label: "Credentials",
+        label: "settings.nav.credentials",
         href: "/settings/credentials",
         adminOnly: false,
         icon: (
@@ -92,7 +98,7 @@ const settingsNav = [
       },
       {
         id: "plugins",
-        label: "Plugins",
+        label: "settings.nav.plugins",
         href: "/settings/plugins",
         adminOnly: true,
         icon: (
@@ -118,7 +124,7 @@ const settingsNav = [
     items: [
       {
         id: "users",
-        label: "Users",
+        label: "settings.nav.users",
         href: "/settings/users",
         adminOnly: true,
         icon: (
@@ -144,7 +150,7 @@ const settingsNav = [
     items: [
       {
         id: "account",
-        label: "Account",
+        label: "settings.nav.account",
         href: "/settings/account",
         adminOnly: false,
         icon: (
@@ -173,6 +179,7 @@ const settingsNav = [
 ];
 
 export function SettingsLayout() {
+  const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
 
@@ -199,7 +206,7 @@ export function SettingsLayout() {
                   }}
                 >
                   {item.icon}
-                  {item.label}
+                  {t(item.label)}
                 </Link>
               ))}
             </div>

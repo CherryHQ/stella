@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
@@ -242,6 +243,7 @@ function InstanceFields({
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export function ChannelsPage() {
+  const { t } = useI18n();
   const [isAdmin, setIsAdmin] = useState(false);
   const [publicChannels, setPublicChannels] = useState<Channel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
@@ -653,7 +655,9 @@ export function ChannelsPage() {
 
       {/* Page header */}
       <div className="mb-8">
-        <h1 className="font-serif text-3xl md:text-4xl tracking-tight mb-2">Channels</h1>
+        <h1 className="font-serif text-3xl md:text-4xl tracking-tight mb-2">
+          {t("channels.title")}
+        </h1>
         <p className="text-muted-foreground text-sm max-w-lg">
           Link the platforms you use. The Plugins page controls which platforms appear here.
         </p>
@@ -799,14 +803,14 @@ export function ChannelsPage() {
       >
         <DialogPopup showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Confirm</DialogTitle>
+            <DialogTitle>{t("common.confirm")}</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-2">
             <p className="text-sm">{confirmMsg}</p>
           </div>
           <DialogFooter>
             <Button onClick={() => setConfirmMsg("")} variant="ghost" size="sm">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => {
@@ -816,7 +820,7 @@ export function ChannelsPage() {
               variant="destructive"
               size="sm"
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -890,6 +894,7 @@ function PlatformCard({
   onToggleInstanceCollapse,
   onToggleConfigCollapse,
 }: PlatformCardProps) {
+  const { t } = useI18n();
   return (
     <div className="rounded-xl border border-border bg-muted flex flex-col gap-6 p-6">
       {/* Header */}
@@ -1103,7 +1108,7 @@ function PlatformCard({
                       size="sm"
                       className="text-destructive-foreground"
                     >
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 </div>
