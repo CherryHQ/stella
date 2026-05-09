@@ -109,7 +109,7 @@ export function SessionSidebar({
     <aside className="flex flex-col overflow-hidden w-full h-full border-r border-border">
       {/* Header */}
       <div className="flex-shrink-0 bg-background">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex h-11 items-center justify-between px-4 border-b border-border">
           <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
             {t("sessions.title")}
           </span>
@@ -148,7 +148,7 @@ export function SessionSidebar({
         </div>
 
         {/* Search */}
-        <div className="px-3 py-2.5 border-b border-border">
+        <div className="px-3 py-2.5">
           <div className="relative">
             <input
               type="text"
@@ -174,7 +174,7 @@ export function SessionSidebar({
         </div>
 
         {/* Agent switcher */}
-        <div className="px-3 py-2.5 border-b border-border space-y-2">
+        <div className="px-3 pb-2.5 space-y-2">
           <div className="flex items-center gap-2">
             <select
               value={selectedAgent}
