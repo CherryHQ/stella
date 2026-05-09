@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -15,6 +17,7 @@ func TestIsAPIRoute(t *testing.T) {
 		{"/api/auth/login", true},
 		{"/providers", false},
 		{"/login", false},
+		{"/assets/index.js", false},
 		{"/static/js/app.js", false},
 		{"", false},
 	}
@@ -23,6 +26,25 @@ func TestIsAPIRoute(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isAPIRoute(%q) = %v, want %v", tc.path, got, tc.want)
 		}
+	}
+}
+
+func TestAuthMiddlewareAllowsViteAssets(t *testing.T) {
+	called := false
+	h := (&Server{}).authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/index.js", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if !called {
+		t.Fatal("asset request did not reach next handler")
+	}
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusNoContent)
 	}
 }
 
