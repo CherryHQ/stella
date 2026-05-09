@@ -49,6 +49,15 @@ function normalizeModalities(value: string): string[] {
     .filter(Boolean);
 }
 
+function textValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return "";
+}
+
 function numberOrZero(value: string | number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -164,7 +173,7 @@ interface ProviderRowProps {
   providerDefaults: Record<string, { base_url: string; name: string }>;
   onSave: (p: Provider) => void;
   onDelete: (id: string) => void;
-  onFetchModels: (p: Provider) => void;
+  onFetchModels: (p: Provider) => Promise<void>;
   onToggleModel: (providerId: string, model: ProviderModel, enabled: boolean) => void;
   onRemoveCustomModel: (providerId: string, modelID: string) => void;
   onAddCustomModel: (providerId: string, form: CustomModelForm) => void;
@@ -227,11 +236,11 @@ function ProviderRow({
     }
     return {
       ...provider,
-      type: String(parsed.type || provider.type || "").trim(),
-      name: String(parsed.name || provider.name || provider.id).trim() || provider.id,
+      type: (textValue(parsed.type) || provider.type).trim(),
+      name: (textValue(parsed.name) || provider.name || provider.id).trim() || provider.id,
       enabled: parsed.enabled !== false,
-      api_key: String(parsed.api_key || ""),
-      base_url: String(parsed.base_url || ""),
+      api_key: textValue(parsed.api_key),
+      base_url: textValue(parsed.base_url),
       models:
         parsed.models && !Array.isArray(parsed.models) && typeof parsed.models === "object"
           ? (parsed.models as Record<string, ModelConfig>)

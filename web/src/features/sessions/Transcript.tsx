@@ -249,6 +249,12 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
   );
 }
 
+function toolArgText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
 function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const n = block.name.toLowerCase();
   const args = block.arguments ?? {};
@@ -261,7 +267,7 @@ function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call
           <span>bash</span>
         </div>
         <pre className="text-[10px] font-mono text-warning/80 px-3 py-2 whitespace-pre-wrap overflow-x-auto leading-relaxed">
-          {String(args.command ?? args.input ?? JSON.stringify(args, null, 2))}
+          {toolArgText(args.command ?? args.input ?? args)}
         </pre>
       </div>
     );
@@ -273,7 +279,7 @@ function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call
           {n}
         </div>
         <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground/70">
-          {String(args.path ?? args.file_path ?? args.input ?? "")}
+          {toolArgText(args.path ?? args.file_path ?? args.input)}
         </div>
       </div>
     );
@@ -308,10 +314,10 @@ function toolPreview(block: ContentBlock & { type: "tool_call" }): string {
     const pts = (p || "").split("/");
     return pts.length > 2 ? "…/" + pts.slice(-2).join("/") : p;
   };
-  if (n === "bash") return trunc("$ " + String(args.command ?? args.input ?? ""));
-  if (n === "read") return shortPath(String(args.path ?? args.file_path ?? args.input ?? ""));
-  if (n === "write") return shortPath(String(args.path ?? args.file_path ?? args.input ?? ""));
-  if (n === "edit") return shortPath(String(args.path ?? args.file_path ?? args.input ?? ""));
+  if (n === "bash") return trunc("$ " + toolArgText(args.command ?? args.input));
+  if (n === "read") return shortPath(toolArgText(args.path ?? args.file_path ?? args.input));
+  if (n === "write") return shortPath(toolArgText(args.path ?? args.file_path ?? args.input));
+  if (n === "edit") return shortPath(toolArgText(args.path ?? args.file_path ?? args.input));
   return "";
 }
 

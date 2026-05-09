@@ -13,6 +13,7 @@ import {
   pluginFieldOptionLabel,
   pluginFieldPlaceholder,
   pluginFieldRows,
+  pluginFieldText,
   pluginFieldType,
   pluginSchemaFields,
 } from "./pluginUtils";
@@ -85,7 +86,7 @@ export function GenericConfigEditor({
                   {hasEnum ? (
                     <select
                       id={fid}
-                      value={String(value ?? "")}
+                      value={pluginFieldText(value)}
                       onChange={(e) => onDraftChange(field.name, e.target.value)}
                       className="select select-bordered select-sm w-full"
                     >
@@ -107,7 +108,7 @@ export function GenericConfigEditor({
                   ) : isComplex ? (
                     <Textarea
                       id={fid}
-                      value={String(value ?? "")}
+                      value={pluginFieldText(value)}
                       onChange={(e) => onDraftChange(field.name, e.target.value)}
                       rows={rows}
                       className="font-mono text-xs"
@@ -118,7 +119,7 @@ export function GenericConfigEditor({
                       id={fid}
                       nativeInput
                       type={inputType}
-                      value={String(value ?? "")}
+                      value={pluginFieldText(value)}
                       onChange={(e) =>
                         onDraftChange(field.name, (e.target as HTMLInputElement).value)
                       }

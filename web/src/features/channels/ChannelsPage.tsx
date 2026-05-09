@@ -441,7 +441,7 @@ export function ChannelsPage() {
         await Promise.all([loadPublicChannels(), loadIdentities()]);
       }
     };
-    init();
+    void init();
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
@@ -470,7 +470,7 @@ export function ChannelsPage() {
   };
 
   const copyLinkCode = () => {
-    navigator.clipboard.writeText("/link " + linkCode);
+    void navigator.clipboard.writeText("/link " + linkCode);
     showToast("Copied");
   };
 

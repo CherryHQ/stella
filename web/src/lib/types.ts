@@ -309,7 +309,7 @@ export interface ProviderModel {
   id: string;
   name: string;
   enabled: boolean;
-  source: "custom" | "fetched" | string;
+  source: string;
 }
 
 export interface CustomModelForm {

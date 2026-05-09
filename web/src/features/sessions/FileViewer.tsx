@@ -139,7 +139,7 @@ export function FileViewer({
       return;
     }
 
-    (async () => {
+    void (async () => {
       try {
         const hl = await getHighlighter();
         const loadedLangs = hl.getLoadedLanguages();

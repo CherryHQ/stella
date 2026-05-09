@@ -149,10 +149,17 @@ export function pluginFieldDescription(field: PluginSchemaField): string {
   return field.schema?.description || "";
 }
 
+export function pluginFieldText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return "";
+}
+
 export function pluginFieldPlaceholder(field: PluginSchemaField): string {
-  if (field.schema?.default === undefined || field.schema?.default === null) return "";
-  if (typeof field.schema.default === "object") return "";
-  return String(field.schema.default);
+  return pluginFieldText(field.schema?.default);
 }
 
 export function pluginFieldRows(field: PluginSchemaField): number {
@@ -220,7 +227,7 @@ export function buildPluginConfigPayload(
     const type = pluginFieldType(field.schema);
     const value = draft[field.name];
     if (type === "object" || type === "array") {
-      const text = String(value || "").trim();
+      const text = pluginFieldText(value).trim();
       if (!text) {
         delete next[field.name];
         continue;
@@ -246,7 +253,7 @@ export function buildPluginConfigPayload(
       next[field.name] = type === "integer" ? Math.trunc(parsed) : parsed;
       continue;
     }
-    const text = value === undefined || value === null ? "" : String(value);
+    const text = pluginFieldText(value);
     if (text === "" && !field.schema?.enum?.includes("")) {
       delete next[field.name];
       continue;
@@ -278,11 +285,11 @@ export function normalizeMcpServers(servers: Record<string, unknown>[]): McpServ
   return (servers || []).map((server) => ({
     id: nextRowID(),
     expanded: true,
-    name: String(server.name || ""),
+    name: pluginFieldText(server.name),
     enabled: server.enabled !== false,
-    transport: String(server.transport || "stdio"),
-    command: String(server.command || ""),
-    url: String(server.url || ""),
+    transport: pluginFieldText(server.transport) || "stdio",
+    command: pluginFieldText(server.command),
+    url: pluginFieldText(server.url),
     timeout_seconds: Number(server.timeout_seconds || 30),
     args: createArgsRows((server.args as string[]) || []),
     env: createKeyValueRows((server.env as Record<string, string>) || {}),
