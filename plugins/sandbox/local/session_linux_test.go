@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,14 +44,7 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 	if !strings.HasSuffix(path, "bwrap") {
 		t.Errorf("expected bwrap executable, got %q", path)
 	}
-	found := false
-	for _, a := range args {
-		if a == "--unshare-net" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(args, "--unshare-net") {
 		t.Errorf("expected --unshare-net in bwrap args, got %v", args)
 	}
 }
@@ -107,7 +101,7 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 	}
 
 	s := &localSession{
-		id:          "test",
+		id: "test",
 		policy: sandboxpkg.Policy{
 			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
 			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
