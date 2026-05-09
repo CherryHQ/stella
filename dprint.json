@@ -13,6 +13,6 @@
     "https://plugins.dprint.dev/dockerfile-0.3.3.wasm",
     "https://plugins.dprint.dev/g-plane/markup_fmt-v0.27.1.wasm",
     "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm",
-    "https://plugins.dprint.dev/exec-0.5.1.json@492414e39dea4dccc07b4af796d2f4efdb89e84bae2bd4e1e924c0cc050855bf"
+    "https://plugins.dprint.dev/exec-0.6.2.json@df98f54ffd3092b8a841aedd6d098a2651f16d0a796a40535774f1a8b4b9d463"
   ]
 }
