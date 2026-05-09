@@ -542,3 +542,10 @@ const zh: Record<MessageKey, string> = {
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };
 export type { MessageKey };
+
+declare module "i18next" {
+  interface CustomTypeOptions {
+    defaultNS: "translation";
+    resources: { translation: typeof en };
+  }
+}
