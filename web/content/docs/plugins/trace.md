@@ -49,7 +49,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. Stella delegates exporter configura
 | `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                |
 | `OTEL_EXPORTER_OTLP_HEADERS`        | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                          |
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                |
-| `OTEL_SERVICE_NAME`                 | `stella`                     | Service name shown in your trace backend.                                                                                                                                                 |
+| `OTEL_SERVICE_NAME`                 | `stella`                   | Service name shown in your trace backend.                                                                                                                                                 |
 | `OTEL_EXPORTER_OTLP_INSECURE`       | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                            |
 
 When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
@@ -204,8 +204,8 @@ LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://ope
 
 Memory spans use stella-specific attributes:
 
-| Attribute                   | Description                                                                      |
-| --------------------------- | -------------------------------------------------------------------------------- |
+| Attribute                     | Description                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------- |
 | `stella.memory.op`            | Operation (bootstrap, append, assemble, compact, search, describe, expand, etc.) |
 | `stella.memory.session_id`    | Memory session ID                                                                |
 | `stella.memory.token_count`   | Token count                                                                      |
@@ -214,8 +214,8 @@ Memory spans use stella-specific attributes:
 
 Sandbox lifecycle spans use these Stella-specific attributes:
 
-| Attribute                         | Description                                      |
-| --------------------------------- | ------------------------------------------------ |
+| Attribute                           | Description                                      |
+| ----------------------------------- | ------------------------------------------------ |
 | `stella.sandbox.backend`            | Sandbox backend name, currently `boxsh`          |
 | `stella.sandbox.agent_root`         | Agent workspace root from runner config          |
 | `stella.sandbox.user_root`          | Requested sandbox user root                      |

@@ -127,10 +127,10 @@ type Tool interface {
 
 ### Plugin Tools (toggleable via admin)
 
-| Tool       | Description                                                    |
-| ---------- | -------------------------------------------------------------- |
+| Tool       | Description                                                      |
+| ---------- | ---------------------------------------------------------------- |
 | `mcp`      | Proxy configured MCP servers through one generic Stella MCP tool |
-| `webfetch` | Fetch web page contents                                        |
+| `webfetch` | Fetch web page contents                                          |
 
 The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
 

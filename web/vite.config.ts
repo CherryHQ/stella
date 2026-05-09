@@ -10,10 +10,10 @@ import path from "node:path";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["src/components/ui/**", "content/**"],
+    ignorePatterns: ["src/components/ui/**", "src/lib/api-client/**", "src/routeTree.gen.ts"],
   },
   lint: {
-    ignorePatterns: ["src/components/ui/**", "content/**"],
+    ignorePatterns: ["src/components/ui/**", "src/lib/api-client/**", "src/routeTree.gen.ts"],
     options: { typeAware: true, typeCheck: true },
   },
   plugins: [

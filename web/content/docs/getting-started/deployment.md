@@ -280,9 +280,9 @@ See the [Configuration guide](/docs/getting-started/configuration) for `sandbox.
 
 All data lives under the stella home directory (`~/.stella` by default, configurable via `STELLA_HOME`).
 
-| Path                                    | Purpose                                     |
-| --------------------------------------- | ------------------------------------------- |
-| `~/.stella/stella.db`                       | Single database (config, memory, scheduler) |
+| Path                                      | Purpose                                     |
+| ----------------------------------------- | ------------------------------------------- |
+| `~/.stella/stella.db`                     | Single database (config, memory, scheduler) |
 | `~/.stella/workspaces/{agent-id}/skills/` | Per-agent installed skills                  |
 | `~/.stella/workspaces/{agent-id}/SOUL.md` | Optional per-agent soul/identity override   |
 | `~/.stella/cache/`                        | Model cache (regenerable, safe to delete)   |
@@ -293,11 +293,11 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 Configuration is managed through the admin panel (via `stella --open` or `--port`). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
 
-| Variable            | Required | Description                             |
-| ------------------- | -------- | --------------------------------------- |
-| `STELLA_HOME`         | No       | Stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                  |
-| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                     |
+| Variable            | Required | Description                                 |
+| ------------------- | -------- | ------------------------------------------- |
+| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`) |
+| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                      |
+| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                         |
 
 \* At least one provider key is required. API keys can also be configured via the admin panel.
 

@@ -29,7 +29,7 @@ One row per agent.
 
 | Column          | Type    | Description                                                                        |
 | --------------- | ------- | ---------------------------------------------------------------------------------- |
-| `id`            | TEXT    | Agent slug (e.g. `stella`)                                                           |
+| `id`            | TEXT    | Agent slug (e.g. `stella`)                                                         |
 | `name`          | TEXT    | Display name                                                                       |
 | `model`         | TEXT    | Default model in `provider/model` format                                           |
 | `model_strong`  | TEXT    | Strong-tier model in `provider/model` format                                       |
@@ -137,13 +137,13 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 
 ## Directory Layout
 
-| Path                                         | Purpose                                     | Category |
-| -------------------------------------------- | ------------------------------------------- | -------- |
-| `~/.stella/stella.db`                            | SQLite database (config, memory, scheduler) | Data     |
+| Path                                           | Purpose                                     | Category |
+| ---------------------------------------------- | ------------------------------------------- | -------- |
+| `~/.stella/stella.db`                          | SQLite database (config, memory, scheduler) | Data     |
 | `~/.stella/plugins/bundled/`                   | Bundled runtime plugin manifests            | Data     |
 | `~/.stella/plugins/installed/`                 | User-installed runtime plugins              | Data     |
 | `~/.stella/workspaces/{agent-id}/skills/`      | Per-agent installed skills                  | Data     |
-| `~/.stella/workspaces/{agent-id}/stella.log`     | Per-agent log file                          | Data     |
+| `~/.stella/workspaces/{agent-id}/stella.log`   | Per-agent log file                          | Data     |
 | `~/.stella/workspaces/{agent-id}/SOUL.md`      | Optional soul/identity override             | Data     |
 | `~/.stella/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override             | Data     |
 | `~/.stella/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                      | Data     |
@@ -178,14 +178,14 @@ Example JSON for a docker-backed agent's `sandbox` field:
 
 The old `STELLA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
 
-| Variable             | Purpose                                                                                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `STELLA_HOME`          | Override the home directory (default `~/.stella`)                                                                                                                          |
-| `STELLA_HOME_HOST`     | Host-side path of `STELLA_HOME` when stella runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
-| `ANTHROPIC_API_KEY`  | Fallback API key for the Anthropic provider                                                                                                                              |
-| `ANTHROPIC_BASE_URL` | Fallback base URL for the Anthropic provider                                                                                                                             |
-| `OPENAI_API_KEY`     | Fallback API key for the OpenAI provider                                                                                                                                 |
-| `OPENAI_BASE_URL`    | Fallback base URL for the OpenAI provider                                                                                                                                |
+| Variable             | Purpose                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`        | Override the home directory (default `~/.stella`)                                                                                                                            |
+| `STELLA_HOME_HOST`   | Host-side path of `STELLA_HOME` when stella runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
+| `ANTHROPIC_API_KEY`  | Fallback API key for the Anthropic provider                                                                                                                                  |
+| `ANTHROPIC_BASE_URL` | Fallback base URL for the Anthropic provider                                                                                                                                 |
+| `OPENAI_API_KEY`     | Fallback API key for the OpenAI provider                                                                                                                                     |
+| `OPENAI_BASE_URL`    | Fallback base URL for the OpenAI provider                                                                                                                                    |
 
 All other configuration must be set through the admin panel (`stella --open`) or directly in the database.
 

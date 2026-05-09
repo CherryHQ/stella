@@ -74,7 +74,7 @@ plugins:
 | `display_name`                | 否       | 在管理界面显示的人类可读标签                                          |
 | `description`                 | 否       | 在管理界面显示的简短描述                                              |
 | `enabled`                     | 否       | 插件是否激活，默认为 false。内置插件默认为 true。                     |
-| `binaries`                    | 否       | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                   |
+| `binaries`                    | 否       | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                 |
 | `session_env`                 | 否       | 要注入沙箱会话的环境变量                                              |
 | `oauth_provider`              | 否       | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
 | `oauth_provider_config_field` | 否       | 用于动态选择 OAuth provider 的插件配置字段，例如 `brand`              |
@@ -88,7 +88,7 @@ plugins:
 
 | 字段               | 必填 | 描述                                                            |
 | ------------------ | ---- | --------------------------------------------------------------- |
-| `name`             | 是   | 放置到 `$STELLA_HOME/bin` 的二进制文件名（不含扩展名）            |
+| `name`             | 是   | 放置到 `$STELLA_HOME/bin` 的二进制文件名（不含扩展名）          |
 | `tool`             | 是   | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
 | `version`          | 否   | 要安装的版本，默认为 `latest`。                                 |
 | `strip_components` | 否   | 解压归档时去除的前导目录层数，大多数布局可自动检测。            |

@@ -96,13 +96,13 @@ The database stores only an index row with URL, title, summary, tags, status, an
 
 ### Source Types
 
-| Type      | Fetch Strategy                | Tool                     |
-| --------- | ----------------------------- | ------------------------ |
-| `web`     | Readable markdown extraction  | `tap fetch`              |
-| `twitter` | Tweet text + media            | `tap fetch`              |
-| `youtube` | Metadata + transcript         | `tap fetch`              |
-| `github`  | Repo info, issues, PRs        | `gh` + `tap fetch`       |
-| `pdf`     | Text extraction               | `kreuzberg extract`      |
+| Type      | Fetch Strategy                | Tool                       |
+| --------- | ----------------------------- | -------------------------- |
+| `web`     | Readable markdown extraction  | `tap fetch`                |
+| `twitter` | Tweet text + media            | `tap fetch`                |
+| `youtube` | Metadata + transcript         | `tap fetch`                |
+| `github`  | Repo info, issues, PRs        | `gh` + `tap fetch`         |
+| `pdf`     | Text extraction               | `kreuzberg extract`        |
 | `rss`     | Feed polling → entries → save | `stella recally feed poll` |
 
 ## CLI Reference
@@ -329,18 +329,18 @@ This keeps search fast while preserving full content for deep queries.
 
 ## Implementation Details
 
-| Component         | Location                                                   |
-| ----------------- | ---------------------------------------------------------- |
+| Component         | Location                                                     |
+| ----------------- | ------------------------------------------------------------ |
 | CLI command       | `cmd/stella/recally.go`                                      |
-| Store layer       | `internal/recally/store.go`                                |
-| File manager      | `internal/recally/files.go`                                |
-| URL normalization | `internal/recally/urlnorm.go`                              |
-| Types             | `internal/recally/types.go`                                |
-| Skill file        | `internal/resources/skills/system/recally/SKILL.md`        |
-| DB schema         | `internal/db/schemas/tables/articles.sql`                  |
-| DB schema (RSS)   | `internal/db/schemas/tables/rss_feeds.sql`                 |
-| DB queries        | `internal/db/queries/articles.sql`                         |
-| DB queries (RSS)  | `internal/db/queries/rss_feeds.sql`                        |
+| Store layer       | `internal/recally/store.go`                                  |
+| File manager      | `internal/recally/files.go`                                  |
+| URL normalization | `internal/recally/urlnorm.go`                                |
+| Types             | `internal/recally/types.go`                                  |
+| Skill file        | `internal/resources/skills/system/recally/SKILL.md`          |
+| DB schema         | `internal/db/schemas/tables/articles.sql`                    |
+| DB schema (RSS)   | `internal/db/schemas/tables/rss_feeds.sql`                   |
+| DB queries        | `internal/db/queries/articles.sql`                           |
+| DB queries (RSS)  | `internal/db/queries/rss_feeds.sql`                          |
 | Sandbox auth env  | `internal/agent/sandbox_backend.go` (injects `STELLA_TOKEN`) |
 
 ## Future Improvements

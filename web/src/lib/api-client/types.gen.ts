@@ -442,7 +442,11 @@ export type ComponentsFeedEntryList = {
   items: Array<ComponentsFeedEntry>;
 };
 
-export type ComponentsFeedEntryStatus = "pending" | "saved" | "skipped" | "error";
+export type ComponentsFeedEntryStatus =
+  | "pending"
+  | "saved"
+  | "skipped"
+  | "error";
 
 export type ComponentsFeedList = {
   items: Array<ComponentsFeed>;
@@ -812,7 +816,13 @@ export type ComponentsSkillUploadResult = {
   name?: string;
 };
 
-export type ComponentsSourceType = "web" | "twitter" | "youtube" | "github" | "rss" | "pdf";
+export type ComponentsSourceType =
+  | "web"
+  | "twitter"
+  | "youtube"
+  | "github"
+  | "rss"
+  | "pdf";
 
 export type ComponentsSystemPromptResponse = {
   system_prompt: string;
@@ -1365,7 +1375,8 @@ export type CreateAgentResponses = {
   201: ComponentsAgent;
 };
 
-export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses];
+export type CreateAgentResponse =
+  CreateAgentResponses[keyof CreateAgentResponses];
 
 export type DeleteAgentData = {
   body?: never;
@@ -1406,7 +1417,8 @@ export type DeleteAgentResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type DeleteAgentResponse = DeleteAgentResponses[keyof DeleteAgentResponses];
+export type DeleteAgentResponse =
+  DeleteAgentResponses[keyof DeleteAgentResponses];
 
 export type GetAgentData = {
   body?: never;
@@ -1494,7 +1506,8 @@ export type UpdateAgentResponses = {
   200: ComponentsAgent;
 };
 
-export type UpdateAgentResponse = UpdateAgentResponses[keyof UpdateAgentResponses];
+export type UpdateAgentResponse =
+  UpdateAgentResponses[keyof UpdateAgentResponses];
 
 export type ListAgentUsersData = {
   body?: never;
@@ -1520,7 +1533,8 @@ export type ListAgentUsersErrors = {
   };
 };
 
-export type ListAgentUsersError = ListAgentUsersErrors[keyof ListAgentUsersErrors];
+export type ListAgentUsersError =
+  ListAgentUsersErrors[keyof ListAgentUsersErrors];
 
 export type ListAgentUsersResponses = {
   /**
@@ -1529,7 +1543,8 @@ export type ListAgentUsersResponses = {
   200: ComponentsAgentUserList;
 };
 
-export type ListAgentUsersResponse = ListAgentUsersResponses[keyof ListAgentUsersResponses];
+export type ListAgentUsersResponse =
+  ListAgentUsersResponses[keyof ListAgentUsersResponses];
 
 export type AssignAgentUserData = {
   body: ComponentsAssignAgentUserRequest;
@@ -1567,7 +1582,8 @@ export type AssignAgentUserErrors = {
   };
 };
 
-export type AssignAgentUserError = AssignAgentUserErrors[keyof AssignAgentUserErrors];
+export type AssignAgentUserError =
+  AssignAgentUserErrors[keyof AssignAgentUserErrors];
 
 export type AssignAgentUserResponses = {
   /**
@@ -1576,7 +1592,8 @@ export type AssignAgentUserResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type AssignAgentUserResponse = AssignAgentUserResponses[keyof AssignAgentUserResponses];
+export type AssignAgentUserResponse =
+  AssignAgentUserResponses[keyof AssignAgentUserResponses];
 
 export type RemoveAgentUserData = {
   body?: never;
@@ -1603,7 +1620,8 @@ export type RemoveAgentUserErrors = {
   };
 };
 
-export type RemoveAgentUserError = RemoveAgentUserErrors[keyof RemoveAgentUserErrors];
+export type RemoveAgentUserError =
+  RemoveAgentUserErrors[keyof RemoveAgentUserErrors];
 
 export type RemoveAgentUserResponses = {
   /**
@@ -1612,7 +1630,8 @@ export type RemoveAgentUserResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type RemoveAgentUserResponse = RemoveAgentUserResponses[keyof RemoveAgentUserResponses];
+export type RemoveAgentUserResponse =
+  RemoveAgentUserResponses[keyof RemoveAgentUserResponses];
 
 export type ListAgentSkillsData = {
   body?: never;
@@ -1638,7 +1657,8 @@ export type ListAgentSkillsErrors = {
   };
 };
 
-export type ListAgentSkillsError = ListAgentSkillsErrors[keyof ListAgentSkillsErrors];
+export type ListAgentSkillsError =
+  ListAgentSkillsErrors[keyof ListAgentSkillsErrors];
 
 export type ListAgentSkillsResponses = {
   /**
@@ -1647,7 +1667,8 @@ export type ListAgentSkillsResponses = {
   200: ComponentsSkillList;
 };
 
-export type ListAgentSkillsResponse = ListAgentSkillsResponses[keyof ListAgentSkillsResponses];
+export type ListAgentSkillsResponse =
+  ListAgentSkillsResponses[keyof ListAgentSkillsResponses];
 
 export type InstallAgentSkillData = {
   body: ComponentsInstallSkillRequest;
@@ -1679,7 +1700,8 @@ export type InstallAgentSkillErrors = {
   };
 };
 
-export type InstallAgentSkillError = InstallAgentSkillErrors[keyof InstallAgentSkillErrors];
+export type InstallAgentSkillError =
+  InstallAgentSkillErrors[keyof InstallAgentSkillErrors];
 
 export type InstallAgentSkillResponses = {
   /**
@@ -1723,7 +1745,8 @@ export type UploadAgentSkillErrors = {
   };
 };
 
-export type UploadAgentSkillError = UploadAgentSkillErrors[keyof UploadAgentSkillErrors];
+export type UploadAgentSkillError =
+  UploadAgentSkillErrors[keyof UploadAgentSkillErrors];
 
 export type UploadAgentSkillResponses = {
   /**
@@ -1732,7 +1755,8 @@ export type UploadAgentSkillResponses = {
   201: ComponentsSkillUploadResult;
 };
 
-export type UploadAgentSkillResponse = UploadAgentSkillResponses[keyof UploadAgentSkillResponses];
+export type UploadAgentSkillResponse =
+  UploadAgentSkillResponses[keyof UploadAgentSkillResponses];
 
 export type DuplicateBuiltinSkillToAgentData = {
   body?: never;
@@ -1809,7 +1833,8 @@ export type DeleteAgentSkillErrors = {
   };
 };
 
-export type DeleteAgentSkillError = DeleteAgentSkillErrors[keyof DeleteAgentSkillErrors];
+export type DeleteAgentSkillError =
+  DeleteAgentSkillErrors[keyof DeleteAgentSkillErrors];
 
 export type DeleteAgentSkillResponses = {
   /**
@@ -1818,7 +1843,8 @@ export type DeleteAgentSkillResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type DeleteAgentSkillResponse = DeleteAgentSkillResponses[keyof DeleteAgentSkillResponses];
+export type DeleteAgentSkillResponse =
+  DeleteAgentSkillResponses[keyof DeleteAgentSkillResponses];
 
 export type GetAgentSkillData = {
   body?: never;
@@ -1860,7 +1886,8 @@ export type GetAgentSkillResponses = {
   200: ComponentsSkill;
 };
 
-export type GetAgentSkillResponse = GetAgentSkillResponses[keyof GetAgentSkillResponses];
+export type GetAgentSkillResponse =
+  GetAgentSkillResponses[keyof GetAgentSkillResponses];
 
 export type UpdateAgentSkillData = {
   body: ComponentsUpdateSkillRequest;
@@ -1899,7 +1926,8 @@ export type UpdateAgentSkillErrors = {
   };
 };
 
-export type UpdateAgentSkillError = UpdateAgentSkillErrors[keyof UpdateAgentSkillErrors];
+export type UpdateAgentSkillError =
+  UpdateAgentSkillErrors[keyof UpdateAgentSkillErrors];
 
 export type UpdateAgentSkillResponses = {
   /**
@@ -1908,7 +1936,8 @@ export type UpdateAgentSkillResponses = {
   200: ComponentsSkill;
 };
 
-export type UpdateAgentSkillResponse = UpdateAgentSkillResponses[keyof UpdateAgentSkillResponses];
+export type UpdateAgentSkillResponse =
+  UpdateAgentSkillResponses[keyof UpdateAgentSkillResponses];
 
 export type DeleteAgentSkillFileData = {
   body?: never;
@@ -1989,7 +2018,8 @@ export type GetAgentSkillFileErrors = {
   };
 };
 
-export type GetAgentSkillFileError = GetAgentSkillFileErrors[keyof GetAgentSkillFileErrors];
+export type GetAgentSkillFileError =
+  GetAgentSkillFileErrors[keyof GetAgentSkillFileErrors];
 
 export type GetAgentSkillFileResponses = {
   /**
@@ -2073,7 +2103,8 @@ export type CreateSkillResponses = {
   };
 };
 
-export type CreateSkillResponse = CreateSkillResponses[keyof CreateSkillResponses];
+export type CreateSkillResponse =
+  CreateSkillResponses[keyof CreateSkillResponses];
 
 export type SearchSkillsData = {
   body?: never;
@@ -2109,7 +2140,8 @@ export type SearchSkillsResponses = {
   200: Array<ComponentsSkillSearchResult>;
 };
 
-export type SearchSkillsResponse = SearchSkillsResponses[keyof SearchSkillsResponses];
+export type SearchSkillsResponse =
+  SearchSkillsResponses[keyof SearchSkillsResponses];
 
 export type InstallSkillData = {
   body: ComponentsGlobalInstallSkillRequest;
@@ -2150,7 +2182,8 @@ export type InstallSkillResponses = {
   };
 };
 
-export type InstallSkillResponse = InstallSkillResponses[keyof InstallSkillResponses];
+export type InstallSkillResponse =
+  InstallSkillResponses[keyof InstallSkillResponses];
 
 export type DeleteSkillData = {
   body?: never;
@@ -2193,7 +2226,8 @@ export type DeleteSkillResponses = {
   };
 };
 
-export type DeleteSkillResponse = DeleteSkillResponses[keyof DeleteSkillResponses];
+export type DeleteSkillResponse =
+  DeleteSkillResponses[keyof DeleteSkillResponses];
 
 export type GetSkillData = {
   body?: never;
@@ -2283,7 +2317,8 @@ export type UpdateSkillResponses = {
   };
 };
 
-export type UpdateSkillResponse = UpdateSkillResponses[keyof UpdateSkillResponses];
+export type UpdateSkillResponse =
+  UpdateSkillResponses[keyof UpdateSkillResponses];
 
 export type DeleteSkillFileData = {
   body?: never;
@@ -2323,7 +2358,8 @@ export type DeleteSkillFileErrors = {
   };
 };
 
-export type DeleteSkillFileError = DeleteSkillFileErrors[keyof DeleteSkillFileErrors];
+export type DeleteSkillFileError =
+  DeleteSkillFileErrors[keyof DeleteSkillFileErrors];
 
 export type DeleteSkillFileResponses = {
   /**
@@ -2332,7 +2368,8 @@ export type DeleteSkillFileResponses = {
   200: ComponentsDeleteFileResult;
 };
 
-export type DeleteSkillFileResponse = DeleteSkillFileResponses[keyof DeleteSkillFileResponses];
+export type DeleteSkillFileResponse =
+  DeleteSkillFileResponses[keyof DeleteSkillFileResponses];
 
 export type GetSkillFileData = {
   body?: never;
@@ -2381,7 +2418,8 @@ export type GetSkillFileResponses = {
   200: ComponentsSkillFileResponse;
 };
 
-export type GetSkillFileResponse = GetSkillFileResponses[keyof GetSkillFileResponses];
+export type GetSkillFileResponse =
+  GetSkillFileResponses[keyof GetSkillFileResponses];
 
 export type ListProfileSkillsData = {
   body?: never;
@@ -2399,7 +2437,8 @@ export type ListProfileSkillsErrors = {
   };
 };
 
-export type ListProfileSkillsError = ListProfileSkillsErrors[keyof ListProfileSkillsErrors];
+export type ListProfileSkillsError =
+  ListProfileSkillsErrors[keyof ListProfileSkillsErrors];
 
 export type ListProfileSkillsResponses = {
   /**
@@ -2433,7 +2472,8 @@ export type InstallProfileSkillErrors = {
   };
 };
 
-export type InstallProfileSkillError = InstallProfileSkillErrors[keyof InstallProfileSkillErrors];
+export type InstallProfileSkillError =
+  InstallProfileSkillErrors[keyof InstallProfileSkillErrors];
 
 export type InstallProfileSkillResponses = {
   /**
@@ -2471,7 +2511,8 @@ export type UploadProfileSkillErrors = {
   };
 };
 
-export type UploadProfileSkillError = UploadProfileSkillErrors[keyof UploadProfileSkillErrors];
+export type UploadProfileSkillError =
+  UploadProfileSkillErrors[keyof UploadProfileSkillErrors];
 
 export type UploadProfileSkillResponses = {
   /**
@@ -2507,7 +2548,8 @@ export type DeleteProfileSkillErrors = {
   };
 };
 
-export type DeleteProfileSkillError = DeleteProfileSkillErrors[keyof DeleteProfileSkillErrors];
+export type DeleteProfileSkillError =
+  DeleteProfileSkillErrors[keyof DeleteProfileSkillErrors];
 
 export type DeleteProfileSkillResponses = {
   /**
@@ -2545,7 +2587,8 @@ export type GetProfileSkillErrors = {
   };
 };
 
-export type GetProfileSkillError = GetProfileSkillErrors[keyof GetProfileSkillErrors];
+export type GetProfileSkillError =
+  GetProfileSkillErrors[keyof GetProfileSkillErrors];
 
 export type GetProfileSkillResponses = {
   /**
@@ -2554,7 +2597,8 @@ export type GetProfileSkillResponses = {
   200: ComponentsSkill;
 };
 
-export type GetProfileSkillResponse = GetProfileSkillResponses[keyof GetProfileSkillResponses];
+export type GetProfileSkillResponse =
+  GetProfileSkillResponses[keyof GetProfileSkillResponses];
 
 export type UpdateProfileSkillData = {
   body: ComponentsUpdateSkillRequest;
@@ -2586,7 +2630,8 @@ export type UpdateProfileSkillErrors = {
   };
 };
 
-export type UpdateProfileSkillError = UpdateProfileSkillErrors[keyof UpdateProfileSkillErrors];
+export type UpdateProfileSkillError =
+  UpdateProfileSkillErrors[keyof UpdateProfileSkillErrors];
 
 export type UpdateProfileSkillResponses = {
   /**
@@ -2677,7 +2722,8 @@ export type GetProfileSkillFileErrors = {
   };
 };
 
-export type GetProfileSkillFileError = GetProfileSkillFileErrors[keyof GetProfileSkillFileErrors];
+export type GetProfileSkillFileError =
+  GetProfileSkillFileErrors[keyof GetProfileSkillFileErrors];
 
 export type GetProfileSkillFileResponses = {
   /**
@@ -2727,7 +2773,8 @@ export type ListArticlesResponses = {
   200: ComponentsArticleList;
 };
 
-export type ListArticlesResponse = ListArticlesResponses[keyof ListArticlesResponses];
+export type ListArticlesResponse =
+  ListArticlesResponses[keyof ListArticlesResponses];
 
 export type SaveArticleData = {
   body: ComponentsSaveArticleRequest;
@@ -2764,7 +2811,8 @@ export type SaveArticleResponses = {
   201: ComponentsArticle;
 };
 
-export type SaveArticleResponse = SaveArticleResponses[keyof SaveArticleResponses];
+export type SaveArticleResponse =
+  SaveArticleResponses[keyof SaveArticleResponses];
 
 export type DeleteArticleData = {
   body?: never;
@@ -2799,7 +2847,8 @@ export type DeleteArticleResponses = {
   204: void;
 };
 
-export type DeleteArticleResponse = DeleteArticleResponses[keyof DeleteArticleResponses];
+export type DeleteArticleResponse =
+  DeleteArticleResponses[keyof DeleteArticleResponses];
 
 export type GetArticleData = {
   body?: never;
@@ -2880,7 +2929,8 @@ export type UpdateArticleResponses = {
   200: ComponentsArticle;
 };
 
-export type UpdateArticleResponse = UpdateArticleResponses[keyof UpdateArticleResponses];
+export type UpdateArticleResponse =
+  UpdateArticleResponses[keyof UpdateArticleResponses];
 
 export type ListFeedsData = {
   body?: never;
@@ -3123,7 +3173,8 @@ export type ListFeedEntriesErrors = {
   };
 };
 
-export type ListFeedEntriesError = ListFeedEntriesErrors[keyof ListFeedEntriesErrors];
+export type ListFeedEntriesError =
+  ListFeedEntriesErrors[keyof ListFeedEntriesErrors];
 
 export type ListFeedEntriesResponses = {
   /**
@@ -3132,7 +3183,8 @@ export type ListFeedEntriesResponses = {
   200: ComponentsFeedEntryList;
 };
 
-export type ListFeedEntriesResponse = ListFeedEntriesResponses[keyof ListFeedEntriesResponses];
+export type ListFeedEntriesResponse =
+  ListFeedEntriesResponses[keyof ListFeedEntriesResponses];
 
 export type UpdateFeedEntryData = {
   body: ComponentsUpdateFeedEntryRequest;
@@ -3165,7 +3217,8 @@ export type UpdateFeedEntryErrors = {
   };
 };
 
-export type UpdateFeedEntryError = UpdateFeedEntryErrors[keyof UpdateFeedEntryErrors];
+export type UpdateFeedEntryError =
+  UpdateFeedEntryErrors[keyof UpdateFeedEntryErrors];
 
 export type UpdateFeedEntryResponses = {
   /**
@@ -3174,7 +3227,8 @@ export type UpdateFeedEntryResponses = {
   200: ComponentsFeedEntry;
 };
 
-export type UpdateFeedEntryResponse = UpdateFeedEntryResponses[keyof UpdateFeedEntryResponses];
+export type UpdateFeedEntryResponse =
+  UpdateFeedEntryResponses[keyof UpdateFeedEntryResponses];
 
 export type GetDigestData = {
   body?: never;
@@ -3319,7 +3373,8 @@ export type GetBuiltinResourceErrors = {
   };
 };
 
-export type GetBuiltinResourceError = GetBuiltinResourceErrors[keyof GetBuiltinResourceErrors];
+export type GetBuiltinResourceError =
+  GetBuiltinResourceErrors[keyof GetBuiltinResourceErrors];
 
 export type GetBuiltinResourceResponses = {
   /**
@@ -3347,7 +3402,8 @@ export type ListPublicChannelsErrors = {
   };
 };
 
-export type ListPublicChannelsError = ListPublicChannelsErrors[keyof ListPublicChannelsErrors];
+export type ListPublicChannelsError =
+  ListPublicChannelsErrors[keyof ListPublicChannelsErrors];
 
 export type ListPublicChannelsResponses = {
   /**
@@ -3390,7 +3446,8 @@ export type ListChannelsResponses = {
   200: ComponentsChannelList;
 };
 
-export type ListChannelsResponse = ListChannelsResponses[keyof ListChannelsResponses];
+export type ListChannelsResponse =
+  ListChannelsResponses[keyof ListChannelsResponses];
 
 export type CreateChannelData = {
   body: ComponentsChannelWriteRequest;
@@ -3429,7 +3486,8 @@ export type CreateChannelResponses = {
   201: ComponentsChannel;
 };
 
-export type CreateChannelResponse = CreateChannelResponses[keyof CreateChannelResponses];
+export type CreateChannelResponse =
+  CreateChannelResponses[keyof CreateChannelResponses];
 
 export type DeleteChannelData = {
   body?: never;
@@ -3470,7 +3528,8 @@ export type DeleteChannelResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type DeleteChannelResponse = DeleteChannelResponses[keyof DeleteChannelResponses];
+export type DeleteChannelResponse =
+  DeleteChannelResponses[keyof DeleteChannelResponses];
 
 export type GetChannelData = {
   body?: never;
@@ -3558,7 +3617,8 @@ export type UpdateChannelResponses = {
   200: ComponentsChannel;
 };
 
-export type UpdateChannelResponse = UpdateChannelResponses[keyof UpdateChannelResponses];
+export type UpdateChannelResponse =
+  UpdateChannelResponses[keyof UpdateChannelResponses];
 
 export type StartWeixinQrData = {
   body?: never;
@@ -3589,7 +3649,8 @@ export type StartWeixinQrResponses = {
   200: ComponentsWeixinQrCode;
 };
 
-export type StartWeixinQrResponse = StartWeixinQrResponses[keyof StartWeixinQrResponses];
+export type StartWeixinQrResponse =
+  StartWeixinQrResponses[keyof StartWeixinQrResponses];
 
 export type PollWeixinQrStatusData = {
   body?: never;
@@ -3622,7 +3683,8 @@ export type PollWeixinQrStatusErrors = {
   502: ComponentsError;
 };
 
-export type PollWeixinQrStatusError = PollWeixinQrStatusErrors[keyof PollWeixinQrStatusErrors];
+export type PollWeixinQrStatusError =
+  PollWeixinQrStatusErrors[keyof PollWeixinQrStatusErrors];
 
 export type PollWeixinQrStatusResponses = {
   /**
@@ -3665,7 +3727,8 @@ export type ListProvidersResponses = {
   200: Array<ComponentsProvider>;
 };
 
-export type ListProvidersResponse = ListProvidersResponses[keyof ListProvidersResponses];
+export type ListProvidersResponse =
+  ListProvidersResponses[keyof ListProvidersResponses];
 
 export type CreateProviderData = {
   body: ComponentsProvider;
@@ -3695,7 +3758,8 @@ export type CreateProviderErrors = {
   };
 };
 
-export type CreateProviderError = CreateProviderErrors[keyof CreateProviderErrors];
+export type CreateProviderError =
+  CreateProviderErrors[keyof CreateProviderErrors];
 
 export type CreateProviderResponses = {
   /**
@@ -3704,7 +3768,8 @@ export type CreateProviderResponses = {
   201: ComponentsProvider;
 };
 
-export type CreateProviderResponse = CreateProviderResponses[keyof CreateProviderResponses];
+export type CreateProviderResponse =
+  CreateProviderResponses[keyof CreateProviderResponses];
 
 export type DeleteProviderData = {
   body?: never;
@@ -3736,7 +3801,8 @@ export type DeleteProviderErrors = {
   };
 };
 
-export type DeleteProviderError = DeleteProviderErrors[keyof DeleteProviderErrors];
+export type DeleteProviderError =
+  DeleteProviderErrors[keyof DeleteProviderErrors];
 
 export type DeleteProviderResponses = {
   /**
@@ -3745,7 +3811,8 @@ export type DeleteProviderResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type DeleteProviderResponse = DeleteProviderResponses[keyof DeleteProviderResponses];
+export type DeleteProviderResponse =
+  DeleteProviderResponses[keyof DeleteProviderResponses];
 
 export type GetProviderData = {
   body?: never;
@@ -3786,7 +3853,8 @@ export type GetProviderResponses = {
   200: ComponentsProvider;
 };
 
-export type GetProviderResponse = GetProviderResponses[keyof GetProviderResponses];
+export type GetProviderResponse =
+  GetProviderResponses[keyof GetProviderResponses];
 
 export type UpdateProviderData = {
   body: ComponentsProvider;
@@ -3824,7 +3892,8 @@ export type UpdateProviderErrors = {
   };
 };
 
-export type UpdateProviderError = UpdateProviderErrors[keyof UpdateProviderErrors];
+export type UpdateProviderError =
+  UpdateProviderErrors[keyof UpdateProviderErrors];
 
 export type UpdateProviderResponses = {
   /**
@@ -3833,7 +3902,8 @@ export type UpdateProviderResponses = {
   200: ComponentsProvider;
 };
 
-export type UpdateProviderResponse = UpdateProviderResponses[keyof UpdateProviderResponses];
+export type UpdateProviderResponse =
+  UpdateProviderResponses[keyof UpdateProviderResponses];
 
 export type ListProviderModelsData = {
   body?: never;
@@ -3865,7 +3935,8 @@ export type ListProviderModelsErrors = {
   };
 };
 
-export type ListProviderModelsError = ListProviderModelsErrors[keyof ListProviderModelsErrors];
+export type ListProviderModelsError =
+  ListProviderModelsErrors[keyof ListProviderModelsErrors];
 
 export type ListProviderModelsResponses = {
   /**
@@ -3913,7 +3984,8 @@ export type FetchProviderModelsErrors = {
   };
 };
 
-export type FetchProviderModelsError = FetchProviderModelsErrors[keyof FetchProviderModelsErrors];
+export type FetchProviderModelsError =
+  FetchProviderModelsErrors[keyof FetchProviderModelsErrors];
 
 export type FetchProviderModelsResponses = {
   /**
@@ -3947,7 +4019,8 @@ export type ListProviderTypesErrors = {
   };
 };
 
-export type ListProviderTypesError = ListProviderTypesErrors[keyof ListProviderTypesErrors];
+export type ListProviderTypesError =
+  ListProviderTypesErrors[keyof ListProviderTypesErrors];
 
 export type ListProviderTypesResponses = {
   /**
@@ -3993,7 +4066,8 @@ export type ListSessionsResponses = {
   200: Array<ComponentsSession>;
 };
 
-export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
+export type ListSessionsResponse =
+  ListSessionsResponses[keyof ListSessionsResponses];
 
 export type CreateSessionData = {
   body?: ComponentsCreateSessionRequest;
@@ -4026,7 +4100,8 @@ export type CreateSessionResponses = {
   201: ComponentsSession;
 };
 
-export type CreateSessionResponse = CreateSessionResponses[keyof CreateSessionResponses];
+export type CreateSessionResponse =
+  CreateSessionResponses[keyof CreateSessionResponses];
 
 export type GetSessionData = {
   body?: never;
@@ -4108,7 +4183,8 @@ export type GetSessionMessagesErrors = {
   };
 };
 
-export type GetSessionMessagesError = GetSessionMessagesErrors[keyof GetSessionMessagesErrors];
+export type GetSessionMessagesError =
+  GetSessionMessagesErrors[keyof GetSessionMessagesErrors];
 
 export type GetSessionMessagesResponses = {
   /**
@@ -4152,7 +4228,8 @@ export type SendSessionMessageErrors = {
   };
 };
 
-export type SendSessionMessageError = SendSessionMessageErrors[keyof SendSessionMessageErrors];
+export type SendSessionMessageError =
+  SendSessionMessageErrors[keyof SendSessionMessageErrors];
 
 export type SendSessionMessageResponses = {
   /**
@@ -4199,7 +4276,8 @@ export type GetSessionWorkspaceErrors = {
   };
 };
 
-export type GetSessionWorkspaceError = GetSessionWorkspaceErrors[keyof GetSessionWorkspaceErrors];
+export type GetSessionWorkspaceError =
+  GetSessionWorkspaceErrors[keyof GetSessionWorkspaceErrors];
 
 export type GetSessionWorkspaceResponses = {
   /**
@@ -4247,7 +4325,8 @@ export type DeleteWorkspaceFileErrors = {
   };
 };
 
-export type DeleteWorkspaceFileError = DeleteWorkspaceFileErrors[keyof DeleteWorkspaceFileErrors];
+export type DeleteWorkspaceFileError =
+  DeleteWorkspaceFileErrors[keyof DeleteWorkspaceFileErrors];
 
 export type DeleteWorkspaceFileResponses = {
   /**
@@ -4295,7 +4374,8 @@ export type MoveWorkspaceFileErrors = {
   };
 };
 
-export type MoveWorkspaceFileError = MoveWorkspaceFileErrors[keyof MoveWorkspaceFileErrors];
+export type MoveWorkspaceFileError =
+  MoveWorkspaceFileErrors[keyof MoveWorkspaceFileErrors];
 
 export type MoveWorkspaceFileResponses = {
   /**
@@ -4343,7 +4423,8 @@ export type CreateWorkspaceFileErrors = {
   };
 };
 
-export type CreateWorkspaceFileError = CreateWorkspaceFileErrors[keyof CreateWorkspaceFileErrors];
+export type CreateWorkspaceFileError =
+  CreateWorkspaceFileErrors[keyof CreateWorkspaceFileErrors];
 
 export type CreateWorkspaceFileResponses = {
   /**
@@ -4503,7 +4584,8 @@ export type UploadWorkspaceFileErrors = {
   };
 };
 
-export type UploadWorkspaceFileError = UploadWorkspaceFileErrors[keyof UploadWorkspaceFileErrors];
+export type UploadWorkspaceFileError =
+  UploadWorkspaceFileErrors[keyof UploadWorkspaceFileErrors];
 
 export type UploadWorkspaceFileResponses = {
   /**
@@ -4674,7 +4756,8 @@ export type ListUserMemoriesErrors = {
   };
 };
 
-export type ListUserMemoriesError = ListUserMemoriesErrors[keyof ListUserMemoriesErrors];
+export type ListUserMemoriesError =
+  ListUserMemoriesErrors[keyof ListUserMemoriesErrors];
 
 export type ListUserMemoriesResponses = {
   /**
@@ -4683,7 +4766,8 @@ export type ListUserMemoriesResponses = {
   200: Array<ComponentsUserMemory>;
 };
 
-export type ListUserMemoriesResponse = ListUserMemoriesResponses[keyof ListUserMemoriesResponses];
+export type ListUserMemoriesResponse =
+  ListUserMemoriesResponses[keyof ListUserMemoriesResponses];
 
 export type DeleteUserMemoryData = {
   body?: never;
@@ -4710,7 +4794,8 @@ export type DeleteUserMemoryErrors = {
   };
 };
 
-export type DeleteUserMemoryError = DeleteUserMemoryErrors[keyof DeleteUserMemoryErrors];
+export type DeleteUserMemoryError =
+  DeleteUserMemoryErrors[keyof DeleteUserMemoryErrors];
 
 export type DeleteUserMemoryResponses = {
   /**
@@ -4719,7 +4804,8 @@ export type DeleteUserMemoryResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type DeleteUserMemoryResponse = DeleteUserMemoryResponses[keyof DeleteUserMemoryResponses];
+export type DeleteUserMemoryResponse =
+  DeleteUserMemoryResponses[keyof DeleteUserMemoryResponses];
 
 export type SetUserMemoryData = {
   body: ComponentsSetMemoryRequest;
@@ -4761,7 +4847,8 @@ export type SetUserMemoryResponses = {
   200: ComponentsDeleteResult;
 };
 
-export type SetUserMemoryResponse = SetUserMemoryResponses[keyof SetUserMemoryResponses];
+export type SetUserMemoryResponse =
+  SetUserMemoryResponses[keyof SetUserMemoryResponses];
 
 export type ListAuthUsersData = {
   body?: never;
@@ -4794,7 +4881,8 @@ export type ListAuthUsersResponses = {
   200: Array<ComponentsAuthUser>;
 };
 
-export type ListAuthUsersResponse = ListAuthUsersResponses[keyof ListAuthUsersResponses];
+export type ListAuthUsersResponse =
+  ListAuthUsersResponses[keyof ListAuthUsersResponses];
 
 export type GetAuthUserData = {
   body?: never;
@@ -4835,7 +4923,8 @@ export type GetAuthUserResponses = {
   200: ComponentsAuthUser;
 };
 
-export type GetAuthUserResponse = GetAuthUserResponses[keyof GetAuthUserResponses];
+export type GetAuthUserResponse =
+  GetAuthUserResponses[keyof GetAuthUserResponses];
 
 export type UpdateAuthUserRoleData = {
   body: ComponentsUpdateRoleRequest;
@@ -4867,7 +4956,8 @@ export type UpdateAuthUserRoleErrors = {
   };
 };
 
-export type UpdateAuthUserRoleError = UpdateAuthUserRoleErrors[keyof UpdateAuthUserRoleErrors];
+export type UpdateAuthUserRoleError =
+  UpdateAuthUserRoleErrors[keyof UpdateAuthUserRoleErrors];
 
 export type UpdateAuthUserRoleResponses = {
   /**
@@ -4903,7 +4993,8 @@ export type ListAuthUserAgentsErrors = {
   };
 };
 
-export type ListAuthUserAgentsError = ListAuthUserAgentsErrors[keyof ListAuthUserAgentsErrors];
+export type ListAuthUserAgentsError =
+  ListAuthUserAgentsErrors[keyof ListAuthUserAgentsErrors];
 
 export type ListAuthUserAgentsResponses = {
   /**
@@ -5153,7 +5244,8 @@ export type ChangePasswordErrors = {
   };
 };
 
-export type ChangePasswordError = ChangePasswordErrors[keyof ChangePasswordErrors];
+export type ChangePasswordError =
+  ChangePasswordErrors[keyof ChangePasswordErrors];
 
 export type ChangePasswordResponses = {
   /**
@@ -5164,7 +5256,8 @@ export type ChangePasswordResponses = {
   };
 };
 
-export type ChangePasswordResponse = ChangePasswordResponses[keyof ChangePasswordResponses];
+export type ChangePasswordResponse =
+  ChangePasswordResponses[keyof ChangePasswordResponses];
 
 export type GenerateLinkCodeData = {
   body: ComponentsGenerateLinkCodeRequest;
@@ -5188,7 +5281,8 @@ export type GenerateLinkCodeErrors = {
   };
 };
 
-export type GenerateLinkCodeError = GenerateLinkCodeErrors[keyof GenerateLinkCodeErrors];
+export type GenerateLinkCodeError =
+  GenerateLinkCodeErrors[keyof GenerateLinkCodeErrors];
 
 export type GenerateLinkCodeResponses = {
   /**
@@ -5197,7 +5291,8 @@ export type GenerateLinkCodeResponses = {
   200: ComponentsLinkCodeResponse;
 };
 
-export type GenerateLinkCodeResponse = GenerateLinkCodeResponses[keyof GenerateLinkCodeResponses];
+export type GenerateLinkCodeResponse =
+  GenerateLinkCodeResponses[keyof GenerateLinkCodeResponses];
 
 export type ListProfileMemoriesData = {
   body?: never;
@@ -5215,7 +5310,8 @@ export type ListProfileMemoriesErrors = {
   };
 };
 
-export type ListProfileMemoriesError = ListProfileMemoriesErrors[keyof ListProfileMemoriesErrors];
+export type ListProfileMemoriesError =
+  ListProfileMemoriesErrors[keyof ListProfileMemoriesErrors];
 
 export type ListProfileMemoriesResponses = {
   /**
@@ -5245,7 +5341,8 @@ export type DeleteProfileMemoryErrors = {
   };
 };
 
-export type DeleteProfileMemoryError = DeleteProfileMemoryErrors[keyof DeleteProfileMemoryErrors];
+export type DeleteProfileMemoryError =
+  DeleteProfileMemoryErrors[keyof DeleteProfileMemoryErrors];
 
 export type DeleteProfileMemoryResponses = {
   /**
@@ -5283,7 +5380,8 @@ export type SetProfileMemoryErrors = {
   };
 };
 
-export type SetProfileMemoryError = SetProfileMemoryErrors[keyof SetProfileMemoryErrors];
+export type SetProfileMemoryError =
+  SetProfileMemoryErrors[keyof SetProfileMemoryErrors];
 
 export type SetProfileMemoryResponses = {
   /**
@@ -5294,7 +5392,8 @@ export type SetProfileMemoryResponses = {
   };
 };
 
-export type SetProfileMemoryResponse = SetProfileMemoryResponses[keyof SetProfileMemoryResponses];
+export type SetProfileMemoryResponse =
+  SetProfileMemoryResponses[keyof SetProfileMemoryResponses];
 
 export type SetProfileSoulData = {
   body: ComponentsSetSoulRequest;
@@ -5320,7 +5419,8 @@ export type SetProfileSoulErrors = {
   };
 };
 
-export type SetProfileSoulError = SetProfileSoulErrors[keyof SetProfileSoulErrors];
+export type SetProfileSoulError =
+  SetProfileSoulErrors[keyof SetProfileSoulErrors];
 
 export type SetProfileSoulResponses = {
   /**
@@ -5331,7 +5431,8 @@ export type SetProfileSoulResponses = {
   };
 };
 
-export type SetProfileSoulResponse = SetProfileSoulResponses[keyof SetProfileSoulResponses];
+export type SetProfileSoulResponse =
+  SetProfileSoulResponses[keyof SetProfileSoulResponses];
 
 export type ListVaultEntriesData = {
   body?: never;
@@ -5349,7 +5450,8 @@ export type ListVaultEntriesErrors = {
   };
 };
 
-export type ListVaultEntriesError = ListVaultEntriesErrors[keyof ListVaultEntriesErrors];
+export type ListVaultEntriesError =
+  ListVaultEntriesErrors[keyof ListVaultEntriesErrors];
 
 export type ListVaultEntriesResponses = {
   /**
@@ -5358,7 +5460,8 @@ export type ListVaultEntriesResponses = {
   200: Array<ComponentsVaultEntry>;
 };
 
-export type ListVaultEntriesResponse = ListVaultEntriesResponses[keyof ListVaultEntriesResponses];
+export type ListVaultEntriesResponse =
+  ListVaultEntriesResponses[keyof ListVaultEntriesResponses];
 
 export type DeleteVaultEntryData = {
   body?: never;
@@ -5378,7 +5481,8 @@ export type DeleteVaultEntryErrors = {
   };
 };
 
-export type DeleteVaultEntryError = DeleteVaultEntryErrors[keyof DeleteVaultEntryErrors];
+export type DeleteVaultEntryError =
+  DeleteVaultEntryErrors[keyof DeleteVaultEntryErrors];
 
 export type DeleteVaultEntryResponses = {
   /**
@@ -5387,7 +5491,8 @@ export type DeleteVaultEntryResponses = {
   204: void;
 };
 
-export type DeleteVaultEntryResponse = DeleteVaultEntryResponses[keyof DeleteVaultEntryResponses];
+export type DeleteVaultEntryResponse =
+  DeleteVaultEntryResponses[keyof DeleteVaultEntryResponses];
 
 export type GetVaultEntryData = {
   body?: never;
@@ -5422,7 +5527,8 @@ export type GetVaultEntryResponses = {
   200: ComponentsVaultEntryValue;
 };
 
-export type GetVaultEntryResponse = GetVaultEntryResponses[keyof GetVaultEntryResponses];
+export type GetVaultEntryResponse =
+  GetVaultEntryResponses[keyof GetVaultEntryResponses];
 
 export type SetVaultEntryData = {
   body: ComponentsSetVaultEntryRequest;
@@ -5457,7 +5563,8 @@ export type SetVaultEntryResponses = {
   204: void;
 };
 
-export type SetVaultEntryResponse = SetVaultEntryResponses[keyof SetVaultEntryResponses];
+export type SetVaultEntryResponse =
+  SetVaultEntryResponses[keyof SetVaultEntryResponses];
 
 export type ListOAuthProvidersData = {
   body?: never;
@@ -5475,7 +5582,8 @@ export type ListOAuthProvidersErrors = {
   };
 };
 
-export type ListOAuthProvidersError = ListOAuthProvidersErrors[keyof ListOAuthProvidersErrors];
+export type ListOAuthProvidersError =
+  ListOAuthProvidersErrors[keyof ListOAuthProvidersErrors];
 
 export type ListOAuthProvidersResponses = {
   /**
@@ -5511,7 +5619,8 @@ export type StartOAuthFlowErrors = {
   };
 };
 
-export type StartOAuthFlowError = StartOAuthFlowErrors[keyof StartOAuthFlowErrors];
+export type StartOAuthFlowError =
+  StartOAuthFlowErrors[keyof StartOAuthFlowErrors];
 
 export type StartOAuthFlowResponses = {
   /**
@@ -5520,7 +5629,8 @@ export type StartOAuthFlowResponses = {
   200: ComponentsOAuthFlowStatus;
 };
 
-export type StartOAuthFlowResponse = StartOAuthFlowResponses[keyof StartOAuthFlowResponses];
+export type StartOAuthFlowResponse =
+  StartOAuthFlowResponses[keyof StartOAuthFlowResponses];
 
 export type PollOAuthFlowData = {
   body?: never;
@@ -5556,7 +5666,8 @@ export type PollOAuthFlowResponses = {
   200: ComponentsOAuthFlowStatus;
 };
 
-export type PollOAuthFlowResponse = PollOAuthFlowResponses[keyof PollOAuthFlowResponses];
+export type PollOAuthFlowResponse =
+  PollOAuthFlowResponses[keyof PollOAuthFlowResponses];
 
 export type GetOAuthConnectedData = {
   body?: never;
@@ -5582,7 +5693,8 @@ export type GetOAuthConnectedErrors = {
   };
 };
 
-export type GetOAuthConnectedError = GetOAuthConnectedErrors[keyof GetOAuthConnectedErrors];
+export type GetOAuthConnectedError =
+  GetOAuthConnectedErrors[keyof GetOAuthConnectedErrors];
 
 export type GetOAuthConnectedResponses = {
   /**
@@ -5618,7 +5730,8 @@ export type DisconnectOAuthErrors = {
   };
 };
 
-export type DisconnectOAuthError = DisconnectOAuthErrors[keyof DisconnectOAuthErrors];
+export type DisconnectOAuthError =
+  DisconnectOAuthErrors[keyof DisconnectOAuthErrors];
 
 export type DisconnectOAuthResponses = {
   /**
@@ -5627,7 +5740,8 @@ export type DisconnectOAuthResponses = {
   204: void;
 };
 
-export type DisconnectOAuthResponse = DisconnectOAuthResponses[keyof DisconnectOAuthResponses];
+export type DisconnectOAuthResponse =
+  DisconnectOAuthResponses[keyof DisconnectOAuthResponses];
 
 export type OauthCallbackData = {
   body?: never;
@@ -5668,7 +5782,8 @@ export type ListSchedulerJobsErrors = {
   };
 };
 
-export type ListSchedulerJobsError = ListSchedulerJobsErrors[keyof ListSchedulerJobsErrors];
+export type ListSchedulerJobsError =
+  ListSchedulerJobsErrors[keyof ListSchedulerJobsErrors];
 
 export type ListSchedulerJobsResponses = {
   /**
@@ -5702,7 +5817,8 @@ export type CreateSchedulerJobErrors = {
   };
 };
 
-export type CreateSchedulerJobError = CreateSchedulerJobErrors[keyof CreateSchedulerJobErrors];
+export type CreateSchedulerJobError =
+  CreateSchedulerJobErrors[keyof CreateSchedulerJobErrors];
 
 export type CreateSchedulerJobResponses = {
   /**
@@ -5744,7 +5860,8 @@ export type DeleteSchedulerJobErrors = {
   };
 };
 
-export type DeleteSchedulerJobError = DeleteSchedulerJobErrors[keyof DeleteSchedulerJobErrors];
+export type DeleteSchedulerJobError =
+  DeleteSchedulerJobErrors[keyof DeleteSchedulerJobErrors];
 
 export type DeleteSchedulerJobResponses = {
   /**
@@ -5792,7 +5909,8 @@ export type UpdateSchedulerJobErrors = {
   };
 };
 
-export type UpdateSchedulerJobError = UpdateSchedulerJobErrors[keyof UpdateSchedulerJobErrors];
+export type UpdateSchedulerJobError =
+  UpdateSchedulerJobErrors[keyof UpdateSchedulerJobErrors];
 
 export type UpdateSchedulerJobResponses = {
   /**
@@ -5840,7 +5958,8 @@ export type TriggerSchedulerJobErrors = {
   };
 };
 
-export type TriggerSchedulerJobError = TriggerSchedulerJobErrors[keyof TriggerSchedulerJobErrors];
+export type TriggerSchedulerJobError =
+  TriggerSchedulerJobErrors[keyof TriggerSchedulerJobErrors];
 
 export type TriggerSchedulerJobResponses = {
   /**
@@ -5926,7 +6045,8 @@ export type ListPluginsResponses = {
   200: Array<ComponentsPluginView>;
 };
 
-export type ListPluginsResponse = ListPluginsResponses[keyof ListPluginsResponses];
+export type ListPluginsResponse =
+  ListPluginsResponses[keyof ListPluginsResponses];
 
 export type TogglePluginData = {
   body: ComponentsTogglePluginRequest;
@@ -5970,7 +6090,8 @@ export type TogglePluginResponses = {
   };
 };
 
-export type TogglePluginResponse = TogglePluginResponses[keyof TogglePluginResponses];
+export type TogglePluginResponse =
+  TogglePluginResponses[keyof TogglePluginResponses];
 
 export type GetPluginStatusData = {
   body?: never;
@@ -5997,7 +6118,8 @@ export type GetPluginStatusErrors = {
   };
 };
 
-export type GetPluginStatusError = GetPluginStatusErrors[keyof GetPluginStatusErrors];
+export type GetPluginStatusError =
+  GetPluginStatusErrors[keyof GetPluginStatusErrors];
 
 export type GetPluginStatusResponses = {
   /**
@@ -6008,7 +6130,8 @@ export type GetPluginStatusResponses = {
   };
 };
 
-export type GetPluginStatusResponse = GetPluginStatusResponses[keyof GetPluginStatusResponses];
+export type GetPluginStatusResponse =
+  GetPluginStatusResponses[keyof GetPluginStatusResponses];
 
 export type GetPluginConfigData = {
   body?: never;
@@ -6041,7 +6164,8 @@ export type GetPluginConfigErrors = {
   };
 };
 
-export type GetPluginConfigError = GetPluginConfigErrors[keyof GetPluginConfigErrors];
+export type GetPluginConfigError =
+  GetPluginConfigErrors[keyof GetPluginConfigErrors];
 
 export type GetPluginConfigResponses = {
   /**
@@ -6052,7 +6176,8 @@ export type GetPluginConfigResponses = {
   };
 };
 
-export type GetPluginConfigResponse = GetPluginConfigResponses[keyof GetPluginConfigResponses];
+export type GetPluginConfigResponse =
+  GetPluginConfigResponses[keyof GetPluginConfigResponses];
 
 export type UpdatePluginConfigData = {
   body: ComponentsUpdatePluginConfigRequest;
@@ -6085,7 +6210,8 @@ export type UpdatePluginConfigErrors = {
   };
 };
 
-export type UpdatePluginConfigError = UpdatePluginConfigErrors[keyof UpdatePluginConfigErrors];
+export type UpdatePluginConfigError =
+  UpdatePluginConfigErrors[keyof UpdatePluginConfigErrors];
 
 export type UpdatePluginConfigResponses = {
   /**
@@ -6161,7 +6287,8 @@ export type ListManifestPluginsErrors = {
   };
 };
 
-export type ListManifestPluginsError = ListManifestPluginsErrors[keyof ListManifestPluginsErrors];
+export type ListManifestPluginsError =
+  ListManifestPluginsErrors[keyof ListManifestPluginsErrors];
 
 export type ListManifestPluginsResponses = {
   /**
@@ -6203,7 +6330,8 @@ export type SaveManifestPluginsErrors = {
   };
 };
 
-export type SaveManifestPluginsError = SaveManifestPluginsErrors[keyof SaveManifestPluginsErrors];
+export type SaveManifestPluginsError =
+  SaveManifestPluginsErrors[keyof SaveManifestPluginsErrors];
 
 export type SaveManifestPluginsResponses = {
   /**
@@ -6237,7 +6365,8 @@ export type SyncManifestPluginsErrors = {
   };
 };
 
-export type SyncManifestPluginsError = SyncManifestPluginsErrors[keyof SyncManifestPluginsErrors];
+export type SyncManifestPluginsError =
+  SyncManifestPluginsErrors[keyof SyncManifestPluginsErrors];
 
 export type SyncManifestPluginsResponses = {
   /**

@@ -37,12 +37,12 @@ stella scheduler CLI  ---HTTP---> Admin API (/api/scheduler/jobs)
 
 顶层包(在 `internal/` 下)。五个文件:
 
-| 文件                                                  | 用途                                     |
-| ----------------------------------------------------- | ---------------------------------------- |
-| `internal/scheduler/job.go`                           | `Job` 和 `Schedule` 类型                 |
-| `internal/scheduler/service.go`                       | `Service`——gocron 包装器,调度,任务 CRUD  |
-| `internal/scheduler/heartbeat.go`                     | 心跳轮询——通过 LLM 决策/执行/通知        |
-| `internal/scheduler/persistence.go`                   | 数据库持久化(加载/保存/迁移任务)         |
+| 文件                                                  | 用途                                       |
+| ----------------------------------------------------- | ------------------------------------------ |
+| `internal/scheduler/job.go`                           | `Job` 和 `Schedule` 类型                   |
+| `internal/scheduler/service.go`                       | `Service`——gocron 包装器,调度,任务 CRUD    |
+| `internal/scheduler/heartbeat.go`                     | 心跳轮询——通过 LLM 决策/执行/通知          |
+| `internal/scheduler/persistence.go`                   | 数据库持久化(加载/保存/迁移任务)           |
 | `internal/resources/skills/system/scheduler/SKILL.md` | 内置技能——记录 `stella scheduler` CLI 命令 |
 
 ### 关键类型
