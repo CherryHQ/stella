@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-05-09
+
+### 🐛 Bug Fixes
+
+- **CI**: Build SPA before GoReleaser so the web embed is populated — without this the binary served "spa not built" for every request
+- **Test**: Use no-op channel factories for weixin in server tests to avoid real network calls
+
+**Full Changelog**: [v0.25.2...v0.25.3](https://github.com/CherryHQ/stella/compare/v0.25.2...v0.25.3)
+
 ## [0.25.2] - 2026-05-08
 
 ### 🐛 Bug Fixes
