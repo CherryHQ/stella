@@ -3,6 +3,7 @@ version: 2
 before:
   hooks:
     - go mod download
+    - sh -c "cd web && pnpm install --frozen-lockfile && pnpm build"
 
 builds:
   - id: stella

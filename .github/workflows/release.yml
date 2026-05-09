@@ -36,10 +36,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build SPA
-        run: |
-          npm install -g pnpm@11.0.8 --ignore-scripts
-          cd web && pnpm install --frozen-lockfile && pnpm build
+      - name: Install pnpm
+        run: npm install -g pnpm@11.0.8 --ignore-scripts
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

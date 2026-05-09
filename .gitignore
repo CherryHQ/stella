@@ -4,8 +4,7 @@ coverage.out
 coverage-*.*
 coverage.html
 /dist/
-web/static/dist/*
-!web/static/dist/.gitkeep
+web/static/dist/
 web/node_modules/
 handoff.md
 plan.md
