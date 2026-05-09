@@ -16,6 +16,7 @@ icon: History
 ### 🐛 修复
 
 - **CI**: 在 GoReleaser 之前构建 SPA，确保 web embed 内容存在 — 缺少此步骤时二进制对所有请求返回 "spa not built"
+- **CI**: 移除已提交的 `static/dist/index.html` stub；在 `SPAHandler` 中使用内联 HTML shell 兜底，使 GoReleaser 在 SPA 构建后不再看到脏工作树
 - **测试**: 在服务器测试中为 weixin 使用 no-op channel factory，避免真实网络调用
 
 **完整变更日志**：[v0.25.2...v0.25.3](https://github.com/CherryHQ/stella/compare/v0.25.2...v0.25.3)

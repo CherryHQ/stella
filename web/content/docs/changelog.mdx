@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - **CI**: Build SPA before GoReleaser so the web embed is populated — without this the binary served "spa not built" for every request
+- **CI**: Remove committed stub `static/dist/index.html`; use inline HTML shell fallback in `SPAHandler` so GoReleaser no longer sees a dirty working tree after the SPA build
 - **Test**: Use no-op channel factories for weixin in server tests to avoid real network calls
 
 **Full Changelog**: [v0.25.2...v0.25.3](https://github.com/CherryHQ/stella/compare/v0.25.2...v0.25.3)
