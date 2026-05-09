@@ -226,28 +226,23 @@ func (t *hostEditTool) Definition() tools.Definition {
 			"type": "object",
 			"properties": map[string]any{
 				"path":       map[string]any{"type": "string", "description": "Path to the file to edit."},
-				"oldText":    map[string]any{"type": "string", "description": "Preferred alias for old_string."},
 				"old_string": map[string]any{"type": "string", "description": "The exact text to find and replace. Must match the file content exactly."},
-				"newText":    map[string]any{"type": "string", "description": "Preferred alias for new_string."},
 				"new_string": map[string]any{"type": "string", "description": "The replacement text."},
 			},
-			"anyOf": []map[string]any{
-				{"required": []string{"path", "oldText", "newText"}},
-				{"required": []string{"path", "old_string", "new_string"}},
-			},
+			"required": []string{"path", "old_string", "new_string"},
 		},
 	}
 }
 
 func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, error) {
 	path := tools.StringArg(args, "path")
-	oldStr := tools.StringArg(args, "oldText", "old_string")
-	newStr := tools.StringArg(args, "newText", "new_string")
+	oldStr := tools.StringArg(args, "old_string")
+	newStr := tools.StringArg(args, "new_string")
 	if path == "" {
 		return "", fmt.Errorf("edit: path is required")
 	}
 	if oldStr == "" {
-		return "", fmt.Errorf("edit: oldText is required")
+		return "", fmt.Errorf("edit: old_string is required")
 	}
 
 	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
@@ -262,10 +257,10 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 	fileContent := string(raw)
 	count := strings.Count(fileContent, oldStr)
 	if count == 0 {
-		return "", fmt.Errorf("edit: oldText not found in %s", path)
+		return "", fmt.Errorf("edit: old_string not found in %s", path)
 	}
 	if count > 1 {
-		return "", fmt.Errorf("edit: oldText matches %d times in %s (must be unique)", count, path)
+		return "", fmt.Errorf("edit: old_string matches %d times in %s (must be unique)", count, path)
 	}
 
 	updated := strings.Replace(fileContent, oldStr, newStr, 1)

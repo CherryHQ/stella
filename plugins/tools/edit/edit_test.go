@@ -25,9 +25,9 @@ func TestEditTool_BasicReplace(t *testing.T) {
 
 	tool := NewEditTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"path":    path,
-		"oldText": "world",
-		"newText": "Go",
+		"path":       path,
+		"old_string": "world",
+		"new_string": "Go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,12 +95,12 @@ func TestEditTool_NotFound(t *testing.T) {
 
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"path":    path,
-		"oldText": "nonexistent",
-		"newText": "x",
+		"path":       path,
+		"old_string": "nonexistent",
+		"new_string": "x",
 	})
 	if err == nil {
-		t.Error("expected error when oldText not found")
+		t.Error("expected error when old_string not found")
 	}
 }
 
@@ -113,20 +113,20 @@ func TestEditTool_AmbiguousMatch(t *testing.T) {
 
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"path":    path,
-		"oldText": "foo",
-		"newText": "bar",
+		"path":       path,
+		"old_string": "foo",
+		"new_string": "bar",
 	})
 	if err == nil {
-		t.Error("expected error for ambiguous (multi-match) oldText")
+		t.Error("expected error for ambiguous (multi-match) old_string")
 	}
 }
 
 func TestEditTool_MissingPath(t *testing.T) {
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"oldText": "x",
-		"newText": "y",
+		"old_string": "x",
+		"new_string": "y",
 	})
 	if err == nil {
 		t.Error("expected error when path is missing")
@@ -142,20 +142,20 @@ func TestEditTool_MissingOldText(t *testing.T) {
 
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"path":    path,
-		"newText": "y",
+		"path":       path,
+		"new_string": "y",
 	})
 	if err == nil {
-		t.Error("expected error when oldText is missing")
+		t.Error("expected error when old_string is missing")
 	}
 }
 
 func TestEditTool_FileNotExist(t *testing.T) {
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"path":    "/nonexistent/path/file.txt",
-		"oldText": "x",
-		"newText": "y",
+		"path":       "/nonexistent/path/file.txt",
+		"old_string": "x",
+		"new_string": "y",
 	})
 	if err == nil {
 		t.Error("expected error for non-existent file")

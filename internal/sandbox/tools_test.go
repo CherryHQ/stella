@@ -189,9 +189,9 @@ func TestEditTool_execute(t *testing.T) {
 	}
 	tool := newEditTool(host, "")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"path":    "code.go",
-		"oldText": "func Foo() {}",
-		"newText": "func Bar() {}",
+		"path":       "code.go",
+		"old_string": "func Foo() {}",
+		"new_string": "func Bar() {}",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
