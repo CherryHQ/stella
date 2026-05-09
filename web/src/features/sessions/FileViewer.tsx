@@ -5,7 +5,7 @@ import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink, Download } from "luc
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
-import { extOf, isImage, isPdf, isBinary } from "./fileUtils";
+import { extOf, isImage, isPdf, isBinary, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
 
 function isMarkdown(lang: string): boolean {
   return lang === "markdown" || lang === "md";
@@ -68,7 +68,7 @@ export function FileViewer({
   const [editContent, setEditContent] = useState("");
   const [highlighted, setHighlighted] = useState<string>("");
   const [highlightReady, setHighlightReady] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [viewBlobUrl, setViewBlobUrl] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const ext = extOf(path);
   const fileName = path.split("/").pop() ?? path;
@@ -78,26 +78,32 @@ export function FileViewer({
     setEditing(false);
     setHighlighted("");
     setHighlightReady(false);
-    setPdfBlobUrl(null);
+    setViewBlobUrl(null);
   }, [path]);
 
   useEffect(() => {
-    if (!isPdf(path) || loading) return;
+    if (loading || isImage(path) || isBinary(path)) return;
     let url: string | null = null;
     let cancelled = false;
-    fetch(rawUrl)
-      .then((r) => r.blob())
-      .then((blob) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
-        setPdfBlobUrl(url);
+    const mime = mimeTypeForPath(path);
+    const source = isPdf(path)
+      ? fetchBlobUrl(rawUrl, mime)
+      : Promise.resolve(URL.createObjectURL(new Blob([content], { type: mime })));
+    source
+      .then((u) => {
+        if (cancelled) {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        url = u;
+        setViewBlobUrl(u);
       })
       .catch(console.error);
     return () => {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [path, rawUrl, loading]);
+  }, [path, rawUrl, content, loading]);
 
   useEffect(() => {
     if (loading || editing || isImage(path) || isPdf(path) || isBinary(path)) return;
@@ -187,9 +193,9 @@ export function FileViewer({
         {language && (
           <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">{language}</span>
         )}
-        {!loading && (isImage(path) || isPdf(path) || isBinary(path)) && (
+        {!loading && (
           <a
-            href={isPdf(path) ? (pdfBlobUrl ?? rawUrl) : rawUrl}
+            href={viewBlobUrl ?? rawUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
@@ -271,8 +277,8 @@ export function FileViewer({
 
         {!loading &&
           isPdf(path) &&
-          (pdfBlobUrl ? (
-            <iframe src={pdfBlobUrl} title={fileName} className="w-full h-full border-0" />
+          (viewBlobUrl ? (
+            <iframe src={viewBlobUrl} title={fileName} className="w-full h-full border-0" />
           ) : (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />

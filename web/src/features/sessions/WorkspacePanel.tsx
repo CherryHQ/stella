@@ -11,7 +11,7 @@ import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { FileViewer } from "./FileViewer";
-import { isNonTextFile } from "./fileUtils";
+import { isNonTextFile, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
 import { useI18n } from "@/lib/i18n";
 
 function buildTheme(): TreeThemeInput {
@@ -474,21 +474,28 @@ function TreeWithSearch({
               >
                 Open
               </button>
-              <a
-                href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "none";
+                  e.currentTarget.style.background = "none";
                 }}
-                onClick={() => context.close({ restoreFocus: false })}
+                onClick={() => {
+                  context.close({ restoreFocus: false });
+                  const url = `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`;
+                  fetchBlobUrl(url, mimeTypeForPath(item.path))
+                    .then((blobUrl) => {
+                      window.open(blobUrl, "_blank");
+                      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+                    })
+                    .catch(() => window.open(url, "_blank"));
+                }}
               >
                 Open in browser
-              </a>
+              </button>
               <a
                 href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
                 download={item.path.split("/").pop()}

@@ -48,3 +48,34 @@ export function isBinary(path: string): boolean {
 export function isNonTextFile(path: string): boolean {
   return isImage(path) || isPdf(path) || isBinary(path);
 }
+
+/**
+ * Fetch a URL as a blob and return an object URL with the given MIME type.
+ * Caller is responsible for revoking the returned URL via URL.revokeObjectURL.
+ * Falls back to the original URL on fetch failure.
+ */
+export async function fetchBlobUrl(url: string, mimeType?: string): Promise<string> {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return URL.createObjectURL(mimeType ? new Blob([blob], { type: mimeType }) : blob);
+}
+
+export function mimeTypeForPath(path: string): string {
+  if (isPdf(path)) return "application/pdf";
+  if (isImage(path)) {
+    const ext = extOf(path);
+    const map: Record<string, string> = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      svg: "image/svg+xml",
+      webp: "image/webp",
+      ico: "image/x-icon",
+      bmp: "image/bmp",
+      avif: "image/avif",
+    };
+    return map[ext] ?? "image/*";
+  }
+  return "text/plain; charset=utf-8";
+}
