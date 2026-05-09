@@ -643,6 +643,7 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if params.Raw != nil && *params.Raw {
+		w.Header().Set("Content-Disposition", "inline")
 		http.ServeFile(w, r, abs)
 		return
 	}
