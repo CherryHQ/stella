@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { t } from "@/lib/docs/translations";
-import { i18n } from "@/lib/docs/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -17,7 +17,7 @@ const terminalLines = [
 ];
 
 function Home() {
-  const lang = i18n.defaultLanguage;
+  const { locale: lang } = useI18n();
 
   return (
     <>
