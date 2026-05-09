@@ -11,6 +11,7 @@ import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { FileViewer } from "./FileViewer";
+import { isNonTextFile } from "./fileUtils";
 import { useI18n } from "@/lib/i18n";
 
 function buildTheme(): TreeThemeInput {
@@ -80,6 +81,10 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
     async (path: string) => {
       setViewer({ path, content: "", language: "", loading: true, saving: false });
       setMode("viewer");
+      if (isNonTextFile(path)) {
+        setViewer((v) => (v ? { ...v, loading: false } : null));
+        return;
+      }
       try {
         const data = await api<{ content: string; language: string }>(
           "GET",
