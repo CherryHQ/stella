@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { createHighlighter, type Highlighter } from "shiki";
-import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -222,6 +222,16 @@ export function FileViewer({
             title="Open in browser"
           >
             <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+        {!loading && (
+          <a
+            href={rawUrl}
+            download={fileName}
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            title="Download"
+          >
+            <Download className="w-3 h-3" />
           </a>
         )}
         {!loading && !isBinary(path) && !isImage(path) && !isPdf(path) && (
