@@ -14,7 +14,7 @@ vp = "latest"
 pnpm = "latest"
 
 [env]
-BINARY_NAME = "stella"
+BINARY = "./dist/bin/stella"
 LOG_LEVEL = "trace"
 
 # ============================================================================
@@ -24,11 +24,15 @@ LOG_LEVEL = "trace"
 [tasks.build]
 description = "Build stella binary"
 depends = ["generate"]
-run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/stella"
+run = [
+  "mkdir -p ./dist/bin",
+  "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}",
+  "go build -ldflags=\"-X github.com/CherryHQ/stella/internal/version.Version=$VERSION\" -o $BINARY ./cmd/stella",
+]
 
 [tasks.clean]
 description = "Remove build artifacts"
-run = "rm -rf bin/"
+run = "rm -rf ./dist"
 
 # ============================================================================
 # Code Generation
@@ -75,7 +79,7 @@ run = 'portless stella vp dev'
 [tasks."dev:api"]
 description = "Start stella API server"
 depends = ["build"]
-run = 'STELLA_HOME="$HOME/.stella-dev" ./bin/$BINARY_NAME'
+run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY'
 
 # ============================================================================
 # Code Quality
@@ -101,6 +105,7 @@ run = "go test -race -coverprofile=coverage.out ./..."
 description = "Fix and format files"
 run = [
   "dprint fmt",
+  "go mod tidy",
   "golangci-lint run --fix ./...",
   "cd web && vp check --fix",
 ]
