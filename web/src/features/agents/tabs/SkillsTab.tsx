@@ -1,6 +1,7 @@
 import type { Skill } from "@/lib/types";
 import type { AgentsPageState } from "../AgentsPage";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,7 @@ export function SkillsTab({
     isAdmin,
   } = state;
 
+  const { t } = useI18n();
   const canInstallAgentSkills = isAdmin && !!editingId;
   const canEdit = !!selectedSkill && selectedSkill.scope !== "system";
   const canDelete = !!selectedSkill && selectedSkill.scope !== "system";
@@ -313,7 +315,7 @@ export function SkillsTab({
                     variant="ghost"
                     size="xs"
                   >
-                    Edit
+                    {t("common.edit")}
                   </Button>
                 )}
                 {canDelete && (
@@ -323,7 +325,7 @@ export function SkillsTab({
                     size="xs"
                     className="text-destructive"
                   >
-                    Delete
+                    {t("common.delete")}
                   </Button>
                 )}
                 {canEdit && selectedSkillEditMode && (
@@ -334,7 +336,7 @@ export function SkillsTab({
                       loading={selectedSkillSaving}
                       size="xs"
                     >
-                      Save
+                      {t("common.save")}
                     </Button>
                     <Button
                       onClick={() => {
@@ -344,7 +346,7 @@ export function SkillsTab({
                       variant="ghost"
                       size="xs"
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </>
                 )}
@@ -508,14 +510,14 @@ export function SkillsTab({
                         autoFocus
                       />
                       <Button onClick={commitAddSkillFile} size="xs">
-                        Add
+                        {t("common.add")}
                       </Button>
                       <Button
                         onClick={() => onSetState({ selectedSkillAddingFile: false })}
                         variant="ghost"
                         size="xs"
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                     </div>
                   )}

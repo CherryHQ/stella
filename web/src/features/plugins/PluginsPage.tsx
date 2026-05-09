@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
 
 type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
 
@@ -46,6 +47,7 @@ interface Toast {
 let toastCounter = 0;
 
 export function PluginsPage() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("tools");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [manifestPlugins, setManifestPlugins] = useState<ManifestPlugin[]>([]);
@@ -446,7 +448,7 @@ export function PluginsPage() {
 
   const tabs: { id: Tab; label: string; count: number; show: boolean }[] = [
     { id: "tools", label: "Tools", count: toolPlugins.length, show: true },
-    { id: "mcp", label: "MCP Servers", count: mcpServers.length, show: true },
+    { id: "mcp", label: t("plugins.mcp.title"), count: mcpServers.length, show: true },
     { id: "channels", label: "Channels", count: channelPlugins.length, show: true },
     { id: "hooks", label: "Hooks", count: hookPlugins.length, show: true },
     { id: "memory", label: "Memory", count: memoryPlugins.length, show: true },
@@ -463,7 +465,7 @@ export function PluginsPage() {
     <div>
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="font-serif text-2xl tracking-tight">Plugins</h1>
+        <h1 className="font-serif text-2xl tracking-tight">{t("plugins.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Manage built-in tools, hooks, channels, memory backends, and standalone services.
         </p>

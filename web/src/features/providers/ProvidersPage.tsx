@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { useI18n } from "@/lib/i18n";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,6 +184,7 @@ function ProviderRow({
   onAddCustomModel,
   showToast,
 }: ProviderRowProps) {
+  const { t } = useI18n();
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [collapsed, setCollapsed] = useState(false);
   const [showModels, setShowModels] = useState(false);
@@ -377,7 +379,7 @@ function ProviderRow({
           </div>
           <DialogFooter>
             <Button onClick={() => setConfirmDeleteOpen(false)} variant="ghost" size="sm">
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => {
@@ -387,7 +389,7 @@ function ProviderRow({
               variant="destructive"
               size="sm"
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -668,7 +670,7 @@ function ProviderRow({
                       variant="ghost"
                       size="sm"
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                     <Button onClick={handleSubmitCustomModel} variant="default" size="sm">
                       {customModelForm.original_id ? "Update model" : "Add model"}
@@ -719,7 +721,7 @@ function ProviderRow({
               <span className="text-sm">Enabled</span>
             </div>
             <Button onClick={handleSave} variant="default" size="sm">
-              Save
+              {t("common.save")}
             </Button>
             <Button
               onClick={handleFetchModels}

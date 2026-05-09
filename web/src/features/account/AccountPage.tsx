@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -21,6 +22,7 @@ function ToastAlert({ toast }: { toast: Toast }) {
 }
 
 export function AccountPage() {
+  const { t } = useI18n();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -66,16 +68,18 @@ export function AccountPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="font-serif text-3xl tracking-tight">Account</h1>
+        <h1 className="font-serif text-3xl tracking-tight">{t("account.title")}</h1>
         <p className="text-muted-foreground text-sm mt-1">Manage your account settings.</p>
       </div>
 
       <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">Change Password</h2>
+        <h2 className="font-serif text-xl mb-4">{t("account.changePassword")}</h2>
         <div className="rounded-xl border border-border bg-card p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Current Password</label>
+              <label className="mb-1.5 block text-sm font-medium">
+                {t("account.currentPassword")}
+              </label>
               <Input
                 type="password"
                 value={currentPassword}
@@ -86,7 +90,7 @@ export function AccountPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">New Password</label>
+              <label className="mb-1.5 block text-sm font-medium">{t("account.newPassword")}</label>
               <Input
                 type="password"
                 value={newPassword}
@@ -98,7 +102,9 @@ export function AccountPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Confirm New Password</label>
+              <label className="mb-1.5 block text-sm font-medium">
+                {t("account.confirmNewPassword")}
+              </label>
               <Input
                 type="password"
                 value={confirmPassword}
@@ -111,7 +117,7 @@ export function AccountPage() {
           </div>
           <div className="mt-4">
             <Button size="sm" loading={changingPassword} onClick={changePassword}>
-              Change Password
+              {t("account.changePassword")}
             </Button>
           </div>
         </div>

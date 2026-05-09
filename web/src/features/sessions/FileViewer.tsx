@@ -4,6 +4,7 @@ import { createHighlighter, type Highlighter } from "shiki";
 import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "avif"]);
 
@@ -108,6 +109,7 @@ export function FileViewer({
   onBack,
   onSave,
 }: Props) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [highlighted, setHighlighted] = useState<string>("");
@@ -245,7 +247,7 @@ export function FileViewer({
                   ) : (
                     <Save className="w-3 h-3" />
                   )}
-                  Save
+                  {t("common.save")}
                 </Button>
               </>
             ) : (
@@ -285,7 +287,9 @@ export function FileViewer({
 
         {!loading && (isPdf(path) || isBinary(path)) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
-            <span className="text-xs font-mono">{isPdf(path) ? "PDF document" : "Binary file"}</span>
+            <span className="text-xs font-mono">
+              {isPdf(path) ? "PDF document" : "Binary file"}
+            </span>
             <span className="text-[10px] font-mono">.{ext}</span>
             <a
               href={rawUrl}

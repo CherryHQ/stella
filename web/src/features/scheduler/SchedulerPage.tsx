@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogPopup, DialogTitle } from "@/components/ui/dialog";
+import { useI18n } from "@/lib/i18n";
 
 interface JobForm {
   name: string;
@@ -57,6 +58,7 @@ interface ConfirmState {
 }
 
 export function SchedulerPage() {
+  const { t } = useI18n();
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -295,7 +297,7 @@ export function SchedulerPage() {
                   loading={triggeringJobId === selectedJob.id}
                   onClick={() => triggerJob(selectedJob)}
                 >
-                  Run now
+                  {t("scheduler.runNow")}
                 </Button>
                 {selectedJob.owner_kind !== "plugin" && (
                   <Button
@@ -309,7 +311,7 @@ export function SchedulerPage() {
                       })
                     }
                   >
-                    Delete
+                    {t("common.delete")}
                   </Button>
                 )}
               </div>
@@ -440,16 +442,16 @@ export function SchedulerPage() {
                       checked={jobForm.enabled}
                       onCheckedChange={(v) => setJobForm((f) => ({ ...f, enabled: v }))}
                     />
-                    <span className="text-sm">Enabled</span>
+                    <span className="text-sm">{t("scheduler.enabled")}</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3 mt-5 pt-5 border-t border-border">
                   <Button size="sm" disabled={!isFormValid} onClick={saveJob}>
-                    Save
+                    {t("common.save")}
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => selectJob(selectedJob)}>
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                 </div>
               </>
@@ -648,10 +650,10 @@ export function SchedulerPage() {
                   checked={jobForm.enabled}
                   onCheckedChange={(v) => setJobForm((f) => ({ ...f, enabled: v }))}
                 />
-                <span className="text-sm">Enabled</span>
+                <span className="text-sm">{t("scheduler.enabled")}</span>
               </div>
               <Button size="sm" disabled={!isFormValid} onClick={saveJob}>
-                Create
+                {t("common.create")}
               </Button>
             </div>
           </div>
@@ -673,7 +675,7 @@ export function SchedulerPage() {
           <DialogTitle>{confirm?.msg}</DialogTitle>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -683,7 +685,7 @@ export function SchedulerPage() {
                 setConfirm(null);
               }}
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </div>
         </DialogPopup>

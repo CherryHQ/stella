@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Session } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function SessionSidebar({
   onLoadMore,
   onCreateSession,
 }: Props) {
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -109,7 +111,7 @@ export function SessionSidebar({
       <div className="flex-shrink-0 bg-background">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
-            Sessions
+            {t("sessions.title")}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -152,7 +154,7 @@ export function SessionSidebar({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search sessions…"
+              placeholder={t("sessions.search")}
               className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md border border-border bg-transparent focus:outline-none focus:border-primary/60 transition-colors"
             />
             <svg

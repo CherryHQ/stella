@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   message: string;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
+  const { t } = useI18n();
   return (
     <Dialog
       open
@@ -24,15 +26,15 @@ export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
     >
       <DialogPopup showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>Confirm</DialogTitle>
+          <DialogTitle>{t("common.confirm")}</DialogTitle>
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="destructive" size="sm" onClick={onConfirm}>
-            Delete
+            {t("common.delete")}
           </Button>
         </DialogFooter>
       </DialogPopup>

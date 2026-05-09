@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Streamdown } from "streamdown";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 interface FileEditorState {
   open: boolean;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onTogglePreview }: Props) {
+  const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -98,7 +100,7 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
               {fileEditor.saving && (
                 <div className="w-3 h-3 border border-current/30 border-t-current rounded-full animate-spin" />
               )}
-              Save
+              {t("common.save")}
             </Button>
             <Button
               variant="ghost"

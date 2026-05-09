@@ -1,6 +1,7 @@
 import type { AgentsPageState } from "../AgentsPage";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function PromptTab({ state, onSetState, onApplySoul }: Props) {
+  const { t } = useI18n();
   const { form, builtinSouls, selectedSoulID, editingId, isAdmin } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
@@ -52,7 +54,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
         />
       </div>
       <div>
-        <label className="block text-sm font-mono mb-1">System Prompt</label>
+        <label className="block text-sm font-mono mb-1">{t("agents.form.systemPrompt")}</label>
         <Textarea
           value={form.system_prompt}
           onChange={(e) => setForm({ system_prompt: (e.target as HTMLTextAreaElement).value })}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentsPageState } from "../AgentsPage";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -25,6 +26,7 @@ function ModelComboField({
   cachedModels: string[];
   onChange: (val: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -38,7 +40,9 @@ function ModelComboField({
         <label className="text-sm font-mono" htmlFor={`model-field-${field}`}>
           {label}
         </label>
-        {optional && <span className="text-xs text-muted-foreground">(optional)</span>}
+        {optional && (
+          <span className="text-xs text-muted-foreground">({t("common.optional")})</span>
+        )}
       </div>
       <Input
         nativeInput
@@ -83,6 +87,7 @@ function ModelComboField({
 }
 
 export function ConfigTab({ state, onSetState }: Props) {
+  const { t } = useI18n();
   const { form, cachedModels, isAdmin, editingId, channels, selectedChannelIDs } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
@@ -101,7 +106,7 @@ export function ConfigTab({ state, onSetState }: Props) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-mono mb-1">Name</label>
+        <label className="block text-sm font-mono mb-1">{t("common.name")}</label>
         <Input
           nativeInput
           value={form.name}

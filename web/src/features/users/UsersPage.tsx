@@ -12,6 +12,7 @@ import {
   DialogPanel,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { useI18n } from "@/lib/i18n";
 
 interface Toast {
   message: string;
@@ -33,6 +34,7 @@ interface LegacyUser extends User {
 }
 
 export function UsersPage() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<"auth" | "memory">("auth");
   const [currentUserId, setCurrentUserId] = useState(0);
   const [authUsers, setAuthUsers] = useState<User[]>([]);
@@ -822,7 +824,7 @@ export function UsersPage() {
           </DialogPanel>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -832,7 +834,7 @@ export function UsersPage() {
                 setConfirm(null);
               }}
             >
-              Confirm
+              {t("common.confirm")}
             </Button>
           </DialogFooter>
         </DialogPopup>
