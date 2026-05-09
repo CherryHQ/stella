@@ -3,8 +3,9 @@ cover.out
 coverage.out
 coverage-*.*
 coverage.html
-dist/
-web/static/dist/
+/dist/
+web/static/dist/*
+!web/static/dist/index.html
 web/node_modules/
 handoff.md
 plan.md
