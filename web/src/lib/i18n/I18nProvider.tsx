@@ -1,16 +1,14 @@
 import { useEffect, type ReactNode } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import i18n from "./config";
-import { type Locale } from "./locales";
-
-const STORAGE_KEY = "stella-locale";
+import { LOCALE_STORAGE_KEY, type Locale } from "./locales";
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = i18n.language;
     function handleLangChange(lng: string) {
       document.documentElement.lang = lng;
-      localStorage.setItem(STORAGE_KEY, lng);
+      localStorage.setItem(LOCALE_STORAGE_KEY, lng);
     }
     i18n.on("languageChanged", handleLangChange);
     return () => {

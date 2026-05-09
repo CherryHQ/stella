@@ -15,7 +15,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
-import { useI18n, SUPPORTED_LOCALES, LOCALE_LABELS, type Locale } from "@/lib/i18n";
+import { useI18n, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -130,21 +130,23 @@ export function SiteHeader() {
 }
 
 function LocaleSelector() {
-  const { locale, setLocale } = useI18n();
+  const { locale, setLocale, t } = useI18n();
 
   function toggle() {
     const next = SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale;
     setLocale(next as Locale);
   }
 
+  const label = locale === "en" ? t("locale.en") : t("locale.zh");
+
   return (
     <button
       type="button"
       onClick={toggle}
       className="px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-      aria-label={`Switch language — current: ${LOCALE_LABELS[locale]}`}
+      aria-label={`Switch language — current: ${label}`}
     >
-      {LOCALE_LABELS[locale]}
+      {label}
     </button>
   );
 }

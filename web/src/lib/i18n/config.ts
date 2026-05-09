@@ -1,12 +1,10 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { messages } from "./messages";
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES, detectLocale, type Locale } from "./locales";
-
-const STORAGE_KEY = "stella-locale";
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, LOCALE_STORAGE_KEY, detectLocale, type Locale } from "./locales";
 
 function getInitialLocale(): Locale {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
   if (stored && (SUPPORTED_LOCALES as readonly string[]).includes(stored)) return stored as Locale;
   return detectLocale();
 }
