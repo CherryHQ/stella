@@ -114,6 +114,8 @@ export interface Skill {
   description: string;
   status: "active" | "draft" | "deprecated";
   scope: "system" | "user" | "agent";
+  user_id?: number;
+  agent_id?: string;
   disable_model_invocation: boolean;
   files?: string[];
 }

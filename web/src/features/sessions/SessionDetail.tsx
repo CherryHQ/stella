@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
-import type { Message, Session, Tool } from "@/lib/types";
+import type { Message, Session, Skill, Tool } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Transcript } from "./Transcript";
@@ -29,7 +29,12 @@ export function SessionDetail({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
-  const [activePanel, setActivePanel] = useState<"info" | "tools" | "prompt" | null>(null);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectTab, setInspectTab] = useState<"session" | "tools" | "prompt" | "skills">(
+    "session",
+  );
   const [userInput, setUserInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [attachments, setAttachments] = useState<
@@ -58,13 +63,14 @@ export function SessionDetail({
     if (!session) {
       setLiveMessages([]);
       setSystemPrompt("");
-      setActivePanel(null);
+      setInspectOpen(false);
       setAttachments([]);
       return;
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
     setLiveMessages([]);
+    setSkills([]);
 
     const load = async () => {
       const e = encodeURIComponent(session.id);
@@ -118,15 +124,48 @@ export function SessionDetail({
     }
   }, []);
 
-  const togglePanel = useCallback(
-    (name: "info" | "tools" | "prompt") => {
-      setActivePanel((prev) => {
-        const next = prev === name ? null : name;
-        if (next === "tools" && tools.length === 0) loadTools().catch(console.error);
-        return next;
-      });
+  const loadSkills = useCallback(async () => {
+    if (!session) return;
+    setSkillsLoading(true);
+    try {
+      const all = (await api<Skill[]>("GET", "/api/skills")) ?? [];
+      setSkills(
+        all.filter(
+          (skill) =>
+            skill.status !== "deprecated" &&
+            !skill.disable_model_invocation &&
+            (skill.scope === "system" ||
+              (skill.scope === "agent" && skill.agent_id === session.agent_id) ||
+              (skill.scope === "user" && skill.user_id === session.user_id)),
+        ),
+      );
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, [session]);
+
+  const loadInspectTab = useCallback(
+    (tab: "session" | "tools" | "prompt" | "skills") => {
+      if (tab === "tools" && tools.length === 0) loadTools().catch(console.error);
+      if (tab === "skills" && skills.length === 0) loadSkills().catch(console.error);
     },
-    [tools.length, loadTools],
+    [tools.length, skills.length, loadTools, loadSkills],
+  );
+
+  const toggleInspect = useCallback(() => {
+    setInspectOpen((prev) => {
+      const next = !prev;
+      if (next) loadInspectTab(inspectTab);
+      return next;
+    });
+  }, [inspectTab, loadInspectTab]);
+
+  const selectInspectTab = useCallback(
+    (tab: "session" | "tools" | "prompt" | "skills") => {
+      setInspectTab(tab);
+      loadInspectTab(tab);
+    },
+    [loadInspectTab],
   );
 
   const handleFileSelect = useCallback(
@@ -424,9 +463,9 @@ export function SessionDetail({
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => togglePanel("info")}
-              className={cn(activePanel === "info" ? "text-primary" : "text-muted-foreground")}
-              title="Session details"
+              onClick={toggleInspect}
+              className={cn(inspectOpen ? "text-primary" : "text-muted-foreground")}
+              title="Inspect session"
             >
               <svg
                 className="w-[15px] h-[15px]"
@@ -439,56 +478,6 @@ export function SessionDetail({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
-                />
-              </svg>
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => togglePanel("tools")}
-              className={cn(
-                "relative",
-                activePanel === "tools" ? "text-primary" : "text-muted-foreground",
-              )}
-              title="Tools"
-            >
-              <svg
-                className="w-[15px] h-[15px]"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.8"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.049.58.025 1.193-.14 1.743"
-                />
-              </svg>
-              {tools.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 text-[9px] font-mono font-semibold leading-none bg-primary text-primary-foreground rounded-full px-1 py-0.5">
-                  {tools.length}
-                </span>
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => togglePanel("prompt")}
-              className={cn(activePanel === "prompt" ? "text-primary" : "text-muted-foreground")}
-              title="System Prompt"
-            >
-              <svg
-                className="w-[15px] h-[15px]"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.8"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
                 />
               </svg>
             </Button>
@@ -694,15 +683,18 @@ export function SessionDetail({
             </div>
           )}
         </div>
-        {activePanel && (
+        {inspectOpen && (
           <InspectPanel
-            panel={activePanel}
+            tab={inspectTab}
             session={session}
             messages={messages}
             systemPrompt={systemPrompt}
             tools={tools}
             toolsLoading={toolsLoading}
-            onClose={() => setActivePanel(null)}
+            skills={skills}
+            skillsLoading={skillsLoading}
+            onTabChange={selectInspectTab}
+            onClose={() => setInspectOpen(false)}
             onCopyID={copyID}
           />
         )}
@@ -712,32 +704,36 @@ export function SessionDetail({
 }
 
 function InspectPanel({
-  panel,
+  tab,
   session,
   messages,
   systemPrompt,
   tools,
   toolsLoading,
+  skills,
+  skillsLoading,
+  onTabChange,
   onClose,
   onCopyID,
 }: {
-  panel: "info" | "tools" | "prompt";
+  tab: "session" | "tools" | "prompt" | "skills";
+  onTabChange: (tab: "session" | "tools" | "prompt" | "skills") => void;
   session: Session;
   messages: Message[];
   systemPrompt: string;
   tools: Tool[];
   toolsLoading: boolean;
+  skills: Skill[];
+  skillsLoading: boolean;
   onClose: () => void;
   onCopyID: () => void;
 }) {
   const sessionTotalTokens = messages.reduce((sum, m) => sum + (m.token_count ?? 0), 0);
-  const title = panel === "info" ? "Session" : panel === "tools" ? "Tools" : "System Prompt";
-
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background">
       <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
         <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40">
-          {title}
+          Inspect
         </span>
         <button
           onClick={onClose}
@@ -747,7 +743,24 @@ function InspectPanel({
         </button>
       </div>
 
-      {panel === "info" && (
+      <div className="h-10 shrink-0 border-b border-border px-2 flex items-center gap-1">
+        {(["session", "tools", "prompt", "skills"] as const).map((item) => (
+          <button
+            key={item}
+            onClick={() => onTabChange(item)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-[10px] font-mono capitalize cursor-pointer",
+              tab === item
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/50",
+            )}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+
+      {tab === "session" && (
         <div className="p-3 space-y-3 overflow-auto">
           <dl className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-2 text-xs">
             <dt className="font-mono text-muted-foreground/40">Channel</dt>
@@ -777,7 +790,7 @@ function InspectPanel({
         </div>
       )}
 
-      {panel === "tools" && (
+      {tab === "tools" && (
         <div className="overflow-auto">
           {toolsLoading ? (
             <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading tools…</div>
@@ -795,7 +808,25 @@ function InspectPanel({
         </div>
       )}
 
-      {panel === "prompt" && (
+      {tab === "skills" && (
+        <div className="overflow-auto">
+          {skillsLoading ? (
+            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading skills…</div>
+          ) : skills.length === 0 ? (
+            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">
+              No enabled skills available for this session.
+            </div>
+          ) : (
+            <div className="p-2 space-y-2">
+              {skills.map((skill) => (
+                <SkillRow key={skill.id} skill={skill} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "prompt" && (
         <div className="p-3 overflow-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-mono text-muted-foreground/40">
@@ -814,6 +845,39 @@ function InspectPanel({
         </div>
       )}
     </aside>
+  );
+}
+
+function SkillRow({ skill }: { skill: Skill }) {
+  return (
+    <div className="border border-border rounded-lg px-2 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm font-mono font-medium truncate">{skill.name || skill.id}</span>
+        <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5 shrink-0">
+          {skill.scope}
+        </span>
+        <span
+          className={cn(
+            "text-[9px] rounded-full px-1.5 py-0.5 shrink-0",
+            skill.status === "active"
+              ? "bg-primary/10 text-primary"
+              : "bg-muted text-muted-foreground",
+          )}
+        >
+          {skill.status}
+        </span>
+      </div>
+      {skill.description && (
+        <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+          {skill.description}
+        </p>
+      )}
+      {skill.files && skill.files.length > 0 && (
+        <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">
+          {skill.files.length} files
+        </p>
+      )}
+    </div>
   );
 }
 
