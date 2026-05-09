@@ -1,20 +1,20 @@
 [tools]
 # Common
-portless = "latest"
-prek = "latest"
-dprint = "latest"
-jq = "latest"
-act = "latest"
+portless = "0.13.0"
+prek = "0.3.8"
+dprint = "0.54.0"
+jq = "1.8.1"
+act = "0.2.88"
 # Go
 atlas = "0.36.0"
-go = "1.25"
+go = "1.25.9"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
 # Web
-vp = "latest"
-pnpm = "latest"
-node = "24"
+vp = "0.1.20"
+pnpm = "10.33.0"
+node = "24.14.1"
 
 [env]
 BINARY = "./dist/bin/stella"
