@@ -62,6 +62,11 @@ func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
 func (s *TokenService) EnsureAutoToken(ctx context.Context, userID int64) error {
 	token, err := s.store.GetActiveAutoUserToken(ctx, userID)
 	if err == nil {
+		if ok, err := s.activeVaultTokenValid(ctx, userID, token); err != nil {
+			return err
+		} else if !ok {
+			return s.rotateAutoToken(ctx, token)
+		}
 		if s.now().UTC().Before(token.CreatedAt.Add(autoTokenRotateAfter)) {
 			return nil
 		}
@@ -149,6 +154,17 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID int64, 
 // backfill migration. Returns ("", false, nil) when the vault does not
 // implement vaultLoader (e.g. write-only test stubs), which intentionally
 // skips backfill and falls through to token generation.
+func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID int64, token UserToken) (bool, error) {
+	if _, ok := s.vault.(vaultLoader); !ok {
+		return true, nil
+	}
+	plaintext, ok, err := s.loadVaultToken(ctx, userID)
+	if err != nil || !ok {
+		return ok, err
+	}
+	return hashToken(plaintext) == token.TokenHash, nil
+}
+
 func (s *TokenService) loadVaultToken(ctx context.Context, userID int64) (string, bool, error) {
 	loader, ok := s.vault.(vaultLoader)
 	if !ok {
