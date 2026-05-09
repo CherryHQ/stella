@@ -189,7 +189,7 @@ export function FileViewer({
         )}
         {!loading && (isImage(path) || isPdf(path) || isBinary(path)) && (
           <a
-            href={rawUrl}
+            href={isPdf(path) ? (pdfBlobUrl ?? rawUrl) : rawUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
