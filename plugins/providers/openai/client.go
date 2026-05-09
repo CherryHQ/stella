@@ -1,8 +1,12 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -53,10 +57,86 @@ type Provider struct {
 	client sdk.Client
 }
 
+// stripLeadingSSEComments removes leading SSE comment lines (lines starting
+// with ':') and any blank lines that follow them. Some proxies send a
+// ": keep-alive" comment as the first event; the openai-go SSE parser fails
+// on these empty-data events with "unexpected end of JSON input".
+func stripLeadingSSEComments(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	resp, err := next(req)
+	if err != nil || resp == nil || resp.Body == nil {
+		return resp, err
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		return resp, nil
+	}
+	resp.Body = &sseCommentStripper{rc: resp.Body}
+	return resp, nil
+}
+
+// sseCommentStripper wraps a ReadCloser and skips leading SSE comment lines
+// (any line beginning with ':') and the blank lines that separate SSE events.
+type sseCommentStripper struct {
+	rc   io.ReadCloser
+	buf  []byte
+	done bool
+}
+
+func (s *sseCommentStripper) Read(p []byte) (int, error) {
+	if s.done {
+		if len(s.buf) > 0 {
+			n := copy(p, s.buf)
+			s.buf = s.buf[n:]
+			return n, nil
+		}
+		return s.rc.Read(p)
+	}
+
+	for !s.done {
+		// Drain comment lines and blank separator lines from the front of buf.
+		for len(s.buf) > 0 {
+			b := s.buf[0]
+			switch b {
+			case ':':
+				// Skip entire comment line.
+				idx := bytes.IndexByte(s.buf, '\n')
+				if idx < 0 {
+					break // Need more data to find end of comment line.
+				}
+				s.buf = s.buf[idx+1:]
+			case '\n', '\r':
+				s.buf = s.buf[1:]
+			default:
+				s.done = true
+			}
+		}
+		if s.done {
+			break
+		}
+		// Need more data.
+		tmp := make([]byte, 512)
+		n, err := s.rc.Read(tmp)
+		s.buf = append(s.buf, tmp[:n]...)
+		if err != nil {
+			s.done = true
+			break
+		}
+	}
+
+	if len(s.buf) == 0 {
+		return s.rc.Read(p)
+	}
+	n := copy(p, s.buf)
+	s.buf = s.buf[n:]
+	return n, nil
+}
+
+func (s *sseCommentStripper) Close() error { return s.rc.Close() }
+
 // New returns an OpenAI provider.
 func New(cfg Config) *Provider {
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpclient.StdHTTPClient()),
+		option.WithMiddleware(stripLeadingSSEComments),
 	}
 	if cfg.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))
@@ -83,6 +163,9 @@ func (p *Provider) Stream(goCtx context.Context, model ai.Model, ctx ai.Context,
 		out.Emit(ai.EventStart{})
 		completed := consumeStream(sdkStream, out)
 		if err := sdkStream.Err(); err != nil && !completed {
+			// Only surface SDK errors when the stream didn't reach a terminal
+			// event. Some SDK/proxy combinations emit a benign parse error
+			// (e.g. "unexpected end of JSON input") after the stream is done.
 			out.Emit(ai.EventError{Err: err})
 		}
 	}()
