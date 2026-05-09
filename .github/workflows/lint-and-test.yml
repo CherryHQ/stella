@@ -31,8 +31,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run format
-        run: mise run format
+      - name: Run pre-commit hooks
+        run: prek run --all-files
 
   test:
     name: Test
