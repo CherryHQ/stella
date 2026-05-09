@@ -1,4 +1,3 @@
-
 # sheets +write-image（写入图片到单元格）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -40,15 +39,15 @@ lark-cli sheets +write-image --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|----|------|
-| `--url <url>` | 否  | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token <token>` | 否  | 表格 token（与 `--url` 二选一） |
-| `--range <range>` | 是  | 目标单元格：`<sheetId>!A1:A1`、`A1`（需配合 `--sheet-id`） |
-| `--sheet-id <id>` | 否  | 工作表 ID |
-| `--image <path>` | 是  | 本地图片文件的**相对路径**（必须在当前目录下，如 `./logo.png`；不支持绝对路径）|
-| `--name <filename>` | 否  | 图片文件名（含扩展名，默认取 `--image` 的文件名） |
-| `--dry-run` | 否  | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                                            |
+| ----------------------------- | ---- | ------------------------------------------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一）                                 |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                                                 |
+| `--range <range>`             | 是   | 目标单元格：`<sheetId>!A1:A1`、`A1`（需配合 `--sheet-id`）                      |
+| `--sheet-id <id>`             | 否   | 工作表 ID                                                                       |
+| `--image <path>`              | 是   | 本地图片文件的**相对路径**（必须在当前目录下，如 `./logo.png`；不支持绝对路径） |
+| `--name <filename>`           | 否   | 图片文件名（含扩展名，默认取 `--image` 的文件名）                               |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                                                          |
 
 ## 输出
 

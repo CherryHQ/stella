@@ -27,6 +27,7 @@ Defines the evals for a skill. Located at `evals/evals.json` within the skill di
 ```
 
 **Fields:**
+
 - `skill_name`: Name matching the skill's frontmatter
 - `evals[].id`: Unique integer identifier
 - `evals[].prompt`: The task to execute
@@ -72,6 +73,7 @@ Tracks version progression in Improve mode. Located at workspace root.
 ```
 
 **Fields:**
+
 - `started_at`: ISO timestamp of when improvement started
 - `skill_name`: Name of the skill being improved
 - `current_best`: Version identifier of the best performer
@@ -150,6 +152,7 @@ Output from the grader agent. Located at `<run-dir>/grading.json`.
 ```
 
 **Fields:**
+
 - `expectations[]`: Graded expectations with evidence
 - `summary`: Aggregate pass/fail counts
 - `execution_metrics`: Tool usage and output size (from executor's metrics.json)
@@ -184,6 +187,7 @@ Output from the executor agent. Located at `<run-dir>/outputs/metrics.json`.
 ```
 
 **Fields:**
+
 - `tool_calls`: Count per tool type
 - `total_tool_calls`: Sum of all tool calls
 - `total_steps`: Number of major execution steps
@@ -249,7 +253,7 @@ Output from Benchmark mode. Located at `benchmarks/<timestamp>/benchmark.json`.
         "errors": 0
       },
       "expectations": [
-        {"text": "...", "passed": true, "evidence": "..."}
+        { "text": "...", "passed": true, "evidence": "..." }
       ],
       "notes": [
         "Used 2023 data, may be stale",
@@ -260,14 +264,19 @@ Output from Benchmark mode. Located at `benchmarks/<timestamp>/benchmark.json`.
 
   "run_summary": {
     "with_skill": {
-      "pass_rate": {"mean": 0.85, "stddev": 0.05, "min": 0.80, "max": 0.90},
-      "time_seconds": {"mean": 45.0, "stddev": 12.0, "min": 32.0, "max": 58.0},
-      "tokens": {"mean": 3800, "stddev": 400, "min": 3200, "max": 4100}
+      "pass_rate": { "mean": 0.85, "stddev": 0.05, "min": 0.80, "max": 0.90 },
+      "time_seconds": {
+        "mean": 45.0,
+        "stddev": 12.0,
+        "min": 32.0,
+        "max": 58.0
+      },
+      "tokens": { "mean": 3800, "stddev": 400, "min": 3200, "max": 4100 }
     },
     "without_skill": {
-      "pass_rate": {"mean": 0.35, "stddev": 0.08, "min": 0.28, "max": 0.45},
-      "time_seconds": {"mean": 32.0, "stddev": 8.0, "min": 24.0, "max": 42.0},
-      "tokens": {"mean": 2100, "stddev": 300, "min": 1800, "max": 2500}
+      "pass_rate": { "mean": 0.35, "stddev": 0.08, "min": 0.28, "max": 0.45 },
+      "time_seconds": { "mean": 32.0, "stddev": 8.0, "min": 24.0, "max": 42.0 },
+      "tokens": { "mean": 2100, "stddev": 300, "min": 1800, "max": 2500 }
     },
     "delta": {
       "pass_rate": "+0.50",
@@ -286,6 +295,7 @@ Output from Benchmark mode. Located at `benchmarks/<timestamp>/benchmark.json`.
 ```
 
 **Fields:**
+
 - `metadata`: Information about the benchmark run
   - `skill_name`: Name of the skill
   - `timestamp`: When the benchmark was run
@@ -349,13 +359,21 @@ Output from blind comparator. Located at `<grading-dir>/comparison-N.json`.
   "output_quality": {
     "A": {
       "score": 9,
-      "strengths": ["Complete solution", "Well-formatted", "All fields present"],
+      "strengths": [
+        "Complete solution",
+        "Well-formatted",
+        "All fields present"
+      ],
       "weaknesses": ["Minor style inconsistency in header"]
     },
     "B": {
       "score": 5,
       "strengths": ["Readable output", "Correct basic structure"],
-      "weaknesses": ["Missing date field", "Formatting inconsistencies", "Partial data extraction"]
+      "weaknesses": [
+        "Missing date field",
+        "Formatting inconsistencies",
+        "Partial data extraction"
+      ]
     }
   },
   "expectation_results": {
@@ -364,7 +382,7 @@ Output from blind comparator. Located at `<grading-dir>/comparison-N.json`.
       "total": 5,
       "pass_rate": 0.80,
       "details": [
-        {"text": "Output includes name", "passed": true}
+        { "text": "Output includes name", "passed": true }
       ]
     },
     "B": {
@@ -372,7 +390,7 @@ Output from blind comparator. Located at `<grading-dir>/comparison-N.json`.
       "total": 5,
       "pass_rate": 0.60,
       "details": [
-        {"text": "Output includes name", "passed": true}
+        { "text": "Output includes name", "passed": true }
       ]
     }
   }

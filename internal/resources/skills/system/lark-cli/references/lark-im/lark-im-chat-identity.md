@@ -11,11 +11,11 @@ Group-chat operations support both `--as user` (UAT user identity) and `--as bot
 
 ## Identity Selection by Operation
 
-| Operation | Recommended Identity | Why |
-|------|---------|-----------------------------------|
-| Create group (`+chat-create`) | Depends on the scenario | Infer from context |
-| Add members (member-management flow) | `--as user` | Bot visibility is limited and often fails when the target user is mutually invisible to the bot (232024) |
-| Update group (`+chat-update`) | Owner identity | Permission changes require owner/admin privileges; owner transfer requires owner identity |
+| Operation                            | Recommended Identity    | Why                                                                                                      |
+| ------------------------------------ | ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| Create group (`+chat-create`)        | Depends on the scenario | Infer from context                                                                                       |
+| Add members (member-management flow) | `--as user`             | Bot visibility is limited and often fails when the target user is mutually invisible to the bot (232024) |
+| Update group (`+chat-update`)        | Owner identity          | Permission changes require owner/admin privileges; owner transfer requires owner identity                |
 
 ## Inferring the Owner
 

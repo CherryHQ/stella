@@ -1,4 +1,3 @@
-
 # drive +export-download
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -31,12 +30,12 @@ lark-cli drive +export-download \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--file-token` | 是 | 导出完成后的产物 token |
-| `--file-name` | 否 | 覆盖默认文件名 |
-| `--output-dir` | 否 | 本地输出目录，默认当前目录 |
-| `--overwrite` | 否 | 覆盖已存在文件 |
+| 参数           | 必填 | 说明                       |
+| -------------- | ---- | -------------------------- |
+| `--file-token` | 是   | 导出完成后的产物 token     |
+| `--file-name`  | 否   | 覆盖默认文件名             |
+| `--output-dir` | 否   | 本地输出目录，默认当前目录 |
+| `--overwrite`  | 否   | 覆盖已存在文件             |
 
 ## 使用顺序
 

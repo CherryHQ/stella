@@ -27,19 +27,19 @@ lark-cli base +record-search \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--json <object>` | 是 | 搜索请求体 JSON（结构要求见下方“JSON 要求”） |
+| 参数                      | 必填 | 说明                                         |
+| ------------------------- | ---- | -------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                   |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                                 |
+| `--json <object>`         | 是   | 搜索请求体 JSON（结构要求见下方“JSON 要求”） |
 
 ## 返回关键字段
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `query_context.record_scope` | string | 记录范围：`all_records`（全表）/ `view_filtered_records`（按 `view_id` 限定到视图记录） |
-| `query_context.field_scope` | string | 字段范围：`selected_fields`（显式传 `select_fields`）/ `view_visible_fields`（未传 `select_fields` 且按视图可见字段）/ `all_fields`（未传 `select_fields` 且无视图限制） |
-| `query_context.search_scope` | string | 实际参与搜索的字段集合，格式类似 `fieldTitle(Title), fieldOwner(Owner)` |
+| 字段                         | 类型   | 说明                                                                                                                                                                     |
+| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `query_context.record_scope` | string | 记录范围：`all_records`（全表）/ `view_filtered_records`（按 `view_id` 限定到视图记录）                                                                                  |
+| `query_context.field_scope`  | string | 字段范围：`selected_fields`（显式传 `select_fields`）/ `view_visible_fields`（未传 `select_fields` 且按视图可见字段）/ `all_fields`（未传 `select_fields` 且无视图限制） |
+| `query_context.search_scope` | string | 实际参与搜索的字段集合，格式类似 `fieldTitle(Title), fieldOwner(Owner)`                                                                                                  |
 
 ## API 入参详情
 
@@ -51,14 +51,14 @@ POST /open-apis/base/v3/bases/:base_token/tables/:table_id/records/search
 
 ### JSON 格式要求
 
-| 字段 | 必填 | 类型 | 约束 |
-|------|------|------|------|
-| `view_id` | 否 | string | 传入后仅在该视图范围内搜索，并默认按该视图可见字段返回结果 |
-| `keyword` | 是 | string | 非空，最小长度 `1` |
-| `search_fields` | 是 | string[] | 数组长度 `1-20`；每项是字段 `field_id` 或字段名，代表在这些字段中做关键词搜索 |
-| `select_fields` | 否 | string[] | 数组长度 `<=50`；每项是字段 `field_id` 或字段名 |
-| `offset` | 否 | int | `>=0`，默认 `0` |
-| `limit` | 否 | int | `1-200`，默认 `10` |
+| 字段            | 必填 | 类型     | 约束                                                                          |
+| --------------- | ---- | -------- | ----------------------------------------------------------------------------- |
+| `view_id`       | 否   | string   | 传入后仅在该视图范围内搜索，并默认按该视图可见字段返回结果                    |
+| `keyword`       | 是   | string   | 非空，最小长度 `1`                                                            |
+| `search_fields` | 是   | string[] | 数组长度 `1-20`；每项是字段 `field_id` 或字段名，代表在这些字段中做关键词搜索 |
+| `select_fields` | 否   | string[] | 数组长度 `<=50`；每项是字段 `field_id` 或字段名                               |
+| `offset`        | 否   | int      | `>=0`，默认 `0`                                                               |
+| `limit`         | 否   | int      | `1-200`，默认 `10`                                                            |
 
 ## 坑点
 

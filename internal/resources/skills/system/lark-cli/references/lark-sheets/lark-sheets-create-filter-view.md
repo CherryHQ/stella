@@ -1,4 +1,3 @@
-
 # sheets +create-filter-view（创建筛选视图）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -23,14 +22,14 @@ lark-cli sheets +create-filter-view --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token` | 否 | 表格 token |
-| `--sheet-id` | 是 | 工作表 ID |
-| `--range` | 是 | 筛选范围（如 `sheetId!A1:H14`） |
-| `--filter-view-name` | 否 | 显示名称（最多 100 字符） |
-| `--filter-view-id` | 否 | 自定义 10 位字母数字 ID（不传则自动生成） |
+| 参数                  | 必填 | 说明                                            |
+| --------------------- | ---- | ----------------------------------------------- |
+| `--url`               | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
+| `--spreadsheet-token` | 否   | 表格 token                                      |
+| `--sheet-id`          | 是   | 工作表 ID                                       |
+| `--range`             | 是   | 筛选范围（如 `sheetId!A1:H14`）                 |
+| `--filter-view-name`  | 否   | 显示名称（最多 100 字符）                       |
+| `--filter-view-id`    | 否   | 自定义 10 位字母数字 ID（不传则自动生成）       |
 
 ## 输出
 

@@ -20,11 +20,13 @@ metadata:
 > **友好输出**：在输出任务（或清单）的执行结果给用户时，建议同时提取并输出命令返回结果中的 `url` 字段（任务链接），以便用户可以直接点击跳转查看详情。
 
 > **创建/更新注意**：
+>
 > 1. 只有在设置了 `due`（截止时间）的情况下，才能设置 `repeat_rule`（重复规则）和 `reminder`（提醒时间）。
 > 2. 若同时设置了 `start`（开始时间）和 `due`（截止时间），开始时间必须小于或等于截止时间。
 > 3. 使用 tenant_access_token（应用身份）时，无法跨租户添加任务成员。
 
 > **查询注意**：
+>
 > 1. 在输出任务详情时，如果需要渲染负责人、创建人等人员字段，除了展示 `id` (例如 open_id) 外，还必须通过其他方式（例如调用通讯录技能）尝试获取并展示这个人的真实名字，以便用户更容易识别。
 > 2. 在输出清单详情时，如果需要渲染 owner、member、角色成员等人员字段，也必须像任务成员展示一样，除了展示 `id` 外，尽量解析并展示对应人员的真实名字。
 > 3. 在输出任务或清单详情时，如果需要渲染创建时间、截止时间等字段，需要使用本地时区来渲染（格式为2006-01-02 15:04:05）。
@@ -64,88 +66,88 @@ lark-cli task <resource> <method> [flags] # 调用 API
 
 ### tasks
 
-  - `create` — 创建任务
-  - `delete` — 删除任务
-  - `get` — 获取任务详情
-  - `list` — 列取任务列表
-  - `patch` — 更新任务
+- `create` — 创建任务
+- `delete` — 删除任务
+- `get` — 获取任务详情
+- `list` — 列取任务列表
+- `patch` — 更新任务
 
 ### tasklists
 
-  - `add_members` — 添加清单成员
-  - `create` — 创建清单
-  - `delete` — 删除清单
-  - `get` — 获取清单详情
-  - `list` — 获取清单列表
-  - `patch` — 更新清单
-  - `remove_members` — 移除清单成员
-  - `tasks` — 获取清单任务列表
+- `add_members` — 添加清单成员
+- `create` — 创建清单
+- `delete` — 删除清单
+- `get` — 获取清单详情
+- `list` — 获取清单列表
+- `patch` — 更新清单
+- `remove_members` — 移除清单成员
+- `tasks` — 获取清单任务列表
 
 ### subtasks
 
-  - `create` — 创建子任务
-  - `list` — 获取任务的子任务列表
+- `create` — 创建子任务
+- `list` — 获取任务的子任务列表
 
 ### members
 
-  - `add` — 添加任务成员
-  - `remove` — 移除任务成员
+- `add` — 添加任务成员
+- `remove` — 移除任务成员
 
 ### sections
 
-  - `create` — 创建自定义分组
-  - `delete` — 删除自定义分组
-  - `get` — 获取自定义分组详情
-  - `list` — 获取自定义分组列表
-  - `patch` — 更新自定义分组
-  - `tasks` — 获取自定义分组任务列表
+- `create` — 创建自定义分组
+- `delete` — 删除自定义分组
+- `get` — 获取自定义分组详情
+- `list` — 获取自定义分组列表
+- `patch` — 更新自定义分组
+- `tasks` — 获取自定义分组任务列表
 
 ### custom_fields
 
-  - `create` — 创建自定义字段
-  - `get` — 获取自定义字段详情
-  - `patch` — 更新自定义字段
-  - `list` — 获取自定义字段列表
-  - `add` — 将自定义字段加入资源
-  - `remove` — 将自定义字段移出资源
+- `create` — 创建自定义字段
+- `get` — 获取自定义字段详情
+- `patch` — 更新自定义字段
+- `list` — 获取自定义字段列表
+- `add` — 将自定义字段加入资源
+- `remove` — 将自定义字段移出资源
 
 ### custom_field_options
 
-  - `create` — 创建自定义字段选项
-  - `patch` — 更新自定义字段选项
+- `create` — 创建自定义字段选项
+- `patch` — 更新自定义字段选项
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `tasks.create` | `task:task:write` |
-| `tasks.delete` | `task:task:write` |
-| `tasks.get` | `task:task:read` |
-| `tasks.list` | `task:task:read` |
-| `tasks.patch` | `task:task:write` |
-| `tasklists.add_members` | `task:tasklist:write` |
-| `tasklists.create` | `task:tasklist:write` |
-| `tasklists.delete` | `task:tasklist:write` |
-| `tasklists.get` | `task:tasklist:read` |
-| `tasklists.list` | `task:tasklist:read` |
-| `tasklists.patch` | `task:tasklist:write` |
-| `tasklists.remove_members` | `task:tasklist:write` |
-| `tasklists.tasks` | `task:tasklist:read` |
-| `subtasks.create` | `task:task:write` |
-| `subtasks.list` | `task:task:read` |
-| `members.add` | `task:task:write` |
-| `members.remove` | `task:task:write` |
-| `sections.create` | `task:section:write` |
-| `sections.delete` | `task:section:write` |
-| `sections.get` | `task:section:read` |
-| `sections.list` | `task:section:read` |
-| `sections.patch` | `task:section:write` |
-| `sections.tasks` | `task:section:read` |
-| `custom_fields.create` | `task:custom_field:write` |
-| `custom_fields.get` | `task:custom_field:read` |
-| `custom_fields.patch` | `task:custom_field:write` |
-| `custom_fields.list` | `task:custom_field:read` |
-| `custom_fields.add` | `task:custom_field:write` |
-| `custom_fields.remove` | `task:custom_field:write` |
+| 方法                          | 所需 scope                |
+| ----------------------------- | ------------------------- |
+| `tasks.create`                | `task:task:write`         |
+| `tasks.delete`                | `task:task:write`         |
+| `tasks.get`                   | `task:task:read`          |
+| `tasks.list`                  | `task:task:read`          |
+| `tasks.patch`                 | `task:task:write`         |
+| `tasklists.add_members`       | `task:tasklist:write`     |
+| `tasklists.create`            | `task:tasklist:write`     |
+| `tasklists.delete`            | `task:tasklist:write`     |
+| `tasklists.get`               | `task:tasklist:read`      |
+| `tasklists.list`              | `task:tasklist:read`      |
+| `tasklists.patch`             | `task:tasklist:write`     |
+| `tasklists.remove_members`    | `task:tasklist:write`     |
+| `tasklists.tasks`             | `task:tasklist:read`      |
+| `subtasks.create`             | `task:task:write`         |
+| `subtasks.list`               | `task:task:read`          |
+| `members.add`                 | `task:task:write`         |
+| `members.remove`              | `task:task:write`         |
+| `sections.create`             | `task:section:write`      |
+| `sections.delete`             | `task:section:write`      |
+| `sections.get`                | `task:section:read`       |
+| `sections.list`               | `task:section:read`       |
+| `sections.patch`              | `task:section:write`      |
+| `sections.tasks`              | `task:section:read`       |
+| `custom_fields.create`        | `task:custom_field:write` |
+| `custom_fields.get`           | `task:custom_field:read`  |
+| `custom_fields.patch`         | `task:custom_field:write` |
+| `custom_fields.list`          | `task:custom_field:read`  |
+| `custom_fields.add`           | `task:custom_field:write` |
+| `custom_fields.remove`        | `task:custom_field:write` |
 | `custom_field_options.create` | `task:custom_field:write` |
-| `custom_field_options.patch` | `task:custom_field:write` |
+| `custom_field_options.patch`  | `task:custom_field:write` |

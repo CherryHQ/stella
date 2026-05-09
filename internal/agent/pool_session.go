@@ -6,9 +6,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/memory"
-	"github.com/google/uuid"
 )
 
 // CreateSession creates a new session with a generated ID and persists its metadata.

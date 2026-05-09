@@ -1,11 +1,11 @@
 ---
 name: scheduler
 description: |
-    Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), and one-time (at) jobs.
+  Manage scheduled jobs. Use when the user wants to create, list, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), and one-time (at) jobs.
 metadata:
-    author: CherryHQ/stella
-    owner_plugin: system/scheduler
-    version: "1.0"
+  author: CherryHQ/stella
+  owner_plugin: system/scheduler
+  version: "1.0"
 ---
 
 # Scheduler
@@ -27,17 +27,19 @@ stella scheduler add \
 
 **Schedule types** — use exactly one:
 
-| Flag | Format | Example |
-|------|--------|---------|
-| `--cron` | Standard cron expression | `"0 9 * * 1-5"` (weekdays 9am) |
-| `--every` | Go duration | `30m`, `2h`, `24h` |
-| `--at` | RFC3339 timestamp (one-time) | `"2024-01-15T14:30:00+08:00"` |
+| Flag      | Format                       | Example                        |
+| --------- | ---------------------------- | ------------------------------ |
+| `--cron`  | Standard cron expression     | `"0 9 * * 1-5"` (weekdays 9am) |
+| `--every` | Go duration                  | `30m`, `2h`, `24h`             |
+| `--at`    | RFC3339 timestamp (one-time) | `"2024-01-15T14:30:00+08:00"`  |
 
 **Session mode**:
+
 - `reuse` (default): conversation history is preserved across executions
 - `new`: starts a fresh session on each execution
 
 **Optional flags**:
+
 - `--agent-id <id>`: run the job on a specific agent (defaults to the default agent)
 
 Output (JSON): job record with `id`, `name`, `message`, `session_mode`, `enabled`, and schedule fields.

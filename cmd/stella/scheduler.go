@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	apiclient "github.com/CherryHQ/stella/api/client"
 	ucli "github.com/urfave/cli/v2"
+
+	apiclient "github.com/CherryHQ/stella/api/client"
 )
 
 func schedulerCommand() *ucli.Command {

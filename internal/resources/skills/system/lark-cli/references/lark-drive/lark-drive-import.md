@@ -49,12 +49,12 @@ lark-cli drive +import --file ./README.md --type docx --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--file` | 是 | 本地文件路径，根据文件后缀名自动推断 `file_extension`；文件需满足对应格式的导入大小限制，超过 20MB 且仍在允许范围内时会自动切换分片上传 |
-| `--type` | 是 | 导入目标云文档格式。可选值：`docx` (新版文档)、`sheet` (电子表格)、`bitable` (多维表格) |
-| `--folder-token` | 否 | 目标文件夹 token，不传则请求中的 `point.mount_key` 为空字符串，Import API 会将其解释为导入到云空间根目录 |
-| `--name` | 否 | 导入后的在线云文档名称，不传默认使用本地文件名去掉扩展名后的结果 |
+| 参数             | 必填 | 说明                                                                                                                                    |
+| ---------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--file`         | 是   | 本地文件路径，根据文件后缀名自动推断 `file_extension`；文件需满足对应格式的导入大小限制，超过 20MB 且仍在允许范围内时会自动切换分片上传 |
+| `--type`         | 是   | 导入目标云文档格式。可选值：`docx` (新版文档)、`sheet` (电子表格)、`bitable` (多维表格)                                                 |
+| `--folder-token` | 否   | 目标文件夹 token，不传则请求中的 `point.mount_key` 为空字符串，Import API 会将其解释为导入到云空间根目录                                |
+| `--name`         | 否   | 导入后的在线云文档名称，不传默认使用本地文件名去掉扩展名后的结果                                                                        |
 
 ## 行为说明
 
@@ -70,21 +70,22 @@ lark-cli drive +import --file ./README.md --type docx --dry-run
 
 本地文件扩展名与目标云文档类型的对应关系如下：
 
-| 本地文件扩展名 | 可导入为 | 说明 |
-|--------------|---------|------|
-| `.docx`, `.doc` | `docx` | Microsoft Word 文档 |
-| `.txt` | `docx` | 纯文本文件 |
-| `.md`, `.markdown`, `.mark` | `docx` | Markdown 文档 |
-| `.html` | `docx` | HTML 文档 |
-| `.xlsx` | `sheet`, `bitable` | Microsoft Excel 表格 |
-| `.xls` | `sheet` | Microsoft Excel 97-2003 表格 |
-| `.csv` | `sheet`, `bitable` | CSV 数据文件 |
-| `.base` | `bitable` | 多维表格快照文件 |
+| 本地文件扩展名              | 可导入为           | 说明                         |
+| --------------------------- | ------------------ | ---------------------------- |
+| `.docx`, `.doc`             | `docx`             | Microsoft Word 文档          |
+| `.txt`                      | `docx`             | 纯文本文件                   |
+| `.md`, `.markdown`, `.mark` | `docx`             | Markdown 文档                |
+| `.html`                     | `docx`             | HTML 文档                    |
+| `.xlsx`                     | `sheet`, `bitable` | Microsoft Excel 表格         |
+| `.xls`                      | `sheet`            | Microsoft Excel 97-2003 表格 |
+| `.csv`                      | `sheet`, `bitable` | CSV 数据文件                 |
+| `.base`                     | `bitable`          | 多维表格快照文件             |
 
 > [!IMPORTANT]
 > 用户口头说的 “Base” / “多维表格” / “bitable”，在命令里统一对应 `--type bitable`。
 >
 > 文件扩展名与目标文档类型必须匹配，否则会返回验证错误：
+>
 > - 文档类文件（.docx, .doc, .txt, .md, .html）**只能**导入为 `docx`
 > - `.xlsx` / `.csv` 文件**只能**导入为 `sheet` 或 `bitable`
 > - `.xls` 文件**只能**导入为 `sheet`
@@ -95,10 +96,12 @@ lark-cli drive +import --file ./README.md --type docx --dry-run
 > 如果在线文档是**以应用身份（bot）导入创建**的，如 `lark-cli drive +import --as bot`，当某次结果**已经返回最终在线文档目标**后，CLI 会**尝试为当前 CLI 用户自动授予该资源的 `full_access`（可管理权限）**。
 >
 > 这个自动授权有两种触发时机：
+>
 > - `drive +import` 的内置轮询窗口内已经完成，直接在 `+import` 中进行自动授权
 > - `drive +import` 先返回 `ready=false` / `timed_out=true`，之后你再执行 `lark-cli drive +task_result --scenario import --ticket <TICKET>`，当该查询第一次拿到最终在线文档目标时会自动授权
 >
 > 只有在已经拿到最终在线文档目标的那次结果里，才会返回 `permission_grant` 字段，明确说明授权结果：
+>
 > - `status = granted`：当前 CLI 用户已获得该导入结果的可管理权限
 > - `status = skipped`：本地没有可用的当前用户 `open_id`，或当前结果还没有可授权目标，因此不会自动授权；可提示用户先完成 `lark-cli auth login`，再让 AI / agent 继续使用应用身份（bot）授予当前用户权限
 > - `status = failed`：导入已成功返回最终在线文档，但自动授权用户失败；会带上失败原因，并提示稍后重试或继续使用 bot 身份处理该文档
@@ -111,17 +114,17 @@ lark-cli drive +import --file ./README.md --type docx --dry-run
 
 除扩展名与目标类型匹配外，`drive +import` 还会在本地上传前校验格式级大小限制：
 
-| 本地文件扩展名 | 导入目标 | 大小上限 |
-|--------------|---------|---------|
-| `.docx`, `.doc` | `docx` | 600MB |
-| `.txt` | `docx` | 20MB |
-| `.md`, `.mark`, `.markdown` | `docx` | 20MB |
-| `.html` | `docx` | 20MB |
-| `.xlsx` | `sheet`, `bitable` | 800MB |
-| `.csv` | `sheet` | 20MB |
-| `.csv` | `bitable` | 100MB |
-| `.xls` | `sheet` | 20MB |
-| `.base` | `bitable` | 20MB |
+| 本地文件扩展名              | 导入目标           | 大小上限 |
+| --------------------------- | ------------------ | -------- |
+| `.docx`, `.doc`             | `docx`             | 600MB    |
+| `.txt`                      | `docx`             | 20MB     |
+| `.md`, `.mark`, `.markdown` | `docx`             | 20MB     |
+| `.html`                     | `docx`             | 20MB     |
+| `.xlsx`                     | `sheet`, `bitable` | 800MB    |
+| `.csv`                      | `sheet`            | 20MB     |
+| `.csv`                      | `bitable`          | 100MB    |
+| `.xls`                      | `sheet`            | 20MB     |
+| `.base`                     | `bitable`          | 20MB     |
 
 - 如果文件超出对应上限，shortcut 会在真正上传前直接返回验证错误。
 - “超过 20MB 自动切换分片上传”只表示上传链路会切到 multipart，不代表所有格式都允许导入超过 20MB 的文件。

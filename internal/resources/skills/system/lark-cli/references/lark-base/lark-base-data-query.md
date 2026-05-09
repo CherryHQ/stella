@@ -1,4 +1,3 @@
-
 # base +data-query
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -54,10 +53,10 @@ lark-cli base +data-query \
 
 ## 参数
 
-| 参数                     | 必填 | 说明 |
-|------------------------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App Token（base_token） |
-| `--dsl <json>`         | 是 | LiteQuery Protocol JSON DSL 查询语句 |
+| 参数                   | 必填 | 说明                                 |
+| ---------------------- | ---- | ------------------------------------ |
+| `--base-token <token>` | 是   | 多维表格 App Token（base_token）     |
+| `--dsl <json>`         | 是   | LiteQuery Protocol JSON DSL 查询语句 |
 
 ## 如何从链接中提取参数
 
@@ -80,50 +79,50 @@ POST /open-apis/base/v3/bases/:base_token/data/query
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 App Token |
+| 参数         | 必填 | 说明               |
+| ------------ | ---- | ------------------ |
+| `base_token` | 是   | 多维表格 App Token |
 
 **Request Body — DSL 结构：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `datasource` | object | 是 | 数据源，包含 `type`（固定 `"table"`）和 `table` 对象 |
-| `datasource.table.tableId` | string | 二选一 | 目标数据表 ID |
-| `datasource.table.tableName` | string | 二选一 | 目标数据表名称 |
-| `dimensions` | Dimension[] | 否* | 分组维度字段（GROUP BY） |
-| `measures` | Measure[] | 否* | 聚合度量字段 |
-| `filters` | FilterGroup | 否 | 过滤条件（WHERE） |
-| `sort` | Sort[] | 否 | 排序规则 |
-| `pagination` | object | 否 | 限制返回行数，`{limit: N}`，最大 5000 |
-| `shaper` | object | 否 | 结果格式，固定 `{format: "flat"}` |
+| 字段                         | 类型        | 必填   | 说明                                                 |
+| ---------------------------- | ----------- | ------ | ---------------------------------------------------- |
+| `datasource`                 | object      | 是     | 数据源，包含 `type`（固定 `"table"`）和 `table` 对象 |
+| `datasource.table.tableId`   | string      | 二选一 | 目标数据表 ID                                        |
+| `datasource.table.tableName` | string      | 二选一 | 目标数据表名称                                       |
+| `dimensions`                 | Dimension[] | 否*    | 分组维度字段（GROUP BY）                             |
+| `measures`                   | Measure[]   | 否*    | 聚合度量字段                                         |
+| `filters`                    | FilterGroup | 否     | 过滤条件（WHERE）                                    |
+| `sort`                       | Sort[]      | 否     | 排序规则                                             |
+| `pagination`                 | object      | 否     | 限制返回行数，`{limit: N}`，最大 5000                |
+| `shaper`                     | object      | 否     | 结果格式，固定 `{format: "flat"}`                    |
 
 > \* `dimensions` 和 `measures` 至少填写一个。
 
 **Dimension 字段：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `field_name` | string | 是 | 字段名称 |
-| `alias` | string | 否 | 输出列别名，需全局唯一 |
+| 字段         | 类型   | 必填 | 说明                   |
+| ------------ | ------ | ---- | ---------------------- |
+| `field_name` | string | 是   | 字段名称               |
+| `alias`      | string | 否   | 输出列别名，需全局唯一 |
 
 **Measure 字段：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `field_name` | string | 是 | 字段名称 |
-| `aggregation` | string | 是 | 聚合函数：`sum`、`avg`、`min`、`max`、`count`、`count_all`、`distinct_count` |
-| `alias` | string | 否 | 输出列别名，需全局唯一 |
+| 字段          | 类型   | 必填 | 说明                                                                         |
+| ------------- | ------ | ---- | ---------------------------------------------------------------------------- |
+| `field_name`  | string | 是   | 字段名称                                                                     |
+| `aggregation` | string | 是   | 聚合函数：`sum`、`avg`、`min`、`max`、`count`、`count_all`、`distinct_count` |
+| `alias`       | string | 否   | 输出列别名，需全局唯一                                                       |
 
 **聚合函数适用字段类型：**
 
-| 聚合函数 | 适用字段类型 |
-|----------|-------------|
-| `sum` / `avg` | 数字、进度、货币、评分（不含复选框） |
-| `min` / `max` | 数字、进度、货币、评分、日期 |
-| `count` | 白名单内所有类型，计数非空值 |
-| `count_all` | 白名单内所有类型，计数所有行 |
-| `distinct_count` | 白名单内所有类型 |
+| 聚合函数         | 适用字段类型                         |
+| ---------------- | ------------------------------------ |
+| `sum` / `avg`    | 数字、进度、货币、评分（不含复选框） |
+| `min` / `max`    | 数字、进度、货币、评分、日期         |
+| `count`          | 白名单内所有类型，计数非空值         |
+| `count_all`      | 白名单内所有类型，计数所有行         |
+| `distinct_count` | 白名单内所有类型                     |
 
 **FilterGroup：**
 
@@ -133,132 +132,132 @@ POST /open-apis/base/v3/bases/:base_token/data/query
     "type": 1,
     "conjunction": "and",
     "conditions": [
-      {"field_name": "城市", "operator": "is", "value": ["北京"]}
+      { "field_name": "城市", "operator": "is", "value": ["北京"] }
     ]
   }
 }
 ```
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `type` | int | 是 | 固定填 `1` |
-| `conjunction` | string | 否 | 条件组合逻辑：`"and"` 或 `"or"`，默认 `"and"` |
-| `conditions` | Condition[] | 否 | 条件列表 |
+| 字段          | 类型        | 必填 | 说明                                          |
+| ------------- | ----------- | ---- | --------------------------------------------- |
+| `type`        | int         | 是   | 固定填 `1`                                    |
+| `conjunction` | string      | 否   | 条件组合逻辑：`"and"` 或 `"or"`，默认 `"and"` |
+| `conditions`  | Condition[] | 否   | 条件列表                                      |
 
 **Condition：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `field_name` | string | 是 | 字段名称（必须与表中字段名精确匹配） |
-| `operator` | string | 是 | 运算符（见下方运算符表） |
-| `value` | string[] | 是 | 条件值数组；`isEmpty`/`isNotEmpty` 时**必须**传空数组 `[]` |
+| 字段         | 类型     | 必填 | 说明                                                       |
+| ------------ | -------- | ---- | ---------------------------------------------------------- |
+| `field_name` | string   | 是   | 字段名称（必须与表中字段名精确匹配）                       |
+| `operator`   | string   | 是   | 运算符（见下方运算符表）                                   |
+| `value`      | string[] | 是   | 条件值数组；`isEmpty`/`isNotEmpty` 时**必须**传空数组 `[]` |
 
 **运算符：**
 
-| 运算符 | 说明 |
-|--------|------|
-| `is` | 等于 |
-| `isNot` | 不等于 |
-| `contains` | 包含 |
-| `doesNotContain` | 不包含 |
-| `isEmpty` | 为空 |
-| `isNotEmpty` | 不为空 |
-| `isGreater` | 大于 |
+| 运算符           | 说明     |
+| ---------------- | -------- |
+| `is`             | 等于     |
+| `isNot`          | 不等于   |
+| `contains`       | 包含     |
+| `doesNotContain` | 不包含   |
+| `isEmpty`        | 为空     |
+| `isNotEmpty`     | 不为空   |
+| `isGreater`      | 大于     |
 | `isGreaterEqual` | 大于等于 |
-| `isLess` | 小于 |
-| `isLessEqual` | 小于等于 |
+| `isLess`         | 小于     |
+| `isLessEqual`    | 小于等于 |
 
 > 各运算符的适用字段类型见下方「按各字段类型筛选时 value 格式详解」。
 
 **按各字段类型筛选时 value 格式详解：**
 
-*文本 / 邮箱 / 条码*
+_文本 / 邮箱 / 条码_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` / `contains` / `doesNotContain` | `["文本内容"]` | 仅 1 个 | `["Hello"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                                         | value 格式     | 元素个数 | 示例        |
+| ---------------------------------------------- | -------------- | -------- | ----------- |
+| `is` / `isNot` / `contains` / `doesNotContain` | `["文本内容"]` | 仅 1 个  | `["Hello"]` |
+| `isEmpty` / `isNotEmpty`                       | `[]`           | 0 个     | `[]`        |
 
-*数字 / 货币*
+_数字 / 货币_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["数字字符串"]` | 仅 1 个 | `["23.4"]`、`["-100"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                                                                     | value 格式       | 元素个数 | 示例                   |
+| -------------------------------------------------------------------------- | ---------------- | -------- | ---------------------- |
+| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["数字字符串"]` | 仅 1 个  | `["23.4"]`、`["-100"]` |
+| `isEmpty` / `isNotEmpty`                                                   | `[]`             | 0 个     | `[]`                   |
 
 > value 必须为合法数字的字符串形式。
 
-*进度*
+_进度_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["小数字符串"]` | 仅 1 个 | `["0.34"]`（= 34%） |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                                                                     | value 格式       | 元素个数 | 示例                |
+| -------------------------------------------------------------------------- | ---------------- | -------- | ------------------- |
+| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["小数字符串"]` | 仅 1 个  | `["0.34"]`（= 34%） |
+| `isEmpty` / `isNotEmpty`                                                   | `[]`             | 0 个     | `[]`                |
 
 > **用小数表示百分比**：`["0.34"]` 表示 34%，不是 `["34"]`。
 
-*评分*
+_评分_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["数字字符串"]` | 仅 1 个 | `["4"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                                                                     | value 格式       | 元素个数 | 示例    |
+| -------------------------------------------------------------------------- | ---------------- | -------- | ------- |
+| `is` / `isNot` / `isGreater` / `isGreaterEqual` / `isLess` / `isLessEqual` | `["数字字符串"]` | 仅 1 个  | `["4"]` |
+| `isEmpty` / `isNotEmpty`                                                   | `[]`             | 0 个     | `[]`    |
 
-*单选 / 多选*
+_单选 / 多选_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` | `["选项名"]` | **仅 1 个** | `["选项A"]` |
-| `contains` / `doesNotContain` | `["选项A", "选项B"]` | 可多个 | `["选项A", "选项B"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                        | value 格式           | 元素个数    | 示例                 |
+| ----------------------------- | -------------------- | ----------- | -------------------- |
+| `is` / `isNot`                | `["选项名"]`         | **仅 1 个** | `["选项A"]`          |
+| `contains` / `doesNotContain` | `["选项A", "选项B"]` | 可多个      | `["选项A", "选项B"]` |
+| `isEmpty` / `isNotEmpty`      | `[]`                 | 0 个        | `[]`                 |
 
-*人员*
+_人员_
 
-| 运算符 | value 格式 | 元素个数 | 示例                     |
-|--------|-----------|---------|------------------------|
-| `is` / `isNot` | `["用户ID"]` | **仅 1 个** | `["ou_aaa"]`           |
-| `contains` / `doesNotContain` | `["用户ID1", "用户ID2"]` | 可多个 | `["ou_aaa", "ou_bbb"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]`                   |
+| 运算符                        | value 格式               | 元素个数    | 示例                   |
+| ----------------------------- | ------------------------ | ----------- | ---------------------- |
+| `is` / `isNot`                | `["用户ID"]`             | **仅 1 个** | `["ou_aaa"]`           |
+| `contains` / `doesNotContain` | `["用户ID1", "用户ID2"]` | 可多个      | `["ou_aaa", "ou_bbb"]` |
+| `isEmpty` / `isNotEmpty`      | `[]`                     | 0 个        | `[]`                   |
 
 > 用户 ID 使用 `open_id`（`ou_` 前缀），接口层会自动做 ID 转换。
 
-*超链接*
+_超链接_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` / `isNot` / `contains` / `doesNotContain` | `["链接显示名称"]` | 仅 1 个 | `["点击查看"]` |
-| `isEmpty` / `isNotEmpty` | `[]` | 0 个 | `[]` |
+| 运算符                                         | value 格式         | 元素个数 | 示例           |
+| ---------------------------------------------- | ------------------ | -------- | -------------- |
+| `is` / `isNot` / `contains` / `doesNotContain` | `["链接显示名称"]` | 仅 1 个  | `["点击查看"]` |
+| `isEmpty` / `isNotEmpty`                       | `[]`               | 0 个     | `[]`           |
 
 > **按显示名称筛选**，不是按 URL 本身。
 
-*复选框*
+_复选框_
 
-| 运算符 | value 格式 | 元素个数 | 示例 |
-|--------|-----------|---------|------|
-| `is` | `["true"]` 或 `["false"]` | 仅 1 个 | `["true"]` |
+| 运算符 | value 格式                | 元素个数 | 示例       |
+| ------ | ------------------------- | -------- | ---------- |
+| `is`   | `["true"]` 或 `["false"]` | 仅 1 个  | `["true"]` |
 
 > 仅支持 `is` 运算符，不支持其他运算符。
 
-*日期*
+_日期_
 
 日期字段仅支持 `is`、`isEmpty`、`isNotEmpty`、`isGreater`、`isLess` 五种运算符。
 
 value 使用预定义关键字机制，第一个元素为字符串常量名称：
 
-| 关键字 | 说明 | value 格式 | 支持的运算符 |
-|--------|------|-----------|-------------|
-| `ExactDate` | 精确日期 | `["ExactDate", "1773187200000"]`（毫秒时间戳） | `is`、`isGreater`、`isLess` |
-| `Today` | 今天 | `["Today"]` | `is`、`isGreater`、`isLess` |
-| `Tomorrow` | 明天 | `["Tomorrow"]` | `is`、`isGreater`、`isLess` |
-| `Yesterday` | 昨天 | `["Yesterday"]` | `is`、`isGreater`、`isLess` |
-| `CurrentWeek` | 本周 | `["CurrentWeek"]` | 仅 `is` |
-| `LastWeek` | 上周 | `["LastWeek"]` | 仅 `is` |
-| `CurrentMonth` | 本月 | `["CurrentMonth"]` | 仅 `is` |
-| `LastMonth` | 上月 | `["LastMonth"]` | 仅 `is` |
-| `TheLastWeek` | 过去七天 | `["TheLastWeek"]` | 仅 `is` |
-| `TheNextWeek` | 未来七天 | `["TheNextWeek"]` | 仅 `is` |
-| `TheLastMonth` | 过去三十天 | `["TheLastMonth"]` | 仅 `is` |
-| `TheNextMonth` | 未来三十天 | `["TheNextMonth"]` | 仅 `is` |
+| 关键字         | 说明       | value 格式                                     | 支持的运算符                |
+| -------------- | ---------- | ---------------------------------------------- | --------------------------- |
+| `ExactDate`    | 精确日期   | `["ExactDate", "1773187200000"]`（毫秒时间戳） | `is`、`isGreater`、`isLess` |
+| `Today`        | 今天       | `["Today"]`                                    | `is`、`isGreater`、`isLess` |
+| `Tomorrow`     | 明天       | `["Tomorrow"]`                                 | `is`、`isGreater`、`isLess` |
+| `Yesterday`    | 昨天       | `["Yesterday"]`                                | `is`、`isGreater`、`isLess` |
+| `CurrentWeek`  | 本周       | `["CurrentWeek"]`                              | 仅 `is`                     |
+| `LastWeek`     | 上周       | `["LastWeek"]`                                 | 仅 `is`                     |
+| `CurrentMonth` | 本月       | `["CurrentMonth"]`                             | 仅 `is`                     |
+| `LastMonth`    | 上月       | `["LastMonth"]`                                | 仅 `is`                     |
+| `TheLastWeek`  | 过去七天   | `["TheLastWeek"]`                              | 仅 `is`                     |
+| `TheNextWeek`  | 未来七天   | `["TheNextWeek"]`                              | 仅 `is`                     |
+| `TheLastMonth` | 过去三十天 | `["TheLastMonth"]`                             | 仅 `is`                     |
+| `TheNextMonth` | 未来三十天 | `["TheNextMonth"]`                             | 仅 `is`                     |
 
 > - **ExactDate 时区行为**：毫秒时间戳在实际筛选时会被转为**文档时区当天零点**，跨时区场景需注意日期可能偏移一天。
 > - **范围型关键字**（`CurrentWeek`、`LastWeek`、`CurrentMonth`、`LastMonth`、`TheLastWeek`、`TheNextWeek`、`TheLastMonth`、`TheNextMonth`）仅支持 `is` 运算符。
@@ -266,22 +265,22 @@ value 使用预定义关键字机制，第一个元素为字符串常量名称�
 
 **Sort 字段：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `field_name` | string | 是 | 字段名称或 alias |
-| `order` | string | 否 | `"asc"`（默认）或 `"desc"` |
+| 字段         | 类型   | 必填 | 说明                       |
+| ------------ | ------ | ---- | -------------------------- |
+| `field_name` | string | 是   | 字段名称或 alias           |
+| `order`      | string | 否   | `"asc"`（默认）或 `"desc"` |
 
 **Pagination 字段：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `limit` | int | 否 | 返回记录数上限，必须为正整数，最大 5000；不填时使用系统默认值。不支持 offset |
+| 字段    | 类型 | 必填 | 说明                                                                         |
+| ------- | ---- | ---- | ---------------------------------------------------------------------------- |
+| `limit` | int  | 否   | 返回记录数上限，必须为正整数，最大 5000；不填时使用系统默认值。不支持 offset |
 
 **Shaper 字段：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `format` | string | 是 | 固定为 `"flat"`，表示返回扁平化的对象数组 |
+| 字段     | 类型   | 必填 | 说明                                      |
+| -------- | ------ | ---- | ----------------------------------------- |
+| `format` | string | 是   | 固定为 `"flat"`，表示返回扁平化的对象数组 |
 
 ## API 出参详情
 
@@ -299,12 +298,12 @@ value 使用预定义关键字机制，第一个元素为字符串常量名称�
 
 **Response 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `code` | int | 状态码，0 为成功 |
-| `msg` | string | 错误信息 |
+| 字段             | 类型     | 说明                             |
+| ---------------- | -------- | -------------------------------- |
+| `code`           | int      | 状态码，0 为成功                 |
+| `msg`            | string   | 错误信息                         |
 | `data.main_data` | []object | 查询结果数组，每个元素为一行数据 |
-| `data.error` | object | 失败时的错误详情 |
+| `data.error`     | object   | 失败时的错误详情                 |
 
 每行数据的字段值封装在 CellValue 中：
 
@@ -329,12 +328,12 @@ value 使用预定义关键字机制，第一个元素为字符串常量名称�
 {
   "main_data": [
     {
-      "dim_city": {"value": "直营"},
-      "measure_count": {"value": 1}
+      "dim_city": { "value": "直营" },
+      "measure_count": { "value": 1 }
     },
     {
-      "dim_city": {"value": "加盟"},
-      "measure_count": {"value": 2}
+      "dim_city": { "value": "加盟" },
+      "measure_count": { "value": 2 }
     }
   ]
 }

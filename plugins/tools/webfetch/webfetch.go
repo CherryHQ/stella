@@ -11,11 +11,12 @@ import (
 	"strings"
 
 	readability "codeberg.org/readeck/go-readability/v2"
+	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/go-resty/resty/v2"
+
 	"github.com/CherryHQ/stella/pkg/httpclient"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/go-resty/resty/v2"
 )
 
 func init() {

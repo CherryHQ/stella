@@ -1,4 +1,3 @@
-
 # sheets +create（创建表格）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -17,6 +16,7 @@
 > 如果表格是**以应用身份（bot）创建**的，如 `lark-cli sheets +create --as bot` 在表格创建成功后，CLI 会**尝试为当前 CLI 用户自动授予该表格的 `full_access`（可管理权限）**。
 >
 > 以应用身份创建时，结果里会额外返回 `permission_grant` 字段，明确说明授权结果：
+>
 > - `status = granted`：当前 CLI 用户已获得该表格的可管理权限
 > - `status = skipped`：本地没有可用的当前用户 `open_id`，因此不会自动授权；可提示用户先完成 `lark-cli auth login`，再让 AI / agent 继续使用应用身份（bot）授予当前用户权限
 > - `status = failed`：表格已创建成功，但自动授权用户失败；会带上失败原因，并提示稍后重试或继续使用 bot 身份处理该表格
@@ -45,13 +45,13 @@ lark-cli sheets +create --title "测试表" --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--title <title>` | 是 | 表格标题 |
-| `--folder-token <token>` | 否 | 云空间文件夹 token（创建到指定目录） |
-| `--headers <json>` | 否 | 一维数组 JSON（表头；写入到 A1） |
-| `--data <json>` | 否 | 二维数组 JSON（初始数据；紧跟表头写入） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                     | 必填 | 说明                                    |
+| ------------------------ | ---- | --------------------------------------- |
+| `--title <title>`        | 是   | 表格标题                                |
+| `--folder-token <token>` | 否   | 云空间文件夹 token（创建到指定目录）    |
+| `--headers <json>`       | 否   | 一维数组 JSON（表头；写入到 A1）        |
+| `--data <json>`          | 否   | 二维数组 JSON（初始数据；紧跟表头写入） |
+| `--dry-run`              | 否   | 仅打印参数，不执行请求                  |
 
 ## 输出
 

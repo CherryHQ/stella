@@ -12,13 +12,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/channel"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
+
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const feishuMaxMessageLen = 4000

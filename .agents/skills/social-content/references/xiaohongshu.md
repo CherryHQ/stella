@@ -31,12 +31,14 @@ Every post follows this structure:
 - No clickbait, no ALL CAPS energy
 
 Good titles:
+
 - "终端聊到一半，手机上继续 📱"
 - "让 AI 记住你的工作习惯 🧠"
 - "一个二进制文件搞定 AI 助手 ⚡"
 - "Stella 帮我追踪了一周的进度 📋"
 
 Bad titles:
+
 - "震惊！这个AI助手太强了！！" (clickbait)
 - "Stella v0.5.2 更新日志" (release notes)
 - "最好用的AI工具推荐" (generic listicle)
@@ -63,6 +65,7 @@ Bad titles:
 Frame the capability as a personal experience. Show, don't list.
 
 Good:
+
 ```
 标题: 终端聊到一半，手机上继续 📱💻
 
@@ -77,6 +80,7 @@ Good:
 ```
 
 Bad:
+
 - Listing features without a scenario
 - "Stella 支持终端、Telegram、QQ、飞书四个渠道" (spec sheet)
 
@@ -85,6 +89,7 @@ Bad:
 Share a specific decision with enough context for non-engineers to understand.
 
 Good:
+
 ```
 标题: 为什么 Stella 选择本地 SQLite 🗄️
 
@@ -103,6 +108,7 @@ Stella 用的是本地 SQLite——一个文件搞定所有对话记录和记忆
 Focus on the feeling of being remembered, not the technical mechanism.
 
 Good:
+
 ```
 标题: 让 AI 记住你说过的话 🧠
 
@@ -121,6 +127,7 @@ Good:
 Speak to the feeling of control and simplicity, not technical paranoia.
 
 Good:
+
 ```
 标题: 一个文件，跑起来就是 AI 助手 ⚡
 
@@ -139,6 +146,7 @@ Good:
 Paint a small but relatable daily moment.
 
 Good:
+
 ```
 标题: Stella 下午三点提醒我检查部署 ⏰
 
@@ -157,6 +165,7 @@ Good:
 Share design thinking in an accessible way. People love behind-the-scenes.
 
 Good:
+
 ```
 标题: 给 AI 助手设计一张脸 🎨
 

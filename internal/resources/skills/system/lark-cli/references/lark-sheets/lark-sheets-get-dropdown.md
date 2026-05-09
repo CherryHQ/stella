@@ -1,4 +1,3 @@
-
 # sheets +get-dropdown（查询下拉列表）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -19,12 +18,12 @@ lark-cli sheets +get-dropdown --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token` | 否 | 表格 token |
-| `--range` | 是 | 范围（如 `<sheetId>!A2:A100`） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                  | 必填 | 说明                                            |
+| --------------------- | ---- | ----------------------------------------------- |
+| `--url`               | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
+| `--spreadsheet-token` | 否   | 表格 token                                      |
+| `--range`             | 是   | 范围（如 `<sheetId>!A2:A100`）                  |
+| `--dry-run`           | 否   | 仅打印参数，不执行请求                          |
 
 ## 输出
 

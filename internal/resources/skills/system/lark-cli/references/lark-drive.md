@@ -25,6 +25,7 @@ metadata:
 - `lark-base` 只负责导入完成后的 Base 内部操作（表、字段、记录、视图），不要在“本地文件 -> Base”这一步提前切到 `lark-base`。
 
 ## 修改标题
+
 - 使用 `drive files patch` 命令，通过new_title字段可以修改标题，支持 docx、sheet、bitable、file、wiki、folder 类型
 
 ## 核心概念
@@ -35,13 +36,13 @@ metadata:
 
 ### 文档 URL 格式与 Token 处理
 
-| URL 格式 | 示例                                                      | Token 类型 | 处理方式 |
-|----------|---------------------------------------------------------|-----------|----------|
-| `/docx/` | `https://example.larksuite.com/docx/doxcnxxxxxxxxx`    | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/doc/` | `https://example.larksuite.com/doc/doccnxxxxxxxxx`     | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/wiki/` | `https://example.larksuite.com/wiki/wikcnxxxxxxxxx`    | `wiki_token` | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token` |
-| `/sheets/` | `https://example.larksuite.com/sheets/shtcnxxxxxxxxx`  | `file_token` | URL 路径中的 token 直接作为 `file_token` 使用 |
-| `/drive/folder/` | `https://example.larksuite.com/drive/folder/fldcnxxxx` | `folder_token` | URL 路径中的 token 作为文件夹 token 使用 |
+| URL 格式         | 示例                                                   | Token 类型     | 处理方式                                             |
+| ---------------- | ------------------------------------------------------ | -------------- | ---------------------------------------------------- |
+| `/docx/`         | `https://example.larksuite.com/docx/doxcnxxxxxxxxx`    | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/doc/`          | `https://example.larksuite.com/doc/doccnxxxxxxxxx`     | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/wiki/`         | `https://example.larksuite.com/wiki/wikcnxxxxxxxxx`    | `wiki_token`   | ⚠️ **不能直接使用**，需要先查询获取真实的 `obj_token` |
+| `/sheets/`       | `https://example.larksuite.com/sheets/shtcnxxxxxxxxx`  | `file_token`   | URL 路径中的 token 直接作为 `file_token` 使用        |
+| `/drive/folder/` | `https://example.larksuite.com/drive/folder/fldcnxxxx` | `folder_token` | URL 路径中的 token 作为文件夹 token 使用             |
 
 ### Wiki 链接特殊处理（关键！）
 
@@ -61,15 +62,15 @@ metadata:
 
 3. **根据 `obj_type` 使用对应的 API**
 
-   | obj_type | 说明 | 使用的 API |
-   |----------|------|-----------|
-   | `docx` | 新版云文档 | `drive file.comments.*`、`docx.*` |
-   | `doc` | 旧版云文档 | `drive file.comments.*` |
-   | `sheet` | 电子表格 | `sheets.*` |
-   | `bitable` | 多维表格 | `bitable.*` |
-   | `slides` | 幻灯片 | `drive.*` |
-   | `file` | 文件 | `drive.*` |
-   | `mindnote` | 思维导图 | `drive.*` |
+   | obj_type   | 说明       | 使用的 API                        |
+   | ---------- | ---------- | --------------------------------- |
+   | `docx`     | 新版云文档 | `drive file.comments.*`、`docx.*` |
+   | `doc`      | 旧版云文档 | `drive file.comments.*`           |
+   | `sheet`    | 电子表格   | `sheets.*`                        |
+   | `bitable`  | 多维表格   | `bitable.*`                       |
+   | `slides`   | 幻灯片     | `drive.*`                         |
+   | `file`     | 文件       | `drive.*`                         |
+   | `mindnote` | 思维导图   | `drive.*`                         |
 
 #### 查询示例
 
@@ -79,6 +80,7 @@ lark-cli wiki spaces get_node --params '{"token":"wiki_token"}'
 ```
 
 返回结果示例：
+
 ```json
 {
   "node": {
@@ -114,14 +116,14 @@ Drive Folder (云空间文件夹)
 
 ### 常见操作 Token 需求
 
-| 操作 | 需要的 Token | 说明 |
-|------|-------------|------|
-| 读取文档内容 | `file_token` / 通过 `docs +fetch --api-version v2` 自动处理 | `docs +fetch` 支持直接传入 URL |
-| 添加局部评论（划词评论） | `file_token` | 传 `--block-id` 时，`drive +add-comment` 会创建局部评论；`docx` 支持文本定位或 block_id，`slides` 仅支持 block_id，且都支持最终解析到对应类型的 wiki URL |
-| 添加全文评论 | `file_token` | 不传 `--block-id` 时，`drive +add-comment` 默认创建全文评论；支持 `docx`、旧版 `doc` URL，以及最终解析为 `doc`/`docx` 的 wiki URL |
-| 下载文件 | `file_token` | 从文件 URL 中直接提取 |
-| 上传文件 | `folder_token` / `wiki_node_token` | 目标位置的 token |
-| 列出文档评论 | `file_token` | 同添加评论 |
+| 操作                     | 需要的 Token                                                | 说明                                                                                                                                                     |
+| ------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 读取文档内容             | `file_token` / 通过 `docs +fetch --api-version v2` 自动处理 | `docs +fetch` 支持直接传入 URL                                                                                                                           |
+| 添加局部评论（划词评论） | `file_token`                                                | 传 `--block-id` 时，`drive +add-comment` 会创建局部评论；`docx` 支持文本定位或 block_id，`slides` 仅支持 block_id，且都支持最终解析到对应类型的 wiki URL |
+| 添加全文评论             | `file_token`                                                | 不传 `--block-id` 时，`drive +add-comment` 默认创建全文评论；支持 `docx`、旧版 `doc` URL，以及最终解析为 `doc`/`docx` 的 wiki URL                        |
+| 下载文件                 | `file_token`                                                | 从文件 URL 中直接提取                                                                                                                                    |
+| 上传文件                 | `folder_token` / `wiki_node_token`                          | 目标位置的 token                                                                                                                                         |
+| 列出文档评论             | `file_token`                                                | 同添加评论                                                                                                                                               |
 
 ### 评论能力边界（关键！）
 
@@ -171,6 +173,7 @@ lark-cli drive file.comments list --params '{"file_token": "xxx", "file_type": "
 ### 评论业务特性与引导（关键！）
 
 #### 评论排序引导
+
 - 一个文档通常有多个评论，评论按 `create_time`（创建时间）排序。
 - **重要**：只有当用户明确提到"最新评论"、"最后评论"、"最早评论"时，才需要根据 `create_time` 进行排序：
   - **必须先获取所有评论（处理分页拉完所有数据）**，不能只获取一页就排序
@@ -179,25 +182,28 @@ lark-cli drive file.comments list --params '{"file_token": "xxx", "file_type": "
 - 如果用户只说"第一条评论"，直接使用 `drive file.comments list` 返回的第一条即可，不需要额外排序。
 
 #### 评论回复限制
+
 - **添加评论回复前先检查是否存在以下限制**
 - **全文评论不支持回复**：`is_whole=true` 的评论（全文评论）无法添加回复，遇到此类评论应提示用户"全文评论不支持回复"。
 - **已解决评论不支持回复**：`is_solved=true` 的评论无法添加回复，遇到此类评论应提示用户"该评论已被解决，无法回复"。
 - **注意**：当用户要回复某条评论但该评论因上述限制不能回复时，只提示不能回复即可，**不要自动帮用户找其他可以回复的评论**，避免不符合用户预期。
 
 #### 批量查询与列表查询的选择
+
 - 使用 `drive file.comments batch_query` 是**已知评论 ID 后**的批量查询，需要传入具体的评论 ID 列表。
 - 使用 `drive file.comments list` 用于分页获取评论列表，适合统计评论总数、遍历所有评论，或获取"最新/最后 N 条评论"等场景。
 
 #### Reaction / 表情场景
+
 - 遇到评论 / 回复上的 reaction（表情、各表情数量、谁点了什么、添加/删除表情）相关问题时，**先阅读 [lark-drive-reactions.md](../../skills/lark-drive/references/lark-drive-reactions.md) 了解如何使用**。
 
 ### 典型错误与解决方案
 
-| 错误信息 | 原因 | 解决方案 |
-|----------|------|----------|
-| `not exist` | 使用了错误的 token | 检查 token 类型，wiki 链接必须先查询获取 `obj_token` |
-| `permission denied` | 没有相关操作权限 | 引导用户检查当前身份对文档/文件是否有相应操作权限；如果需要，可以授予相应权限 |
-| `invalid file_type` | file_type 参数错误 | 根据 `obj_type` 传入正确的 file_type（docx/doc/sheet/slides） |
+| 错误信息            | 原因               | 解决方案                                                                      |
+| ------------------- | ------------------ | ----------------------------------------------------------------------------- |
+| `not exist`         | 使用了错误的 token | 检查 token 类型，wiki 链接必须先查询获取 `obj_token`                          |
+| `permission denied` | 没有相关操作权限   | 引导用户检查当前身份对文档/文件是否有相应操作权限；如果需要，可以授予相应权限 |
+| `invalid file_type` | file_type 参数错误 | 根据 `obj_type` 传入正确的 file_type（docx/doc/sheet/slides）                 |
 
 ### 授权当前应用访问文档
 
@@ -222,21 +228,21 @@ lark-cli drive permission.members create \
 
 Shortcut 是对常用操作的高级封装（`lark-cli drive +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+search`](./lark-drive/lark-drive-search.md) | Search Lark docs, Wiki, and spreadsheet files with flat filter flags (preferred over `docs +search`). Natural-language-friendly: `--edited-since`, `--mine`, `--doc-types`, etc. |
-| [`+upload`](./lark-drive/lark-drive-upload.md) | Upload a local file to a Drive folder or wiki node |
-| [`+create-folder`](./lark-drive/lark-drive-create-folder.md) | Create a Drive folder, optionally under a parent folder, with bot auto-grant support |
-| [`+download`](./lark-drive/lark-drive-download.md) | Download a file from Drive to local |
-| [`+create-shortcut`](./lark-drive/lark-drive-create-shortcut.md) | Create a shortcut to an existing Drive file in another folder |
-| [`+add-comment`](./lark-drive/lark-drive-add-comment.md) | Add a comment to doc/docx/sheet/slides, also supports wiki URL resolving to doc/docx/sheet/slides |
-| [`+export`](./lark-drive/lark-drive-export.md) | Export a doc/docx/sheet/bitable to a local file with limited polling |
-| [`+export-download`](./lark-drive/lark-drive-export-download.md) | Download an exported file by file_token |
-| [`+import`](./lark-drive/lark-drive-import.md) | Import a local file to Drive as a cloud document (docx, sheet, bitable) |
-| [`+move`](./lark-drive/lark-drive-move.md) | Move a file or folder to another location in Drive |
-| [`+delete`](./lark-drive/lark-drive-delete.md) | Delete a Drive file or folder with limited polling for folder deletes |
-| [`+task_result`](./lark-drive/lark-drive-task-result.md) | Poll async task result for import, export, move, or delete operations |
-| [`+apply-permission`](./lark-drive/lark-drive-apply-permission.md) | Apply to the document owner for view/edit access (user-only; 5/day per document) |
+| Shortcut                                                           | 说明                                                                                                                                                                             |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`+search`](./lark-drive/lark-drive-search.md)                     | Search Lark docs, Wiki, and spreadsheet files with flat filter flags (preferred over `docs +search`). Natural-language-friendly: `--edited-since`, `--mine`, `--doc-types`, etc. |
+| [`+upload`](./lark-drive/lark-drive-upload.md)                     | Upload a local file to a Drive folder or wiki node                                                                                                                               |
+| [`+create-folder`](./lark-drive/lark-drive-create-folder.md)       | Create a Drive folder, optionally under a parent folder, with bot auto-grant support                                                                                             |
+| [`+download`](./lark-drive/lark-drive-download.md)                 | Download a file from Drive to local                                                                                                                                              |
+| [`+create-shortcut`](./lark-drive/lark-drive-create-shortcut.md)   | Create a shortcut to an existing Drive file in another folder                                                                                                                    |
+| [`+add-comment`](./lark-drive/lark-drive-add-comment.md)           | Add a comment to doc/docx/sheet/slides, also supports wiki URL resolving to doc/docx/sheet/slides                                                                                |
+| [`+export`](./lark-drive/lark-drive-export.md)                     | Export a doc/docx/sheet/bitable to a local file with limited polling                                                                                                             |
+| [`+export-download`](./lark-drive/lark-drive-export-download.md)   | Download an exported file by file_token                                                                                                                                          |
+| [`+import`](./lark-drive/lark-drive-import.md)                     | Import a local file to Drive as a cloud document (docx, sheet, bitable)                                                                                                          |
+| [`+move`](./lark-drive/lark-drive-move.md)                         | Move a file or folder to another location in Drive                                                                                                                               |
+| [`+delete`](./lark-drive/lark-drive-delete.md)                     | Delete a Drive file or folder with limited polling for folder deletes                                                                                                            |
+| [`+task_result`](./lark-drive/lark-drive-task-result.md)           | Poll async task result for import, export, move, or delete operations                                                                                                            |
+| [`+apply-permission`](./lark-drive/lark-drive-apply-permission.md) | Apply to the document owner for view/edit access (user-only; 5/day per document)                                                                                                 |
 
 ## API Resources
 
@@ -249,76 +255,76 @@ lark-cli drive <resource> <method> [flags] # 调用 API
 
 ### files
 
-  - `copy` — 复制文件
-  - `create_folder` — 新建文件夹
-  - `list` — 获取文件夹下的清单
-  - `patch` — 修改文件标题
+- `copy` — 复制文件
+- `create_folder` — 新建文件夹
+- `list` — 获取文件夹下的清单
+- `patch` — 修改文件标题
 
 ### file.comments
 
-  - `batch_query` — 批量获取评论
-  - `create_v2` — 添加全文/局部（划词）评论
-  - `list` — 分页获取文档评论
-  - `patch` — 解决/恢复 评论
+- `batch_query` — 批量获取评论
+- `create_v2` — 添加全文/局部（划词）评论
+- `list` — 分页获取文档评论
+- `patch` — 解决/恢复 评论
 
 ### file.comment.replys
 
-  - `create` — 添加回复
-  - `delete` — 删除回复
-  - `list` — 获取回复
-  - `update` — 更新回复
+- `create` — 添加回复
+- `delete` — 删除回复
+- `list` — 获取回复
+- `update` — 更新回复
 
 ### permission.members
 
-  - `auth` — 
-  - `create` — 增加协作者权限
-  - `transfer_owner` — 
+- `auth` —
+- `create` — 增加协作者权限
+- `transfer_owner` —
 
 ### metas
 
-  - `batch_query` — 获取文档元数据
+- `batch_query` — 获取文档元数据
 
 ### user
 
-  - `remove_subscription` — 取消订阅用户、应用维度事件
-  - `subscription` — 订阅用户、应用维度事件（本次开放评论添加事件）
-  - `subscription_status` — 查询用户、应用对指定事件的订阅状态
+- `remove_subscription` — 取消订阅用户、应用维度事件
+- `subscription` — 订阅用户、应用维度事件（本次开放评论添加事件）
+- `subscription_status` — 查询用户、应用对指定事件的订阅状态
 
 ### file.statistics
 
-  - `get` — 获取文件统计信息
+- `get` — 获取文件统计信息
 
 ### file.view_records
 
-  - `list` — 获取文档的访问者记录
+- `list` — 获取文档的访问者记录
 
 ### file.comment.reply.reactions
 
-  - `update_reaction` — 添加/删除 reaction
+- `update_reaction` — 添加/删除 reaction
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `files.copy` | `docs:document:copy` |
-| `files.create_folder` | `space:folder:create` |
-| `files.list` | `space:document:retrieve` |
-| `files.patch` | `docx:document:write_only` |
-| `file.comments.batch_query` | `docs:document.comment:read` |
-| `file.comments.create_v2` | `docs:document.comment:create` |
-| `file.comments.list` | `docs:document.comment:read` |
-| `file.comments.patch` | `docs:document.comment:update` |
-| `file.comment.replys.create` | `docs:document.comment:create` |
-| `file.comment.replys.delete` | `docs:document.comment:delete` |
-| `file.comment.replys.list` | `docs:document.comment:read` |
-| `file.comment.replys.update` | `docs:document.comment:update` |
-| `permission.members.auth` | `docs:permission.member:auth` |
-| `permission.members.create` | `docs:permission.member:create` |
-| `permission.members.transfer_owner` | `docs:permission.member:transfer` |
-| `metas.batch_query` | `drive:drive.metadata:readonly` |
-| `user.remove_subscription` | `docs:event:subscribe` |
-| `user.subscription` | `docs:event:subscribe` |
-| `user.subscription_status` | `docs:event:subscribe` |
-| `file.statistics.get` | `drive:drive.metadata:readonly` |
-| `file.view_records.list` | `drive:file:view_record:readonly` |
-| `file.comment.reply.reactions.update_reaction` | `docs:document.comment:create` |
+| 方法                                           | 所需 scope                        |
+| ---------------------------------------------- | --------------------------------- |
+| `files.copy`                                   | `docs:document:copy`              |
+| `files.create_folder`                          | `space:folder:create`             |
+| `files.list`                                   | `space:document:retrieve`         |
+| `files.patch`                                  | `docx:document:write_only`        |
+| `file.comments.batch_query`                    | `docs:document.comment:read`      |
+| `file.comments.create_v2`                      | `docs:document.comment:create`    |
+| `file.comments.list`                           | `docs:document.comment:read`      |
+| `file.comments.patch`                          | `docs:document.comment:update`    |
+| `file.comment.replys.create`                   | `docs:document.comment:create`    |
+| `file.comment.replys.delete`                   | `docs:document.comment:delete`    |
+| `file.comment.replys.list`                     | `docs:document.comment:read`      |
+| `file.comment.replys.update`                   | `docs:document.comment:update`    |
+| `permission.members.auth`                      | `docs:permission.member:auth`     |
+| `permission.members.create`                    | `docs:permission.member:create`   |
+| `permission.members.transfer_owner`            | `docs:permission.member:transfer` |
+| `metas.batch_query`                            | `drive:drive.metadata:readonly`   |
+| `user.remove_subscription`                     | `docs:event:subscribe`            |
+| `user.subscription`                            | `docs:event:subscribe`            |
+| `user.subscription_status`                     | `docs:event:subscribe`            |
+| `file.statistics.get`                          | `drive:drive.metadata:readonly`   |
+| `file.view_records.list`                       | `drive:file:view_record:readonly` |
+| `file.comment.reply.reactions.update_reaction` | `docs:document.comment:create`    |

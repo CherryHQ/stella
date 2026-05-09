@@ -12,9 +12,9 @@ lark-cli slides xml_presentation.slide get --as user --params '<json_params>'
 
 ## 参数说明
 
-| 参数 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `--params` | JSON string | 是 | 路径参数与查询参数 |
+| 参数       | 类型        | 必需 | 说明               |
+| ---------- | ----------- | ---- | ------------------ |
+| `--params` | JSON string | 是   | 路径参数与查询参数 |
 
 ### params JSON 结构
 
@@ -26,11 +26,11 @@ lark-cli slides xml_presentation.slide get --as user --params '<json_params>'
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `xml_presentation_id` | string | 是 | 目标演示文稿唯一标识 |
-| `slide_id` | string | 是 | 目标页面唯一标识 |
-| `revision_id` | integer | 否 | 版本号，`-1` 表示最新版（默认）|
+| 字段                  | 类型    | 必需 | 说明                            |
+| --------------------- | ------- | ---- | ------------------------------- |
+| `xml_presentation_id` | string  | 是   | 目标演示文稿唯一标识            |
+| `slide_id`            | string  | 是   | 目标页面唯一标识                |
+| `revision_id`         | integer | 否   | 版本号，`-1` 表示最新版（默认） |
 
 ## 使用示例
 
@@ -77,19 +77,19 @@ lark-cli slides xml_presentation.slide get --as user --params '{
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `data.slide.slide_id` | string | 页面唯一标识 |
-| `data.slide.content` | string | 页面完整 XML（`<slide>` 根节点，不含 xmlns）|
-| `data.revision_id` | integer | 此次读到的版本号，可用于后续 replace 的乐观锁 |
+| 字段                  | 类型    | 说明                                          |
+| --------------------- | ------- | --------------------------------------------- |
+| `data.slide.slide_id` | string  | 页面唯一标识                                  |
+| `data.slide.content`  | string  | 页面完整 XML（`<slide>` 根节点，不含 xmlns）  |
+| `data.revision_id`    | integer | 此次读到的版本号，可用于后续 replace 的乐观锁 |
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 404 | 演示文稿或页面不存在 | 检查 `xml_presentation_id` / `slide_id` |
-| 403 | 权限不足 | 需要 `slides:presentation:read` scope，并对该 PPT 有访问权限 |
-| 400 | `revision_id` 不存在 | 传了无效版本号，用 `-1` 或真实存在的版本号 |
+| 错误码 | 含义                 | 解决方案                                                     |
+| ------ | -------------------- | ------------------------------------------------------------ |
+| 404    | 演示文稿或页面不存在 | 检查 `xml_presentation_id` / `slide_id`                      |
+| 403    | 权限不足             | 需要 `slides:presentation:read` scope，并对该 PPT 有访问权限 |
+| 400    | `revision_id` 不存在 | 传了无效版本号，用 `-1` 或真实存在的版本号                   |
 
 ## 注意事项
 

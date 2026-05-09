@@ -27,28 +27,40 @@ components:
 
     Article:
       type: object
-      required: [id, url, canonical_url, source_type, title, status, starred, file_path, saved_at, created_at, updated_at]
+      required: [
+        id,
+        url,
+        canonical_url,
+        source_type,
+        title,
+        status,
+        starred,
+        file_path,
+        saved_at,
+        created_at,
+        updated_at,
+      ]
       properties:
-        id:            { type: string }
-        agent_id:      { type: string, nullable: true }
-        url:           { type: string, format: uri }
+        id: { type: string }
+        agent_id: { type: string, nullable: true }
+        url: { type: string, format: uri }
         canonical_url: { type: string }
-        source_type:   { $ref: "#/components/schemas/SourceType" }
-        title:         { type: string }
-        author:        { type: string }
-        summary:       { type: string }
-        tags:          { type: array, items: { type: string } }
-        status:        { $ref: "#/components/schemas/ArticleStatus" }
-        starred:       { type: boolean }
-        file_path:     { type: string }
+        source_type: { $ref: "#/components/schemas/SourceType" }
+        title: { type: string }
+        author: { type: string }
+        summary: { type: string }
+        tags: { type: array, items: { type: string } }
+        status: { $ref: "#/components/schemas/ArticleStatus" }
+        starred: { type: boolean }
+        file_path: { type: string }
         metadata:
           type: object
           additionalProperties: { type: string }
-        published_at:  { type: string, format: date-time, nullable: true }
-        saved_at:      { type: string, format: date-time }
-        read_at:       { type: string, format: date-time, nullable: true }
-        created_at:    { type: string, format: date-time }
-        updated_at:    { type: string, format: date-time }
+        published_at: { type: string, format: date-time, nullable: true }
+        saved_at: { type: string, format: date-time }
+        read_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
         content:
           type: string
           description: "Article body in markdown. Returned only when ?include=content is set."
@@ -64,32 +76,32 @@ components:
       type: object
       required: [url]
       properties:
-        url:           { type: string, format: uri }
+        url: { type: string, format: uri }
         canonical_url: { type: string }
-        source_type:   { $ref: "#/components/schemas/SourceType" }
-        title:         { type: string }
-        author:        { type: string }
-        summary:       { type: string }
-        tags:          { type: array, items: { type: string } }
+        source_type: { $ref: "#/components/schemas/SourceType" }
+        title: { type: string }
+        author: { type: string }
+        summary: { type: string }
+        tags: { type: array, items: { type: string } }
         content:
           type: string
           description: "Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400."
         metadata:
           type: object
           additionalProperties: { type: string }
-        published_at:  { type: string, format: date-time, nullable: true }
-        agent_id:      { type: string, nullable: true }
+        published_at: { type: string, format: date-time, nullable: true }
+        agent_id: { type: string, nullable: true }
 
     UpdateArticleRequest:
       type: object
       description: "Only provided fields are updated."
       properties:
-        title:     { type: string }
-        author:    { type: string }
-        summary:   { type: string }
-        tags:      { type: array, items: { type: string } }
-        status:    { $ref: "#/components/schemas/ArticleStatus" }
-        starred:   { type: boolean }
+        title: { type: string }
+        author: { type: string }
+        summary: { type: string }
+        tags: { type: array, items: { type: string } }
+        status: { $ref: "#/components/schemas/ArticleStatus" }
+        starred: { type: boolean }
         file_path: { type: string }
         metadata:
           type: object
@@ -101,20 +113,28 @@ components:
 
     Feed:
       type: object
-      required: [id, url, title, check_interval, enabled, created_at, updated_at]
+      required: [
+        id,
+        url,
+        title,
+        check_interval,
+        enabled,
+        created_at,
+        updated_at,
+      ]
       properties:
-        id:              { type: string }
-        agent_id:        { type: string, nullable: true }
-        url:             { type: string, format: uri }
-        title:           { type: string }
-        description:     { type: string }
-        check_interval:  { type: string }
+        id: { type: string }
+        agent_id: { type: string, nullable: true }
+        url: { type: string, format: uri }
+        title: { type: string }
+        description: { type: string }
+        check_interval: { type: string }
         last_checked_at: { type: string, format: date-time, nullable: true }
-        last_etag:       { type: string }
-        last_modified:   { type: string }
-        enabled:         { type: boolean }
-        created_at:      { type: string, format: date-time }
-        updated_at:      { type: string, format: date-time }
+        last_etag: { type: string }
+        last_modified: { type: string }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
     FeedList:
       type: object
@@ -126,61 +146,74 @@ components:
       type: object
       required: [url]
       properties:
-        url:      { type: string, format: uri }
-        title:    { type: string, description: "Optional override; server fetches feed metadata if omitted" }
+        url: { type: string, format: uri }
+        title: {
+          type: string,
+          description: "Optional override; server fetches feed metadata if omitted",
+        }
         agent_id: { type: string, nullable: true }
 
     UpdateFeedRequest:
       type: object
       properties:
-        title:          { type: string }
-        description:    { type: string }
+        title: { type: string }
+        description: { type: string }
         check_interval: { type: string }
-        enabled:        { type: boolean }
+        enabled: { type: boolean }
 
     FeedEntry:
       type: object
       required: [id, feed_id, guid, url, title, status, attempts, discovered_at]
       properties:
-        id:           { type: string }
-        feed_id:      { type: string }
-        guid:         { type: string }
-        url:          { type: string }
-        title:        { type: string }
-        status:       { $ref: "#/components/schemas/FeedEntryStatus" }
-        article_id:   { type: string, nullable: true }
-        attempts:     { type: integer }
-        error_msg:    { type: string }
+        id: { type: string }
+        feed_id: { type: string }
+        guid: { type: string }
+        url: { type: string }
+        title: { type: string }
+        status: { $ref: "#/components/schemas/FeedEntryStatus" }
+        article_id: { type: string, nullable: true }
+        attempts: { type: integer }
+        error_msg: { type: string }
         discovered_at: { type: string, format: date-time }
-        processed_at:  { type: string, format: date-time, nullable: true }
+        processed_at: { type: string, format: date-time, nullable: true }
 
     FeedEntryList:
       type: object
       required: [items]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/FeedEntry" } }
+        items: {
+          type: array,
+          items: { $ref: "#/components/schemas/FeedEntry" },
+        }
 
     UpdateFeedEntryRequest:
       type: object
       required: [status]
       properties:
-        status:     { $ref: "#/components/schemas/FeedEntryStatus" }
+        status: { $ref: "#/components/schemas/FeedEntryStatus" }
         article_id: { type: string, nullable: true }
-        error_msg:  { type: string }
+        error_msg: { type: string }
 
     FeedPollResult:
       type: object
       required: [feed, new_entries]
       properties:
-        feed:        { $ref: "#/components/schemas/Feed" }
-        new_entries: { type: array, items: { $ref: "#/components/schemas/FeedEntry" } }
-        error:       { type: string, nullable: true, description: "Set if the upstream RSS fetch failed but the feed exists" }
+        feed: { $ref: "#/components/schemas/Feed" }
+        new_entries: {
+          type: array,
+          items: { $ref: "#/components/schemas/FeedEntry" },
+        }
+        error: {
+          type: string,
+          nullable: true,
+          description: "Set if the upstream RSS fetch failed but the feed exists",
+        }
 
     TagCount:
       type: object
       required: [tag, count]
       properties:
-        tag:   { type: string }
+        tag: { type: string }
         count: { type: integer, format: int64 }
 
     Digest:
@@ -198,14 +231,23 @@ components:
         - top_tags
         - total_articles
       properties:
-        date:                   { type: string, format: date-time }
-        saved_yesterday:        { type: array, items: { $ref: "#/components/schemas/Article" } }
-        saved_yesterday_count:  { type: integer }
-        unread_count:           { type: integer, format: int64 }
-        read_count:             { type: integer, format: int64 }
-        archived_count:         { type: integer, format: int64 }
-        starred_count:          { type: integer, format: int64 }
-        worth_revisiting:       { type: array, items: { $ref: "#/components/schemas/Article" } }
+        date: { type: string, format: date-time }
+        saved_yesterday: {
+          type: array,
+          items: { $ref: "#/components/schemas/Article" },
+        }
+        saved_yesterday_count: { type: integer }
+        unread_count: { type: integer, format: int64 }
+        read_count: { type: integer, format: int64 }
+        archived_count: { type: integer, format: int64 }
+        starred_count: { type: integer, format: int64 }
+        worth_revisiting: {
+          type: array,
+          items: { $ref: "#/components/schemas/Article" },
+        }
         worth_revisiting_count: { type: integer }
-        top_tags:               { type: array, items: { $ref: "#/components/schemas/TagCount" } }
-        total_articles:         { type: integer, format: int64 }
+        top_tags: {
+          type: array,
+          items: { $ref: "#/components/schemas/TagCount" },
+        }
+        total_articles: { type: integer, format: int64 }

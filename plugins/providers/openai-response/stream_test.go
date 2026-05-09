@@ -3,8 +3,9 @@ package openairesponse
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/openai/openai-go/responses"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 func newItemToCall() map[string]string { return make(map[string]string) }

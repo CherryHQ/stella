@@ -27,24 +27,24 @@ lark-cli base +form-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App token（base_token） |
-| `--table-id <id>` | 是 | 数据表 ID |
-| `--page-size <n>` | 否 | 每次请求的分页大小，默认 100，最大 100 |
-| `--format` | 否 | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
-| `--as` | 否 | 身份：user（默认）\| bot |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                                                      |
+| ---------------------- | ---- | --------------------------------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 App token（base_token）                          |
+| `--table-id <id>`      | 是   | 数据表 ID                                                 |
+| `--page-size <n>`      | 否   | 每次请求的分页大小，默认 100，最大 100                    |
+| `--format`             | 否   | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
+| `--as`                 | 否   | 身份：user（默认）\| bot                                  |
+| `--dry-run`            | 否   | 预览 API 调用，不执行                                     |
 
 ## 输出格式
 
 每条表单包含以下字段：
 
-| 字段 | 说明 |
-|------|------|
-| `id` | 表单 ID（如 `vewX58te9D`） |
-| `name` | 表单名称 |
-| `description` | 表单描述 |
+| 字段          | 说明                       |
+| ------------- | -------------------------- |
+| `id`          | 表单 ID（如 `vewX58te9D`） |
+| `name`        | 表单名称                   |
+| `description` | 表单描述                   |
 
 JSON 输出示例（`--format json`，默认）：
 
@@ -53,8 +53,8 @@ JSON 输出示例（`--format json`，默认）：
   "ok": true,
   "data": {
     "forms": [
-      {"id": "vewX58te9D", "name": "用户调研问卷", "description": "..."},
-      {"id": "form_yyyy",  "name": "产品反馈表",   "description": "..."}
+      { "id": "vewX58te9D", "name": "用户调研问卷", "description": "..." },
+      { "id": "form_yyyy", "name": "产品反馈表", "description": "..." }
     ],
     "total": 2
   }

@@ -1,14 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Eval Review</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
-  <style>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eval Review</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap"
+      rel="stylesheet"
+    >
+    <script
+      src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
+      integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT"
+      crossorigin="anonymous"
+    ></script>
+    <style>
     :root {
       --bg: #faf9f5;
       --surface: #ffffff;
@@ -538,113 +545,144 @@
     .toast.visible {
       opacity: 1;
     }
-  </style>
-</head>
-<body>
-  <div id="app" style="height:100vh; display:flex; flex-direction:column;">
-    <div class="header">
-      <div>
-        <h1>Eval Review: <span id="skill-name"></span></h1>
-        <div class="instructions">Review each output and leave feedback below. Navigate with arrow keys or buttons. When done, copy feedback and paste into Claude Code.</div>
-      </div>
-      <div class="progress" id="progress"></div>
-    </div>
-
-    <!-- View tabs (only shown when benchmark data exists) -->
-    <div class="view-tabs" id="view-tabs" style="display:none;">
-      <button class="view-tab active" onclick="switchView('outputs')">Outputs</button>
-      <button class="view-tab" onclick="switchView('benchmark')">Benchmark</button>
-    </div>
-
-    <!-- Outputs panel (qualitative review) -->
-    <div class="view-panel active" id="panel-outputs">
-    <div class="main">
-      <!-- Prompt -->
-      <div class="section">
-        <div class="section-header">Prompt <span class="config-badge" id="config-badge" style="display:none;"></span></div>
-        <div class="section-body">
-          <div class="prompt-text" id="prompt-text"></div>
-        </div>
-      </div>
-
-      <!-- Outputs -->
-      <div class="section">
-        <div class="section-header">Output</div>
-        <div class="section-body" id="outputs-body">
-          <div class="empty-state">No output files found</div>
-        </div>
-      </div>
-
-      <!-- Previous Output (collapsible) -->
-      <div class="section" id="prev-outputs-section" style="display:none;">
-        <div class="section-header">
-          <div class="grades-toggle" onclick="togglePrevOutputs()">
-            <span class="arrow" id="prev-outputs-arrow">&#9654;</span>
-            Previous Output
+    </style>
+  </head>
+  <body>
+    <div id="app" style="height:100vh; display:flex; flex-direction:column;">
+      <div class="header">
+        <div>
+          <h1>Eval Review: <span id="skill-name"></span></h1>
+          <div class="instructions">
+            Review each output and leave feedback below. Navigate with arrow
+            keys or buttons. When done, copy feedback and paste into Claude
+            Code.
           </div>
         </div>
-        <div class="grades-content" id="prev-outputs-content"></div>
+        <div class="progress" id="progress"></div>
       </div>
 
-      <!-- Grades (collapsible) -->
-      <div class="section" id="grades-section" style="display:none;">
-        <div class="section-header">
-          <div class="grades-toggle" onclick="toggleGrades()">
-            <span class="arrow" id="grades-arrow">&#9654;</span>
-            Formal Grades
+      <!-- View tabs (only shown when benchmark data exists) -->
+      <div class="view-tabs" id="view-tabs" style="display:none;">
+        <button class="view-tab active" onclick="switchView('outputs')">
+          Outputs
+        </button>
+        <button class="view-tab" onclick="switchView('benchmark')">
+          Benchmark
+        </button>
+      </div>
+
+      <!-- Outputs panel (qualitative review) -->
+      <div class="view-panel active" id="panel-outputs">
+        <div class="main">
+          <!-- Prompt -->
+          <div class="section">
+            <div class="section-header">
+              Prompt <span
+                class="config-badge"
+                id="config-badge"
+                style="display:none;"
+              ></span>
+            </div>
+            <div class="section-body">
+              <div class="prompt-text" id="prompt-text"></div>
+            </div>
+          </div>
+
+          <!-- Outputs -->
+          <div class="section">
+            <div class="section-header">Output</div>
+            <div class="section-body" id="outputs-body">
+              <div class="empty-state">No output files found</div>
+            </div>
+          </div>
+
+          <!-- Previous Output (collapsible) -->
+          <div class="section" id="prev-outputs-section" style="display:none;">
+            <div class="section-header">
+              <div class="grades-toggle" onclick="togglePrevOutputs()">
+                <span class="arrow" id="prev-outputs-arrow">&#9654;</span>
+                Previous Output
+              </div>
+            </div>
+            <div class="grades-content" id="prev-outputs-content"></div>
+          </div>
+
+          <!-- Grades (collapsible) -->
+          <div class="section" id="grades-section" style="display:none;">
+            <div class="section-header">
+              <div class="grades-toggle" onclick="toggleGrades()">
+                <span class="arrow" id="grades-arrow">&#9654;</span>
+                Formal Grades
+              </div>
+            </div>
+            <div class="grades-content" id="grades-content"></div>
+          </div>
+
+          <!-- Feedback -->
+          <div class="section">
+            <div class="section-header">Your Feedback</div>
+            <div class="section-body">
+              <textarea
+                class="feedback-textarea"
+                id="feedback"
+                placeholder="What do you think of this output? Any issues, suggestions, or things that look great?"
+              ></textarea>
+              <div class="feedback-status" id="feedback-status"></div>
+              <div
+                class="prev-feedback"
+                id="prev-feedback"
+                style="display:none;"
+              >
+                <div class="prev-feedback-label">Previous feedback</div>
+                <div id="prev-feedback-text"></div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="grades-content" id="grades-content"></div>
-      </div>
 
-      <!-- Feedback -->
-      <div class="section">
-        <div class="section-header">Your Feedback</div>
-        <div class="section-body">
-          <textarea
-            class="feedback-textarea"
-            id="feedback"
-            placeholder="What do you think of this output? Any issues, suggestions, or things that look great?"
-          ></textarea>
-          <div class="feedback-status" id="feedback-status"></div>
-          <div class="prev-feedback" id="prev-feedback" style="display:none;">
-            <div class="prev-feedback-label">Previous feedback</div>
-            <div id="prev-feedback-text"></div>
+        <div class="nav" id="outputs-nav">
+          <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">
+            &#8592; Previous
+          </button>
+          <button class="done-btn" id="done-btn" onclick="showDoneDialog()">
+            Submit All Reviews
+          </button>
+          <button class="nav-btn" id="next-btn" onclick="navigate(1)">
+            Next &#8594;
+          </button>
+        </div>
+      </div>
+      <!-- end panel-outputs -->
+
+      <!-- Benchmark panel (quantitative stats) -->
+      <div class="view-panel" id="panel-benchmark">
+        <div class="benchmark-view" id="benchmark-content">
+          <div class="benchmark-empty">
+            No benchmark data available. Run a benchmark to see quantitative
+            results here.
           </div>
         </div>
       </div>
     </div>
 
-    <div class="nav" id="outputs-nav">
-      <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">&#8592; Previous</button>
-      <button class="done-btn" id="done-btn" onclick="showDoneDialog()">Submit All Reviews</button>
-      <button class="nav-btn" id="next-btn" onclick="navigate(1)">Next &#8594;</button>
-    </div>
-    </div><!-- end panel-outputs -->
-
-    <!-- Benchmark panel (quantitative stats) -->
-    <div class="view-panel" id="panel-benchmark">
-      <div class="benchmark-view" id="benchmark-content">
-        <div class="benchmark-empty">No benchmark data available. Run a benchmark to see quantitative results here.</div>
+    <!-- Done overlay -->
+    <div class="done-overlay" id="done-overlay">
+      <div class="done-card">
+        <h2>Review Complete</h2>
+        <p>
+          Your feedback has been saved. Go back to your Claude Code session and
+          tell Claude you're done reviewing.
+        </p>
+        <div class="btn-row">
+          <button onclick="closeDoneDialog()">OK</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Done overlay -->
-  <div class="done-overlay" id="done-overlay">
-    <div class="done-card">
-      <h2>Review Complete</h2>
-      <p>Your feedback has been saved. Go back to your Claude Code session and tell Claude you're done reviewing.</p>
-      <div class="btn-row">
-        <button onclick="closeDoneDialog()">OK</button>
-      </div>
-    </div>
-  </div>
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
 
-  <!-- Toast -->
-  <div class="toast" id="toast"></div>
-
-  <script>
+    <script>
     // ---- Embedded data (injected by generate_review.py) ----
     /*__EMBEDDED_DATA__*/
 
@@ -1320,6 +1358,6 @@
     // ---- Start ----
     init();
     renderBenchmark();
-  </script>
-</body>
+    </script>
+  </body>
 </html>

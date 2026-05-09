@@ -13,9 +13,9 @@ lark-cli task +complete --task-id "<task_guid>"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to complete. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| Parameter          | Required | Description                                                                                                                                       |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--task-id <guid>` | Yes      | The task GUID to complete. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
 
 ## Workflow
 

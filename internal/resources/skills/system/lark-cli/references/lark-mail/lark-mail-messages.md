@@ -7,11 +7,13 @@
 本 shortcut 是 `mail +message` 的批量版本。每个返回的 `messages[]` 项使用与 `+message` 相同的归一化结构：安全元数据字段直接透传，正文和辅助字段由 shortcut 派生。
 
 优先使用本 shortcut 而非原生 `mail user_mailbox.messages batch_get` API，因为：
+
 - 正文字段已 base64url 解码
 - 每条邮件的输出结构已归一化
 - 不可用的 message ID 会被显式列出
 
 本 skill 对应 shortcut `lark-cli mail +messages`，内部步骤：
+
 1. `POST /open-apis/mail/v1/user_mailboxes/{mailbox}/messages/batch_get` — 批量获取邮件
 2. 对每条返回的邮件使用与 `+message` 相同的规则归一化输出
 
@@ -36,13 +38,13 @@ lark-cli mail +messages --message-ids <id1>,<id2> --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--message-ids <id1,id2,...>` | 是 | — | 逗号分隔的邮件 ID 列表 |
-| `--mailbox <email>` | 否 | 当前用户 | 邮箱地址（`user_mailbox_id`） |
-| `--html` | 否 | true | 是否返回 HTML 正文（`false` 仅返回纯文本，减少带宽） |
-| `--format <mode>` | 否 | json | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
-| `--dry-run` | 否 | — | 仅打印请求，不执行 |
+| 参数                          | 必填 | 默认值   | 说明                                                            |
+| ----------------------------- | ---- | -------- | --------------------------------------------------------------- |
+| `--message-ids <id1,id2,...>` | 是   | —        | 逗号分隔的邮件 ID 列表                                          |
+| `--mailbox <email>`           | 否   | 当前用户 | 邮箱地址（`user_mailbox_id`）                                   |
+| `--html`                      | 否   | true     | 是否返回 HTML 正文（`false` 仅返回纯文本，减少带宽）            |
+| `--format <mode>`             | 否   | json     | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
+| `--dry-run`                   | 否   | —        | 仅打印请求，不执行                                              |
 
 ## 返回值
 
@@ -60,11 +62,11 @@ lark-cli mail +messages --message-ids <id1>,<id2> --dry-run
 
 顶层字段：
 
-| 字段 | 说明 |
-|------|------|
-| `messages` | 返回的邮件列表，顺序与请求的 `--message-ids` 一致，排除 API 未返回的 ID |
-| `total` | 成功返回的邮件数量 |
-| `unavailable_message_ids` | 请求了但 Mail API 未返回详情的 ID 列表 |
+| 字段                      | 说明                                                                    |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `messages`                | 返回的邮件列表，顺序与请求的 `--message-ids` 一致，排除 API 未返回的 ID |
+| `total`                   | 成功返回的邮件数量                                                      |
+| `unavailable_message_ids` | 请求了但 Mail API 未返回详情的 ID 列表                                  |
 
 每个 `messages[]` 项使用与 [`mail +message`](./lark-mail-message.md#返回值) 相同的结构。完整字段列表参见 [`+message` 字段说明](./lark-mail-message.md#字段说明) 和 [`+message` security_level](./lark-mail-message.md#security_level)。
 

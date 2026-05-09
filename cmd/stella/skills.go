@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	ucli "github.com/urfave/cli/v2"
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -16,8 +19,6 @@ import (
 	internalskills "github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
-	ucli "github.com/urfave/cli/v2"
-	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 func skillsCommand() *ucli.Command {

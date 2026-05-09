@@ -62,16 +62,18 @@ lark-cli vc +search --start "<YYYY-MM-DD>" --end "<YYYY-MM-DD>" --format json --
 ### Step 3: 获取纪要元数据
 
 1. 查询会议关联的纪要信息
+
 ```bash
-lark-cli vc +notes --meeting-ids "id1,id2,...,idN"   
+lark-cli vc +notes --meeting-ids "id1,id2,...,idN"
 ```
+
 - 根据上一步搜集到的 `meeting-id` 查询会议纪要。
 - 单次最多查询 50 个纪要信息，超过 50 个需分批调用。
 - 部分会议返回 `no notes available`，在最终输出中标注"无纪要"
 - 记录每个会议的 `note_doc_token`（纪要文档 Token）和 `verbatim_doc_token`（逐字稿文档 Token）
 
-
 2. 获取纪要文档和逐字稿文档链接
+
 ```bash
 # 学习命令使用方式
 lark-cli schema drive.metas.batch_query

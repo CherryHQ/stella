@@ -16,8 +16,7 @@ metadata:
 
 Shortcut 是对常用操作的高级封装（`lark-cli contact +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+search-user`](./lark-contact/lark-contact-search-user.md) | Search users (results sorted by relevance) |
-| [`+get-user`](./lark-contact/lark-contact-get-user.md) | Get user info (omit user_id for self; provide user_id for specific user) |
-
+| Shortcut                                                     | 说明                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [`+search-user`](./lark-contact/lark-contact-search-user.md) | Search users (results sorted by relevance)                               |
+| [`+get-user`](./lark-contact/lark-contact-get-user.md)       | Get user info (omit user_id for self; provide user_id for specific user) |

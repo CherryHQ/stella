@@ -1,10 +1,11 @@
 package openai
 
 import (
-	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/providers"
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/ssestream"
+
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // consumeStream reads SSE events from the OpenAI chat completion stream.

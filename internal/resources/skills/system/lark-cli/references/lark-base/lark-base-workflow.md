@@ -6,15 +6,15 @@ workflow 相关命令索引。
 
 ## 命令导航
 
-| 文档 | 命令 | 说明 |
-|------|------|------|
-| [lark-base-workflow-list.md](lark-base-workflow-list.md) | `+workflow-list` | 列出 Base 中所有自动化工作流 |
-| [lark-base-workflow-get.md](lark-base-workflow-get.md) | `+workflow-get` | 获取单工作流的详情和完整结构 |
-| [lark-base-workflow-create.md](lark-base-workflow-create.md) | `+workflow-create` | 创建一个新的自动化工作流 |
-| [lark-base-workflow-update.md](lark-base-workflow-update.md) | `+workflow-update` | 全量替换已有工作流的定义 |
-| [lark-base-workflow-enable.md](lark-base-workflow-enable.md) | `+workflow-enable` | 启用一个自动化工作流 |
-| [lark-base-workflow-disable.md](lark-base-workflow-disable.md) | `+workflow-disable` | 禁用一个自动化工作流 |
-| [lark-base-workflow-schema.md](lark-base-workflow-schema.md) | (数据结构参考) | Workflow 的创建和更新结构规范 |
+| 文档                                                           | 命令                | 说明                          |
+| -------------------------------------------------------------- | ------------------- | ----------------------------- |
+| [lark-base-workflow-list.md](lark-base-workflow-list.md)       | `+workflow-list`    | 列出 Base 中所有自动化工作流  |
+| [lark-base-workflow-get.md](lark-base-workflow-get.md)         | `+workflow-get`     | 获取单工作流的详情和完整结构  |
+| [lark-base-workflow-create.md](lark-base-workflow-create.md)   | `+workflow-create`  | 创建一个新的自动化工作流      |
+| [lark-base-workflow-update.md](lark-base-workflow-update.md)   | `+workflow-update`  | 全量替换已有工作流的定义      |
+| [lark-base-workflow-enable.md](lark-base-workflow-enable.md)   | `+workflow-enable`  | 启用一个自动化工作流          |
+| [lark-base-workflow-disable.md](lark-base-workflow-disable.md) | `+workflow-disable` | 禁用一个自动化工作流          |
+| [lark-base-workflow-schema.md](lark-base-workflow-schema.md)   | (数据结构参考)      | Workflow 的创建和更新结构规范 |
 
 ## 说明
 

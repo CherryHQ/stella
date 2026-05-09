@@ -6,11 +6,11 @@
 
 ## 决策树：block_replace vs block_insert
 
-| 需求 | 推荐 action | 理由 |
-|------|------------|------|
-| 已知某块的 `block_id`，要换这块内容（改标题、换图、挪坐标） | `block_replace` | 精准替换，原子性好；`replacement` 根 `id` 由 CLI 自动注入为 `block_id` |
-| 只加 1~N 个元素、不动现有布局 | `block_insert` | 新增不覆盖，可选 `insert_before_block_id` 指定位置 |
-| 一次动多个元素（如：换标题 + 加图） | 单次 `--parts` 里拼多条 | 整批作为原子事务，任一失败整批不生效；`block_replace` 和 `block_insert` 可混用 |
+| 需求                                                        | 推荐 action             | 理由                                                                           |
+| ----------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| 已知某块的 `block_id`，要换这块内容（改标题、换图、挪坐标） | `block_replace`         | 精准替换，原子性好；`replacement` 根 `id` 由 CLI 自动注入为 `block_id`         |
+| 只加 1~N 个元素、不动现有布局                               | `block_insert`          | 新增不覆盖，可选 `insert_before_block_id` 指定位置                             |
+| 一次动多个元素（如：换标题 + 加图）                         | 单次 `--parts` 里拼多条 | 整批作为原子事务，任一失败整批不生效；`block_replace` 和 `block_insert` 可混用 |
 
 > **没有字段级 patch**：即便只想改一个 `shape` 的 `topLeftX`，也得把整个块的新 XML 写出来用 `block_replace`。这不是"微调"，是块级重写。
 
@@ -68,11 +68,11 @@ lark-cli slides +replace-slide --as user \
 
 字段说明：
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `action` | 是 | 固定为 `block_replace` |
-| `block_id` | 是 | 目标块的 3 位 short element ID（从 `slide.get` 返回的 XML 里读）|
-| `replacement` | 是 | 新 XML 片段；根元素 `id` 会被 CLI 自动注入为 `block_id` |
+| 字段          | 必填 | 说明                                                             |
+| ------------- | ---- | ---------------------------------------------------------------- |
+| `action`      | 是   | 固定为 `block_replace`                                           |
+| `block_id`    | 是   | 目标块的 3 位 short element ID（从 `slide.get` 返回的 XML 里读） |
+| `replacement` | 是   | 新 XML 片段；根元素 `id` 会被 CLI 自动注入为 `block_id`          |
 
 ### block_insert — 整块插入
 
@@ -87,11 +87,11 @@ lark-cli slides +replace-slide --as user \
 
 字段说明：
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `action` | 是 | 固定为 `block_insert` |
-| `insertion` | 是 | 要插入的完整 XML 片段 |
-| `insert_before_block_id` | 否 | 插到这个块之前；省略（不提供此字段）则追加到页面末尾 |
+| 字段                     | 必填 | 说明                                                 |
+| ------------------------ | ---- | ---------------------------------------------------- |
+| `action`                 | 是   | 固定为 `block_insert`                                |
+| `insertion`              | 是   | 要插入的完整 XML 片段                                |
+| `insert_before_block_id` | 否   | 插到这个块之前；省略（不提供此字段）则追加到页面末尾 |
 
 > **`<img>` 必须用 `file_token`**，不能用外链 URL——先 `slides +media-upload --file ./pic.png --presentation $PID` 拿 token。
 
@@ -126,12 +126,12 @@ cat parts.json | lark-cli slides +replace-slide --as user --presentation "$PID" 
 
 ## 错误排查
 
-| 现象 | 原因 | 对策 |
-|------|------|------|
-| 3350001，hint 含 "block_id not found" | `parts[i].block_id` 在当前页不存在 | 重新 `slide.get` 拿最新 XML，按里面的 short ID 再填 |
-| 3350002 not found | `--revision-id` 传了不存在的版本号 | 用 `-1` 或实际存在的 `revision_id` |
-| `<img>` 不显示 / 显示破图 | `src` 写了外链 URL | 换成通过 `+media-upload` 拿到的 `file_token` |
-| 3350001（block_replace 返回） | 正常情况下 CLI 已自动注入 `id` 和 `<content/>`；如果仍报错，确认 `block_id` 在当前页存在（重新 `slide.get`），检查 XML 结构是否合法；坐标是否超出 960×540 范围 | — |
+| 现象                                  | 原因                                                                                                                                                           | 对策                                                |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 3350001，hint 含 "block_id not found" | `parts[i].block_id` 在当前页不存在                                                                                                                             | 重新 `slide.get` 拿最新 XML，按里面的 short ID 再填 |
+| 3350002 not found                     | `--revision-id` 传了不存在的版本号                                                                                                                             | 用 `-1` 或实际存在的 `revision_id`                  |
+| `<img>` 不显示 / 显示破图             | `src` 写了外链 URL                                                                                                                                             | 换成通过 `+media-upload` 拿到的 `file_token`        |
+| 3350001（block_replace 返回）         | 正常情况下 CLI 已自动注入 `id` 和 `<content/>`；如果仍报错，确认 `block_id` 在当前页存在（重新 `slide.get`），检查 XML 结构是否合法；坐标是否超出 960×540 范围 | —                                                   |
 
 ## 相关文档
 

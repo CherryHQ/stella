@@ -15,6 +15,8 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -31,7 +33,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 	"github.com/CherryHQ/stella/server"
-	"golang.org/x/sync/errgroup"
 )
 
 const defaultAdminPort = 25678

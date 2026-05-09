@@ -14,22 +14,22 @@ lark-cli base +dashboard-block-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID |
-| `--page-size <n>` | 否 | 每页数量，默认 20，最大 100 |
-| `--page-token <token>` | 否 | 分页标记 |
-| `--format <fmt>` | 否 | 输出格式：json / pretty / table / csv / ndjson |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                                           |
+| ---------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token                                     |
+| `--dashboard-id <id>`  | 是   | 仪表盘 ID                                      |
+| `--page-size <n>`      | 否   | 每页数量，默认 20，最大 100                    |
+| `--page-token <token>` | 否   | 分页标记                                       |
+| `--format <fmt>`       | 否   | 输出格式：json / pretty / table / csv / ndjson |
+| `--dry-run`            | 否   | 预览 API 调用，不执行                          |
 
 ## 返回示例
 
 ```json
 {
   "items": [
-    {"block_id": "chtxxxxxxxx", "name": "图表", "type": "column"},
-    {"block_id": "chtxxxxxxxx", "name": "总利润", "type": "statistics"}
+    { "block_id": "chtxxxxxxxx", "name": "图表", "type": "column" },
+    { "block_id": "chtxxxxxxxx", "name": "总利润", "type": "statistics" }
   ],
   "total": 4,
   "has_more": false
@@ -38,11 +38,11 @@ lark-cli base +dashboard-block-list \
 
 ## 返回重点
 
-| 字段 | 说明 |
-|------|------|
-| `items` | 组件列表，每项包含 `block_id`（ID）、`name`（名称）、`type`（类型）|
-| `total` | 组件总数 |
-| `has_more` | 是否有更多组件（为 `true` 时需用 `page_token` 继续获取）|
+| 字段       | 说明                                                                |
+| ---------- | ------------------------------------------------------------------- |
+| `items`    | 组件列表，每项包含 `block_id`（ID）、`name`（名称）、`type`（类型） |
+| `total`    | 组件总数                                                            |
+| `has_more` | 是否有更多组件（为 `true` 时需用 `page_token` 继续获取）            |
 
 ## 坑点
 

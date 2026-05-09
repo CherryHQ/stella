@@ -63,15 +63,15 @@ lark-cli wiki +move \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--node-token` | 条件必填 | 要移动的 Wiki 节点 token。传入后命令进入 `node` 模式 |
-| `--source-space-id` | 否 | 源知识空间 ID，仅 `node` 模式可用；不传时会根据 `--node-token` 自动解析 |
-| `--target-space-id` | 条件必填 | 目标知识空间 ID。`docs_to_wiki` 模式必填；`node` 模式下如果不传，则必须传 `--target-parent-token` |
-| `--target-parent-token` | 否 | 目标父节点 token。`docs_to_wiki` 不传时表示迁入目标知识空间根目录 |
-| `--obj-type` | 条件必填 | Drive 文档类型，仅 `docs_to_wiki` 模式可用。可选值：`doc`、`sheet`、`bitable`、`mindnote`、`docx`、`file`、`slides` |
-| `--obj-token` | 条件必填 | Drive 文档 token，仅 `docs_to_wiki` 模式可用 |
-| `--apply` | 否 | 仅 `docs_to_wiki` 模式可用；当当前调用方不能直接移动文档时，提交一个 move request |
+| 参数                    | 必填     | 说明                                                                                                                |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--node-token`          | 条件必填 | 要移动的 Wiki 节点 token。传入后命令进入 `node` 模式                                                                |
+| `--source-space-id`     | 否       | 源知识空间 ID，仅 `node` 模式可用；不传时会根据 `--node-token` 自动解析                                             |
+| `--target-space-id`     | 条件必填 | 目标知识空间 ID。`docs_to_wiki` 模式必填；`node` 模式下如果不传，则必须传 `--target-parent-token`                   |
+| `--target-parent-token` | 否       | 目标父节点 token。`docs_to_wiki` 不传时表示迁入目标知识空间根目录                                                   |
+| `--obj-type`            | 条件必填 | Drive 文档类型，仅 `docs_to_wiki` 模式可用。可选值：`doc`、`sheet`、`bitable`、`mindnote`、`docx`、`file`、`slides` |
+| `--obj-token`           | 条件必填 | Drive 文档 token，仅 `docs_to_wiki` 模式可用                                                                        |
+| `--apply`               | 否       | 仅 `docs_to_wiki` 模式可用；当当前调用方不能直接移动文档时，提交一个 move request                                   |
 
 ## 模式选择与校验规则
 

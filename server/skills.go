@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
-	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 // skillView is the JSON representation of a skill returned to the admin UI.

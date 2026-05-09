@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	ucli "github.com/urfave/cli/v2"
+
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	providerapi "github.com/CherryHQ/stella/pkg/providers"
-	ucli "github.com/urfave/cli/v2"
 )
 
 // fetchModelsFromProviders queries all configured providers (from the DB Store)

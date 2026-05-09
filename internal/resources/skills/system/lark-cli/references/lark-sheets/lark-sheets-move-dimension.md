@@ -1,4 +1,3 @@
-
 # sheets +move-dimension（移动行列）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -31,16 +30,16 @@ lark-cli sheets +move-dimension --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--sheet-id <id>` | 是 | 工作表 ID |
-| `--dimension <ROWS\|COLUMNS>` | 是 | 操作维度：`ROWS` 或 `COLUMNS` |
-| `--start-index <n>` | 是 | 源起始位置（0-indexed） |
-| `--end-index <n>` | 是 | 源结束位置（0-indexed，含） |
-| `--destination-index <n>` | 是 | 目标位置（0-indexed） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                            |
+| ----------------------------- | ---- | ----------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                 |
+| `--sheet-id <id>`             | 是   | 工作表 ID                                       |
+| `--dimension <ROWS\|COLUMNS>` | 是   | 操作维度：`ROWS` 或 `COLUMNS`                   |
+| `--start-index <n>`           | 是   | 源起始位置（0-indexed）                         |
+| `--end-index <n>`             | 是   | 源结束位置（0-indexed，含）                     |
+| `--destination-index <n>`     | 是   | 目标位置（0-indexed）                           |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                          |
 
 ## 输出
 

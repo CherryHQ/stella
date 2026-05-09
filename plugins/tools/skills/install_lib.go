@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 	_ "github.com/vaayne/mcphub/pkg/skills/providers"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // InstallToStore fetches a skill from source and stores it in the given SkillStore.

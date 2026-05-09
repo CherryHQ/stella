@@ -1,8 +1,9 @@
 package main
 
 import (
-	apiclient "github.com/CherryHQ/stella/api/client"
 	ucli "github.com/urfave/cli/v2"
+
+	apiclient "github.com/CherryHQ/stella/api/client"
 )
 
 func recallyCommand() *ucli.Command {

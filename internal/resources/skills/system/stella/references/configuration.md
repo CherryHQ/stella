@@ -18,18 +18,19 @@ Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `stella`. Default bootstrap
 
 All config lives in normalized SQLite tables:
 
-| Table | Purpose |
-|-------|---------|
-| `settings` | Key-value JSON settings (runner, scheduler, heartbeat, plugins) |
-| `settings_agents` | Agent definitions (provider, model, system prompt, workspace) |
-| `settings_plugins` | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
-| `settings_users` | Auto-created platform users with default agent preference |
-| `settings_channel_agents` | Per-group agent assignment |
-| `ctx_agent_memory` | Per-user-per-agent persistent notes |
+| Table                     | Purpose                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `settings`                | Key-value JSON settings (runner, scheduler, heartbeat, plugins)                                         |
+| `settings_agents`         | Agent definitions (provider, model, system prompt, workspace)                                           |
+| `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
+| `settings_users`          | Auto-created platform users with default agent preference                                               |
+| `settings_channel_agents` | Per-group agent assignment                                                                              |
+| `ctx_agent_memory`        | Per-user-per-agent persistent notes                                                                     |
 
 ## Multi-agent setup
 
 Each agent has:
+
 - A provider + model configuration
 - A system prompt (personality/identity)
 - An isolated workspace at `$STELLA_HOME/workspaces/{agent_id}/`
@@ -42,6 +43,7 @@ Create agents via the admin panel or directly in the database.
 Channels are stored in `settings_channels`. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. The default instance IDs match their platform types (`telegram`, `qq`, `feishu`, `weixin`) for compatibility. Configure channels via the admin panel.
 
 **Telegram config fields:**
+
 - `token` -- Bot token
 - `channel_id` -- Broadcast channel ID or @username
 - `group_mode` -- "mention" | "always" | "disabled"
@@ -59,42 +61,43 @@ Feishu is a chat channel only. Lark workspace operations no longer ship as built
 
 Global settings are stored in the `settings` table as JSON values:
 
-| Key | Purpose |
-|-----|---------|
-| `runner` | Runner type, idle timeout, compaction config |
-| `scheduler` | Scheduler enabled flag, data directory |
-| `heartbeat` | Heartbeat enabled, interval, file path |
-| `plugins` | Array of plugin configs (path + optional config) |
+| Key         | Purpose                                          |
+| ----------- | ------------------------------------------------ |
+| `runner`    | Runner type, idle timeout, compaction config     |
+| `scheduler` | Scheduler enabled flag, data directory           |
+| `heartbeat` | Heartbeat enabled, interval, file path           |
+| `plugins`   | Array of plugin configs (path + optional config) |
 
 ## Directory layout
 
 All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
-| Path | Purpose |
-|------|---------|
-| `stella.db` | SQLite database (all config + runtime data) |
-| `cache/models.json` | Cached model list (safe to delete) |
-| `workspaces/{agent_id}/` | Per-agent workspace |
-| `workspaces/{agent_id}/.agents/skills/` | Per-agent installed skills |
-| `workspaces/{agent_id}/stella.log` | Per-agent log |
+| Path                                    | Purpose                                     |
+| --------------------------------------- | ------------------------------------------- |
+| `stella.db`                             | SQLite database (all config + runtime data) |
+| `cache/models.json`                     | Cached model list (safe to delete)          |
+| `workspaces/{agent_id}/`                | Per-agent workspace                         |
+| `workspaces/{agent_id}/.agents/skills/` | Per-agent installed skills                  |
+| `workspaces/{agent_id}/stella.log`      | Per-agent log                               |
 
 ## Environment variables
 
 Environment variables serve as fallbacks for provider API keys:
 
-| Variable | Fallback for |
-|----------|-------------|
-| `STELLA_HOME` | stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY` | anthropic provider API key |
-| `ANTHROPIC_BASE_URL` | anthropic provider base URL |
-| `OPENAI_API_KEY` | openai/openai-response provider API key |
-| `OPENAI_BASE_URL` | openai/openai-response provider base URL |
+| Variable             | Fallback for                                |
+| -------------------- | ------------------------------------------- |
+| `STELLA_HOME`        | stella home directory (default `~/.stella`) |
+| `ANTHROPIC_API_KEY`  | anthropic provider API key                  |
+| `ANTHROPIC_BASE_URL` | anthropic provider base URL                 |
+| `OPENAI_API_KEY`     | openai/openai-response provider API key     |
+| `OPENAI_BASE_URL`    | openai/openai-response provider base URL    |
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the admin panel or database directly.
 
 ## Defaults
 
 On first run, `SeedDefaults` creates:
+
 - All built-in provider plugins (anthropic, openai, openai-response) with env var fallback for API keys
 - An "stella" agent using the anthropic provider with `claude-sonnet-4-6` model
 - Default system prompt with stella's personality

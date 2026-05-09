@@ -1,4 +1,3 @@
-
 # sheets +replace（替换单元格）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -34,19 +33,19 @@ lark-cli sheets +replace --spreadsheet-token "shtxxxxxxxx" \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--sheet-id <id>` | 是 | 工作表 ID |
-| `--find <text>` | 是 | 搜索文本（启用 `--search-by-regex` 时为正则表达式） |
-| `--replacement <text>` | 是 | 替换文本 |
-| `--range <range>` | 否 | 搜索范围（不传则搜索整个工作表） |
-| `--match-case` | 否 | 区分大小写 |
-| `--match-entire-cell` | 否 | 匹配整个单元格 |
-| `--search-by-regex` | 否 | 使用正则表达式搜索 |
-| `--include-formulas` | 否 | 在公式中搜索 |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                |
+| ----------------------------- | ---- | --------------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一）     |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                     |
+| `--sheet-id <id>`             | 是   | 工作表 ID                                           |
+| `--find <text>`               | 是   | 搜索文本（启用 `--search-by-regex` 时为正则表达式） |
+| `--replacement <text>`        | 是   | 替换文本                                            |
+| `--range <range>`             | 否   | 搜索范围（不传则搜索整个工作表）                    |
+| `--match-case`                | 否   | 区分大小写                                          |
+| `--match-entire-cell`         | 否   | 匹配整个单元格                                      |
+| `--search-by-regex`           | 否   | 使用正则表达式搜索                                  |
+| `--include-formulas`          | 否   | 在公式中搜索                                        |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                              |
 
 ## 输出
 

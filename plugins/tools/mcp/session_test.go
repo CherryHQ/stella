@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

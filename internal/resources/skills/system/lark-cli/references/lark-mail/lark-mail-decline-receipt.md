@@ -29,11 +29,11 @@ lark-cli mail +decline-receipt --message-id <message-id> --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 默认 | 说明 |
-|------|------|------|------|
-| `--message-id <id>` | 是 | — | 请求了已读回执的原邮件 message ID |
-| `--mailbox <email>` | 否 | `me` | 邮件归属的邮箱 |
-| `--dry-run` | 否 | — | 仅打印请求，不执行 |
+| 参数                | 必填 | 默认 | 说明                              |
+| ------------------- | ---- | ---- | --------------------------------- |
+| `--message-id <id>` | 是   | —    | 请求了已读回执的原邮件 message ID |
+| `--mailbox <email>` | 否   | `me` | 邮件归属的邮箱                    |
+| `--dry-run`         | 否   | —    | 仅打印请求，不执行                |
 
 > 注意本命令没有 `--yes` —— 它只是移除一个本地 label，不对外发信，Risk 级别是 `write` 而非 `high-risk-write`。
 
@@ -51,10 +51,10 @@ lark-cli mail +decline-receipt --message-id <message-id> --dry-run
 {
   "ok": true,
   "data": {
-    "message_id":             "原邮件 message ID",
+    "message_id": "原邮件 message ID",
     "decline_receipt_for_id": "原邮件 message ID",
-    "declined":               false,
-    "already_cleared":        true
+    "declined": false,
+    "already_cleared": true
   }
 }
 ```
@@ -65,9 +65,9 @@ lark-cli mail +decline-receipt --message-id <message-id> --dry-run
 {
   "ok": true,
   "data": {
-    "message_id":             "原邮件 message ID",
+    "message_id": "原邮件 message ID",
     "decline_receipt_for_id": "原邮件 message ID",
-    "declined":               true
+    "declined": true
   }
 }
 ```

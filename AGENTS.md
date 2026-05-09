@@ -15,7 +15,7 @@ You are working on **stella**, a Go CLI/service project. Act as an engineering c
 
 - Use `mise tasks` to discover available workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
-- Before committing, always run:
+- Before committing, **ALWAYS** run:
   - `mise run format`
   - `mise run build`
   - `mise run test`

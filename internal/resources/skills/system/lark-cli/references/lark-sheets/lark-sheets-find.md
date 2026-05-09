@@ -1,4 +1,3 @@
-
 # sheets +find（查找单元格）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -35,18 +34,18 @@ lark-cli sheets +find --url "https://..." --sheet-id "<sheetId>" --find "xxx" --
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一；支持 wiki URL） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--sheet-id <id>` | 是 | 工作表 ID（可通过 `+info` 获取） |
-| `--find <text>` | 是 | 查找内容（字符串或正则） |
-| `--range <range>` | 否 | 范围（如 `<sheetId>!A1:D200`，或 `A1:D200` / `C2` 配合 `--sheet-id`）；不填则搜索整个工作表 |
-| `--ignore-case` | 否 | 不区分大小写（默认区分） |
-| `--match-entire-cell` | 否 | 完全匹配单元格 |
-| `--search-by-regex` | 否 | 使用正则 |
-| `--include-formulas` | 否 | 搜索公式 |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                                                        |
+| ----------------------------- | ---- | ------------------------------------------------------------------------------------------- |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一；支持 wiki URL）                              |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                                                             |
+| `--sheet-id <id>`             | 是   | 工作表 ID（可通过 `+info` 获取）                                                            |
+| `--find <text>`               | 是   | 查找内容（字符串或正则）                                                                    |
+| `--range <range>`             | 否   | 范围（如 `<sheetId>!A1:D200`，或 `A1:D200` / `C2` 配合 `--sheet-id`）；不填则搜索整个工作表 |
+| `--ignore-case`               | 否   | 不区分大小写（默认区分）                                                                    |
+| `--match-entire-cell`         | 否   | 完全匹配单元格                                                                              |
+| `--search-by-regex`           | 否   | 使用正则                                                                                    |
+| `--include-formulas`          | 否   | 搜索公式                                                                                    |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                                                                      |
 
 ## 输出
 

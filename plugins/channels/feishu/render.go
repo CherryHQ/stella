@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // textContent builds the JSON content string for a Feishu text message.

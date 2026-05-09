@@ -30,12 +30,12 @@ lark-cli base +view-set-card \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--json <body>` | 是 | JSON 对象 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
+| `--json <body>`           | 是   | JSON 对象        |
 
 ## API 入参详情
 
@@ -55,16 +55,32 @@ PUT /open-apis/base/v3/bases/:base_token/tables/:table_id/views/:view_id/card
 - 非 `null` 时，字段必须是封面支持字段，实际就是 `attachment` 字段
 - 传 `null` 表示清空封面配置
 
-
 ## JSON Schema（原文）
 
 ```json
-{"type":"object","properties":{"cover_field":{"anyOf":[{"type":"string","minLength":1,"maxLength":100,"description":"Field id or name"},{"type":"null"}],"description":"cover field id or name. must be a attachment field"}},"required":["cover_field"],"additionalProperties":false,"$schema":"http://json-schema.org/draft-07/schema#"}
-
+{
+  "type": "object",
+  "properties": {
+    "cover_field": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Field id or name"
+        },
+        { "type": "null" }
+      ],
+      "description": "cover field id or name. must be a attachment field"
+    }
+  },
+  "required": ["cover_field"],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
 ```
 
 ## 工作流
-
 
 1. 建议先用 `+view-get-card` 拉现状，再修改。
 

@@ -64,6 +64,7 @@ metadata:
    - **响应回执（拉信侧）**：拉信看到 `label_ids` 含 `READ_RECEIPT_REQUEST`（或 `-607`）时，**必须先问用户**是否回执（不要自动回执，涉及隐私）。用户同意 → `+send-receipt` 响应；用户不同意但想消掉提示 → `+decline-receipt` 只清本地标签、不发邮件。
 
 对于所有发信场景，默认话术应偏向：
+
 - 先创建草稿
 - 若当前结果返回了草稿打开链接，直接把链接展示给用户
 - 若用户需要，再继续帮他修改草稿或执行发送
@@ -87,6 +88,7 @@ lark-cli mail user_mailbox.messages -h
 ### 收件人搜索：查找邮箱地址
 
 当需要查找收件人邮箱地址时，使用联系人搜索接口。支持多种搜索方式，如：
+
 - **按人名搜索**：如"给张三发邮件" → query="张三"
 - **按邮箱关键词搜索**：如"发到 larkmail 的邮箱" → query="@larkmail"
 - **按群名搜索**：如"发给项目群" → query="项目群"
@@ -97,14 +99,15 @@ lark-cli mail multi_entity search --as user --data '{"query":"<关键词>"}'
 
 搜索结果包含多种实体类型：
 
-| `type` 值 | `tag` 示例 | 说明 |
-|-----------|-----------|------|
-| `user` / `chatter` | `chatter` | 个人用户 |
-| `enterprise_mail_group` | `mail_group` | 企业邮件组 |
-| `chat` / `group` | `chat_group_tenant` / `chat_group_normal` | 群聊（有群邮件地址） |
-| `external_contact` | `external_contact` | 外部联系人 |
+| `type` 值               | `tag` 示例                                | 说明                 |
+| ----------------------- | ----------------------------------------- | -------------------- |
+| `user` / `chatter`      | `chatter`                                 | 个人用户             |
+| `enterprise_mail_group` | `mail_group`                              | 企业邮件组           |
+| `chat` / `group`        | `chat_group_tenant` / `chat_group_normal` | 群聊（有群邮件地址） |
+| `external_contact`      | `external_contact`                        | 外部联系人           |
 
 **处理规则：**
+
 1. 从结果中筛选有 `email` 字段的条目
 2. 无论匹配数量多少，都必须列出候选项供用户确认后再使用（搜索是模糊匹配，单条结果不代表精确命中）。展示尽可能多的字段帮助用户区分：
    ```text
@@ -128,11 +131,11 @@ lark-cli mail multi_entity search --as user --data '{"query":"<关键词>"}'
 
 ### 命令选择：先判断邮件类型，再决定草稿还是发送
 
-| 邮件类型 | 存草稿（不发送） | 直接发送 | 定时发送 |
-|----------|-----------------|---------|----------|
-| **新邮件** | `+send` 或 `+draft-create` | `+send --confirm-send` | `+send --confirm-send --send-time <unix_timestamp>` |
-| **回复** | `+reply` 或 `+reply-all` | `+reply --confirm-send` 或 `+reply-all --confirm-send` | `+reply --confirm-send --send-time <unix_timestamp>` 或 `+reply-all --confirm-send --send-time <unix_timestamp>` |
-| **转发** | `+forward` | `+forward --confirm-send` | `+forward --confirm-send --send-time <unix_timestamp>` |
+| 邮件类型   | 存草稿（不发送）           | 直接发送                                               | 定时发送                                                                                                         |
+| ---------- | -------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| **新邮件** | `+send` 或 `+draft-create` | `+send --confirm-send`                                 | `+send --confirm-send --send-time <unix_timestamp>`                                                              |
+| **回复**   | `+reply` 或 `+reply-all`   | `+reply --confirm-send` 或 `+reply-all --confirm-send` | `+reply --confirm-send --send-time <unix_timestamp>` 或 `+reply-all --confirm-send --send-time <unix_timestamp>` |
+| **转发**   | `+forward`                 | `+forward --confirm-send`                              | `+forward --confirm-send --send-time <unix_timestamp>`                                                           |
 
 - 有原邮件上下文 → 用 `+reply` / `+reply-all` / `+forward`（默认即草稿），**不要用 `+draft-create`**
 - **发送前必须向用户确认收件人和内容；如有必要，可引导用户去飞书邮件里打开草稿查看详情；用户明确同意后才可执行发送或使用 `--confirm-send`**
@@ -198,6 +201,7 @@ lark-cli mail user_mailbox.drafts cancel_scheduled_send --params '{"user_mailbox
 发送成功后，若响应中包含 `recall_available: true`，说明该邮件支持撤回（24 小时内已投递的邮件）。
 
 **撤回操作：**
+
 ```bash
 lark-cli mail user_mailbox.sent_messages recall --as user \
   --params '{"user_mailbox_id":"me","message_id":"<message_id>"}'
@@ -207,6 +211,7 @@ lark-cli mail user_mailbox.sent_messages recall --as user \
 - 返回 `recall_status: unavailable` 表示不可撤回，`recall_restriction_reason` 说明原因
 
 **查询撤回进度：**
+
 ```bash
 lark-cli mail user_mailbox.sent_messages get_recall_detail --as user \
   --params '{"user_mailbox_id":"me","message_id":"<message_id>"}'
@@ -245,6 +250,7 @@ lark-cli mail user_mailbox.sent_messages get_recall_detail --as user \
    从结果中获取 `chat_id`，然后执行分享。
 
 **注意：**
+
 - 分享需要用户在目标会话中有发消息权限
 - 需要同时授权 mail 和 im 两个域的 scope
 - 分享的卡片包含邮件摘要信息，收件人可点击查看
@@ -311,10 +317,10 @@ lark-cli schema mail.<resource>.<method>
 
 schema 输出是 JSON，包含两个关键部分：
 
-| schema JSON 字段 | CLI 标志 | 含义 |
-|---|---|---|
+| schema JSON 字段                      | CLI 标志           | 含义                                                             |
+| ------------------------------------- | ------------------ | ---------------------------------------------------------------- |
 | `parameters`（每个字段有 `location`） | `--params '{...}'` | URL 路径参数 (`location:"path"`) 和查询参数 (`location:"query"`) |
-| `requestBody` | `--data '{...}'` | 请求体（仅 POST / PUT / PATCH / DELETE 有） |
+| `requestBody`                         | `--data '{...}'`   | 请求体（仅 POST / PUT / PATCH / DELETE 有）                      |
 
 **速记：schema 中有 `location` 字段的 → `--params`；在 `requestBody` 下的 → `--data`。二者绝对不能混放。** path 参数和 query 参数统一放 `--params`，CLI 自动把 path 参数填入 URL。
 
@@ -355,23 +361,23 @@ lark-cli mail user_mailbox.folders create \
 
 Shortcut 是对常用操作的高级封装（`lark-cli mail +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+message`](./lark-mail/lark-mail-message.md) | Use when reading full content for a single email by message ID. Returns normalized body content plus attachments metadata, including inline images. |
-| [`+messages`](./lark-mail/lark-mail-messages.md) | Use when reading full content for multiple emails by message ID. Prefer this shortcut over calling raw mail user_mailbox.messages batch_get directly, because it base64url-decodes body fields and returns normalized per-message output that is easier to consume. |
-| [`+thread`](./lark-mail/lark-mail-thread.md) | Use when querying a full mail conversation/thread by thread ID. Returns all messages in chronological order, including replies and drafts, with body content and attachments metadata, including inline images. |
-| [`+triage`](./lark-mail/lark-mail-triage.md) | List mail summaries (date/from/subject/message_id). Use --query for full-text search, --filter for exact-match conditions. |
-| [`+watch`](./lark-mail/lark-mail-watch.md) | Watch for incoming mail events via WebSocket (requires scope mail:event and bot event mail.user_mailbox.event.message_received_v1 added). Run with --print-output-schema to see per-format field reference before parsing output. |
-| [`+reply`](./lark-mail/lark-mail-reply.md) | Reply to a message and save as draft (default). Use --confirm-send to send immediately after user confirmation. Sets Re: subject, In-Reply-To, and References headers automatically. |
-| [`+reply-all`](./lark-mail/lark-mail-reply-all.md) | Reply to all recipients and save as draft (default). Use --confirm-send to send immediately after user confirmation. Includes all original To and CC automatically. |
-| [`+send`](./lark-mail/lark-mail-send.md) | Compose a new email and save as draft (default). Use --confirm-send to send immediately after user confirmation. |
-| [`+draft-create`](./lark-mail/lark-mail-draft-create.md) | Create a brand-new mail draft from scratch (NOT for reply or forward). For reply drafts use +reply; for forward drafts use +forward. Only use +draft-create when composing a new email with no parent message. |
-| [`+draft-edit`](./lark-mail/lark-mail-draft-edit.md) | Use when updating an existing mail draft without sending it. Prefer this shortcut over calling raw drafts.get or drafts.update directly, because it performs draft-safe MIME read/patch/write editing while preserving unchanged structure, attachments, and headers where possible. |
-| [`+forward`](./lark-mail/lark-mail-forward.md) | Forward a message and save as draft (default). Use --confirm-send to send immediately after user confirmation. Original message block included automatically. |
-| [`+send-receipt`](./lark-mail/lark-mail-send-receipt.md) | Send a read-receipt reply for an incoming message that requested one (i.e. carries the READ_RECEIPT_REQUEST label). Body is auto-generated (subject / recipient / send time / read time) to match the Lark client's receipt format — callers cannot customize it, matching the industry norm that read-receipt bodies are system-generated templates, not free-form replies. Intended for agent use after the user confirms. |
-| [`+decline-receipt`](./lark-mail/lark-mail-decline-receipt.md) | Dismiss the read-receipt request banner on an incoming mail by clearing its READ_RECEIPT_REQUEST label, without sending a receipt. Use when the user wants to silence the prompt but refuse to confirm they have read it. Idempotent — safe to re-run. |
-| [`+signature`](./lark-mail/lark-mail-signature.md) | List or view email signatures with default usage info. |
-| [`+share-to-chat`](./lark-mail/lark-mail-share-to-chat.md) | Share an email or thread as a card to a Lark IM chat. |
+| Shortcut                                                       | 说明                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`+message`](./lark-mail/lark-mail-message.md)                 | Use when reading full content for a single email by message ID. Returns normalized body content plus attachments metadata, including inline images.                                                                                                                                                                                                                                                                          |
+| [`+messages`](./lark-mail/lark-mail-messages.md)               | Use when reading full content for multiple emails by message ID. Prefer this shortcut over calling raw mail user_mailbox.messages batch_get directly, because it base64url-decodes body fields and returns normalized per-message output that is easier to consume.                                                                                                                                                          |
+| [`+thread`](./lark-mail/lark-mail-thread.md)                   | Use when querying a full mail conversation/thread by thread ID. Returns all messages in chronological order, including replies and drafts, with body content and attachments metadata, including inline images.                                                                                                                                                                                                              |
+| [`+triage`](./lark-mail/lark-mail-triage.md)                   | List mail summaries (date/from/subject/message_id). Use --query for full-text search, --filter for exact-match conditions.                                                                                                                                                                                                                                                                                                   |
+| [`+watch`](./lark-mail/lark-mail-watch.md)                     | Watch for incoming mail events via WebSocket (requires scope mail:event and bot event mail.user_mailbox.event.message_received_v1 added). Run with --print-output-schema to see per-format field reference before parsing output.                                                                                                                                                                                            |
+| [`+reply`](./lark-mail/lark-mail-reply.md)                     | Reply to a message and save as draft (default). Use --confirm-send to send immediately after user confirmation. Sets Re: subject, In-Reply-To, and References headers automatically.                                                                                                                                                                                                                                         |
+| [`+reply-all`](./lark-mail/lark-mail-reply-all.md)             | Reply to all recipients and save as draft (default). Use --confirm-send to send immediately after user confirmation. Includes all original To and CC automatically.                                                                                                                                                                                                                                                          |
+| [`+send`](./lark-mail/lark-mail-send.md)                       | Compose a new email and save as draft (default). Use --confirm-send to send immediately after user confirmation.                                                                                                                                                                                                                                                                                                             |
+| [`+draft-create`](./lark-mail/lark-mail-draft-create.md)       | Create a brand-new mail draft from scratch (NOT for reply or forward). For reply drafts use +reply; for forward drafts use +forward. Only use +draft-create when composing a new email with no parent message.                                                                                                                                                                                                               |
+| [`+draft-edit`](./lark-mail/lark-mail-draft-edit.md)           | Use when updating an existing mail draft without sending it. Prefer this shortcut over calling raw drafts.get or drafts.update directly, because it performs draft-safe MIME read/patch/write editing while preserving unchanged structure, attachments, and headers where possible.                                                                                                                                         |
+| [`+forward`](./lark-mail/lark-mail-forward.md)                 | Forward a message and save as draft (default). Use --confirm-send to send immediately after user confirmation. Original message block included automatically.                                                                                                                                                                                                                                                                |
+| [`+send-receipt`](./lark-mail/lark-mail-send-receipt.md)       | Send a read-receipt reply for an incoming message that requested one (i.e. carries the READ_RECEIPT_REQUEST label). Body is auto-generated (subject / recipient / send time / read time) to match the Lark client's receipt format — callers cannot customize it, matching the industry norm that read-receipt bodies are system-generated templates, not free-form replies. Intended for agent use after the user confirms. |
+| [`+decline-receipt`](./lark-mail/lark-mail-decline-receipt.md) | Dismiss the read-receipt request banner on an incoming mail by clearing its READ_RECEIPT_REQUEST label, without sending a receipt. Use when the user wants to silence the prompt but refuse to confirm they have read it. Idempotent — safe to re-run.                                                                                                                                                                       |
+| [`+signature`](./lark-mail/lark-mail-signature.md)             | List or view email signatures with default usage info.                                                                                                                                                                                                                                                                                                                                                                       |
+| [`+share-to-chat`](./lark-mail/lark-mail-share-to-chat.md)     | Share an email or thread as a card to a Lark IM chat.                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## API Resources
 
@@ -384,147 +390,146 @@ lark-cli mail <resource> <method> [flags] # 调用 API
 
 ### multi_entity
 
-  - `search` — 适用于写信联系人搜索
+- `search` — 适用于写信联系人搜索
 
 ### user_mailboxes
 
-  - `accessible_mailboxes` — 获取主账号的所有可访问邮箱，包括主邮箱和公共邮箱
-  - `profile` — 用于在用户身份下获取自己的邮箱主地址
-  - `search` — 搜索邮件
+- `accessible_mailboxes` — 获取主账号的所有可访问邮箱，包括主邮箱和公共邮箱
+- `profile` — 用于在用户身份下获取自己的邮箱主地址
+- `search` — 搜索邮件
 
 ### user_mailbox.drafts
 
-  - `cancel_scheduled_send` — 取消定时发送
-  - `create` — 创建草稿
-  - `delete` — 删除指定邮箱账户下的单份邮件草稿。注意：对于草稿状态的邮件，只能使用本接口删除，禁止使用 trash_message；被删除的草稿数据无法恢复，请谨慎使用。
-  - `get` — 获取草稿详情
-  - `list` — 拉取草稿列表
-  - `send` — 发送草稿
-  - `update` — 更新草稿
+- `cancel_scheduled_send` — 取消定时发送
+- `create` — 创建草稿
+- `delete` — 删除指定邮箱账户下的单份邮件草稿。注意：对于草稿状态的邮件，只能使用本接口删除，禁止使用 trash_message；被删除的草稿数据无法恢复，请谨慎使用。
+- `get` — 获取草稿详情
+- `list` — 拉取草稿列表
+- `send` — 发送草稿
+- `update` — 更新草稿
 
 ### user_mailbox.event
 
-  - `subscribe` — 订阅收信事件
-  - `subscription` — 查询订阅的收信事件
-  - `unsubscribe` — 取消订阅收信事件
+- `subscribe` — 订阅收信事件
+- `subscription` — 查询订阅的收信事件
+- `unsubscribe` — 取消订阅收信事件
 
 ### user_mailbox.folders
 
-  - `create` — 创建邮箱文件夹
-  - `delete` — 删除用户文件夹。删除后文件夹数据无法恢复，请谨慎使用；删除文件夹会将该文件夹下的邮件移至已删除文件夹中。
-  - `get` — 获取指定邮箱账户下的单个邮件文件夹详情
-  - `list` — 列出用户文件夹，可获取文件夹名称、文件夹ID、文件夹下的未读邮件和未读会话数量
-  - `patch` — 更新用户文件夹
+- `create` — 创建邮箱文件夹
+- `delete` — 删除用户文件夹。删除后文件夹数据无法恢复，请谨慎使用；删除文件夹会将该文件夹下的邮件移至已删除文件夹中。
+- `get` — 获取指定邮箱账户下的单个邮件文件夹详情
+- `list` — 列出用户文件夹，可获取文件夹名称、文件夹ID、文件夹下的未读邮件和未读会话数量
+- `patch` — 更新用户文件夹
 
 ### user_mailbox.labels
 
-  - `create` — 根据用户指定的名称、颜色等信息，创建邮件标签
-  - `delete` — 删除用户指定的标签，注意，删除的标签无法恢复
-  - `get` — 根据指定ID，获取邮件标签信息，包括名称、未读数据、颜色等信息
-  - `list` — 列出邮件标签，包括ID、名称、颜色、未读信息等内容
-  - `patch` — 更新邮件标签
+- `create` — 根据用户指定的名称、颜色等信息，创建邮件标签
+- `delete` — 删除用户指定的标签，注意，删除的标签无法恢复
+- `get` — 根据指定ID，获取邮件标签信息，包括名称、未读数据、颜色等信息
+- `list` — 列出邮件标签，包括ID、名称、颜色、未读信息等内容
+- `patch` — 更新邮件标签
 
 ### user_mailbox.mail_contacts
 
-  - `create` — 创建邮箱联系人
-  - `delete` — 删除指定的邮箱联系人
-  - `list` — 列出邮箱联系人
-  - `patch` — 更新邮箱联系人
+- `create` — 创建邮箱联系人
+- `delete` — 删除指定的邮箱联系人
+- `list` — 列出邮箱联系人
+- `patch` — 更新邮箱联系人
 
 ### user_mailbox.message.attachments
 
-  - `download_url` — 获取附件下载链接
+- `download_url` — 获取附件下载链接
 
 ### user_mailbox.messages
 
-  - `batch_get` — 通过指定邮件ID，获取对应邮件的标签、文件夹、摘要、正文、html、附件等信息。注意，如需获取摘要、正文、主题或收发件人地址，需要申请对应的字段权限。
-  - `batch_modify` — 本接口提供修改邮件的能力，支持移动邮件的文件夹、给邮件添加和移除标签、标记邮件读和未读、移动邮件至垃圾邮件等能力。不支持移动邮件到已删除文件夹，如需，请使用批量删除邮件接口。
-  - `batch_trash` — 通过指定邮件ID，批量移动邮件到已删除文件夹
-  - `get` — 获取邮件详情
-  - `list` — 根据用户指定的标签或文件夹，列出对应位置下的邮件列表。注意，必须填写folder_id或label_id中的一个字段。
-  - `modify` — 本接口提供修改邮件的能力，支持移动邮件的文件夹、给邮件添加和移除标签、标记邮件已读和未读、移动邮件至垃圾邮件等能力。不支持移动邮件到已删除文件夹，如需删除邮件，请使用删除邮件接口。至少填写add_label_ids、remove_label_ids、add_folder中的一个参数。
-  - `send_status` — 查询邮件发送状态
-  - `trash` — 移动邮件到已删除文件夹。注意，该接口无法删除草稿，如需删除草稿，请使用删除草稿接口
+- `batch_get` — 通过指定邮件ID，获取对应邮件的标签、文件夹、摘要、正文、html、附件等信息。注意，如需获取摘要、正文、主题或收发件人地址，需要申请对应的字段权限。
+- `batch_modify` — 本接口提供修改邮件的能力，支持移动邮件的文件夹、给邮件添加和移除标签、标记邮件读和未读、移动邮件至垃圾邮件等能力。不支持移动邮件到已删除文件夹，如需，请使用批量删除邮件接口。
+- `batch_trash` — 通过指定邮件ID，批量移动邮件到已删除文件夹
+- `get` — 获取邮件详情
+- `list` — 根据用户指定的标签或文件夹，列出对应位置下的邮件列表。注意，必须填写folder_id或label_id中的一个字段。
+- `modify` — 本接口提供修改邮件的能力，支持移动邮件的文件夹、给邮件添加和移除标签、标记邮件已读和未读、移动邮件至垃圾邮件等能力。不支持移动邮件到已删除文件夹，如需删除邮件，请使用删除邮件接口。至少填写add_label_ids、remove_label_ids、add_folder中的一个参数。
+- `send_status` — 查询邮件发送状态
+- `trash` — 移动邮件到已删除文件夹。注意，该接口无法删除草稿，如需删除草稿，请使用删除草稿接口
 
 ### user_mailbox.rules
 
-  - `create` — 创建收信规则
-  - `delete` — 删除收信规则
-  - `list` — 列出收信规则
-  - `reorder` — 
-  - `update` — 
+- `create` — 创建收信规则
+- `delete` — 删除收信规则
+- `list` — 列出收信规则
+- `reorder` —
+- `update` —
 
 ### user_mailbox.sent_messages
 
-  - `get_recall_detail` — 查询指定邮件的撤回结果详情，包括整体撤回进度、成功/失败/处理中的收件人数量，以及每个收件人的撤回状态和失败原因。
-  - `recall` — 撤回指定邮件。前置条件：邮件须已投递，且发送时间在 24 小时以内；搬家中的域名不支持撤回。返回说明：若用户或邮件不满足撤回条件，接口仍返回 200，响应体中 recall_status 为 unavailable，recall_restriction_reason 标明具体原因。返回成功仅表示撤回请求已受理，实际撤回结果请调用「查询邮件撤回进度」接口获取。
+- `get_recall_detail` — 查询指定邮件的撤回结果详情，包括整体撤回进度、成功/失败/处理中的收件人数量，以及每个收件人的撤回状态和失败原因。
+- `recall` — 撤回指定邮件。前置条件：邮件须已投递，且发送时间在 24 小时以内；搬家中的域名不支持撤回。返回说明：若用户或邮件不满足撤回条件，接口仍返回 200，响应体中 recall_status 为 unavailable，recall_restriction_reason 标明具体原因。返回成功仅表示撤回请求已受理，实际撤回结果请调用「查询邮件撤回进度」接口获取。
 
 ### user_mailbox.settings
 
-  - `send_as` — 获取账号的所有可发信地址，包括主地址、别名地址、邮件组。可以使用用户地址访问该接口，也可以使用用户有权限的公共邮箱地址访问该接口。
+- `send_as` — 获取账号的所有可发信地址，包括主地址、别名地址、邮件组。可以使用用户地址访问该接口，也可以使用用户有权限的公共邮箱地址访问该接口。
 
 ### user_mailbox.threads
 
-  - `batch_modify` — 本接口提供修改邮件会话的能力，支持移动邮件会话的文件夹、给邮件会话添加和移除标签、标记邮件会话读和未读、移动邮件会话至垃圾邮件等能力。不支持移动邮件会话到已删除文件夹，如需，请使用批量删除邮件会话接口。
-  - `batch_trash` — 通过指定邮件会话ID，批量移动邮件到已删除文件夹
-  - `get` — 通过用户邮箱地址和邮件会话ID，获取该会话下的所有邮件关键信息列表。如需查询主题、正文、摘要、收发件人信息，请申请字段权限。
-  - `list` — 通过指定文件夹或标签，列出对应位置下的邮件会话列表。接口可返回邮件会话ID和会话下最新一封邮件的摘要。folder_id 和 label_id 必须且只能提供一个。
-  - `modify` — 本接口提供修改邮件会话的能力，支持移动邮件会话的文件夹、给邮件会话添加和移除标签、标记邮件会话读和未读、移动邮件会话至垃圾邮件等能力。不支持移动邮件会话到已删除文件夹，如需，请使用删除邮件会话接口。至少填写add_label_ids、remove_label_ids、add_folder中的一个参数。
-  - `trash` — 移动指定的邮件会话到已删除文件夹
+- `batch_modify` — 本接口提供修改邮件会话的能力，支持移动邮件会话的文件夹、给邮件会话添加和移除标签、标记邮件会话读和未读、移动邮件会话至垃圾邮件等能力。不支持移动邮件会话到已删除文件夹，如需，请使用批量删除邮件会话接口。
+- `batch_trash` — 通过指定邮件会话ID，批量移动邮件到已删除文件夹
+- `get` — 通过用户邮箱地址和邮件会话ID，获取该会话下的所有邮件关键信息列表。如需查询主题、正文、摘要、收发件人信息，请申请字段权限。
+- `list` — 通过指定文件夹或标签，列出对应位置下的邮件会话列表。接口可返回邮件会话ID和会话下最新一封邮件的摘要。folder_id 和 label_id 必须且只能提供一个。
+- `modify` — 本接口提供修改邮件会话的能力，支持移动邮件会话的文件夹、给邮件会话添加和移除标签、标记邮件会话读和未读、移动邮件会话至垃圾邮件等能力。不支持移动邮件会话到已删除文件夹，如需，请使用删除邮件会话接口。至少填写add_label_ids、remove_label_ids、add_folder中的一个参数。
+- `trash` — 移动指定的邮件会话到已删除文件夹
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `multi_entity.search` | `mail:user_mailbox:readonly` |
-| `user_mailboxes.accessible_mailboxes` | `mail:user_mailbox:readonly` |
-| `user_mailboxes.profile` | `mail:user_mailbox:readonly` |
-| `user_mailboxes.search` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.drafts.cancel_scheduled_send` | `mail:user_mailbox.message:send` |
-| `user_mailbox.drafts.create` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.drafts.delete` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.drafts.get` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.drafts.list` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.drafts.send` | `mail:user_mailbox.message:send` |
-| `user_mailbox.drafts.update` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.event.subscribe` | `mail:event` |
-| `user_mailbox.event.subscription` | `mail:event` |
-| `user_mailbox.event.unsubscribe` | `mail:event` |
-| `user_mailbox.folders.create` | `mail:user_mailbox.folder:write` |
-| `user_mailbox.folders.delete` | `mail:user_mailbox.folder:write` |
-| `user_mailbox.folders.get` | `mail:user_mailbox.folder:read` |
-| `user_mailbox.folders.list` | `mail:user_mailbox.folder:read` |
-| `user_mailbox.folders.patch` | `mail:user_mailbox.folder:write` |
-| `user_mailbox.labels.create` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.labels.delete` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.labels.get` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.labels.list` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.labels.patch` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.mail_contacts.create` | `mail:user_mailbox.mail_contact:write` |
-| `user_mailbox.mail_contacts.delete` | `mail:user_mailbox.mail_contact:write` |
-| `user_mailbox.mail_contacts.list` | `mail:user_mailbox.mail_contact:read` |
-| `user_mailbox.mail_contacts.patch` | `mail:user_mailbox.mail_contact:write` |
-| `user_mailbox.message.attachments.download_url` | `mail:user_mailbox.message.body:read` |
-| `user_mailbox.messages.batch_get` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.messages.batch_modify` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.messages.batch_trash` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.messages.get` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.messages.list` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.messages.modify` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.messages.send_status` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.messages.trash` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.rules.create` | `mail:user_mailbox.rule:write` |
-| `user_mailbox.rules.delete` | `mail:user_mailbox.rule:write` |
-| `user_mailbox.rules.list` | `mail:user_mailbox.rule:read` |
-| `user_mailbox.rules.reorder` | `mail:user_mailbox.rule:write` |
-| `user_mailbox.rules.update` | `mail:user_mailbox.rule:write` |
-| `user_mailbox.sent_messages.get_recall_detail` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.sent_messages.recall` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.settings.send_as` | `mail:user_mailbox:readonly` |
-| `user_mailbox.threads.batch_modify` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.threads.batch_trash` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.threads.get` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.threads.list` | `mail:user_mailbox.message:readonly` |
-| `user_mailbox.threads.modify` | `mail:user_mailbox.message:modify` |
-| `user_mailbox.threads.trash` | `mail:user_mailbox.message:modify` |
-
+| 方法                                            | 所需 scope                             |
+| ----------------------------------------------- | -------------------------------------- |
+| `multi_entity.search`                           | `mail:user_mailbox:readonly`           |
+| `user_mailboxes.accessible_mailboxes`           | `mail:user_mailbox:readonly`           |
+| `user_mailboxes.profile`                        | `mail:user_mailbox:readonly`           |
+| `user_mailboxes.search`                         | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.drafts.cancel_scheduled_send`     | `mail:user_mailbox.message:send`       |
+| `user_mailbox.drafts.create`                    | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.drafts.delete`                    | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.drafts.get`                       | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.drafts.list`                      | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.drafts.send`                      | `mail:user_mailbox.message:send`       |
+| `user_mailbox.drafts.update`                    | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.event.subscribe`                  | `mail:event`                           |
+| `user_mailbox.event.subscription`               | `mail:event`                           |
+| `user_mailbox.event.unsubscribe`                | `mail:event`                           |
+| `user_mailbox.folders.create`                   | `mail:user_mailbox.folder:write`       |
+| `user_mailbox.folders.delete`                   | `mail:user_mailbox.folder:write`       |
+| `user_mailbox.folders.get`                      | `mail:user_mailbox.folder:read`        |
+| `user_mailbox.folders.list`                     | `mail:user_mailbox.folder:read`        |
+| `user_mailbox.folders.patch`                    | `mail:user_mailbox.folder:write`       |
+| `user_mailbox.labels.create`                    | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.labels.delete`                    | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.labels.get`                       | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.labels.list`                      | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.labels.patch`                     | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.mail_contacts.create`             | `mail:user_mailbox.mail_contact:write` |
+| `user_mailbox.mail_contacts.delete`             | `mail:user_mailbox.mail_contact:write` |
+| `user_mailbox.mail_contacts.list`               | `mail:user_mailbox.mail_contact:read`  |
+| `user_mailbox.mail_contacts.patch`              | `mail:user_mailbox.mail_contact:write` |
+| `user_mailbox.message.attachments.download_url` | `mail:user_mailbox.message.body:read`  |
+| `user_mailbox.messages.batch_get`               | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.messages.batch_modify`            | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.messages.batch_trash`             | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.messages.get`                     | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.messages.list`                    | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.messages.modify`                  | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.messages.send_status`             | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.messages.trash`                   | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.rules.create`                     | `mail:user_mailbox.rule:write`         |
+| `user_mailbox.rules.delete`                     | `mail:user_mailbox.rule:write`         |
+| `user_mailbox.rules.list`                       | `mail:user_mailbox.rule:read`          |
+| `user_mailbox.rules.reorder`                    | `mail:user_mailbox.rule:write`         |
+| `user_mailbox.rules.update`                     | `mail:user_mailbox.rule:write`         |
+| `user_mailbox.sent_messages.get_recall_detail`  | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.sent_messages.recall`             | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.settings.send_as`                 | `mail:user_mailbox:readonly`           |
+| `user_mailbox.threads.batch_modify`             | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.threads.batch_trash`              | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.threads.get`                      | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.threads.list`                     | `mail:user_mailbox.message:readonly`   |
+| `user_mailbox.threads.modify`                   | `mail:user_mailbox.message:modify`     |
+| `user_mailbox.threads.trash`                    | `mail:user_mailbox.message:modify`     |

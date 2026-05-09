@@ -1,4 +1,3 @@
-
 # sheets +delete-float-image（删除浮动图片）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -19,13 +18,13 @@ lark-cli sheets +delete-float-image --url "https://example.larksuite.com/sheets/
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
-| `--spreadsheet-token` | 否 | 表格 token |
-| `--sheet-id` | 是 | 工作表 ID |
-| `--float-image-id` | 是 | 浮动图片 ID |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                  | 必填 | 说明                                            |
+| --------------------- | ---- | ----------------------------------------------- |
+| `--url`               | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一） |
+| `--spreadsheet-token` | 否   | 表格 token                                      |
+| `--sheet-id`          | 是   | 工作表 ID                                       |
+| `--float-image-id`    | 是   | 浮动图片 ID                                     |
+| `--dry-run`           | 否   | 仅打印参数，不执行请求                          |
 
 ## 输出
 

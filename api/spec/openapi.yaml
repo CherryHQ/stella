@@ -52,294 +52,412 @@ tags:
 paths:
   # ── Auth ───────────────────────────────────────────────────────────────────
   /api/auth/register:
-    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1register'
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1register"
   /api/auth/login:
-    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1login'
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1login"
   /api/auth/logout:
-    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1logout'
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1logout"
   /api/auth/me:
-    $ref: './domain/auth/paths.yaml#/paths/~1api~1auth~1me'
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents"
   /api/agents/{id}:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}"
   /api/agents/{id}/users:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users"
   /api/agents/{id}/users/{userId}:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
   /api/agents/{id}/skills:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills"
   /api/agents/{id}/skills/install:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1install'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1install"
   /api/agents/{id}/skills/upload:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload"
   /api/agents/{id}/skills/from-builtin/{skillId}:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1from-builtin~1{skillId}'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1from-builtin~1{skillId}"
   /api/agents/{id}/skills/{skillId}:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
   /api/agents/{id}/skills/{skillId}/file:
-    $ref: './domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file'
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
   # ── Skills ─────────────────────────────────────────────────────────────────
   /api/skills:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
   /api/skills/search:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1search'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
   /api/skills/install:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1install'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
   /api/skills/{id}:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1{id}'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
   /api/skills/{id}/file:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
   /api/auth/profile/skills:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills"
   /api/auth/profile/skills/install:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1install'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1install"
   /api/auth/profile/skills/upload:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1upload'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1upload"
   /api/auth/profile/skills/{skillId}:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}"
   /api/auth/profile/skills/{skillId}/file:
-    $ref: './domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}~1file'
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}~1file"
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles"
   /api/recally/articles/{id}:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles~1{id}"
   /api/recally/feeds:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds"
   /api/recally/feeds/{id}:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}"
   /api/recally/feeds/{id}/poll:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{id}~1poll"
   /api/recally/feeds/{feedId}/entries:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries"
   /api/recally/feeds/{feedId}/entries/{id}:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}"
   /api/recally/digest:
-    $ref: './domain/recally/paths.yaml#/paths/~1api~1recally~1digest'
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digest"
   # ── Models ─────────────────────────────────────────────────────────────────
   /api/models:
-    $ref: './domain/models/paths.yaml#/paths/~1api~1models'
+    $ref: "./domain/models/paths.yaml#/paths/~1api~1models"
   # ── Tools ──────────────────────────────────────────────────────────────────
   /api/tools:
-    $ref: './domain/tools/paths.yaml#/paths/~1api~1tools'
+    $ref: "./domain/tools/paths.yaml#/paths/~1api~1tools"
   # ── Builtin ────────────────────────────────────────────────────────────────
   /api/builtin/{kind}:
-    $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}'
+    $ref: "./domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}"
   /api/builtin/{kind}/{id}:
-    $ref: './domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}~1{id}'
+    $ref: "./domain/builtin/paths.yaml#/paths/~1api~1builtin~1{kind}~1{id}"
   # ── Channels ───────────────────────────────────────────────────────────────
   /api/channels/public:
-    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1public'
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1public"
   /api/channels:
-    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels'
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
-    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1{id}'
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
   /api/channels/weixin/qr:
-    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr'
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr"
   /api/channels/weixin/qr/status:
-    $ref: './domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr~1status'
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1weixin~1qr~1status"
   # ── Providers ──────────────────────────────────────────────────────────────
   /api/providers:
-    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers'
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers"
   /api/providers/{id}:
-    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers~1{id}'
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}"
   /api/providers/{id}/models:
-    $ref: './domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models'
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1providers~1{id}~1models"
   /api/provider-types:
-    $ref: './domain/providers/paths.yaml#/paths/~1api~1provider-types'
+    $ref: "./domain/providers/paths.yaml#/paths/~1api~1provider-types"
   # ── Sessions ───────────────────────────────────────────────────────────────
   /api/sessions:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions"
   /api/sessions/{sessionID}:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}"
   /api/sessions/{sessionID}/messages:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages"
   /api/sessions/{sessionID}/workspace:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace"
   /api/sessions/{sessionID}/workspace/files:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1files'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1files"
   /api/sessions/{sessionID}/workspace/file-content:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1file-content'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1file-content"
   /api/sessions/{sessionID}/workspace/upload:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1upload'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1upload"
   /api/sessions/{sessionID}/system-prompt:
-    $ref: './domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt'
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt"
   # ── Users ──────────────────────────────────────────────────────────────────
   /api/users/{id}/default-agent:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent"
   /api/users/{id}/notify-identity:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1notify-identity'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1notify-identity"
   /api/users/{id}/memories:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories"
   /api/users/{id}/memories/{agentId}:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentId}'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentId}"
   # ── Auth Users ─────────────────────────────────────────────────────────────
   /api/auth/users:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users"
   /api/auth/users/{id}:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}"
   /api/auth/users/{id}/role:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role"
   /api/auth/users/{id}/agents:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents"
   /api/auth/users/{id}/identities/{identityId}:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}"
   /api/auth/users/{id}/active:
-    $ref: './domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1active'
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1active"
   # ── Profile ────────────────────────────────────────────────────────────────
   /api/auth/profile/identities:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities"
   /api/auth/profile/identities/{id}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities~1{id}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities~1{id}"
   /api/auth/profile/password:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1password'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1password"
   /api/auth/profile/link-code:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1link-code'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1link-code"
   /api/auth/profile/memories:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories"
   /api/auth/profile/memories/{agentId}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentId}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentId}"
   /api/auth/profile/soul/{agentId}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentId}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentId}"
   /api/auth/profile/vault:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault"
   /api/auth/profile/vault/{name}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault~1{name}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault~1{name}"
   /api/auth/profile/oauth/providers:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1providers'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1providers"
   /api/auth/profile/oauth/{provider}/start:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1start'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1start"
   /api/auth/profile/oauth/{provider}/status/{flowID}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1status~1{flowID}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1status~1{flowID}"
   /api/auth/profile/oauth/{provider}/connected:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1connected'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1connected"
   /api/auth/profile/oauth/{provider}:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}"
   /api/auth/profile/oauth/{provider}/callback:
-    $ref: './domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback'
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback"
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
-    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs'
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs"
   /api/scheduler/jobs/{id}:
-    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}'
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}"
   /api/scheduler/jobs/{id}/run:
-    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run'
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run"
   /api/scheduler/jobs/{id}/runs:
-    $ref: './domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs'
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugins'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
   /api/plugins/{kind}/{name}:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}"
   /api/plugin-status/{kind}/{name}:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-status~1{kind}~1{name}'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-status~1{kind}~1{name}"
   /api/plugin-config/{kind}/{name}:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-config~1{kind}~1{name}'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-config~1{kind}~1{name}"
   /api/plugin-config-schema/{kind}/{name}:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1plugin-config-schema~1{kind}~1{name}'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-config-schema~1{kind}~1{name}"
   /api/manifest-plugins:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
   /api/manifest-plugins/sync:
-    $ref: './domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync'
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
 components:
   securitySchemes:
     BearerAuth:
-      $ref: './components.yaml#/components/securitySchemes/BearerAuth'
+      $ref: "./components.yaml#/components/securitySchemes/BearerAuth"
 
   schemas:
-    Error:            { $ref: './components.yaml#/components/schemas/Error' }
-    ArticleStatus:    { $ref: './components.yaml#/components/schemas/ArticleStatus' }
-    SourceType:       { $ref: './components.yaml#/components/schemas/SourceType' }
-    FeedEntryStatus:  { $ref: './components.yaml#/components/schemas/FeedEntryStatus' }
-    Article:          { $ref: './components.yaml#/components/schemas/Article' }
-    ArticleList:      { $ref: './components.yaml#/components/schemas/ArticleList' }
-    SaveArticleRequest:      { $ref: './components.yaml#/components/schemas/SaveArticleRequest' }
-    UpdateArticleRequest:    { $ref: './components.yaml#/components/schemas/UpdateArticleRequest' }
-    Feed:             { $ref: './components.yaml#/components/schemas/Feed' }
-    FeedList:         { $ref: './components.yaml#/components/schemas/FeedList' }
-    CreateFeedRequest:       { $ref: './components.yaml#/components/schemas/CreateFeedRequest' }
-    UpdateFeedRequest:       { $ref: './components.yaml#/components/schemas/UpdateFeedRequest' }
-    FeedEntry:        { $ref: './components.yaml#/components/schemas/FeedEntry' }
-    FeedEntryList:    { $ref: './components.yaml#/components/schemas/FeedEntryList' }
-    UpdateFeedEntryRequest:  { $ref: './components.yaml#/components/schemas/UpdateFeedEntryRequest' }
-    FeedPollResult:   { $ref: './components.yaml#/components/schemas/FeedPollResult' }
-    TagCount:         { $ref: './components.yaml#/components/schemas/TagCount' }
-    Digest:           { $ref: './components.yaml#/components/schemas/Digest' }
-    Job:          { $ref: './components.yaml#/components/schemas/Job' }
-    JobList:      { $ref: './components.yaml#/components/schemas/JobList' }
-    JobInput:     { $ref: './components.yaml#/components/schemas/JobInput' }
-    DeleteResult: { $ref: './components.yaml#/components/schemas/DeleteResult' }
-    CachedModel:          { $ref: './components.yaml#/components/schemas/CachedModel' }
-    Tool:                 { $ref: './components.yaml#/components/schemas/Tool' }
-    BuiltinResource:      { $ref: './components.yaml#/components/schemas/BuiltinResource' }
-    BuiltinResourceDetail: { $ref: './components.yaml#/components/schemas/BuiltinResourceDetail' }
-    Channel:              { $ref: './components.yaml#/components/schemas/Channel' }
-    ChannelList:          { $ref: './components.yaml#/components/schemas/ChannelList' }
-    PublicChannel:        { $ref: './components.yaml#/components/schemas/PublicChannel' }
-    PublicChannelList:    { $ref: './components.yaml#/components/schemas/PublicChannelList' }
-    ChannelWriteRequest:  { $ref: './components.yaml#/components/schemas/ChannelWriteRequest' }
-    WeixinQRCode:         { $ref: './components.yaml#/components/schemas/WeixinQRCode' }
-    WeixinQRStatus:       { $ref: './components.yaml#/components/schemas/WeixinQRStatus' }
-    ProviderModelCost:    { $ref: './components.yaml#/components/schemas/ProviderModelCost' }
-    ProviderModel:        { $ref: './components.yaml#/components/schemas/ProviderModel' }
-    Provider:             { $ref: './components.yaml#/components/schemas/Provider' }
-    ProviderModelItem:    { $ref: './components.yaml#/components/schemas/ProviderModelItem' }
-    ProviderType:         { $ref: './components.yaml#/components/schemas/ProviderType' }
-    FetchModelsRequest:   { $ref: './components.yaml#/components/schemas/FetchModelsRequest' }
-    Session:              { $ref: './components.yaml#/components/schemas/Session' }
-    SessionDetail:        { $ref: './components.yaml#/components/schemas/SessionDetail' }
-    CreateSessionRequest: { $ref: './components.yaml#/components/schemas/CreateSessionRequest' }
-    SendMessageRequest:   { $ref: './components.yaml#/components/schemas/SendMessageRequest' }
-    SystemPromptResponse: { $ref: './components.yaml#/components/schemas/SystemPromptResponse' }
-    WorkspaceUploadResponse: { $ref: './components.yaml#/components/schemas/WorkspaceUploadResponse' }
-    SandboxNetworkConfig: { $ref: './components.yaml#/components/schemas/SandboxNetworkConfig' }
-    SandboxConfig:        { $ref: './components.yaml#/components/schemas/SandboxConfig' }
-    Agent:                { $ref: './components.yaml#/components/schemas/Agent' }
-    AgentList:            { $ref: './components.yaml#/components/schemas/AgentList' }
-    CreateAgentRequest:   { $ref: './components.yaml#/components/schemas/CreateAgentRequest' }
-    AgentUser:            { $ref: './components.yaml#/components/schemas/AgentUser' }
-    AgentUserList:        { $ref: './components.yaml#/components/schemas/AgentUserList' }
-    AssignAgentUserRequest: { $ref: './components.yaml#/components/schemas/AssignAgentUserRequest' }
-    Skill:                { $ref: './components.yaml#/components/schemas/Skill' }
-    SkillList:            { $ref: './components.yaml#/components/schemas/SkillList' }
-    InstallSkillRequest:  { $ref: './components.yaml#/components/schemas/InstallSkillRequest' }
-    UpdateSkillRequest:   { $ref: './components.yaml#/components/schemas/UpdateSkillRequest' }
-    SkillUploadResult:    { $ref: './components.yaml#/components/schemas/SkillUploadResult' }
-    DuplicateSkillResult: { $ref: './components.yaml#/components/schemas/DuplicateSkillResult' }
-    CreateSkillRequest:         { $ref: './components.yaml#/components/schemas/CreateSkillRequest' }
-    GlobalInstallSkillRequest:  { $ref: './components.yaml#/components/schemas/GlobalInstallSkillRequest' }
-    ProfileInstallSkillRequest: { $ref: './components.yaml#/components/schemas/ProfileInstallSkillRequest' }
-    SkillSearchResult:          { $ref: './components.yaml#/components/schemas/SkillSearchResult' }
-    SkillSearchResultList:      { $ref: './components.yaml#/components/schemas/SkillSearchResultList' }
-    SkillFileResponse:          { $ref: './components.yaml#/components/schemas/SkillFileResponse' }
-    DeleteFileResult:           { $ref: './components.yaml#/components/schemas/DeleteFileResult' }
-    Identity:                   { $ref: './components.yaml#/components/schemas/Identity' }
-    AuthUser:                   { $ref: './components.yaml#/components/schemas/AuthUser' }
-    AuthUserList:               { $ref: './components.yaml#/components/schemas/AuthUserList' }
-    UserMemory:                 { $ref: './components.yaml#/components/schemas/UserMemory' }
-    UpdateDefaultAgentRequest:  { $ref: './components.yaml#/components/schemas/UpdateDefaultAgentRequest' }
-    UpdateNotifyIdentityRequest: { $ref: './components.yaml#/components/schemas/UpdateNotifyIdentityRequest' }
-    SetMemoryRequest:           { $ref: './components.yaml#/components/schemas/SetMemoryRequest' }
-    UpdateRoleRequest:          { $ref: './components.yaml#/components/schemas/UpdateRoleRequest' }
-    UpdateAgentsRequest:        { $ref: './components.yaml#/components/schemas/UpdateAgentsRequest' }
-    UpdateActiveRequest:        { $ref: './components.yaml#/components/schemas/UpdateActiveRequest' }
-    ChangePasswordRequest:      { $ref: './components.yaml#/components/schemas/ChangePasswordRequest' }
-    GenerateLinkCodeRequest:    { $ref: './components.yaml#/components/schemas/GenerateLinkCodeRequest' }
-    VaultEntryValue:            { $ref: './components.yaml#/components/schemas/VaultEntryValue' }
-    LinkCodeResponse:           { $ref: './components.yaml#/components/schemas/LinkCodeResponse' }
-    SetSoulRequest:             { $ref: './components.yaml#/components/schemas/SetSoulRequest' }
-    VaultEntry:                 { $ref: './components.yaml#/components/schemas/VaultEntry' }
-    SetVaultEntryRequest:       { $ref: './components.yaml#/components/schemas/SetVaultEntryRequest' }
-    OAuthProviderStatus:        { $ref: './components.yaml#/components/schemas/OAuthProviderStatus' }
-    OAuthFlowStatus:            { $ref: './components.yaml#/components/schemas/OAuthFlowStatus' }
-    OAuthConnectedResponse:     { $ref: './components.yaml#/components/schemas/OAuthConnectedResponse' }
-    LoginRequest:               { $ref: './components.yaml#/components/schemas/LoginRequest' }
-    RegisterRequest:            { $ref: './components.yaml#/components/schemas/RegisterRequest' }
-    AuthResponse:               { $ref: './components.yaml#/components/schemas/AuthResponse' }
-    MeResponse:                 { $ref: './components.yaml#/components/schemas/MeResponse' }
-    PluginView:                 { $ref: './components.yaml#/components/schemas/PluginView' }
-    TogglePluginRequest:        { $ref: './components.yaml#/components/schemas/TogglePluginRequest' }
-    UpdatePluginConfigRequest:  { $ref: './components.yaml#/components/schemas/UpdatePluginConfigRequest' }
-    ManifestPlugin:             { $ref: './components.yaml#/components/schemas/ManifestPlugin' }
+    Error: { $ref: "./components.yaml#/components/schemas/Error" }
+    ArticleStatus: {
+      $ref: "./components.yaml#/components/schemas/ArticleStatus",
+    }
+    SourceType: { $ref: "./components.yaml#/components/schemas/SourceType" }
+    FeedEntryStatus: {
+      $ref: "./components.yaml#/components/schemas/FeedEntryStatus",
+    }
+    Article: { $ref: "./components.yaml#/components/schemas/Article" }
+    ArticleList: { $ref: "./components.yaml#/components/schemas/ArticleList" }
+    SaveArticleRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveArticleRequest",
+    }
+    UpdateArticleRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateArticleRequest",
+    }
+    Feed: { $ref: "./components.yaml#/components/schemas/Feed" }
+    FeedList: { $ref: "./components.yaml#/components/schemas/FeedList" }
+    CreateFeedRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateFeedRequest",
+    }
+    UpdateFeedRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateFeedRequest",
+    }
+    FeedEntry: { $ref: "./components.yaml#/components/schemas/FeedEntry" }
+    FeedEntryList: {
+      $ref: "./components.yaml#/components/schemas/FeedEntryList",
+    }
+    UpdateFeedEntryRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateFeedEntryRequest",
+    }
+    FeedPollResult: {
+      $ref: "./components.yaml#/components/schemas/FeedPollResult",
+    }
+    TagCount: { $ref: "./components.yaml#/components/schemas/TagCount" }
+    Digest: { $ref: "./components.yaml#/components/schemas/Digest" }
+    Job: { $ref: "./components.yaml#/components/schemas/Job" }
+    JobList: { $ref: "./components.yaml#/components/schemas/JobList" }
+    JobInput: { $ref: "./components.yaml#/components/schemas/JobInput" }
+    DeleteResult: { $ref: "./components.yaml#/components/schemas/DeleteResult" }
+    CachedModel: { $ref: "./components.yaml#/components/schemas/CachedModel" }
+    Tool: { $ref: "./components.yaml#/components/schemas/Tool" }
+    BuiltinResource: {
+      $ref: "./components.yaml#/components/schemas/BuiltinResource",
+    }
+    BuiltinResourceDetail: {
+      $ref: "./components.yaml#/components/schemas/BuiltinResourceDetail",
+    }
+    Channel: { $ref: "./components.yaml#/components/schemas/Channel" }
+    ChannelList: { $ref: "./components.yaml#/components/schemas/ChannelList" }
+    PublicChannel: {
+      $ref: "./components.yaml#/components/schemas/PublicChannel",
+    }
+    PublicChannelList: {
+      $ref: "./components.yaml#/components/schemas/PublicChannelList",
+    }
+    ChannelWriteRequest: {
+      $ref: "./components.yaml#/components/schemas/ChannelWriteRequest",
+    }
+    WeixinQRCode: { $ref: "./components.yaml#/components/schemas/WeixinQRCode" }
+    WeixinQRStatus: {
+      $ref: "./components.yaml#/components/schemas/WeixinQRStatus",
+    }
+    ProviderModelCost: {
+      $ref: "./components.yaml#/components/schemas/ProviderModelCost",
+    }
+    ProviderModel: {
+      $ref: "./components.yaml#/components/schemas/ProviderModel",
+    }
+    Provider: { $ref: "./components.yaml#/components/schemas/Provider" }
+    ProviderModelItem: {
+      $ref: "./components.yaml#/components/schemas/ProviderModelItem",
+    }
+    ProviderType: { $ref: "./components.yaml#/components/schemas/ProviderType" }
+    FetchModelsRequest: {
+      $ref: "./components.yaml#/components/schemas/FetchModelsRequest",
+    }
+    Session: { $ref: "./components.yaml#/components/schemas/Session" }
+    SessionDetail: {
+      $ref: "./components.yaml#/components/schemas/SessionDetail",
+    }
+    CreateSessionRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateSessionRequest",
+    }
+    SendMessageRequest: {
+      $ref: "./components.yaml#/components/schemas/SendMessageRequest",
+    }
+    SystemPromptResponse: {
+      $ref: "./components.yaml#/components/schemas/SystemPromptResponse",
+    }
+    WorkspaceUploadResponse: {
+      $ref: "./components.yaml#/components/schemas/WorkspaceUploadResponse",
+    }
+    SandboxNetworkConfig: {
+      $ref: "./components.yaml#/components/schemas/SandboxNetworkConfig",
+    }
+    SandboxConfig: {
+      $ref: "./components.yaml#/components/schemas/SandboxConfig",
+    }
+    Agent: { $ref: "./components.yaml#/components/schemas/Agent" }
+    AgentList: { $ref: "./components.yaml#/components/schemas/AgentList" }
+    CreateAgentRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateAgentRequest",
+    }
+    AgentUser: { $ref: "./components.yaml#/components/schemas/AgentUser" }
+    AgentUserList: {
+      $ref: "./components.yaml#/components/schemas/AgentUserList",
+    }
+    AssignAgentUserRequest: {
+      $ref: "./components.yaml#/components/schemas/AssignAgentUserRequest",
+    }
+    Skill: { $ref: "./components.yaml#/components/schemas/Skill" }
+    SkillList: { $ref: "./components.yaml#/components/schemas/SkillList" }
+    InstallSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/InstallSkillRequest",
+    }
+    UpdateSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateSkillRequest",
+    }
+    SkillUploadResult: {
+      $ref: "./components.yaml#/components/schemas/SkillUploadResult",
+    }
+    DuplicateSkillResult: {
+      $ref: "./components.yaml#/components/schemas/DuplicateSkillResult",
+    }
+    CreateSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateSkillRequest",
+    }
+    GlobalInstallSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/GlobalInstallSkillRequest",
+    }
+    ProfileInstallSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/ProfileInstallSkillRequest",
+    }
+    SkillSearchResult: {
+      $ref: "./components.yaml#/components/schemas/SkillSearchResult",
+    }
+    SkillSearchResultList: {
+      $ref: "./components.yaml#/components/schemas/SkillSearchResultList",
+    }
+    SkillFileResponse: {
+      $ref: "./components.yaml#/components/schemas/SkillFileResponse",
+    }
+    DeleteFileResult: {
+      $ref: "./components.yaml#/components/schemas/DeleteFileResult",
+    }
+    Identity: { $ref: "./components.yaml#/components/schemas/Identity" }
+    AuthUser: { $ref: "./components.yaml#/components/schemas/AuthUser" }
+    AuthUserList: { $ref: "./components.yaml#/components/schemas/AuthUserList" }
+    UserMemory: { $ref: "./components.yaml#/components/schemas/UserMemory" }
+    UpdateDefaultAgentRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateDefaultAgentRequest",
+    }
+    UpdateNotifyIdentityRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateNotifyIdentityRequest",
+    }
+    SetMemoryRequest: {
+      $ref: "./components.yaml#/components/schemas/SetMemoryRequest",
+    }
+    UpdateRoleRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateRoleRequest",
+    }
+    UpdateAgentsRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateAgentsRequest",
+    }
+    UpdateActiveRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateActiveRequest",
+    }
+    ChangePasswordRequest: {
+      $ref: "./components.yaml#/components/schemas/ChangePasswordRequest",
+    }
+    GenerateLinkCodeRequest: {
+      $ref: "./components.yaml#/components/schemas/GenerateLinkCodeRequest",
+    }
+    VaultEntryValue: {
+      $ref: "./components.yaml#/components/schemas/VaultEntryValue",
+    }
+    LinkCodeResponse: {
+      $ref: "./components.yaml#/components/schemas/LinkCodeResponse",
+    }
+    SetSoulRequest: {
+      $ref: "./components.yaml#/components/schemas/SetSoulRequest",
+    }
+    VaultEntry: { $ref: "./components.yaml#/components/schemas/VaultEntry" }
+    SetVaultEntryRequest: {
+      $ref: "./components.yaml#/components/schemas/SetVaultEntryRequest",
+    }
+    OAuthProviderStatus: {
+      $ref: "./components.yaml#/components/schemas/OAuthProviderStatus",
+    }
+    OAuthFlowStatus: {
+      $ref: "./components.yaml#/components/schemas/OAuthFlowStatus",
+    }
+    OAuthConnectedResponse: {
+      $ref: "./components.yaml#/components/schemas/OAuthConnectedResponse",
+    }
+    LoginRequest: { $ref: "./components.yaml#/components/schemas/LoginRequest" }
+    RegisterRequest: {
+      $ref: "./components.yaml#/components/schemas/RegisterRequest",
+    }
+    AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
+    MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    PluginView: { $ref: "./components.yaml#/components/schemas/PluginView" }
+    TogglePluginRequest: {
+      $ref: "./components.yaml#/components/schemas/TogglePluginRequest",
+    }
+    UpdatePluginConfigRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdatePluginConfigRequest",
+    }
+    ManifestPlugin: {
+      $ref: "./components.yaml#/components/schemas/ManifestPlugin",
+    }

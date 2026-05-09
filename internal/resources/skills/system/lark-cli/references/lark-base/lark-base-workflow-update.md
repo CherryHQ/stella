@@ -25,11 +25,11 @@ lark-cli base +workflow-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 Base Token（`Basc` 开头） |
-| `--workflow-id <id>` | 是 | 工作流 ID（`wkf` 开头），可从 `+workflow-list` 获取 |
-| `--json <body>` | 是 | 工作流 body JSON，包含 `title` 和/或 `steps`|
+| 参数                   | 必填 | 说明                                                |
+| ---------------------- | ---- | --------------------------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 Base Token（`Basc` 开头）                  |
+| `--workflow-id <id>`   | 是   | 工作流 ID（`wkf` 开头），可从 `+workflow-list` 获取 |
+| `--json <body>`        | 是   | 工作流 body JSON，包含 `title` 和/或 `steps`        |
 
 ## 如何从链接中提取参数
 
@@ -54,18 +54,18 @@ PUT /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 Base Token |
-| `workflow_id` | 是 | 工作流唯一标识（`wkf` 开头） |
+| 参数          | 必填 | 说明                         |
+| ------------- | ---- | ---------------------------- |
+| `base_token`  | 是   | 多维表格 Base Token          |
+| `workflow_id` | 是   | 工作流唯一标识（`wkf` 开头） |
 
 **Request Body（JSON）：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `title` | string | 否 | 工作流标题 |
-| `steps` | WorkflowStep[] | 否 | 步骤列表（PUT 语义，全量替换） |
-| `user_id_type` | string | 否 | 用户 ID 类型：`open_id` / `union_id` / `user_id`，默认 `open_id` |
+| 字段           | 类型           | 必填 | 说明                                                             |
+| -------------- | -------------- | ---- | ---------------------------------------------------------------- |
+| `title`        | string         | 否   | 工作流标题                                                       |
+| `steps`        | WorkflowStep[] | 否   | 步骤列表（PUT 语义，全量替换）                                   |
+| `user_id_type` | string         | 否   | 用户 ID 类型：`open_id` / `union_id` / `user_id`，默认 `open_id` |
 
 > **步骤数据结构非常复杂，详见 [lark-base-workflow-schema.md](lark-base-workflow-schema.md)**
 
@@ -91,7 +91,7 @@ PUT /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
       "title": "发送通知",
       "next": null,
       "data": {
-        "receiver": [{ "value_type": "user", "value": {"id": "ou_xxxx"} }],
+        "receiver": [{ "value_type": "user", "value": { "id": "ou_xxxx" } }],
         "send_to_everyone": false,
         "title": [{ "value_type": "text", "value": "新订单提醒" }],
         "content": [
@@ -111,16 +111,16 @@ PUT /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
 
 **Response `data` 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `workflow_id` | string | 工作流唯一 ID（`wkf` 开头） |
-| `title` | string | 更新后的工作流标题 |
-| `status` | string | 当前状态：`enabled` / `disabled` |
-| `steps` | WorkflowStep[] | 完整步骤列表（更新后） |
-| `creator_id` | string | 创建人 OpenID |
-| `updater_id` | string | 最后修改人 OpenID |
-| `create_time` | number | 创建时间（Unix 秒级时间戳） |
-| `update_time` | number | 更新时间（Unix 秒级时间戳） |
+| 字段          | 类型           | 说明                             |
+| ------------- | -------------- | -------------------------------- |
+| `workflow_id` | string         | 工作流唯一 ID（`wkf` 开头）      |
+| `title`       | string         | 更新后的工作流标题               |
+| `status`      | string         | 当前状态：`enabled` / `disabled` |
+| `steps`       | WorkflowStep[] | 完整步骤列表（更新后）           |
+| `creator_id`  | string         | 创建人 OpenID                    |
+| `updater_id`  | string         | 最后修改人 OpenID                |
+| `create_time` | number         | 创建时间（Unix 秒级时间戳）      |
+| `update_time` | number         | 更新时间（Unix 秒级时间戳）      |
 
 ## 返回值
 

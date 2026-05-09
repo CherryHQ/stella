@@ -25,14 +25,17 @@ metadata:
 ## 核心场景
 
 ### 1. 搜索会议记录
+
 1. 仅支持搜索已结束的会议，对于还未开始的未来会议，需要使用 lark-calendar 技能。
 2. 仅支持使用关键词、时间段、参会人、组织者、会议室等筛选条件搜索会议记录，对于不支持的筛选条件，需要提示用户。
 3. 搜索结果存在多条数据时，务必注意分页数据获取，不要遗漏任何会议记录。
 
 ### 2. 整理会议纪要
+
 1. 整理纪要文档时默认给出纪要文档和逐字稿链接即可，无需读取纪要文档或逐字稿内容。
 2. 用户明确需要获取纪要文档中的总结、待办、章节产物时，再读取文档获取具体内容。
 3. 读取智能纪要（`note_doc_token`）内容时，纪要文档的**第一个 `<whiteboard>`** 标签是封面图（AI 生成的总结可视化），应同时下载展示给用户：
+
 ```bash
 # 1. 读取纪要内容
 lark-cli docs +fetch --api-version v2 --doc <note_doc_token> --doc-format markdown
@@ -41,9 +44,11 @@ lark-cli docs +fetch --api-version v2 --doc <note_doc_token> --doc-format markdo
 #    并非所有纪要都有封面画板，没有 <whiteboard> 标签时跳过即可
 lark-cli docs +media-download --type whiteboard --token <whiteboard_token> --output ./minutes/<minute_token>/cover
 ```
+
 > **产物目录规范**：同一会议的所有下载产物（录像、逐字稿、封面图等）统一放到 `./minutes/{minute_token}/` 目录下。这与 `minutes +download` 和 `vc +notes --minute-tokens` 的默认落点保持一致，便于 Agent 聚合。显式路径（如封面图）需手动对齐到同一目录。
 
 > **纪要相关文档 — 根据用户意图选择：**
+>
 > - `note_doc_token` → **AI 智能纪要**（AI 总结 + 待办 + 章节）
 > - `meeting_notes` → **用户绑定的会议纪要**（用户主动关联到会议的文档，仅 `--calendar-event-ids` 路径返回）
 > - `verbatim_doc_token` → **逐字稿**（完整的逐句文字记录，含说话人和时间戳）— 用户说"逐字稿""完整记录""谁说了什么"时用这个
@@ -51,8 +56,10 @@ lark-cli docs +media-download --type whiteboard --token <whiteboard_token> --out
 > - 用户意图不明确时，应展示所有文档链接让用户选择，而不是替用户决定
 
 ### 3. 纪要文档与逐字稿链接
+
 1. 纪要文档、逐字稿文档与关联的共享文档默认使用文档 Token 返回。
 2. 仅需要获取文档名称和 URL 等基本信息时，使用 `lark-cli drive metas batch_query` 查询
+
 ```bash
 # 学习命令使用方式
 lark-cli schema drive.metas.batch_query
@@ -60,7 +67,9 @@ lark-cli schema drive.metas.batch_query
 # 批量获取文档基本信息: 一次最多查询 10 个文档
 lark-cli drive metas batch_query --data '{"request_docs": [{"doc_type": "docx", "doc_token": "<doc_token>"}], "with_url": true}'
 ```
+
 3. 需要获取文档内容时，使用 `lark-cli docs +fetch`。
+
 ```bash
 # 获取文档内容
 lark-cli docs +fetch --api-version v2 --doc <doc_token> --doc-format markdown
@@ -96,11 +105,11 @@ Meeting (视频会议)
 
 Shortcut 是对常用操作的高级封装（`lark-cli vc +<verb> [flags]`）。有 Shortcut 的操作优先使用。
 
-| Shortcut | 说明 |
-|----------|------|
-| [`+search`](./lark-vc/lark-vc-search.md) | Search meeting records (requires at least one filter) |
-| [`+notes`](./lark-vc/lark-vc-notes.md) | Query meeting notes (via meeting-ids, minute-tokens, or calendar-event-ids) |
-| [`+recording`](./lark-vc/lark-vc-recording.md) | Query minute_token from meeting-ids or calendar-event-ids |
+| Shortcut                                       | 说明                                                                        |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| [`+search`](./lark-vc/lark-vc-search.md)       | Search meeting records (requires at least one filter)                       |
+| [`+notes`](./lark-vc/lark-vc-notes.md)         | Query meeting notes (via meeting-ids, minute-tokens, or calendar-event-ids) |
+| [`+recording`](./lark-vc/lark-vc-recording.md) | Query minute_token from meeting-ids or calendar-event-ids                   |
 
 - 使用 `+search` 命令时，必须阅读 [references/lark-vc-search.md](./lark-vc/lark-vc-search.md)，了解搜索参数和返回值结构。
 - 使用 `+notes` 命令时，必须阅读 [references/lark-vc-notes.md](./lark-vc/lark-vc-notes.md)，了解查询参数、产物类型和返回值结构。
@@ -117,7 +126,7 @@ lark-cli vc <resource> <method> [flags] # 调用 API
 
 ### meeting
 
-  - `get` — 获取会议详情（主题、时间、参会人、note_id）
+- `get` — 获取会议详情（主题、时间、参会人、note_id）
 
 ```bash
 # 获取会议基础信息：不包含参会人列表
@@ -130,16 +139,16 @@ lark-cli vc meeting get --params '{"meeting_id": "<meeting_id>", "with_participa
 
 ### minutes（跨域，详见 [lark-minutes](./lark-minutes.md)）
 
-  - `get` — 获取妙记基础信息（标题、时长、封面）；查询纪要**内容**请用 `+notes --minute-tokens <minute-token>`
+- `get` — 获取妙记基础信息（标题、时长、封面）；查询纪要**内容**请用 `+notes --minute-tokens <minute-token>`
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `+notes --meeting-ids` | `vc:meeting.meetingevent:read`、`vc:note:read` |
-| `+notes --minute-tokens` | `vc:note:read`、`minutes:minutes:readonly`、`minutes:minutes.artifacts:read`、`minutes:minutes.transcript:export` |
-| `+notes --calendar-event-ids` | `calendar:calendar:read`、`calendar:calendar.event:read`、`vc:meeting.meetingevent:read`、`vc:note:read` |
-| `+recording --meeting-ids` | `vc:record:readonly` |
-| `+recording --calendar-event-ids` | `vc:record:readonly`、`calendar:calendar:read`、`calendar:calendar.event:read` |
-| `+search` | `vc:meeting.search:read` |
-| `meeting.get` | `vc:meeting.meetingevent:read` |
+| 方法                              | 所需 scope                                                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `+notes --meeting-ids`            | `vc:meeting.meetingevent:read`、`vc:note:read`                                                                    |
+| `+notes --minute-tokens`          | `vc:note:read`、`minutes:minutes:readonly`、`minutes:minutes.artifacts:read`、`minutes:minutes.transcript:export` |
+| `+notes --calendar-event-ids`     | `calendar:calendar:read`、`calendar:calendar.event:read`、`vc:meeting.meetingevent:read`、`vc:note:read`          |
+| `+recording --meeting-ids`        | `vc:record:readonly`                                                                                              |
+| `+recording --calendar-event-ids` | `vc:record:readonly`、`calendar:calendar:read`、`calendar:calendar.event:read`                                    |
+| `+search`                         | `vc:meeting.search:read`                                                                                          |
+| `meeting.get`                     | `vc:meeting.meetingevent:read`                                                                                    |

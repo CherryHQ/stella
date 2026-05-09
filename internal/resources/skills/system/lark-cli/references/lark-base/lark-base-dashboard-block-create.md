@@ -43,33 +43,33 @@ lark-cli base +dashboard-block-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--dashboard-id <id>` | 是 | 仪表盘 ID（从 `+dashboard-list/get` 获取） |
-| `--name <name>` | **是** | 组件名称（允许重名） |
-| `--type <type>` | **是** | 组件类型，见下方枚举值。**不同 type 对应不同的 data_config 结构**，常用：`column`(柱状图)、`line`(折线图)、`pie`(饼图)、`statistics`(指标卡)、`text`(文本) |
-| `--data-config <json>` | 否 | 数据配置 JSON，**结构随 type 变化**。**⚠️ 必须阅读 [dashboard-block-data-config.md](dashboard-block-data-config.md) 了解如何构造**。创建时会做本地校验，更新时由后端校验 |
-| `--user-id-type <type>` | 否 | 用户 ID 类型，filter 涉及人员字段时使用 |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                    | 必填   | 说明                                                                                                                                                                    |
+| ----------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--base-token <token>`  | 是     | Base Token                                                                                                                                                              |
+| `--dashboard-id <id>`   | 是     | 仪表盘 ID（从 `+dashboard-list/get` 获取）                                                                                                                              |
+| `--name <name>`         | **是** | 组件名称（允许重名）                                                                                                                                                    |
+| `--type <type>`         | **是** | 组件类型，见下方枚举值。**不同 type 对应不同的 data_config 结构**，常用：`column`(柱状图)、`line`(折线图)、`pie`(饼图)、`statistics`(指标卡)、`text`(文本)              |
+| `--data-config <json>`  | 否     | 数据配置 JSON，**结构随 type 变化**。**⚠️ 必须阅读 [dashboard-block-data-config.md](dashboard-block-data-config.md) 了解如何构造**。创建时会做本地校验，更新时由后端校验 |
+| `--user-id-type <type>` | 否     | 用户 ID 类型，filter 涉及人员字段时使用                                                                                                                                 |
+| `--dry-run`             | 否     | 预览 API 调用，不执行                                                                                                                                                   |
 
 ### type 枚举值
 
-| 值 | 说明 |
-|----|------|
-| `column` | 柱状图 |
-| `bar` | 条形图 |
-| `line` | 折线图 |
-| `pie` | 饼图 |
-| `ring` | 环形图 |
-| `area` | 面积图 |
-| `combo` | 组合图 |
-| `scatter` | 散点图 |
-| `funnel` | 漏斗图 |
-| `wordCloud` | 词云 |
-| `radar` | 雷达图 |
-| `statistics` | 指标卡 |
-| `text` | 文本（支持 Markdown） |
+| 值           | 说明                  |
+| ------------ | --------------------- |
+| `column`     | 柱状图                |
+| `bar`        | 条形图                |
+| `line`       | 折线图                |
+| `pie`        | 饼图                  |
+| `ring`       | 环形图                |
+| `area`       | 面积图                |
+| `combo`      | 组合图                |
+| `scatter`    | 散点图                |
+| `funnel`     | 漏斗图                |
+| `wordCloud`  | 词云                  |
+| `radar`      | 雷达图                |
+| `statistics` | 指标卡                |
+| `text`       | 文本（支持 Markdown） |
 
 ## 返回示例
 
@@ -90,17 +90,16 @@ lark-cli base +dashboard-block-create \
 
 ## 返回重点
 
-| 字段 | 说明 |
-|------|------|
-| `block.block_id` | 组件 ID，后续编辑/删除需要用到，务必记录 |
-| `block.name` | 组件名称 |
-| `block.type` | 组件类型 |
-| `block.data_config` | 实际创建的数据配置（可能包含后端自动添加的默认值）|
-| `created` | 是否创建成功 |
+| 字段                | 说明                                               |
+| ------------------- | -------------------------------------------------- |
+| `block.block_id`    | 组件 ID，后续编辑/删除需要用到，务必记录           |
+| `block.name`        | 组件名称                                           |
+| `block.type`        | 组件类型                                           |
+| `block.data_config` | 实际创建的数据配置（可能包含后端自动添加的默认值） |
+| `created`           | 是否创建成功                                       |
 
 > [!CAUTION]
 > 这是**写入操作** — 执行前必须向用户确认。
-
 
 ## 参考
 

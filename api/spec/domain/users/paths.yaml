@@ -1,7 +1,12 @@
 paths:
   /api/users/{id}/default-agent:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     put:
       tags: [users]
       summary: Update the default agent for a user (admin only)
@@ -10,20 +15,33 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdateDefaultAgentRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateDefaultAgentRequest",
+            }
       responses:
         "200":
           description: updated
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/users/{id}/notify-identity:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     put:
       tags: [users]
       summary: Update the notify identity for a user (admin only)
@@ -32,20 +50,33 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdateNotifyIdentityRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateNotifyIdentityRequest",
+            }
       responses:
         "200":
           description: updated
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/users/{id}/memories:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     get:
       tags: [users]
       summary: List memories for a user (admin only)
@@ -57,14 +88,25 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/UserMemory" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/UserMemory",
+                }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/users/{id}/memories/{agentId}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
       - { name: agentId, in: path, required: true, schema: { type: string } }
     put:
       tags: [users]
@@ -74,15 +116,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/SetMemoryRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
+            }
       responses:
         "200":
           description: saved
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     delete:
       tags: [users]
@@ -93,8 +143,12 @@ paths:
           description: deleted
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/auth/users:
@@ -109,13 +163,22 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/AuthUser" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/AuthUser",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/auth/users/{id}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     get:
       tags: [auth-users]
       summary: Get an auth user by ID (admin only)
@@ -125,14 +188,23 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/AuthUser" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/auth/users/{id}/role:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     put:
       tags: [auth-users]
       summary: Update the role of an auth user (admin only)
@@ -141,20 +213,33 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdateRoleRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateRoleRequest",
+            }
       responses:
         "200":
           description: updated
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/auth/users/{id}/agents:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     get:
       tags: [auth-users]
       summary: List agents assigned to an auth user (admin only)
@@ -167,7 +252,9 @@ paths:
               schema:
                 type: array
                 items: { type: string }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     put:
       tags: [auth-users]
@@ -177,21 +264,39 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdateAgentsRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateAgentsRequest",
+            }
       responses:
         "200":
           description: updated
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/auth/users/{id}/identities/{identityId}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
-      - { name: identityId, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
+      - {
+          name: identityId,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     delete:
       tags: [auth-users]
       summary: Delete an identity linked to an auth user (admin only)
@@ -201,15 +306,26 @@ paths:
           description: unlinked
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/auth/users/{id}/active:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     put:
       tags: [auth-users]
       summary: Update the active status of an auth user (admin only)
@@ -218,13 +334,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/UpdateActiveRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateActiveRequest",
+            }
       responses:
         "200":
           description: updated
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }

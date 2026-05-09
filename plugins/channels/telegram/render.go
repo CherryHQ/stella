@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // goldmarkMD is the interface satisfied by the goldmark Markdown converter.

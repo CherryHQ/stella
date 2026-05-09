@@ -73,20 +73,20 @@ Config file skeleton (field names are snake_case — `max_chars` not `max_charac
 ```toml
 use_cache = true
 enable_quality_processing = true
-output_format = "markdown"       # content format for file output
+output_format = "markdown" # content format for file output
 
 [ocr]
-backend = "tesseract"            # tesseract | paddle-ocr | easyocr
-language = "eng"                 # ISO 639-3 for tesseract; short codes for paddle/easyocr
+backend = "tesseract" # tesseract | paddle-ocr | easyocr
+language = "eng" # ISO 639-3 for tesseract; short codes for paddle/easyocr
 
 [chunking]
-max_chars = 1000                 # NOT max_characters
-max_overlap = 200                # NOT overlap
+max_chars = 1000 # NOT max_characters
+max_overlap = 200 # NOT overlap
 
 [pdf_options]
 extract_images = true
 
-[server]                         # for `kreuzberg serve`
+[server] # for `kreuzberg serve`
 host = "127.0.0.1"
 port = 8000
 ```
@@ -111,13 +111,13 @@ for img in d.get('images', []):
 
 ## Key Flags (Non-Obvious)
 
-| Flag | Note |
-|------|------|
-| `--format` | Wire format for CLI output: `text` (default for extract), `json`, `toon` (token-efficient JSON) |
-| `--content-format` | Format of extracted text: `plain`, `markdown`, `djot`, `html`. `--output-format` is a deprecated alias. |
-| `--token-reduction` | `off/light/moderate/aggressive/maximum` — reduce tokens before LLM consumption |
-| `--acceleration` | ONNX provider: `auto`, `cpu`, `coreml` (macOS), `cuda`, `tensorrt` |
-| `--pdf-extract-images` | Embeds image bytes in JSON result (see above) |
+| Flag                   | Note                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `--format`             | Wire format for CLI output: `text` (default for extract), `json`, `toon` (token-efficient JSON)         |
+| `--content-format`     | Format of extracted text: `plain`, `markdown`, `djot`, `html`. `--output-format` is a deprecated alias. |
+| `--token-reduction`    | `off/light/moderate/aggressive/maximum` — reduce tokens before LLM consumption                          |
+| `--acceleration`       | ONNX provider: `auto`, `cpu`, `coreml` (macOS), `cuda`, `tensorrt`                                      |
+| `--pdf-extract-images` | Embeds image bytes in JSON result (see above)                                                           |
 
 ## Common Pitfalls
 

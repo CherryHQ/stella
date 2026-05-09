@@ -20,11 +20,11 @@ lark-cli task +reminder --task-id "<task_guid>" --remove "true"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
-| `--set <val>` | No | Relative fire minutes before the due time. Supports numbers (e.g., `30`) or units (e.g., `15m`, `1h`, `1d`). |
-| `--remove <bool>` | No | If set to `true`, removes all existing reminders from the task. |
+| Parameter          | Required | Description                                                                                                                                     |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--task-id <guid>` | Yes      | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--set <val>`      | No       | Relative fire minutes before the due time. Supports numbers (e.g., `30`) or units (e.g., `15m`, `1h`, `1d`).                                    |
+| `--remove <bool>`  | No       | If set to `true`, removes all existing reminders from the task.                                                                                 |
 
 ## Workflow
 

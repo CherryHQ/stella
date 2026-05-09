@@ -12,12 +12,21 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/Identity" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/Identity",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/identities/{id}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
     delete:
       tags: [profile]
       summary: Unlink an identity from the current user
@@ -28,8 +37,12 @@ paths:
           content:
             application/json:
               schema: { type: object }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -42,15 +55,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { type: object }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/link-code:
     post:
@@ -61,15 +80,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/GenerateLinkCodeRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/GenerateLinkCodeRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/LinkCodeResponse" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LinkCodeResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   # ── Memories ────────────────────────────────────────────────────────────────
   /api/auth/profile/memories:
@@ -84,8 +111,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/UserMemory" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/UserMemory",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/memories/{agentId}:
     parameters:
@@ -98,15 +129,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/SetMemoryRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { type: object }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
     delete:
       tags: [profile]
       summary: Delete the memory for a specific agent
@@ -117,7 +154,9 @@ paths:
           content:
             application/json:
               schema: { type: object }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   # ── Soul ────────────────────────────────────────────────────────────────────
   /api/auth/profile/soul/{agentId}:
@@ -131,15 +170,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/SetSoulRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SetSoulRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: { type: object }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   # ── Vault ───────────────────────────────────────────────────────────────────
   /api/auth/profile/vault:
@@ -154,8 +199,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/VaultEntry" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/VaultEntry",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/vault/{name}:
     parameters:
@@ -169,8 +218,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/VaultEntryValue" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntryValue",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     put:
       tags: [profile]
@@ -180,12 +233,18 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest",
+            }
       responses:
         "204":
           description: no content
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
     delete:
       tags: [profile]
       summary: Delete a vault entry
@@ -193,7 +252,9 @@ paths:
       responses:
         "204":
           description: no content
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   # ── OAuth ───────────────────────────────────────────────────────────────────
   /api/auth/profile/oauth/providers:
@@ -208,8 +269,12 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/OAuthProviderStatus" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/OAuthProviderStatus",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/oauth/{provider}/start:
     parameters:
@@ -223,9 +288,15 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/oauth/{provider}/status/{flowID}:
     parameters:
@@ -240,9 +311,15 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthFlowStatus",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/oauth/{provider}/connected:
     parameters:
@@ -256,9 +333,15 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/OAuthConnectedResponse" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthConnectedResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/oauth/{provider}:
     parameters:
@@ -270,8 +353,12 @@ paths:
       responses:
         "204":
           description: no content
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/auth/profile/oauth/{provider}/callback:
     parameters:

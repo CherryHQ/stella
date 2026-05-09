@@ -1,9 +1,10 @@
 # DSL Schema
 
-> 本文件只说明 **DSL 里能写什么**：节点类型、字段、枚举值、硬约束。布局策略、组合方法、Dagre/Flex 心智模型统一放在 `references/layout.md`。  
+> 本文件只说明 **DSL 里能写什么**：节点类型、字段、枚举值、硬约束。布局策略、组合方法、Dagre/Flex 心智模型统一放在 `references/layout.md`。\
 > `?` 表示该字段在 schema 层是 optional；若需要稳定产出，再参考对应 scene 或 layout 文件中的最佳实践。
 
 **📝 布局引擎核心法则**：
+
 - **基本行为与 Flexbox 等同**：Frame 布局基于 Yoga 引擎。`layout: 'horizontal'` = `flex-direction: row`，`fill-container` = `flex: 1`，`fit-content` = `width: auto`，`gap` / `padding` / `alignItems` / `justifyContent` 语义相同。
 - **枚举值无 flex- 前缀**：一律使用 `'start'` / `'end'` 而非原生 CSS 的 `'flex-start'` / `'flex-end'`。
 - **默认对齐的差异**：`alignItems` 的默认值是 `'start'`（原生 CSS 默认是 `stretch`）。所以同排卡片需要等高时，**必须显式声名** `alignItems: 'stretch'`。
@@ -62,19 +63,39 @@ interface WBDocument {
 3. **透明子图（Compound Cluster）**：子容器同时声明 `layout: "dagre"` 与 `layoutOptions: { isCluster: true }` 时，成为外层 Dagre 的复合子图。其内部子节点直接参与外层拓扑运算，连线可穿越子图边界。子图自身不执行独立排版，尺寸由外层 Dagre 根据内部节点包围盒自动撑开。
 
 **isCluster 最小用法**：
+
 ```json
 {
-  "type": "frame", "id": "cluster_a",
-  "layout": "dagre", "layoutOptions": { "isCluster": true },
-  "fillColor": "#F0FDF4", "borderColor": "#86EFAC", "borderWidth": 2, "borderDash": "dashed", "borderRadius": 16,
+  "type": "frame",
+  "id": "cluster_a",
+  "layout": "dagre",
+  "layoutOptions": { "isCluster": true },
+  "fillColor": "#F0FDF4",
+  "borderColor": "#86EFAC",
+  "borderWidth": 2,
+  "borderDash": "dashed",
+  "borderRadius": 16,
   "children": [
-    { "type": "text", "text": "区域标题", "fontSize": 11, "textColor": "#15803D" },
-    { "type": "rect", "id": "node_inside", "width": 120, "height": 40, "text": "内部节点" }
+    {
+      "type": "text",
+      "text": "区域标题",
+      "fontSize": 11,
+      "textColor": "#15803D"
+    },
+    {
+      "type": "rect",
+      "id": "node_inside",
+      "width": 120,
+      "height": 40,
+      "text": "内部节点"
+    }
   ]
 }
 ```
+
 > 注意：`edges` 必须写在**最外层的根 Dagre** 的 `layoutOptions` 中，不要写在 cluster 内部。
-**其他约束**：
+> **其他约束**：
+
 - `layout / gap / padding` 在 schema 层是 optional，但实际生成时推荐显式写出，避免依赖默认行为。
 - `layoutOptions` 仅在 `layout: 'dagre'` 时生效。
 - `children` 里不能出现 `connector`。
@@ -110,6 +131,7 @@ interface WBDocument {
 > **cylinder 约束**：cylinder 的弧度固定 16px，不随宽度缩放。宽度过大会变成扁椭圆。禁止 `width: "fill-container"`，必须用固定宽度 + `height: "fit-content"`。宽度根据文字长度选择，通常 120-200px。
 
 > **Shape 内边距（TEXT_INSET）**：Shape 节点有强制内边距，fit-content 会自动补偿。
+>
 > - rect / ellipse / diamond / triangle：上下左右各 12px
 > - cylinder：顶部弧形 32px + 底部弧形 10px（垂直 +42px），水平各 7px
 >
@@ -134,6 +156,7 @@ interface WBDocument {
 ```
 
 > **关键约束**：
+>
 > - `image.src` 必须是通过 `docs +media-upload --parent-type whiteboard --parent-node <画板token>` 上传后返回的 **media token**，不能是 URL 或 Drive file token
 > - 图片必须上传到**目标画板**，跨画板的 token 不可用
 > - 同一画板内所有 image 节点应使用统一的 width/height，保持视觉一致
@@ -220,15 +243,18 @@ interface WBDocument {
 SVG 通过 `image/svg+xml` Blob 加载到画布，**不在 HTML DOM 中**，因此存在严格限制：
 
 **必须**：
+
 - 包含 `viewBox` 属性（如 `viewBox="0 0 24 24"`），引擎依赖它确定坐标系
 - 包含 `xmlns="http://www.w3.org/2000/svg"`（SVG 作为独立 `image/svg+xml` 解析时，XML 规范要求声明命名空间）
 
 **允许的元素**（纯几何绘制）：
+
 - 基本图形：`<rect>` `<circle>` `<ellipse>` `<line>` `<polyline>` `<polygon>` `<path>`
 - 渐变/滤镜：`<defs>` `<linearGradient>` `<radialGradient>` `<filter>` `<feGaussianBlur>` `<feMerge>`
 - 结构：`<g>` `<clipPath>` `<mask>` `<use>`
 
 **禁止的元素**（字体和外部资源在 Blob 沙箱中无法加载）：
+
 - `<text>` `<tspan>`（用同层 DSL rect 节点 + text 属性替代）
 - `<image>`（用同层 DSL image 节点替代）
 - `<foreignObject>`
@@ -242,12 +268,30 @@ SVG 通过 `image/svg+xml` Blob 加载到画布，**不在 HTML DOM 中**，因�
 
 ```json
 {
-  "type": "frame", "width": 1400, "height": 680, "layout": "none",
+  "type": "frame",
+  "width": 1400,
+  "height": 680,
+  "layout": "none",
   "children": [
-    { "type": "svg", "x": 0, "y": 0, "width": 1400, "height": 680,
-      "svg": { "code": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1400 680\" ...>...</svg>" } },
-    { "type": "rect", "x": 100, "y": 50, "width": 200, "height": 40,
-      "text": "Label", "fillColor": "transparent" }
+    {
+      "type": "svg",
+      "x": 0,
+      "y": 0,
+      "width": 1400,
+      "height": 680,
+      "svg": {
+        "code": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1400 680\" ...>...</svg>"
+      }
+    },
+    {
+      "type": "rect",
+      "x": 100,
+      "y": 50,
+      "width": 200,
+      "height": 40,
+      "text": "Label",
+      "fillColor": "transparent"
+    }
   ]
 }
 ```
@@ -257,8 +301,14 @@ SVG 通过 `image/svg+xml` Blob 加载到画布，**不在 HTML DOM 中**，因�
 用于卡片/按钮中的小图标，纯 stroke 线条：
 
 ```json
-{ "type": "svg", "width": 32, "height": 32,
-  "svg": { "code": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#3B82F6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>" } }
+{
+  "type": "svg",
+  "width": 32,
+  "height": 32,
+  "svg": {
+    "code": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#3B82F6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"
+  }
+}
 ```
 
 ### Icon（内置图标）
@@ -278,16 +328,19 @@ SVG 通过 `image/svg+xml` Blob 加载到画布，**不在 HTML DOM 中**，因�
 ```
 
 **获取可用图标**：规划好内容和布局后，运行以下命令查看所有可用图标名，从中选取：
+
 ```bash
 npx -y @larksuite/whiteboard-cli@^0.2.10 --icons
 ```
 
 用法：
+
 ```json
 { "type": "icon", "id": "db", "name": "database", "width": 48, "height": 48 }
 ```
 
 **使用建议**：
+
 - 当图表中的节点代表具体事物（服务器、用户、数据库等）时，用图标比纯文字方块更直观
 - 一张图 3-8 个图标为宜，为关键组件配图标，次要节点用普通形状
 - 用 `color` 为图标指定合适的颜色, 比如与所在容器的配色一致
@@ -296,11 +349,28 @@ npx -y @larksuite/whiteboard-cli@^0.2.10 --icons
 
 ```json
 {
-  "type": "frame", "layout": "vertical", "gap": 8, "padding": 12,
-  "alignItems": "center", "fillColor": "#F0F5FF", "borderColor": "#ADC6FF",
+  "type": "frame",
+  "layout": "vertical",
+  "gap": 8,
+  "padding": 12,
+  "alignItems": "center",
+  "fillColor": "#F0F5FF",
+  "borderColor": "#ADC6FF",
   "children": [
-    { "type": "icon", "id": "db-icon", "name": "database", "width": 36, "height": 36 },
-    { "type": "text", "text": "PostgreSQL", "fontSize": 12, "width": "fit-content", "height": "fit-content" }
+    {
+      "type": "icon",
+      "id": "db-icon",
+      "name": "database",
+      "width": 36,
+      "height": 36
+    },
+    {
+      "type": "text",
+      "text": "PostgreSQL",
+      "fontSize": 12,
+      "width": "fit-content",
+      "height": "fit-content"
+    }
   ]
 }
 ```

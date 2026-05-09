@@ -24,11 +24,11 @@ lark-cli base +workflow-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 Base Token（`Basc` 开头） |
-| `--status <value>` | 否 | 过滤状态：`enabled` 或 `disabled`；不传则返回全部 |
-| `--page-size <n>` | 否 | 每页大小，默认 100，最大 100 |
+| 参数                   | 必填 | 说明                                              |
+| ---------------------- | ---- | ------------------------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 Base Token（`Basc` 开头）                |
+| `--status <value>`     | 否   | 过滤状态：`enabled` 或 `disabled`；不传则返回全部 |
+| `--page-size <n>`      | 否   | 每页大小，默认 100，最大 100                      |
 
 ## API 入参详情
 
@@ -42,36 +42,36 @@ POST /open-apis/base/v3/bases/:base_token/workflows/list
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 Base Token |
+| 参数         | 必填 | 说明                |
+| ------------ | ---- | ------------------- |
+| `base_token` | 是   | 多维表格 Base Token |
 
 **Request Body（JSON）：**
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `page_size` | int | 否 | 分页大小，默认 20，最大 100 |
-| `page_token` | string | 否 | 分页标记，首次请求不填，翻页时传上一页返回的 `page_token` |
-| `status` | string | 否 | 过滤状态：`enabled` / `disabled` |
+| 字段         | 类型   | 必填 | 说明                                                      |
+| ------------ | ------ | ---- | --------------------------------------------------------- |
+| `page_size`  | int    | 否   | 分页大小，默认 20，最大 100                               |
+| `page_token` | string | 否   | 分页标记，首次请求不填，翻页时传上一页返回的 `page_token` |
+| `status`     | string | 否   | 过滤状态：`enabled` / `disabled`                          |
 
 ## API 出参详情
 
 **Response `data` 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `has_more` | boolean | 是否还有更多数据 |
-| `page_token` | string | 下一页 token（`has_more` 为 true 时返回） |
-| `total` | int | 符合条件的工作流总数 |
-| `items` | []object | 工作流列表 |
-| `items[].workflow_id` | string | 工作流唯一标识（`wkf` 开头） |
-| `items[].title` | string | 工作流标题 |
-| `items[].status` | string | 当前状态：`enabled` / `disabled` |
-| `items[].trigger_type` | string | 触发器类型，如 `AddRecordTrigger` |
-| `items[].creator_id` | string | 创建人的 open_id |
-| `items[].updater_id` | string | 最后修改人的 open_id |
-| `items[].create_time` | int | 创建时间，Unix 秒级时间戳 |
-| `items[].update_time` | int | 最后更新时间，Unix 秒级时间戳 |
+| 字段                   | 类型     | 说明                                      |
+| ---------------------- | -------- | ----------------------------------------- |
+| `has_more`             | boolean  | 是否还有更多数据                          |
+| `page_token`           | string   | 下一页 token（`has_more` 为 true 时返回） |
+| `total`                | int      | 符合条件的工作流总数                      |
+| `items`                | []object | 工作流列表                                |
+| `items[].workflow_id`  | string   | 工作流唯一标识（`wkf` 开头）              |
+| `items[].title`        | string   | 工作流标题                                |
+| `items[].status`       | string   | 当前状态：`enabled` / `disabled`          |
+| `items[].trigger_type` | string   | 触发器类型，如 `AddRecordTrigger`         |
+| `items[].creator_id`   | string   | 创建人的 open_id                          |
+| `items[].updater_id`   | string   | 最后修改人的 open_id                      |
+| `items[].create_time`  | int      | 创建时间，Unix 秒级时间戳                 |
+| `items[].update_time`  | int      | 最后更新时间，Unix 秒级时间戳             |
 
 ## 返回值
 
@@ -99,15 +99,20 @@ POST /open-apis/base/v3/bases/:base_token/workflows/list
 ```
 
 ## ⚡ 性能提示
+
 ### 场景适用性
+
 **✅ 需要先 list 的场景**:
+
 - 批量操作：启用/停用多个工作流（先 list，再批量 enable/disable）
 - 查询统计：统计定时触发的工作流数量（先 list，再筛选）
 - 修改操作：修改指定名称的工作流（先 list ，从列表中找到对应名称工作流的 workflow_id，再 get/update）
   **❌ 不需要先 list 的场景**:
 - **创建工作流**：直接调用 `+workflow-create`，不需要先 list
 - 查看指定工作流详情：如果已知 workflow_id，直接 `+workflow-get`
+
 ### 缓存策略
+
 同一会话中处理多个工作流时，只需调用一次 `+workflow-list` 获取全部结果，然后从中筛选所需的工作流，避免重复查询。
 
 ## 坑点

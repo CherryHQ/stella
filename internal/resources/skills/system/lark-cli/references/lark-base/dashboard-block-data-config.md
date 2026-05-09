@@ -4,21 +4,21 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 
 ## 支持的组件类型（`type` 枚举）
 
-| type 值 | 说明 |
-|---------|------|
-| `column` | 柱状图 |
-| `bar` | 条形图 |
-| `line` | 折线图 |
-| `pie` | 饼图 |
-| `ring` | 环形图 |
-| `area` | 面积图 |
-| `combo` | 组合图 |
-| `scatter` | 散点图 |
-| `funnel` | 漏斗图 |
-| `wordCloud` | 词云 |
-| `radar` | 雷达图 |
-| `statistics` | 指标卡 |
-| `text` | 文本（支持 Markdown） |
+| type 值      | 说明                  |
+| ------------ | --------------------- |
+| `column`     | 柱状图                |
+| `bar`        | 条形图                |
+| `line`       | 折线图                |
+| `pie`        | 饼图                  |
+| `ring`       | 环形图                |
+| `area`       | 面积图                |
+| `combo`      | 组合图                |
+| `scatter`    | 散点图                |
+| `funnel`     | 漏斗图                |
+| `wordCloud`  | 词云                  |
+| `radar`      | 雷达图                |
+| `statistics` | 指标卡                |
+| `text`       | 文本（支持 Markdown） |
 
 ## 字段类型与操作符速查（AI 决策用）
 
@@ -36,36 +36,36 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 
 ## data_config 通用结构
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `table_name` | string | 关联数据表名称 |
-| `series` | `[{ "field_name": "xxx", "rollup": "SUM" }]` | 指标/Y 轴（与 `count_all` 二选一）。rollup 支持 `SUM` / `MAX` / `MIN` / `AVERAGE` |
-| `count_all` | boolean | COUNTA 聚合，统计所有记录数（与 `series` 二选一） |
-| `group_by` | `[{ "field_name": "xxx", "mode": "integrated", "sort": {...} }]` | X 轴分组维度。`mode` 必填，`sort` 可选，见下方说明 |
-| `filter` | object | 筛选条件 |
-| `filter.conjunction` | `"and"` / `"or"` | 筛选逻辑 |
-| `filter.conditions` | `[{ "field_name", "operator", "value" }]` | 筛选条件数组，value 类型因字段类型而异（见下方 filter 格式规则） |
+| 字段                 | 类型                                                             | 说明                                                                              |
+| -------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `table_name`         | string                                                           | 关联数据表名称                                                                    |
+| `series`             | `[{ "field_name": "xxx", "rollup": "SUM" }]`                     | 指标/Y 轴（与 `count_all` 二选一）。rollup 支持 `SUM` / `MAX` / `MIN` / `AVERAGE` |
+| `count_all`          | boolean                                                          | COUNTA 聚合，统计所有记录数（与 `series` 二选一）                                 |
+| `group_by`           | `[{ "field_name": "xxx", "mode": "integrated", "sort": {...} }]` | X 轴分组维度。`mode` 必填，`sort` 可选，见下方说明                                |
+| `filter`             | object                                                           | 筛选条件                                                                          |
+| `filter.conjunction` | `"and"` / `"or"`                                                 | 筛选逻辑                                                                          |
+| `filter.conditions`  | `[{ "field_name", "operator", "value" }]`                        | 筛选条件数组，value 类型因字段类型而异（见下方 filter 格式规则）                  |
 
 ### text 类型特殊结构
 
 `text` 类型组件用于展示富文本内容，**不需要数据源配置**（无 `table_name`、`series`、`group_by`、`filter`）。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
+| 字段   | 类型   | 说明                                       |
+| ------ | ------ | ------------------------------------------ |
 | `text` | string | **必填**。支持 Markdown 语法，详见下方说明 |
 
 **支持的 Markdown 语法：**
 
-| 语法 | 示例 | 效果 |
-|------|------|------|
-| 一级标题 | `# 标题` | 大标题 |
-| 二级标题 | `## 标题` | 中标题 |
-| 三级标题 | `### 标题` | 小标题 |
-| 加粗 | `**文字**` | **文字** |
-| 斜体 | `*文字*` | *文字* |
-| 删除线 | `~~文字~~` | ~~文字~~ |
-| 有序列表 | `1. 项目` | 1. 项目 |
-| 无序列表 | `- 项目` | - 项目 |
+| 语法     | 示例       | 效果     |
+| -------- | ---------- | -------- |
+| 一级标题 | `# 标题`   | 大标题   |
+| 二级标题 | `## 标题`  | 中标题   |
+| 三级标题 | `### 标题` | 小标题   |
+| 加粗     | `**文字**` | **文字** |
+| 斜体     | `*文字*`   | _文字_   |
+| 删除线   | `~~文字~~` | ~~文字~~ |
+| 有序列表 | `1. 项目`  | 1. 项目  |
+| 无序列表 | `- 项目`   | - 项目   |
 
 > **注意**：以上未提及的 Markdown 语法（如链接、图片、代码块、表格等）均不支持。
 
@@ -73,20 +73,20 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 
 ### mode 枚举
 
-| mode | 含义 | 适用场景 |
-|------|------|----------|
-| `integrated` | 聚合分组（默认） | 绝大部分场景，按字段值分组统计 |
-| `enumerated` | 多值拆分统计 | 多选、人员等多值字段，将每个选项/人员拆开独立统计 |
+| mode         | 含义             | 适用场景                                          |
+| ------------ | ---------------- | ------------------------------------------------- |
+| `integrated` | 聚合分组（默认） | 绝大部分场景，按字段值分组统计                    |
+| `enumerated` | 多值拆分统计     | 多选、人员等多值字段，将每个选项/人员拆开独立统计 |
 
 > 多选、人员等多值字段默认用 `enumerated`；其他字段默认用 `integrated`。
 
 ### sort 排序
 
-| sort.type | 含义 | 典型场景 |
-|-----------|------|----------|
-| `group` | 按横轴值排序 | 按月份升序、按品类名字母序 |
-| `value` | 按纵轴值排序 | 按销售额从大到小 |
-| `view` | 按数据源记录顺序 | 保持原表行序（不常用） |
+| sort.type | 含义             | 典型场景                   |
+| --------- | ---------------- | -------------------------- |
+| `group`   | 按横轴值排序     | 按月份升序、按品类名字母序 |
+| `value`   | 按纵轴值排序     | 按销售额从大到小           |
+| `view`    | 按数据源记录顺序 | 保持原表行序（不常用）     |
 
 `sort.order`：`asc`（升序）/ `desc`（降序）
 
@@ -96,7 +96,13 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 {
   "table_name": "订单表",
   "series": [{ "field_name": "金额", "rollup": "SUM" }],
-  "group_by": [{ "field_name": "类别", "mode": "integrated", "sort": {"type": "value", "order": "desc"} }]
+  "group_by": [
+    {
+      "field_name": "类别",
+      "mode": "integrated",
+      "sort": { "type": "value", "order": "desc" }
+    }
+  ]
 }
 ```
 
@@ -131,31 +137,31 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 
 **操作符：**
 
-| 操作符 | 含义 | 是否需要 value |
-|--------|------|---------------|
-| `is` | 等于 | 是 |
-| `isNot` | 不等于 | 是 |
-| `contains` | 包含 | 是 |
-| `doesNotContain` | 不包含 | 是 |
-| `isEmpty` | 为空 | 否 |
-| `isNotEmpty` | 不为空 | 否 |
-| `isGreater` | 大于 | 是 |
-| `isGreaterEqual` | 大于等于 | 是 |
-| `isLess` | 小于 | 是 |
-| `isLessEqual` | 小于等于 | 是 |
+| 操作符           | 含义     | 是否需要 value |
+| ---------------- | -------- | -------------- |
+| `is`             | 等于     | 是             |
+| `isNot`          | 不等于   | 是             |
+| `contains`       | 包含     | 是             |
+| `doesNotContain` | 不包含   | 是             |
+| `isEmpty`        | 为空     | 否             |
+| `isNotEmpty`     | 不为空   | 否             |
+| `isGreater`      | 大于     | 是             |
+| `isGreaterEqual` | 大于等于 | 是             |
+| `isLess`         | 小于     | 是             |
+| `isLessEqual`    | 小于等于 | 是             |
 
 **各字段类型的 value 格式：**
 
-| 字段类型 | value 类型 | 适用操作符 | 示例 |
-|----------|-----------|-----------|------|
-| 文本 / 电话 / URL | string | is, isNot, contains, doesNotContain, isEmpty, isNotEmpty | `{"field_name":"姓名","operator":"contains","value":"张"}` |
-| 数字 | number | is, isNot, isGreater, isGreaterEqual, isLess, isLessEqual, isEmpty, isNotEmpty | `{"field_name":"金额","operator":"isGreater","value":0}` |
-| 单选 | string（选项名） | is, isNot, isEmpty, isNotEmpty | `{"field_name":"状态","operator":"is","value":"已完成"}` |
-| 多选 | string[]（选多个）/ string（选单个） | is, isNot, contains, doesNotContain, isEmpty, isNotEmpty | 多选传数组如 `["标签1","标签2"]`；单选传单个字符串 |
-| 日期时间 / 创建时间 / 修改时间 | number（Unix 毫秒时间戳，13位） | is, isGreater, isGreaterEqual, isLess, isLessEqual, isEmpty, isNotEmpty | `{"field_name":"创建日期","operator":"isGreater","value":1704038400000}` |
-| 复选框 | boolean | is | `{"field_name":"已审核","operator":"is","value":true}` |
-| 人员 / 创建人 / 修改人 | string 或 string[]（用户 ID，格式 `ou_xxx`） | is, isNot, isEmpty, isNotEmpty | `{"field_name":"负责人","operator":"is","value":"ou_xxxxxxxxxxxxxxxx"}` |
-| 所有类型（为空/不为空） | 不需要 value | isEmpty, isNotEmpty | `{"field_name":"备注","operator":"isEmpty"}` |
+| 字段类型                       | value 类型                                   | 适用操作符                                                                     | 示例                                                                     |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| 文本 / 电话 / URL              | string                                       | is, isNot, contains, doesNotContain, isEmpty, isNotEmpty                       | `{"field_name":"姓名","operator":"contains","value":"张"}`               |
+| 数字                           | number                                       | is, isNot, isGreater, isGreaterEqual, isLess, isLessEqual, isEmpty, isNotEmpty | `{"field_name":"金额","operator":"isGreater","value":0}`                 |
+| 单选                           | string（选项名）                             | is, isNot, isEmpty, isNotEmpty                                                 | `{"field_name":"状态","operator":"is","value":"已完成"}`                 |
+| 多选                           | string[]（选多个）/ string（选单个）         | is, isNot, contains, doesNotContain, isEmpty, isNotEmpty                       | 多选传数组如 `["标签1","标签2"]`；单选传单个字符串                       |
+| 日期时间 / 创建时间 / 修改时间 | number（Unix 毫秒时间戳，13位）              | is, isGreater, isGreaterEqual, isLess, isLessEqual, isEmpty, isNotEmpty        | `{"field_name":"创建日期","operator":"isGreater","value":1704038400000}` |
+| 复选框                         | boolean                                      | is                                                                             | `{"field_name":"已审核","operator":"is","value":true}`                   |
+| 人员 / 创建人 / 修改人         | string 或 string[]（用户 ID，格式 `ou_xxx`） | is, isNot, isEmpty, isNotEmpty                                                 | `{"field_name":"负责人","operator":"is","value":"ou_xxxxxxxxxxxxxxxx"}`  |
+| 所有类型（为空/不为空）        | 不需要 value                                 | isEmpty, isNotEmpty                                                            | `{"field_name":"备注","operator":"isEmpty"}`                             |
 
 > `value` 类型为 `string | number | boolean | string[]`，需根据字段类型匹配正确格式
 
@@ -180,6 +186,7 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 ## 可复制模板
 
 **按意图选择模板：**
+
 - 比较不同类别数值 → 柱状图 / 条形图
 - 看趋势变化 → 折线图 / 面积图
 - 看占比分布 → 饼图 / 环形图 / 词云
@@ -215,7 +222,13 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 {
   "table_name": "表名",
   "series": [{ "field_name": "金额", "rollup": "SUM" }],
-  "group_by": [{ "field_name": "月份", "mode": "integrated", "sort": {"type":"group","order":"asc"} }]
+  "group_by": [
+    {
+      "field_name": "月份",
+      "mode": "integrated",
+      "sort": { "type": "group", "order": "asc" }
+    }
+  ]
 }
 ```
 
@@ -235,7 +248,13 @@ Block 的 `data_config` 字段因 `type` 不同而变化。本文档描述所有
 {
   "table_name": "表名",
   "series": [{ "field_name": "数值字段", "rollup": "SUM" }],
-  "group_by": [{ "field_name": "时间字段", "mode": "integrated", "sort": {"type":"group","order":"asc"} }]
+  "group_by": [
+    {
+      "field_name": "时间字段",
+      "mode": "integrated",
+      "sort": { "type": "group", "order": "asc" }
+    }
+  ]
 }
 ```
 

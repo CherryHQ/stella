@@ -1,4 +1,3 @@
-
 # drive +apply-permission（申请文档权限）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -32,13 +31,13 @@ lark-cli drive +apply-permission \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--token` | 是 | 目标文档 token 或完整 URL（`/docx/`、`/sheets/`、`/base/`、`/bitable/`、`/file/`、`/wiki/`、`/doc/`、`/mindnote/`、`/slides/` 路径里的 token 会被自动提取） |
-| `--type` | 否 | 目标类型，可选值 `doc` / `sheet` / `file` / `wiki` / `bitable` / `docx` / `mindnote` / `slides`。传 URL 时可由 shortcut 自动推断；bare token 必须显式传 |
-| `--perm` | 是 | 申请的权限，仅支持 `view` 或 `edit`（**不支持 `full_access`**，CLI 侧会直接拒绝） |
-| `--remark` | 否 | 备注，会显示在权限申请卡片上 |
-| `--dry-run` | 否 | 仅打印请求内容，不实际发送 |
+| 参数        | 必填 | 说明                                                                                                                                                        |
+| ----------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--token`   | 是   | 目标文档 token 或完整 URL（`/docx/`、`/sheets/`、`/base/`、`/bitable/`、`/file/`、`/wiki/`、`/doc/`、`/mindnote/`、`/slides/` 路径里的 token 会被自动提取） |
+| `--type`    | 否   | 目标类型，可选值 `doc` / `sheet` / `file` / `wiki` / `bitable` / `docx` / `mindnote` / `slides`。传 URL 时可由 shortcut 自动推断；bare token 必须显式传     |
+| `--perm`    | 是   | 申请的权限，仅支持 `view` 或 `edit`（**不支持 `full_access`**，CLI 侧会直接拒绝）                                                                           |
+| `--remark`  | 否   | 备注，会显示在权限申请卡片上                                                                                                                                |
+| `--dry-run` | 否   | 仅打印请求内容，不实际发送                                                                                                                                  |
 
 ## 输出
 
@@ -59,14 +58,14 @@ API 成功时返回空 `data`（仅 `code: 0, msg: "success"`），对应 CLI �
 
 ## 常见错误
 
-| 错误码 | 含义 | CLI 处理 |
-|---|---|---|
-| `1063006` | 申请次数已达上限（5 次/日） | CLI 自动加 hint：`permission-apply quota reached: each user may request access on the same document at most 5 times per day` |
-| `1063007` | 当前文档无法申请（如：文档禁用外部申请、申请者已拥有对应权限、目标类型不支持 apply） | CLI 自动加 hint：`this document does not accept a permission-apply request ... contact the owner directly` |
-| `1063002` | 无操作权限（如该租户关闭了外部申请） | 由统一 permission 错误路径处理 |
-| `1063004` | 用户所在组织无分享权限 | 由统一 permission 错误路径处理 |
-| `1063005` | 资源已删除 | 需要确认目标文档/节点是否仍存在 |
-| `1066001/1066002` | 服务端异常 / 并发冲突 | 稍后重试 |
+| 错误码            | 含义                                                                                 | CLI 处理                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `1063006`         | 申请次数已达上限（5 次/日）                                                          | CLI 自动加 hint：`permission-apply quota reached: each user may request access on the same document at most 5 times per day` |
+| `1063007`         | 当前文档无法申请（如：文档禁用外部申请、申请者已拥有对应权限、目标类型不支持 apply） | CLI 自动加 hint：`this document does not accept a permission-apply request ... contact the owner directly`                   |
+| `1063002`         | 无操作权限（如该租户关闭了外部申请）                                                 | 由统一 permission 错误路径处理                                                                                               |
+| `1063004`         | 用户所在组织无分享权限                                                               | 由统一 permission 错误路径处理                                                                                               |
+| `1063005`         | 资源已删除                                                                           | 需要确认目标文档/节点是否仍存在                                                                                              |
+| `1066001/1066002` | 服务端异常 / 并发冲突                                                                | 稍后重试                                                                                                                     |
 
 ## 与 wiki URL 的关系
 

@@ -22,20 +22,25 @@ $XDG_CONFIG_HOME/tap/site-notes/{domain}.md
 
 ```markdown
 # example.com
+
 Last updated: 2026-04-07
 
 ## Access pattern
+
 - Needs browser cookies (`tap site -b ...`)
 - Visible auth flow: `tap attach chrome` then `tap browser open https://example.com/login --show`
 
 ## Working endpoints
+
 - `GET /api/v1/data?q=foo`
 - Best extraction: `tap browser network wait --url-pattern "*/api/v1/*" --body`
 
 ## Broken
+
 - `GET /old/api` returns 403 since 2026-04-01
 
 ## Selectors
+
 - `.result-item h3 a`
 ```
 

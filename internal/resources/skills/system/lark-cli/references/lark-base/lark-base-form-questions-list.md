@@ -30,25 +30,25 @@ lark-cli base +form-questions-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 App token（base_token） |
-| `--table-id <id>` | 是 | 数据表 ID |
-| `--form-id <id>` | 是 | 表单 ID |
-| `--format` | 否 | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
-| `--as` | 否 | 身份：user（默认）\| bot |
-| `--dry-run` | 否 | 预览 API 调用，不执行 |
+| 参数                   | 必填 | 说明                                                      |
+| ---------------------- | ---- | --------------------------------------------------------- |
+| `--base-token <token>` | 是   | 多维表格 App token（base_token）                          |
+| `--table-id <id>`      | 是   | 数据表 ID                                                 |
+| `--form-id <id>`       | 是   | 表单 ID                                                   |
+| `--format`             | 否   | 输出格式：json（默认）\| pretty \| table \| ndjson \| csv |
+| `--as`                 | 否   | 身份：user（默认）\| bot                                  |
+| `--dry-run`            | 否   | 预览 API 调用，不执行                                     |
 
 ## 输出格式
 
 每条问题包含以下字段：
 
-| 字段 | 说明 |
-|------|------|
-| `id` | 问题 ID（即数据表的 field_id） |
-| `title` | 问题标题 |
-| `description` | 问题描述 |
-| `required` | 是否必填 |
+| 字段          | 说明                           |
+| ------------- | ------------------------------ |
+| `id`          | 问题 ID（即数据表的 field_id） |
+| `title`       | 问题标题                       |
+| `description` | 问题描述                       |
+| `required`    | 是否必填                       |
 
 ```json
 {

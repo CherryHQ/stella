@@ -1,11 +1,11 @@
 # Stella sandbox image
 #
 # Build locally (dev):
-#   mise run sandbox:docker:build
+# mise run sandbox:docker:build
 #
 # The image tag is version-locked to the stella binary:
-#   - dev builds      → stella-sandbox:dev            (built locally)
-#   - tagged releases → ghcr.io/vaayne/stella-sandbox:<version>
+# - dev builds      → stella-sandbox:dev            (built locally)
+# - tagged releases → ghcr.io/vaayne/stella-sandbox:<version>
 
 FROM golang:1.25 AS stella-builder
 
@@ -23,7 +23,6 @@ COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /usr/local/bin/mise
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
 COPY --from=oven/bun:1.3.12 /usr/local/bin/bunx /usr/local/bin/bun /usr/local/bin/
 COPY --from=lightpanda/browser:nightly /bin/lightpanda /usr/local/bin/lightpanda
-
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

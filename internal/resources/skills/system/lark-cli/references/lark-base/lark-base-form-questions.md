@@ -6,9 +6,9 @@ form questions 相关命令索引。
 
 ## 命令导航
 
-| 文档 | 命令 | 说明 |
-|------|------|------|
-| [lark-base-form-questions-list.md](lark-base-form-questions-list.md) | `+form-questions-list` | 列出表单问题 |
+| 文档                                                                     | 命令                     | 说明         |
+| ------------------------------------------------------------------------ | ------------------------ | ------------ |
+| [lark-base-form-questions-list.md](lark-base-form-questions-list.md)     | `+form-questions-list`   | 列出表单问题 |
 | [lark-base-form-questions-create.md](lark-base-form-questions-create.md) | `+form-questions-create` | 创建表单问题 |
 | [lark-base-form-questions-update.md](lark-base-form-questions-update.md) | `+form-questions-update` | 更新表单问题 |
 | [lark-base-form-questions-delete.md](lark-base-form-questions-delete.md) | `+form-questions-delete` | 删除表单问题 |

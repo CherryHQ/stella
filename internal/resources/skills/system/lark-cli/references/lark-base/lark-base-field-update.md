@@ -22,12 +22,13 @@ lark-cli base +field-update \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--field-id <id_or_name>` | 是 | 字段 ID 或字段名 |
-| `--json <body>` | 是 | 字段属性 JSON 对象 |
+| 参数                      | 必填 | 说明               |
+| ------------------------- | ---- | ------------------ |
+| `--base-token <token>`    | 是   | Base Token         |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名       |
+| `--field-id <id_or_name>` | 是   | 字段 ID 或字段名   |
+| `--json <body>`           | 是   | 字段属性 JSON 对象 |
+
 ## API 入参详情
 
 **HTTP 方法和路径：**
@@ -77,7 +78,6 @@ PUT /open-apis/base/v3/bases/:base_token/tables/:table_id/fields/:field_id
 - 返回 `field` 和 `updated: true`。
 
 ## 工作流
-
 
 1. 建议先用 `+field-get` 拉现状，再做最小化修改。
 2. `formula/lookup` 类型更新前先阅读对应指南。

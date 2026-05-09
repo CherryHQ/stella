@@ -3,8 +3,9 @@ package telegram
 import (
 	"fmt"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const modelsPerPage = 8

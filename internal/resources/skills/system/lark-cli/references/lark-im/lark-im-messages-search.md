@@ -64,26 +64,26 @@ lark-cli im +messages-search --query "test" --dry-run
 
 ## Parameters
 
-| Parameter | Required | Description |
-|------|------|------|
-| `--query <text>` | No | Search keyword (may be empty when used with other filters) |
-| `--chat-id <id>` | No | Restrict to chat IDs, comma-separated (`oc_xxx,oc_yyy`) |
-| `--sender <ids>` | No | Sender open_ids, comma-separated (`ou_xxx`) |
-| `--include-attachment-type <type>` | No | Attachment filter: `file` / `image` / `video` / `link` |
-| `--chat-type <type>` | No | Chat type: `group` / `p2p` |
-| `--sender-type <type>` | No | Sender type: `user` / `bot` |
-| `--exclude-sender-type <type>` | No | Exclude messages from `user` or `bot` senders |
-| `--is-at-me` | No | Only return messages that mention `@me` |
-| `--at-chatter-ids <ids>` | No | Filter by @mentioned user open_ids, comma-separated (`ou_xxx,ou_yyy`). Matched results also include messages that `@all` |
-| `--start <time>` | No | Start time with local timezone offset required (e.g. `2026-03-24T00:00:00+08:00`) |
-| `--end <time>` | No | End time with local timezone offset required (e.g. `2026-03-25T23:59:59+08:00`) |
-| `--page-size <n>` | No | Page size (default 20, range 1-50) |
-| `--page-token <token>` | No | Pagination token for the next page |
-| `--page-all` | No | Automatically paginate through all result pages (up to 40 pages) |
-| `--page-limit <n>` | No | Max pages to fetch when auto-pagination is enabled (default 20, max 40). Setting it explicitly also enables auto-pagination |
-| `--format <fmt>` | No | Output format: `json` (default) / `pretty` / `table` / `ndjson` / `csv` |
-| `--as <identity>` | No | Identity type (defaults to and only supports `user`) |
-| `--dry-run` | No | Print the request only, do not execute it |
+| Parameter                          | Required | Description                                                                                                                 |
+| ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `--query <text>`                   | No       | Search keyword (may be empty when used with other filters)                                                                  |
+| `--chat-id <id>`                   | No       | Restrict to chat IDs, comma-separated (`oc_xxx,oc_yyy`)                                                                     |
+| `--sender <ids>`                   | No       | Sender open_ids, comma-separated (`ou_xxx`)                                                                                 |
+| `--include-attachment-type <type>` | No       | Attachment filter: `file` / `image` / `video` / `link`                                                                      |
+| `--chat-type <type>`               | No       | Chat type: `group` / `p2p`                                                                                                  |
+| `--sender-type <type>`             | No       | Sender type: `user` / `bot`                                                                                                 |
+| `--exclude-sender-type <type>`     | No       | Exclude messages from `user` or `bot` senders                                                                               |
+| `--is-at-me`                       | No       | Only return messages that mention `@me`                                                                                     |
+| `--at-chatter-ids <ids>`           | No       | Filter by @mentioned user open_ids, comma-separated (`ou_xxx,ou_yyy`). Matched results also include messages that `@all`    |
+| `--start <time>`                   | No       | Start time with local timezone offset required (e.g. `2026-03-24T00:00:00+08:00`)                                           |
+| `--end <time>`                     | No       | End time with local timezone offset required (e.g. `2026-03-25T23:59:59+08:00`)                                             |
+| `--page-size <n>`                  | No       | Page size (default 20, range 1-50)                                                                                          |
+| `--page-token <token>`             | No       | Pagination token for the next page                                                                                          |
+| `--page-all`                       | No       | Automatically paginate through all result pages (up to 40 pages)                                                            |
+| `--page-limit <n>`                 | No       | Max pages to fetch when auto-pagination is enabled (default 20, max 40). Setting it explicitly also enables auto-pagination |
+| `--format <fmt>`                   | No       | Output format: `json` (default) / `pretty` / `table` / `ndjson` / `csv`                                                     |
+| `--as <identity>`                  | No       | Identity type (defaults to and only supports `user`)                                                                        |
+| `--dry-run`                        | No       | Print the request only, do not execute it                                                                                   |
 
 ## Core Constraints
 
@@ -105,28 +105,28 @@ The user does not need to manage the orchestration manually. When search results
 
 In JSON output, each message automatically includes conversation context:
 
-| Field | Description |
-|------|------|
-| `chat_type` | Conversation type: `p2p` / `group` |
-| `chat_name` | Group name (for groups) or the other participant's name (for p2p chats) |
-| `chat_partner` | For p2p only: the other participant's `open_id` and `name` |
+| Field          | Description                                                             |
+| -------------- | ----------------------------------------------------------------------- |
+| `chat_type`    | Conversation type: `p2p` / `group`                                      |
+| `chat_name`    | Group name (for groups) or the other participant's name (for p2p chats) |
+| `chat_partner` | For p2p only: the other participant's `open_id` and `name`              |
 
 In pretty output, the `chat` column shows the chat name for groups, or `"p2p"` for direct messages.
 
 Each message in JSON output contains:
 
-| Field | Description |
-|------|------|
-| `message_id` | Message ID |
-| `msg_type` | Message type: `text`, `image`, `file`, `interactive`, `post`, `audio`, `video`, `system`, etc. |
-| `create_time` | Creation time |
-| `sender` | Sender information (includes `name` for user senders) |
-| `content` | Message content |
-| `chat_id` | ID of the conversation the message belongs to |
-| `deleted` | Whether the message has been recalled (`true` = recalled) |
-| `updated` | Whether the message has been edited after sending |
-| `mentions` | Array of @mentions in the message; each item contains `{id, key, name}`. Present only when the message contains @mentions |
-| `thread_id` | Thread ID (`omt_xxx`) if the message has replies in a thread. Present only when replies exist |
+| Field         | Description                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `message_id`  | Message ID                                                                                                                |
+| `msg_type`    | Message type: `text`, `image`, `file`, `interactive`, `post`, `audio`, `video`, `system`, etc.                            |
+| `create_time` | Creation time                                                                                                             |
+| `sender`      | Sender information (includes `name` for user senders)                                                                     |
+| `content`     | Message content                                                                                                           |
+| `chat_id`     | ID of the conversation the message belongs to                                                                             |
+| `deleted`     | Whether the message has been recalled (`true` = recalled)                                                                 |
+| `updated`     | Whether the message has been edited after sending                                                                         |
+| `mentions`    | Array of @mentions in the message; each item contains `{id, key, name}`. Present only when the message contains @mentions |
+| `thread_id`   | Thread ID (`omt_xxx`) if the message has replies in a thread. Present only when replies exist                             |
 
 ### 4. Pagination behavior
 
@@ -204,11 +204,11 @@ lark-cli im +messages-search --query "" --chat-id oc_xxx --sender ou_me --start 
 
 ## Common Errors and Troubleshooting
 
-| Symptom | Root Cause | Solution |
-|---------|---------|---------|
-| Too few results | The time range is too narrow or the keyword is too specific | Expand the time range and try broader keywords |
-| No results | Missing permission or no match | Confirm `search:message` is authorized and relax the filters |
-| Permission denied | Search scope not authorized | Run `auth login --scope "search:message"` |
+| Symptom           | Root Cause                                                  | Solution                                                     |
+| ----------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| Too few results   | The time range is too narrow or the keyword is too specific | Expand the time range and try broader keywords               |
+| No results        | Missing permission or no match                              | Confirm `search:message` is authorized and relax the filters |
+| Permission denied | Search scope not authorized                                 | Run `auth login --scope "search:message"`                    |
 
 ## References
 

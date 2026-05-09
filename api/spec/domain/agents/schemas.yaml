@@ -8,7 +8,7 @@ components:
     SandboxNetworkConfig:
       type: object
       properties:
-        mode:      { type: string }
+        mode: { type: string }
         allowlist: { type: array, items: { type: string } }
 
     SandboxConfig:
@@ -19,18 +19,18 @@ components:
     Agent:
       type: object
       properties:
-        id:            { type: string }
-        name:          { type: string }
-        model:         { type: string }
-        model_strong:  { type: string }
-        model_fast:    { type: string }
+        id: { type: string }
+        name: { type: string }
+        model: { type: string }
+        model_strong: { type: string }
+        model_fast: { type: string }
         system_prompt: { type: string }
-        soul:          { type: string }
-        workspace:     { type: string }
-        sandbox:       { $ref: "#/components/schemas/SandboxConfig" }
-        scope:         { type: string }
-        creator_id:    { type: integer, format: int64 }
-        enabled:       { type: boolean }
+        soul: { type: string }
+        workspace: { type: string }
+        sandbox: { $ref: "#/components/schemas/SandboxConfig" }
+        scope: { type: string }
+        creator_id: { type: integer, format: int64 }
+        enabled: { type: boolean }
 
     AgentList:
       type: object
@@ -41,31 +41,34 @@ components:
     CreateAgentRequest:
       type: object
       properties:
-        id:            { type: string }
-        name:          { type: string }
-        model:         { type: string }
-        model_strong:  { type: string }
-        model_fast:    { type: string }
+        id: { type: string }
+        name: { type: string }
+        model: { type: string }
+        model_strong: { type: string }
+        model_fast: { type: string }
         system_prompt: { type: string }
-        soul:          { type: string }
-        workspace:     { type: string }
-        sandbox:       { $ref: "#/components/schemas/SandboxConfig" }
-        scope:         { type: string }
-        creator_id:    { type: integer, format: int64 }
-        enabled:       { type: boolean }
-        template_id:   { type: string }
+        soul: { type: string }
+        workspace: { type: string }
+        sandbox: { $ref: "#/components/schemas/SandboxConfig" }
+        scope: { type: string }
+        creator_id: { type: integer, format: int64 }
+        enabled: { type: boolean }
+        template_id: { type: string }
 
     AgentUser:
       type: object
       properties:
-        id:       { type: integer, format: int64 }
+        id: { type: integer, format: int64 }
         username: { type: string }
 
     AgentUserList:
       type: object
       required: [items]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/AgentUser" } }
+        items: {
+          type: array,
+          items: { $ref: "#/components/schemas/AgentUser" },
+        }
 
     AssignAgentUserRequest:
       type: object
@@ -76,17 +79,17 @@ components:
     Skill:
       type: object
       properties:
-        id:                       { type: string }
-        scope:                    { type: string }
-        user_id:                  { type: integer, format: int64 }
-        agent_id:                 { type: string }
-        name:                     { type: string }
-        description:              { type: string }
-        status:                   { type: string }
+        id: { type: string }
+        scope: { type: string }
+        user_id: { type: integer, format: int64 }
+        agent_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { type: string }
         disable_model_invocation: { type: boolean }
-        files:                    { type: array, items: { type: string } }
-        created_at:               { type: string }
-        updated_at:               { type: string }
+        files: { type: array, items: { type: string } }
+        created_at: { type: string }
+        updated_at: { type: string }
 
     SkillList:
       type: object
@@ -103,8 +106,8 @@ components:
     UpdateSkillRequest:
       type: object
       properties:
-        description:              { type: string, nullable: true }
-        status:                   { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        status: { type: string, nullable: true }
         disable_model_invocation: { type: boolean, nullable: true }
         files:
           type: object
@@ -113,11 +116,11 @@ components:
     SkillUploadResult:
       type: object
       properties:
-        id:   { type: string }
+        id: { type: string }
         name: { type: string }
 
     DuplicateSkillResult:
       type: object
       properties:
-        id:   { type: string }
+        id: { type: string }
         name: { type: string }

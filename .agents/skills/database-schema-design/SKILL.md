@@ -55,15 +55,15 @@ These are non-negotiable. No table ships without them.
 
 Choose the most specific type that fits:
 
-| Concept | Type | Why |
-|---------|------|-----|
-| Primary key | `UUID` | Globally unique, no coordination needed |
-| Timestamps | `TIMESTAMPTZ` | Real-world events need timezone awareness |
-| Calendar dates | `DATE` | Birthdays, billing dates — no time component |
-| Money | `INTEGER` (cents) or `NUMERIC` | Never float — rounding errors compound |
-| Boolean | `BOOLEAN` | Not integer, not text |
-| Enum/state | `TEXT` with `CHECK`, or native `ENUM` | DB-enforced valid values |
-| Structured blob | `JSONB` | Only for metadata, external payloads, rarely-queried data |
+| Concept         | Type                                  | Why                                                       |
+| --------------- | ------------------------------------- | --------------------------------------------------------- |
+| Primary key     | `UUID`                                | Globally unique, no coordination needed                   |
+| Timestamps      | `TIMESTAMPTZ`                         | Real-world events need timezone awareness                 |
+| Calendar dates  | `DATE`                                | Birthdays, billing dates — no time component              |
+| Money           | `INTEGER` (cents) or `NUMERIC`        | Never float — rounding errors compound                    |
+| Boolean         | `BOOLEAN`                             | Not integer, not text                                     |
+| Enum/state      | `TEXT` with `CHECK`, or native `ENUM` | DB-enforced valid values                                  |
+| Structured blob | `JSONB`                               | Only for metadata, external payloads, rarely-queried data |
 
 Don't store everything as `TEXT`. The type system exists to catch bugs at the boundary.
 
@@ -83,6 +83,7 @@ CREATE TABLE shop_product (
 ```
 
 Checklist:
+
 - `NOT NULL` — default stance. Allow NULL only when absence is semantically meaningful.
 - `UNIQUE` — enforce on natural identifiers.
 - `CHECK` — validate ranges, enums, invariants.
@@ -92,6 +93,7 @@ Checklist:
 ## Normalization
 
 Start at third normal form:
+
 - One fact in one place.
 - No repeated columns (`phone_1`, `phone_2`, `phone_3`).
 - No comma-separated IDs in a single field.
@@ -116,11 +118,11 @@ Denormalize later only for measured performance reasons, and document when you d
 
 ## Relationships
 
-| Pattern | Implementation |
-|---------|---------------|
-| One-to-many | FK on the "many" side: `shop_order.user_id REFERENCES auth_user(id)` |
-| Many-to-many | Join table with composite PK |
-| One-to-one | FK as PK: `auth_user_profile.user_id PRIMARY KEY REFERENCES auth_user(id)` |
+| Pattern      | Implementation                                                             |
+| ------------ | -------------------------------------------------------------------------- |
+| One-to-many  | FK on the "many" side: `shop_order.user_id REFERENCES auth_user(id)`       |
+| Many-to-many | Join table with composite PK                                               |
+| One-to-one   | FK as PK: `auth_user_profile.user_id PRIMARY KEY REFERENCES auth_user(id)` |
 
 Make relationships explicit. Implicit relationships (matching IDs without FK constraints) rot silently.
 
@@ -148,24 +150,26 @@ CREATE INDEX idx_shop_order_pending ON shop_order(created_at)
 
 Decide per table — don't default to one approach everywhere:
 
-| Strategy | When |
-|----------|------|
-| Hard delete | Transient data, logs, ephemeral records |
-| Soft delete (`deleted_at`) | User-visible records needing undo or audit |
-| CASCADE | Tightly-coupled children (messages of a conversation) |
-| RESTRICT | Prevent silently orphaning important references |
-| Archive | Move cold data to separate storage |
+| Strategy                   | When                                                  |
+| -------------------------- | ----------------------------------------------------- |
+| Hard delete                | Transient data, logs, ephemeral records               |
+| Soft delete (`deleted_at`) | User-visible records needing undo or audit            |
+| CASCADE                    | Tightly-coupled children (messages of a conversation) |
+| RESTRICT                   | Prevent silently orphaning important references       |
+| Archive                    | Move cold data to separate storage                    |
 
 CASCADE is convenient but dangerous — it can remove more than you expect.
 
 ## JSON Columns
 
 Use for:
+
 - External payloads you don't control
 - Flexible per-record metadata
 - Rarely-queried settings or config
 
 Never use for:
+
 - Core relational data you join, filter, or aggregate
 - Data that needs validation or uniqueness constraints
 - Anything that would benefit from a foreign key

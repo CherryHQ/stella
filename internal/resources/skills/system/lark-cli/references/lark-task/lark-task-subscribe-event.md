@@ -7,6 +7,7 @@
 Subscribe task update events with the current identity.
 
 This shortcut is different from `event +subscribe`:
+
 - `task +subscribe-event` registers task-event access for the **current identity**
 - with `--as user`, it subscribes the **current user** to task events for tasks they created, are responsible for, or follow
 - with `--as bot`, it subscribes using the **application identity** for tasks the application is responsible for
@@ -50,6 +51,7 @@ Event payload shape (example):
 - `timestamp`: event timestamp (ms)
 
 In practice, this means:
+
 - with `--as user`, the subscribed user can receive updates for tasks visible to them through authorship, assignment, or following
 - with `--as bot`, the subscription covers tasks the application is responsible for
 
@@ -60,6 +62,7 @@ lark-cli event +subscribe --event-types task.task.update_user_access_v2 --compac
 ```
 
 The full flow is:
+
 1. Register the subscription with `lark-cli task +subscribe-event [--as user|bot]`
 2. Receive those events with `lark-cli event +subscribe --event-types task.task.update_user_access_v2 ...`
 
@@ -68,9 +71,10 @@ The full flow is:
 ```bash
 lark-cli task +subscribe-event
 ```
-# Subscribe with app identity
-lark-cli task +subscribe-event --as bot
 
+# Subscribe with app identity
+
+lark-cli task +subscribe-event --as bot
 
 ## Parameters
 

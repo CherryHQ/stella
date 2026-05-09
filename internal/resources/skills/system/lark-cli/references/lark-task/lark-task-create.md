@@ -25,15 +25,15 @@ lark-cli task +create --summary "Test Task" --dry-run
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--summary <text>` | Yes | The title or summary of the task |
-| `--description <text>` | No | Detailed description of the task |
-| `--assignee <id>` | No | The `open_id` of the user to assign the task to (e.g., `ou_xxx`) |
-| `--due <time>` | No | Due date. Supports ISO 8601, `YYYY-MM-DD`, relative time (e.g., `+2d`), or ms timestamp. `YYYY-MM-DD` and relative time will automatically set it as an all-day task. |
-| `--tasklist-id <id>` | No | The GUID of the tasklist, or a full AppLink URL (the CLI will automatically extract the `guid` parameter from the URL). |
-| `--idempotency-key <key>` | No | Client token to ensure idempotency of the request. |
-| `--dry-run` | No | Preview the API call (JSON payload) without actually creating the task. |
+| Parameter                 | Required | Description                                                                                                                                                           |
+| ------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--summary <text>`        | Yes      | The title or summary of the task                                                                                                                                      |
+| `--description <text>`    | No       | Detailed description of the task                                                                                                                                      |
+| `--assignee <id>`         | No       | The `open_id` of the user to assign the task to (e.g., `ou_xxx`)                                                                                                      |
+| `--due <time>`            | No       | Due date. Supports ISO 8601, `YYYY-MM-DD`, relative time (e.g., `+2d`), or ms timestamp. `YYYY-MM-DD` and relative time will automatically set it as an all-day task. |
+| `--tasklist-id <id>`      | No       | The GUID of the tasklist, or a full AppLink URL (the CLI will automatically extract the `guid` parameter from the URL).                                               |
+| `--idempotency-key <key>` | No       | Client token to ensure idempotency of the request.                                                                                                                    |
+| `--dry-run`               | No       | Preview the API call (JSON payload) without actually creating the task.                                                                                               |
 
 ## Workflow
 

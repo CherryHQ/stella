@@ -56,6 +56,7 @@ env "local" {
 ```
 
 Key concepts:
+
 - `src` — the desired schema (your source of truth)
 - `dev` — a disposable database Atlas uses for diffing (in-memory is fine)
 - `migration.dir` — where generated migrations live
@@ -121,14 +122,14 @@ CREATE INDEX idx_shop_order_status ON shop_order(status, created_at DESC);
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `mise run db:diff -- <name>` | Generate migration from schema changes |
-| `mise run db:hash` | Rehash migration directory (fix integrity after manual edits) |
-| `mise run db:validate` | Validate migration directory integrity |
-| `mise run db:migrate:apply` | Apply pending migrations to a database |
-| `mise run db:migrate:lint` | Lint migrations for potential issues |
-| `mise run db:schema:diff` | Compare live database with migration files |
+| Command                      | What it does                                                  |
+| ---------------------------- | ------------------------------------------------------------- |
+| `mise run db:diff -- <name>` | Generate migration from schema changes                        |
+| `mise run db:hash`           | Rehash migration directory (fix integrity after manual edits) |
+| `mise run db:validate`       | Validate migration directory integrity                        |
+| `mise run db:migrate:apply`  | Apply pending migrations to a database                        |
+| `mise run db:migrate:lint`   | Lint migrations for potential issues                          |
+| `mise run db:schema:diff`    | Compare live database with migration files                    |
 
 ## Migration File Rules
 
@@ -197,13 +198,13 @@ Don't delete migrations from the history.
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| `atlas.sum` mismatch | Run `mise run db:hash` |
-| "no changes detected" | Check that `main.sql` imports your new table file |
-| Migration references wrong table | Check import order in `main.sql` |
+| Problem                              | Fix                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| `atlas.sum` mismatch                 | Run `mise run db:hash`                                                            |
+| "no changes detected"                | Check that `main.sql` imports your new table file                                 |
+| Migration references wrong table     | Check import order in `main.sql`                                                  |
 | FK constraint error during migration | Atlas should handle this with PRAGMA — if not, ensure the referenced table exists |
-| "checksum mismatch" in CI | Someone edited a committed migration — regenerate hash or fix the edit |
+| "checksum mismatch" in CI            | Someone edited a committed migration — regenerate hash or fix the edit            |
 
 ## Integration With sqlc
 

@@ -14,10 +14,10 @@ lark-cli base +role-list --base-token VwGhb**************fMnod
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token，27 位字母数字字符串 |
-| `--format <fmt>` | 否 | 输出格式：json / pretty / table / csv / ndjson |
+| 参数                   | 必填 | 说明                                           |
+| ---------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>` | 是   | Base Token，27 位字母数字字符串                |
+| `--format <fmt>`       | 否   | 输出格式：json / pretty / table / csv / ndjson |
 
 ## API 入参详情
 
@@ -29,9 +29,9 @@ GET /open-apis/base/v3/bases/:base_token/roles
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | Base 的唯一标识 |
+| 参数         | 必填 | 说明            |
+| ------------ | ---- | --------------- |
+| `base_token` | 是   | Base 的唯一标识 |
 
 无 Query 参数，无 Request Body。
 
@@ -39,17 +39,17 @@ GET /open-apis/base/v3/bases/:base_token/roles
 
 **Response `data` 字段（JSON 字符串，需双重解析）：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
+| 字段         | 类型     | 说明                             |
+| ------------ | -------- | -------------------------------- |
 | `base_roles` | []string | AIBaseRoleRef 的 JSON 字符串数组 |
-| `total` | int32 | 角色总数 |
+| `total`      | int32    | 角色总数                         |
 
 **AIBaseRoleRef 结构：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `role_id` | string | 角色 ID，如 `rolxxxxxx1` |
-| `role_name` | string | 角色名称 |
+| 字段        | 类型   | 说明                                          |
+| ----------- | ------ | --------------------------------------------- |
+| `role_id`   | string | 角色 ID，如 `rolxxxxxx1`                      |
+| `role_name` | string | 角色名称                                      |
 | `role_type` | string | 角色类型：`editor` / `reader` / `custom_role` |
 
 ## 返回值
@@ -73,7 +73,7 @@ GET /open-apis/base/v3/bases/:base_token/roles
 
 - ⚠️ **data 是 JSON 字符串**：响应 `data` 是 string 类型，内部 `base_roles` 数组的每个元素也是 JSON 字符串，需要多层解析
 - ⚠️ **返回摘要信息**：此接口只返回 role_id / role_name / role_type，不含完整权限配置。要获取完整配置请用 `+role-get`
-- ⚠️ **包含系统角色**：返回结果包含  editor / reader 两个系统角色
+- ⚠️ **包含系统角色**：返回结果包含 editor / reader 两个系统角色
 
 ## 参考
 

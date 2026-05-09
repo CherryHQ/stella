@@ -9,8 +9,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/PublicChannelList" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PublicChannelList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
 
   /api/channels:
     get:
@@ -22,8 +26,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/ChannelList" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ChannelList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     post:
       tags: [channels]
@@ -33,15 +41,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest",
+            }
       responses:
         "201":
           description: created
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Channel",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
   /api/channels/{id}:
@@ -56,8 +72,12 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Channel",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     put:
@@ -68,15 +88,23 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest" }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ChannelWriteRequest",
+            }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Channel" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Channel",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
@@ -88,8 +116,12 @@ paths:
           description: deleted
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/DeleteResult" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
@@ -103,13 +135,19 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/WeixinQRCode" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WeixinQRCode",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "502":
           description: upstream error from iLink API
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Error" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/channels/weixin/qr/status:
     get:
@@ -117,17 +155,31 @@ paths:
       summary: Poll WeChat QR login status (any authenticated user)
       operationId: pollWeixinQRStatus
       parameters:
-        - { name: qrcode, in: query, required: true, schema: { type: string }, description: "QR code token from startWeixinQR" }
+        - {
+            name: qrcode,
+            in: query,
+            required: true,
+            schema: { type: string },
+            description: "QR code token from startWeixinQR",
+          }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/WeixinQRStatus" }
-        "400": { $ref: "../../components.yaml#/components/responses/BadRequest" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WeixinQRStatus",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "502":
           description: upstream error from iLink API
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/Error" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }

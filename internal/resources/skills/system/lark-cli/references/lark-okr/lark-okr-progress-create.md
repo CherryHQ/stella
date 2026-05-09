@@ -30,18 +30,18 @@ lark-cli okr +progress-create \
 
 ## 参数
 
-| 参数                   | 必填 | 默认值                   | 说明                                                                                                                                   |
-|----------------------|----|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `--content`          | 是  | —                     | 进展内容，ContentBlock JSON 格式。支持 `@文件路径` 从文件读取。请参考 [ContentBlock 格式](lark-okr-contentblock.md)。                                          |
-| `--target-id`        | 是  | —                     | 目标 ID 或关键结果 ID（int64 类型，正整数）                                                                                                         |
-| `--target-type`      | 是  | —                     | 目标类型：`objective` \| `key_result`                                                                                                     |
-| `--progress-percent` | 否  | —                     | 进度百分比(-99999999999 - 99999999999)。百分比的取值通常在 0-100，但允许超过此范围，以表示超额完成或负增长等情况。挂载的目标或关键结果的量化指标不使用百分比单位时，以这个字段更新当前值。系统内最多保留两位小数            |
-| `--progress-status`  | 否  | —                     | 进度状态：`normal`（正常） \| `overdue`（逾期） \| `done`（已完成）。仅在指定 `--progress-percent` 时生效。                                                     |
-| `--source-title`     | 否  | `created by lark-cli` | 来源标题，用于在 OKR 界面中显示进展来源                                                                                                               |
-| `--source-url`       | 否  | 根据品牌自动生成              | 来源 URL，用于在 OKR 界面中显示进展来源链接，通常可以填写 OKR 编写信息来源的文档链接等。飞书品牌默认为 `https://open.feishu.cn/app`, Lark 品牌默认为 `https://open.larksuite.com/app` |
-| `--user-id-type`     | 否  | `open_id`             | 用户 ID 类型：`open_id` \| `union_id` \| `user_id`                                                                                        |
-| `--dry-run`          | 否  | —                     | 预览 API 调用而不实际执行。                                                                                                                     |
-| `--format`           | 否  | `json`                | 输出格式。                                                                                                                                |
+| 参数                 | 必填 | 默认值                | 说明                                                                                                                                                                                                             |
+| -------------------- | ---- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--content`          | 是   | —                     | 进展内容，ContentBlock JSON 格式。支持 `@文件路径` 从文件读取。请参考 [ContentBlock 格式](lark-okr-contentblock.md)。                                                                                            |
+| `--target-id`        | 是   | —                     | 目标 ID 或关键结果 ID（int64 类型，正整数）                                                                                                                                                                      |
+| `--target-type`      | 是   | —                     | 目标类型：`objective` \| `key_result`                                                                                                                                                                            |
+| `--progress-percent` | 否   | —                     | 进度百分比(-99999999999 - 99999999999)。百分比的取值通常在 0-100，但允许超过此范围，以表示超额完成或负增长等情况。挂载的目标或关键结果的量化指标不使用百分比单位时，以这个字段更新当前值。系统内最多保留两位小数 |
+| `--progress-status`  | 否   | —                     | 进度状态：`normal`（正常） \| `overdue`（逾期） \| `done`（已完成）。仅在指定 `--progress-percent` 时生效。                                                                                                      |
+| `--source-title`     | 否   | `created by lark-cli` | 来源标题，用于在 OKR 界面中显示进展来源                                                                                                                                                                          |
+| `--source-url`       | 否   | 根据品牌自动生成      | 来源 URL，用于在 OKR 界面中显示进展来源链接，通常可以填写 OKR 编写信息来源的文档链接等。飞书品牌默认为 `https://open.feishu.cn/app`, Lark 品牌默认为 `https://open.larksuite.com/app`                            |
+| `--user-id-type`     | 否   | `open_id`             | 用户 ID 类型：`open_id` \| `union_id` \| `user_id`                                                                                                                                                               |
+| `--dry-run`          | 否   | —                     | 预览 API 调用而不实际执行。                                                                                                                                                                                      |
+| `--format`           | 否   | `json`                | 输出格式。                                                                                                                                                                                                       |
 
 ## 工作流程
 

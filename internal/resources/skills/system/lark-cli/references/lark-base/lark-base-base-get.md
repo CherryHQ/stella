@@ -13,9 +13,9 @@ lark-cli base +base-get \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
+| 参数                   | 必填 | 说明       |
+| ---------------------- | ---- | ---------- |
+| `--base-token <token>` | 是   | Base Token |
 
 ## API 入参详情
 

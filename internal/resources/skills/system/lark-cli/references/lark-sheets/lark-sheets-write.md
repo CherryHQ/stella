@@ -1,4 +1,3 @@
-
 # sheets +write（写入单元格 / 覆盖写入）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -38,14 +37,14 @@ lark-cli sheets +write --spreadsheet-token "shtxxxxxxxx" --range "<sheetId>!A1:B
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--url <url>` | 否 | 电子表格 URL（与 `--spreadsheet-token` 二选一；支持 wiki URL） |
-| `--spreadsheet-token <token>` | 否 | 表格 token（与 `--url` 二选一） |
-| `--range <range>` | 否 | 写入范围：`<sheetId>!A1:D10`、`A1:D10` / `C2`（需配合 `--sheet-id`），或 `<sheetId>` |
-| `--sheet-id <id>` | 否 | 工作表 ID（不提供 `--range` 时生效） |
-| `--values <json>` | 是 | 二维数组 JSON（写入值） |
-| `--dry-run` | 否 | 仅打印参数，不执行请求 |
+| 参数                          | 必填 | 说明                                                                                 |
+| ----------------------------- | ---- | ------------------------------------------------------------------------------------ |
+| `--url <url>`                 | 否   | 电子表格 URL（与 `--spreadsheet-token` 二选一；支持 wiki URL）                       |
+| `--spreadsheet-token <token>` | 否   | 表格 token（与 `--url` 二选一）                                                      |
+| `--range <range>`             | 否   | 写入范围：`<sheetId>!A1:D10`、`A1:D10` / `C2`（需配合 `--sheet-id`），或 `<sheetId>` |
+| `--sheet-id <id>`             | 否   | 工作表 ID（不提供 `--range` 时生效）                                                 |
+| `--values <json>`             | 是   | 二维数组 JSON（写入值）                                                              |
+| `--dry-run`                   | 否   | 仅打印参数，不执行请求                                                               |
 
 ## 输出
 

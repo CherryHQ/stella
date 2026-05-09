@@ -9,21 +9,29 @@ components:
       type: object
       required: [id, user_id, platform, external_id, name, linked_at]
       properties:
-        id:          { type: integer, format: int64 }
-        user_id:     { type: integer, format: int64 }
-        platform:    { type: string }
+        id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        platform: { type: string }
         external_id: { type: string }
-        name:        { type: string }
-        linked_at:   { type: string, format: date-time }
+        name: { type: string }
+        linked_at: { type: string, format: date-time }
 
     AuthUser:
       type: object
-      required: [id, username, role, is_active, identities, created_at, updated_at]
+      required: [
+        id,
+        username,
+        role,
+        is_active,
+        identities,
+        created_at,
+        updated_at,
+      ]
       properties:
-        id:         { type: integer, format: int64 }
-        username:   { type: string }
-        role:       { type: string }
-        is_active:  { type: boolean }
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        role: { type: string }
+        is_active: { type: boolean }
         identities:
           type: array
           items: { $ref: "#/components/schemas/Identity" }

@@ -19,11 +19,11 @@ lark-cli task +assign --task-id "<task_guid>" --add "ou_aaa,ou_bbb"
 
 ## Parameters
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--task-id <guid>` | Yes | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
-| `--add <ids>` | No | Comma-separated list of user `open_id`s to add as assignees. |
-| `--remove <ids>` | No | Comma-separated list of user `open_id`s to remove from assignees. |
+| Parameter          | Required | Description                                                                                                                                     |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--task-id <guid>` | Yes      | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--add <ids>`      | No       | Comma-separated list of user `open_id`s to add as assignees.                                                                                    |
+| `--remove <ids>`   | No       | Comma-separated list of user `open_id`s to remove from assignees.                                                                               |
 
 ## Workflow
 

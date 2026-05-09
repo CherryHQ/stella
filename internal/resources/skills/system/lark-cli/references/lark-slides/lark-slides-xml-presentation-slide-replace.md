@@ -14,10 +14,10 @@ lark-cli slides xml_presentation.slide replace --as user --params '<json_params>
 
 ## 参数说明
 
-| 参数 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `--params` | JSON string | 是 | 路径参数与查询参数 |
-| `--data` | JSON string | 是 | patch 列表 |
+| 参数       | 类型        | 必需 | 说明               |
+| ---------- | ----------- | ---- | ------------------ |
+| `--params` | JSON string | 是   | 路径参数与查询参数 |
+| `--data`   | JSON string | 是   | patch 列表         |
 
 ### params JSON 结构
 
@@ -30,27 +30,35 @@ lark-cli slides xml_presentation.slide replace --as user --params '<json_params>
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `xml_presentation_id` | string | 是 | 演示文稿唯一标识 |
-| `slide_id` | string | 是 | 页面唯一标识 |
-| `revision_id` | integer | 否 | 默认 `-1`（以最新版为基准）；传具体版本号做乐观锁 |
-| `tid` | string | 否 | 事务 ID，一般留空 |
+| 字段                  | 类型    | 必需 | 说明                                              |
+| --------------------- | ------- | ---- | ------------------------------------------------- |
+| `xml_presentation_id` | string  | 是   | 演示文稿唯一标识                                  |
+| `slide_id`            | string  | 是   | 页面唯一标识                                      |
+| `revision_id`         | integer | 否   | 默认 `-1`（以最新版为基准）；传具体版本号做乐观锁 |
+| `tid`                 | string  | 否   | 事务 ID，一般留空                                 |
 
 ### data JSON 结构
 
 ```json
 {
   "parts": [
-    { "action": "block_replace", "block_id": "bab", "replacement": "<shape .../>" },
-    { "action": "block_insert", "insertion": "<img .../>", "insert_before_block_id": "baa" }
+    {
+      "action": "block_replace",
+      "block_id": "bab",
+      "replacement": "<shape .../>"
+    },
+    {
+      "action": "block_insert",
+      "insertion": "<img .../>",
+      "insert_before_block_id": "baa"
+    }
   ]
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `parts` | array | 是 | patch 列表，长度 1~200，顺序执行 |
+| 字段    | 类型  | 必需 | 说明                             |
+| ------- | ----- | ---- | -------------------------------- |
+| `parts` | array | 是   | patch 列表，长度 1~200，顺序执行 |
 
 ### parts[] 字段（按 action 不同）
 
@@ -58,19 +66,19 @@ lark-cli slides xml_presentation.slide replace --as user --params '<json_params>
 
 #### action = "block_replace" — 整块替换
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `action` | 是 | 固定 `block_replace` |
-| `block_id` | 是 | 目标块的 3 位 short element ID（从 `slide.get` 返回的 XML 里读到） |
-| `replacement` | 是 | 新 XML 片段，替换整个目标块 |
+| 字段          | 必填 | 说明                                                               |
+| ------------- | ---- | ------------------------------------------------------------------ |
+| `action`      | 是   | 固定 `block_replace`                                               |
+| `block_id`    | 是   | 目标块的 3 位 short element ID（从 `slide.get` 返回的 XML 里读到） |
+| `replacement` | 是   | 新 XML 片段，替换整个目标块                                        |
 
 #### action = "block_insert" — 整块插入
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `action` | 是 | 固定 `block_insert` |
-| `insertion` | 是 | 要插入的完整 XML 片段 |
-| `insert_before_block_id` | 否 | 插到这个块之前；省略则追加到页面末尾 |
+| 字段                     | 必填 | 说明                                 |
+| ------------------------ | ---- | ------------------------------------ |
+| `action`                 | 是   | 固定 `block_insert`                  |
+| `insertion`              | 是   | 要插入的完整 XML 片段                |
+| `insert_before_block_id` | 否   | 插到这个块之前；省略则追加到页面末尾 |
 
 ## 使用示例
 
@@ -152,21 +160,21 @@ lark-cli slides xml_presentation.slide replace --as user --params '{
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `data.revision_id` | integer | 成功时返回更新后最新版本号 |
+| 字段                     | 类型    | 说明                                           |
+| ------------------------ | ------- | ---------------------------------------------- |
+| `data.revision_id`       | integer | 成功时返回更新后最新版本号                     |
 | `data.failed_part_index` | integer | 失败的 part 在 `parts` 数组中的索引（从 0 起） |
-| `data.failed_reason` | string | 失败原因 |
+| `data.failed_reason`     | string  | 失败原因                                       |
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
+| 错误码  | 含义                                              | 解决方案                                                                                         |
+| ------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | 3350001 | `block_id` 在当前页不存在，或 XML 格式 / 结构错误 | 重新 `slide.get` 拿最新 XML，确认 `block_id` 存在；检查 `replacement` / `insertion` 是否合法 XML |
-| 400 | `parts` 长度超过 200 | 拆多次调用 |
-| 3350002 | `revision_id` 不存在（超过当前版本号） | 用 `-1` 或实际存在的 `revision_id` |
-| 400 | XML 格式错误 | `replacement` / `insertion` 必须为合法的 XML 片段，标签闭合 + 属性引号 |
-| 403 | 权限不足 | 需要 `slides:presentation:update` 或 `slides:presentation:write_only` |
+| 400     | `parts` 长度超过 200                              | 拆多次调用                                                                                       |
+| 3350002 | `revision_id` 不存在（超过当前版本号）            | 用 `-1` 或实际存在的 `revision_id`                                                               |
+| 400     | XML 格式错误                                      | `replacement` / `insertion` 必须为合法的 XML 片段，标签闭合 + 属性引号                           |
+| 403     | 权限不足                                          | 需要 `slides:presentation:update` 或 `slides:presentation:write_only`                            |
 
 ## 注意事项
 

@@ -1,9 +1,9 @@
 ---
 description: Access websites, search the web, and extract clean content using the `tap` CLI. Supports structured site scripts, readable page extraction, and browser automation for tabs, screenshots, forms, cookies, JavaScript evaluation, and network capture. Use for web lookup, page reading, content extraction, browser interaction, authenticated sessions, request interception, or CDP-connected desktop apps.
 metadata:
-    author: vaayne/tap
-    owner_plugin: tool/tap-web
-    version: v0.4.4
+  author: vaayne/tap
+  owner_plugin: tool/tap-web
+  version: v0.4.4
 name: tap-web
 ---
 
@@ -33,13 +33,14 @@ TAP_SKILL_DIR=/custom/path/to/skills/tap-web tap skill install
 
 Start simple and escalate only when needed:
 
-| Tier | Tool | Use for |
-|---|---|---|
-| 1 | `tap site` | Structured data from known sites |
-| 2 | `tap fetch` | Clean readable content from a URL |
-| 3 | `tap browser` | Interaction, auth, screenshots, network capture |
+| Tier | Tool          | Use for                                         |
+| ---- | ------------- | ----------------------------------------------- |
+| 1    | `tap site`    | Structured data from known sites                |
+| 2    | `tap fetch`   | Clean readable content from a URL               |
+| 3    | `tap browser` | Interaction, auth, screenshots, network capture |
 
 Decision flow:
+
 1. Check for a site script first: `tap site list` / `tap site search <query>`
 2. If you just need readable content: `tap fetch <url>`
 3. If you need interaction/auth/network: `tap browser ...`
@@ -104,17 +105,17 @@ tap browser network clear
 
 ## Browser-backed flags
 
-| Flag | Use when |
-|---|---|
-| `-b`, `--browser` | Force browser execution for `site` / `fetch` |
-| `--show` | Need a visible browser for auth or manual interaction |
-| `--wait <dur>` | Need a fixed post-navigation delay |
-| `--wait-selector <sel>` | Wait for a specific element |
-| `--wait-js <expr>` | Wait for a JS condition |
-| `--timeout <dur>` | Limit execution time |
-| `--browser-url <url>` | One-shot DevTools override |
-| `--profile-dir <path>` | One-shot profile override |
-| `--lp`, `--lightpanda` | Fast JS rendering without Chrome auth flows |
+| Flag                    | Use when                                              |
+| ----------------------- | ----------------------------------------------------- |
+| `-b`, `--browser`       | Force browser execution for `site` / `fetch`          |
+| `--show`                | Need a visible browser for auth or manual interaction |
+| `--wait <dur>`          | Need a fixed post-navigation delay                    |
+| `--wait-selector <sel>` | Wait for a specific element                           |
+| `--wait-js <expr>`      | Wait for a JS condition                               |
+| `--timeout <dur>`       | Limit execution time                                  |
+| `--browser-url <url>`   | One-shot DevTools override                            |
+| `--profile-dir <path>`  | One-shot profile override                             |
+| `--lp`, `--lightpanda`  | Fast JS rendering without Chrome auth flows           |
 
 Compatibility aliases exist, but prefer the names above.
 
@@ -136,6 +137,7 @@ Then reuse that same browser context with `tap site -b`, `tap fetch -b`, and lat
 ## Context resolution
 
 Browser-backed commands resolve context in this order:
+
 1. explicit `--browser-url` / `--profile-dir`
 2. persisted default context from `tap attach ...`
 3. managed local default browser context
@@ -155,6 +157,7 @@ tap browser select @e5 "us"
 ```
 
 Rules:
+
 - Refs like `@e1` come from the latest snapshot for the current tab.
 - Refs are only valid for the same page document.
 - After navigation, reload, or major page updates, re-run `tap browser snapshot` before using old refs.
@@ -165,6 +168,7 @@ Rules:
 Never dump full HTML unless there is no cheaper path.
 
 Preferred order:
+
 1. Site script
 2. `tap fetch`
 3. `tap browser network wait --body`

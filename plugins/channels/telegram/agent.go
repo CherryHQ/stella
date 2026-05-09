@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/CherryHQ/stella/pkg/channel"
 	tele "gopkg.in/telebot.v4"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const agentsPerPage = 8

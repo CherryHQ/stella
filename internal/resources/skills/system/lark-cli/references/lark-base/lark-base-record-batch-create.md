@@ -20,11 +20,11 @@ lark-cli base +record-batch-create --base-token <base_token> --table-id <table_i
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--json <body>` | 是 | 批量创建请求体，必须是 JSON 对象。支持直接传 JSON 字符串，或 `@<file_path>` 从文件读取 |
+| 参数                      | 必填 | 说明                                                                                   |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                                                             |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                                                                           |
+| `--json <body>`           | 是   | 批量创建请求体，必须是 JSON 对象。支持直接传 JSON 字符串，或 `@<file_path>` 从文件读取 |
 
 ## API
 
@@ -36,10 +36,10 @@ lark-cli base +record-batch-create --base-token <base_token> --table-id <table_i
 
 对象形态：`{"fields":[...],"rows":[...]}`。
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `fields` | `string[]` | 是 | 字段 ID 或字段名数组 |
-| `rows` | `CellValue[][]` | 是 | 二维数组，每一行按 `fields` 同序给 cell；单次最多 200 行 |
+| 字段     | 类型            | 必填 | 说明                                                     |
+| -------- | --------------- | ---- | -------------------------------------------------------- |
+| `fields` | `string[]`      | 是   | 字段 ID 或字段名数组                                     |
+| `rows`   | `CellValue[][]` | 是   | 二维数组，每一行按 `fields` 同序给 cell；单次最多 200 行 |
 
 ## 返回重点
 

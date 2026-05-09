@@ -2,6 +2,9 @@ version: "2"
 
 run:
   timeout: 5m
+  relative-path-mode: gomod
+  modules-download-mode: readonly
+  go: "1.25"
 
 linters:
   enable:
@@ -9,25 +12,52 @@ linters:
     - copyloopvar
     - errcheck
     - errorlint
+    - gocritic
     - govet
     - ineffassign
     - misspell
+    - modernize
     - nilerr
+    - nolintlint
     - staticcheck
     - unconvert
     - unused
-    - gocritic
-    - modernize
+  exclusions:
+    generated: strict
+    paths:
+      - ^bin/
+      - ^vendor/
+      - .*_templ\.go$
+      - .*gen.go
 
 formatters:
   enable:
     - gofmt
     - gofumpt
     - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/CherryHQ/stella
+  exclusions:
+    generated: strict
+    paths:
+      - ^bin/
+      - ^vendor/
+      - .*_templ\.go$
+      - .*gen.go
 
 issues:
-  exclude-dirs:
-    - bin
-    - vendor
-  exclude-files:
-    - ".*_templ\\.go$"
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
+  sort-order:
+    - file
+    - linter

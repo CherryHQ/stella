@@ -15,7 +15,7 @@ sqlc generates type-safe Go code from SQL queries. You write SQL, sqlc generates
 ```yaml
 version: "2"
 sql:
-  - engine: "sqlite"          # or "postgresql", "mysql"
+  - engine: "sqlite" # or "postgresql", "mysql"
     queries: "path/to/queries/*.sql"
     schema: "path/to/schema/*.sql"
     gen:
@@ -27,6 +27,7 @@ sql:
 ```
 
 Key options:
+
 - `emit_json_tags: true` — struct fields get `json:"snake_case"` tags
 - `emit_empty_slices: true` — `:many` returns `[]T{}` instead of `nil` when no rows
 
@@ -40,13 +41,13 @@ Every query needs a name annotation comment:
 
 Return types:
 
-| Annotation | Go signature | Use when |
-|-----------|-------------|----------|
-| `:one` | `(Model, error)` | SELECT expecting exactly one row, INSERT/UPDATE RETURNING |
-| `:many` | `([]Model, error)` | SELECT returning multiple rows |
-| `:exec` | `error` | INSERT/UPDATE/DELETE with no return value |
-| `:execresult` | `(sql.Result, error)` | Need `LastInsertId()` or `RowsAffected()` |
-| `:execrows` | `(int64, error)` | Only need rows affected count |
+| Annotation    | Go signature          | Use when                                                  |
+| ------------- | --------------------- | --------------------------------------------------------- |
+| `:one`        | `(Model, error)`      | SELECT expecting exactly one row, INSERT/UPDATE RETURNING |
+| `:many`       | `([]Model, error)`    | SELECT returning multiple rows                            |
+| `:exec`       | `error`               | INSERT/UPDATE/DELETE with no return value                 |
+| `:execresult` | `(sql.Result, error)` | Need `LastInsertId()` or `RowsAffected()`                 |
+| `:execrows`   | `(int64, error)`      | Only need rows affected count                             |
 
 ## Naming Conventions
 
@@ -65,6 +66,7 @@ Query function names should be `Verb` + `Entity` + optional `ByFilter` or `Quali
 ```
 
 Rules:
+
 - **Entity is singular** — `GetOrder`, not `GetOrders`
 - **List for collections** — `ListOrder`, not `GetOrders` or `FindOrders`
 - **Verb prefixes**: `Create`, `Get`, `List`, `Update`, `Delete`, `Count`, `Upsert`

@@ -15,17 +15,17 @@ lark-cli base +table-create \
   --base-token app_xxx \
   --name "项目管理" \
   --fields '[{"name":"项目名称","type":"text"}]' \
-  --view '[{"name":"默认表格","type":"grid"}]' 
+  --view '[{"name":"默认表格","type":"grid"}]'
 ```
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--name <name>` | 是 | 新表名称 |
-| `--fields <json>` | 否 | 字段 JSON 数组 |
-| `--view <json>` | 否 | 视图 JSON 对象或数组 |
+| 参数                   | 必填 | 说明                 |
+| ---------------------- | ---- | -------------------- |
+| `--base-token <token>` | 是   | Base Token           |
+| `--name <name>`        | 是   | 新表名称             |
+| `--fields <json>`      | 否   | 字段 JSON 数组       |
+| `--view <json>`        | 否   | 视图 JSON 对象或数组 |
 
 ## API 入参详情
 
@@ -44,7 +44,6 @@ POST /open-apis/base/v3/bases/:base_token/tables
 - 传了 `--fields` / `--view` 时，还会附带 `fields` / `views`。
 
 ## 工作流
-
 
 1. 先只传 `--name` 建空表。
 2. 字段或视图参数较复杂时，先精简到最小必需字段，再以内联 JSON 传参。

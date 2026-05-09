@@ -1,6 +1,7 @@
 # docs +create（创建飞书云文档）
 
 > **前置条件（MUST READ）：** 生成文档内容前，必须先用 Read 工具读取以下文件，缺一不可：
+>
 > 1. [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) — 认证、全局参数和安全规则
 > 2. [`lark-doc-xml.md`](lark-doc-xml.md) — XML 语法规则（使用 Markdown 格式时改读 [`lark-doc-md.md`](lark-doc-md.md)）
 > 3. [`lark-doc-style.md`](style/lark-doc-style.md) — 排版指南（元素选择、丰富度规则、颜色语义）
@@ -40,7 +41,11 @@ lark-cli docs +create --api-version v2 --doc-format markdown --content $'# 项�
       "revision_id": 1,
       "url": "https://xxx.feishu.cn/docx/doxcnXXXXXXXXXXXXXXXXXXX",
       "new_blocks": [
-        { "block_id": "blkcnXXXX", "block_type": "whiteboard", "block_token": "boardXXXX" }
+        {
+          "block_id": "blkcnXXXX",
+          "block_type": "whiteboard",
+          "block_token": "boardXXXX"
+        }
       ]
     }
   }
@@ -53,6 +58,7 @@ lark-cli docs +create --api-version v2 --doc-format markdown --content $'# 项�
 > 如果文档是**以应用身份（bot）创建**的，如 `lark-cli docs +create --as bot` 在文档创建成功后，CLI 会**尝试为当前 CLI 用户自动授予该文档的 `full_access`（可管理权限）**。
 >
 > 以应用身份创建时，结果里会额外返回 `permission_grant` 字段，明确说明授权结果：
+>
 > - `status = granted`：当前 CLI 用户已获得该文档的可管理权限
 > - `status = skipped`：本地没有可用的当前用户 `open_id`，因此不会自动授权；可提示用户先完成 `lark-cli auth login`，再让 AI / agent 继续使用应用身份（bot）授予当前用户权限
 > - `status = failed`：文档已创建成功，但自动授权用户失败；会带上失败原因，并提示稍后重试或继续使用 bot 身份处理该文档
@@ -63,13 +69,13 @@ lark-cli docs +create --api-version v2 --doc-format markdown --content $'# 项�
 
 ## 参数
 
-| 参数                  | 必填 | 说明                                          |
-| ------------------- | -- |---------------------------------------------|
-| `--api-version`     | 是  | 固定传 `v2`                                    |
-| `--content`         | 是  | 文档内容（XML 或 Markdown 格式）                     |
-| `--doc-format`      | 否  | 内容格式：`xml`（默认，始终优先使用）\| `markdown`（仅用户明确要求时） |
-| `--parent-token`    | 否  | 父文件夹或知识库节点 token（与 `--parent-position` 互斥）  |
-| `--parent-position` | 否  | 父节点位置，如 `my_library`（与 `--parent-token` 互斥） |
+| 参数                | 必填 | 说明                                                                   |
+| ------------------- | ---- | ---------------------------------------------------------------------- |
+| `--api-version`     | 是   | 固定传 `v2`                                                            |
+| `--content`         | 是   | 文档内容（XML 或 Markdown 格式）                                       |
+| `--doc-format`      | 否   | 内容格式：`xml`（默认，始终优先使用）\| `markdown`（仅用户明确要求时） |
+| `--parent-token`    | 否   | 父文件夹或知识库节点 token（与 `--parent-position` 互斥）              |
+| `--parent-position` | 否   | 父节点位置，如 `my_library`（与 `--parent-token` 互斥）                |
 
 ## 最佳实践
 
@@ -86,4 +92,3 @@ lark-cli docs +create --api-version v2 --doc-format markdown --content $'# 项�
 - [`lark-doc-update.md`](lark-doc-update.md) — 更新文档
 - [`lark-doc-media-insert.md`](lark-doc-media-insert.md) — 插入图片/文件到文档
 - [`../../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) — 认证和全局参数
-

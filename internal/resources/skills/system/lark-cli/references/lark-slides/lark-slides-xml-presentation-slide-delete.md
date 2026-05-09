@@ -12,9 +12,9 @@ lark-cli slides xml_presentation.slide delete --as user --params '<json_params>'
 
 ## 参数说明
 
-| 参数 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `--params` | JSON string | 是 | 路径参数与查询参数 |
+| 参数       | 类型        | 必需 | 说明               |
+| ---------- | ----------- | ---- | ------------------ |
+| `--params` | JSON string | 是   | 路径参数与查询参数 |
 
 ### params JSON 结构
 
@@ -27,12 +27,12 @@ lark-cli slides xml_presentation.slide delete --as user --params '<json_params>'
 }
 ```
 
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `xml_presentation_id` | string | 是 | 演示文稿的唯一标识符 |
-| `slide_id` | string | 是 | 要删除的幻灯片唯一标识符 |
-| `revision_id` | integer | 否 | 演示文稿版本号，`-1` 表示最新版本 |
-| `tid` | string | 否 | 锁的事务 ID |
+| 字段                  | 类型    | 必需 | 说明                              |
+| --------------------- | ------- | ---- | --------------------------------- |
+| `xml_presentation_id` | string  | 是   | 演示文稿的唯一标识符              |
+| `slide_id`            | string  | 是   | 要删除的幻灯片唯一标识符          |
+| `revision_id`         | integer | 否   | 演示文稿版本号，`-1` 表示最新版本 |
+| `tid`                 | string  | 否   | 锁的事务 ID                       |
 
 ## 使用示例
 
@@ -71,18 +71,18 @@ lark-cli slides xml_presentation.slide delete --as user --params '{"xml_presenta
 
 ### 返回字段说明
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
+| 字段               | 类型    | 说明               |
+| ------------------ | ------- | ------------------ |
 | `data.revision_id` | integer | 删除后的最新版本号 |
 
 ## 常见错误
 
-| 错误码 | 含义 | 解决方案 |
-|--------|------|----------|
-| 404 | 演示文稿不存在 | 检查 `xml_presentation_id` 是否正确 |
-| 404 | 幻灯片不存在 | 检查 `slide_id` 是否正确，或该幻灯片已被删除 |
-| 400 | 无法删除唯一幻灯片 | 演示文稿至少保留一页幻灯片 |
-| 403 | 权限不足 | 检查是否拥有 `slides:presentation:update` 或 `slides:presentation:write_only` scope |
+| 错误码 | 含义               | 解决方案                                                                            |
+| ------ | ------------------ | ----------------------------------------------------------------------------------- |
+| 404    | 演示文稿不存在     | 检查 `xml_presentation_id` 是否正确                                                 |
+| 404    | 幻灯片不存在       | 检查 `slide_id` 是否正确，或该幻灯片已被删除                                        |
+| 400    | 无法删除唯一幻灯片 | 演示文稿至少保留一页幻灯片                                                          |
+| 403    | 权限不足           | 检查是否拥有 `slides:presentation:update` 或 `slides:presentation:write_only` scope |
 
 ## 注意事项
 

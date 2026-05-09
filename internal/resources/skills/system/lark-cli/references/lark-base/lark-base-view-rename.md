@@ -16,12 +16,12 @@ lark-cli base +view-rename \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--view-id <id_or_name>` | 是 | 视图 ID 或视图名 |
-| `--name <name>` | 是 | 新视图名 |
+| 参数                      | 必填 | 说明             |
+| ------------------------- | ---- | ---------------- |
+| `--base-token <token>`    | 是   | Base Token       |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名     |
+| `--view-id <id_or_name>`  | 是   | 视图 ID 或视图名 |
+| `--name <name>`           | 是   | 新视图名         |
 
 ## API 入参详情
 

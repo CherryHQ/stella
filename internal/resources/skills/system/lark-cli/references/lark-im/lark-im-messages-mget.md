@@ -26,26 +26,26 @@ lark-cli im +messages-mget --message-ids "om_aaa" --dry-run
 
 ## Parameters
 
-| Parameter | Required | Limits | Description |
-|------|------|------|------|
-| `--message-ids <ids>` | Yes | At least one, max 50, `om_xxx` format, comma-separated | Message ID list |
+| Parameter             | Required | Limits                                                 | Description     |
+| --------------------- | -------- | ------------------------------------------------------ | --------------- |
+| `--message-ids <ids>` | Yes      | At least one, max 50, `om_xxx` format, comma-separated | Message ID list |
 
 ## Output Fields
 
-| Field | Description |
-|------|------|
-| `messages` | Message array |
-| `total` | Number of messages returned |
+| Field      | Description                 |
+| ---------- | --------------------------- |
+| `messages` | Message array               |
+| `total`    | Number of messages returned |
 
 Each message contains:
 
-| Field | Description |
-|------|------|
-| `message_id` | Message ID |
-| `msg_type` | Message type (`text`, `image`, `file`, etc.) |
-| `create_time` | Creation time |
-| `sender` | Sender information (includes `name`) |
-| `content` | Message content |
+| Field         | Description                                  |
+| ------------- | -------------------------------------------- |
+| `message_id`  | Message ID                                   |
+| `msg_type`    | Message type (`text`, `image`, `file`, etc.) |
+| `create_time` | Creation time                                |
+| `sender`      | Sender information (includes `name`)         |
+| `content`     | Message content                              |
 
 ## Usage Scenarios
 
@@ -75,12 +75,12 @@ lark-cli im +messages-mget --message-ids "om_aaa,om_bbb"
 
 ## Common Errors and Troubleshooting
 
-| Symptom | Root Cause | Solution |
-|---------|---------|---------|
-| `--message-ids requires at least one message ID` | No message ID was provided | Provide at least one message ID |
-| `invalid message ID: must start with om_` | Invalid message ID format | Message IDs must start with `om_` |
-| Permission denied | Message read permission is missing | Ensure the app has `im:message:readonly` and `contact:user.base:readonly` enabled |
-| Empty result | Message IDs do not exist or are not accessible | Verify the IDs and access permissions |
+| Symptom                                          | Root Cause                                     | Solution                                                                          |
+| ------------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| `--message-ids requires at least one message ID` | No message ID was provided                     | Provide at least one message ID                                                   |
+| `invalid message ID: must start with om_`        | Invalid message ID format                      | Message IDs must start with `om_`                                                 |
+| Permission denied                                | Message read permission is missing             | Ensure the app has `im:message:readonly` and `contact:user.base:readonly` enabled |
+| Empty result                                     | Message IDs do not exist or are not accessible | Verify the IDs and access permissions                                             |
 
 ## AI Usage Guidance
 

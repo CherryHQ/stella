@@ -8,8 +8,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/CherryHQ/stella/pkg/sandbox"
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // Manager is the shared process-wide runtime for MCP state.

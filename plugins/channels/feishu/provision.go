@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
+
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 const provisionCacheTTL = time.Hour

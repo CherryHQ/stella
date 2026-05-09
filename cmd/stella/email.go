@@ -12,10 +12,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	apiclient "github.com/CherryHQ/stella/api/client"
-	"github.com/CherryHQ/stella/internal/email"
 	ucli "github.com/urfave/cli/v2"
 	"golang.org/x/term"
+
+	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/email"
 )
 
 const emailConfigKey = "EMAIL_CONFIG"

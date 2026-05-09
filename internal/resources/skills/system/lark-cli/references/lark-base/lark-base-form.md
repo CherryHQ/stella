@@ -6,13 +6,13 @@ form 相关命令索引。
 
 ## 命令导航
 
-| 文档 | 命令 | 说明 |
-|------|------|------|
-| [lark-base-form-list.md](lark-base-form-list.md) | `+form-list` | 分页列出表单 |
-| [lark-base-form-get.md](lark-base-form-get.md) | `+form-get` | 获取表单详情 |
-| [lark-base-form-create.md](lark-base-form-create.md) | `+form-create` | 创建表单 |
-| [lark-base-form-update.md](lark-base-form-update.md) | `+form-update` | 更新表单 |
-| [lark-base-form-delete.md](lark-base-form-delete.md) | `+form-delete` | 删除表单 |
+| 文档                                                 | 命令           | 说明         |
+| ---------------------------------------------------- | -------------- | ------------ |
+| [lark-base-form-list.md](lark-base-form-list.md)     | `+form-list`   | 分页列出表单 |
+| [lark-base-form-get.md](lark-base-form-get.md)       | `+form-get`    | 获取表单详情 |
+| [lark-base-form-create.md](lark-base-form-create.md) | `+form-create` | 创建表单     |
+| [lark-base-form-update.md](lark-base-form-update.md) | `+form-update` | 更新表单     |
+| [lark-base-form-delete.md](lark-base-form-delete.md) | `+form-delete` | 删除表单     |
 
 ## 相关
 

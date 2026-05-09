@@ -20,11 +20,11 @@ lark-cli base +view-create \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--json <body>` | 是 | 视图 JSON 对象或数组 |
+| 参数                      | 必填 | 说明                 |
+| ------------------------- | ---- | -------------------- |
+| `--base-token <token>`    | 是   | Base Token           |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名         |
+| `--json <body>`           | 是   | 视图 JSON 对象或数组 |
 
 ## API 入参详情
 
@@ -59,16 +59,32 @@ POST /open-apis/base/v3/bases/:base_token/tables/:table_id/views
 ]
 ```
 
-
 ## JSON Schema（原文）
 
 ```json
-{"type":"object","properties":{"type":{"type":"string","enum":["grid","kanban","gallery","gantt","calendar"],"default":"grid","description":"view type"},"name":{"type":"string","minLength":1,"maxLength":100,"description":"View name"}},"required":["name"],"additionalProperties":false,"$schema":"http://json-schema.org/draft-07/schema#"}
-
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["grid", "kanban", "gallery", "gantt", "calendar"],
+      "default": "grid",
+      "description": "view type"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "View name"
+    }
+  },
+  "required": ["name"],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
 ```
 
 ## 工作流
-
 
 1. 多视图批量创建时，优先用数组一次提交，减少重复调用。
 2. 如果用户要“查看视图字段顺序”或“查看可见字段”，使用 `+view-get-visible-fields` 读取当前 `visible_fields`。

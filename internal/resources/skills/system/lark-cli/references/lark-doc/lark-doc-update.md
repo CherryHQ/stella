@@ -1,7 +1,7 @@
-
 # docs +update（更新飞书云文档）
 
 > **前置条件（MUST READ）：** 生成文档内容前，必须先用 Read 工具读取以下文件，缺一不可：
+>
 > 1. [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) — 认证、全局参数和安全规则
 > 2. [`lark-doc-xml.md`](lark-doc-xml.md) — XML 语法规则（使用 Markdown 格式时改读 [`lark-doc-md.md`](lark-doc-md.md)）
 > 3. [`lark-doc-style.md`](style/lark-doc-style.md) — 排版指南（元素选择、丰富度规则、颜色语义）
@@ -12,6 +12,7 @@
 通过八种指令精确更新飞书云文档。支持字符串级别和 block 级别的操作。
 
 > **⚠️ 格式选择规则：**
+>
 > - **局部精修**（`str_replace` / `block_insert_after` / `block_replace` / `block_delete` / `block_move_after`）：优先使用 XML（默认）。XML 能稳定表达 block 结构和样式，精准编辑更可控；不要因为 Markdown 写起来更简单就自行切换。
 > - **整段写入**（`append` / `overwrite`）：XML 和 Markdown 都可以。用户提供 `.md` 本地文件或明确要求 Markdown 时直接用 Markdown；否则默认 XML。
 >
@@ -19,36 +20,37 @@
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--api-version` | 是 | 固定传 `v2` |
-| `--doc` | 是 | 文档 URL 或 token |
-| `--command` | 是 | 操作指令（见下方指令速查表） |
-| `--doc-format` | 否 | 内容格式：`xml`（默认，始终优先使用）\| `markdown`（仅用户明确要求时） |
-| `--content` | 视指令 | 写入内容（`str_replace` 传空字符串可实现删除） |
-| `--pattern` | 视指令 | 匹配文本（str_replace） |
-| `--block-id` | 视指令 | 目标 block ID（block_* 操作）,-1 表示末尾 |
+| 参数              | 必填   | 说明                                                                     |
+| ----------------- | ------ | ------------------------------------------------------------------------ |
+| `--api-version`   | 是     | 固定传 `v2`                                                              |
+| `--doc`           | 是     | 文档 URL 或 token                                                        |
+| `--command`       | 是     | 操作指令（见下方指令速查表）                                             |
+| `--doc-format`    | 否     | 内容格式：`xml`（默认，始终优先使用）\| `markdown`（仅用户明确要求时）   |
+| `--content`       | 视指令 | 写入内容（`str_replace` 传空字符串可实现删除）                           |
+| `--pattern`       | 视指令 | 匹配文本（str_replace）                                                  |
+| `--block-id`      | 视指令 | 目标 block ID（block_* 操作）,-1 表示末尾                                |
 | `--src-block-ids` | 视指令 | 源 block ID（逗号分隔），用于 block_copy_insert_after / block_move_after |
-| `--revision-id` | 否 | 基准版本号，-1 = 最新（默认 `-1`） |
+| `--revision-id`   | 否     | 基准版本号，-1 = 最新（默认 `-1`）                                       |
 
 ## 指令速查表
 
-| 指令 | 说明 | 必需参数 |
-|------|------|----------|
-| `str_replace` | 全文文本查找替换（replacement 支持富文本标签；`--content` 传空字符串即为删除） | `--pattern` `--content` |
-| `block_insert_after` | 在指定 block 之后插入新内容 | `--block-id` `--content` |
-| `block_copy_insert_after` | 复制源 block 并插入到锚点之后（源块不变） | `--block-id` `--src-block-ids` |
-| `block_replace` | 替换指定 block（同一 block 仅限一次） | `--block-id` `--content` |
-| `block_delete` | 删除指定 block（逗号分隔可批量） | `--block-id` |
-| `overwrite` | ⚠️ 清空文档后全文重写（可能丢失图片、评论） | `--content` |
-| `append` | 在文档末尾追加内容（等价于 `block_insert_after --block-id -1`） | `--content` |
-| `block_move_after` | 移动已有 block 到指定位置 | `--block-id` + (`--content` 或 `--src-block-ids`) |
+| 指令                      | 说明                                                                           | 必需参数                                          |
+| ------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `str_replace`             | 全文文本查找替换（replacement 支持富文本标签；`--content` 传空字符串即为删除） | `--pattern` `--content`                           |
+| `block_insert_after`      | 在指定 block 之后插入新内容                                                    | `--block-id` `--content`                          |
+| `block_copy_insert_after` | 复制源 block 并插入到锚点之后（源块不变）                                      | `--block-id` `--src-block-ids`                    |
+| `block_replace`           | 替换指定 block（同一 block 仅限一次）                                          | `--block-id` `--content`                          |
+| `block_delete`            | 删除指定 block（逗号分隔可批量）                                               | `--block-id`                                      |
+| `overwrite`               | ⚠️ 清空文档后全文重写（可能丢失图片、评论）                                     | `--content`                                       |
+| `append`                  | 在文档末尾追加内容（等价于 `block_insert_after --block-id -1`）                | `--content`                                       |
+| `block_move_after`        | 移动已有 block 到指定位置                                                      | `--block-id` + (`--content` 或 `--src-block-ids`) |
 
 ## 指令示例
 
 ### str_replace — 全文文本替换
 
 > **匹配范围：**
+>
 > - **XML 模式（默认）**：`--pattern` 只支持**行内匹配**，不能跨 block / 跨段落匹配。涉及整段或多 block 的改动，请改用 `block_replace`。
 > - **Markdown 模式**（`--doc-format markdown`）：`--pattern` 同时支持**行内和跨行匹配**，可以用多行字符串匹配并替换一整段内容。
 >   - 还支持**`前缀...后缀` 省略号语法**：用 `...`（三个英文句点）串联起始与结束片段，匹配从前缀到后缀之间的全部内容（含中间被省略部分）。适合一段很长、但首尾特征明显的文本，避免把整段都塞进 `--pattern`。
@@ -171,7 +173,11 @@ lark-cli docs +update --api-version v2 --doc "<doc_id>" --command block_move_aft
     "document": {
       "revision_id": 13,
       "new_blocks": [
-        { "block_id": "blkcnXXXX", "block_type": "whiteboard", "block_token": "boardXXXX" }
+        {
+          "block_id": "blkcnXXXX",
+          "block_type": "whiteboard",
+          "block_token": "boardXXXX"
+        }
       ]
     },
     "result": "success",
@@ -181,12 +187,12 @@ lark-cli docs +update --api-version v2 --doc "<doc_id>" --command block_move_aft
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `result` | `success` \| `partial_success` \| `failed` |
-| `updated_blocks_count` | 实际更新的 block 数量 |
-| `warnings` | 警告信息列表 |
-| `document.new_blocks` | 本次操作新增的 block 列表（如画板）。`block_id` 可用于后续精确编辑；`block_token` 是资源块 token（如画板）可交给 `lark-whiteboard` 等 skill 继续操作 |
+| 字段                   | 说明                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `result`               | `success` \| `partial_success` \| `failed`                                                                                                           |
+| `updated_blocks_count` | 实际更新的 block 数量                                                                                                                                |
+| `warnings`             | 警告信息列表                                                                                                                                         |
+| `document.new_blocks`  | 本次操作新增的 block 列表（如画板）。`block_id` 可用于后续精确编辑；`block_token` 是资源块 token（如画板）可交给 `lark-whiteboard` 等 skill 继续操作 |
 
 ## 典型工作流
 

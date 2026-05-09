@@ -1,4 +1,3 @@
-
 # drive +delete
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -32,11 +31,11 @@ lark-cli drive +delete \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--file-token` | 是 | 需要删除的文件或文件夹 token |
-| `--type` | 是 | 文件类型，可选值：`file`、`docx`、`bitable`、`doc`、`sheet`、`mindnote`、`folder`、`shortcut`、`slides` |
-| `--yes` | 是 | 确认执行高风险删除操作 |
+| 参数           | 必填 | 说明                                                                                                    |
+| -------------- | ---- | ------------------------------------------------------------------------------------------------------- |
+| `--file-token` | 是   | 需要删除的文件或文件夹 token                                                                            |
+| `--type`       | 是   | 文件类型，可选值：`file`、`docx`、`bitable`、`doc`、`sheet`、`mindnote`、`folder`、`shortcut`、`slides` |
+| `--yes`        | 是   | 确认执行高风险删除操作                                                                                  |
 
 ## 行为说明
 

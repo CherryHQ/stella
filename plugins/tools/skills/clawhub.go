@@ -11,8 +11,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/CherryHQ/stella/pkg/httpclient"
 	"github.com/go-resty/resty/v2"
+
+	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 
 const (

@@ -3,13 +3,15 @@
 > **前置条件：** 先阅读 [`../../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
 
 回复指定邮件，自动处理：
-- 主题前缀 `Re: `（已含常见回复前缀时不重复叠加）
+
+- 主题前缀 `Re:`（已含常见回复前缀时不重复叠加）
 - 默认收件人为原邮件发件人
 - RFC 2822 会话头（`In-Reply-To` / `References`）维护邮件会话
 
 > **默认草稿模式**：`+reply` 默认保存为草稿，不会立即发送。如需立即发送，使用 `--confirm-send` 参数（须经用户明确确认）。**优先使用 `+reply` 而不是 `+draft-create` 来创建回复草稿**，因为 `+reply` 会自动处理主题、收件人和会话头。
 
 本 skill 对应 shortcut：`lark-cli mail +reply`，内部步骤：
+
 1. `GET /open-apis/mail/v1/user_mailboxes/me/messages/{message_id}` — 获取原邮件元数据
 2. `GET /open-apis/mail/v1/user_mailboxes/me/profile` — 获取邮箱主地址（`primary_email_address`，填入默认 From 头）
 3. `POST /open-apis/mail/v1/user_mailboxes/me/drafts` — 创建草稿
@@ -20,14 +22,17 @@
 此命令默认**只保存草稿**，不会发送邮件。需要发送时，有两种合规方式：
 
 **方式 A（推荐）** — 创建回复草稿（不带 `--confirm-send`）：
+
 ```bash
 lark-cli mail +reply --message-id <邮件ID> --body '<回复正文>'
 ```
+
 → 返回 `draft_id`
 
 向用户展示回复摘要（目标邮件、回复内容、收件人）；如果用户想先看效果，可引导其去飞书邮件里查看草稿。
 
 用户明确同意后，发送该草稿：
+
 ```bash
 lark-cli mail user_mailbox.drafts send --params '{"user_mailbox_id":"me","draft_id":"<Step 1 返回的 draft_id>"}'
 ```
@@ -63,28 +68,29 @@ lark-cli mail +reply --message-id <邮件ID> --body '<p>测试</p>' --dry-run
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--message-id <id>` | 是 | 被回复的邮件 ID |
-| `--body <text>` | 是 | 回复正文。推荐使用 HTML 获得富文本排版；也支持纯文本。根据回复正文和原邮件正文自动检测 HTML。使用 `--plain-text` 可强制纯文本模式。支持 `<img src="./local.png" />` 相对路径自动解析为内嵌图片（仅支持相对路径，不支持绝对路径） |
-| `--from <email>` | 否 | 发件人邮箱地址（EML From 头）。使用别名（send_as）发信时，设为别名地址并配合 `--mailbox` 指定所属邮箱。默认读取邮箱主地址 |
-| `--mailbox <email>` | 否 | 邮箱地址，指定草稿所属的邮箱（默认回退到 `--from`，再回退到 `me`）。当发件人（`--from`）与邮箱不同时使用。可通过 `accessible_mailboxes` 查询可用邮箱 |
-| `--to <emails>` | 否 | 额外收件人，多个用逗号分隔（追加到原发件人） |
-| `--cc <emails>` | 否 | 抄送邮箱，多个用逗号分隔 |
-| `--bcc <emails>` | 否 | 密送邮箱，多个用逗号分隔 |
-| `--plain-text` | 否 | 强制纯文本模式，忽略所有 HTML 自动检测。不可与 `--inline` 同时使用 |
-| `--attach <paths>` | 否 | 附件文件路径，多个用逗号分隔。相对路径。当附件导致 EML 总大小超过 25 MB 时，超出部分自动上传为超大附件（HTML 邮件插入下载卡片，纯文本邮件追加下载链接），单个文件上限 3 GB |
-| `--inline <json>` | 否 | 高级用法：手动指定内嵌图片 CID 映射。推荐直接在 `--body` 中使用 `<img src="./path" />`（自动解析）。仅在需要精确控制 CID 命名时使用此参数。格式：`'[{"cid":"mycid","file_path":"./logo.png"}]'`，在 body 中用 `<img src="cid:mycid">` 引用。不可与 `--plain-text` 同时使用 |
-| `--signature-id <id>` | 否 | 签名 ID。附加邮箱签名到回复正文与引用块之间。运行 `mail +signature` 查看可用签名。不可与 `--plain-text` 同时使用 |
-| `--priority <level>` | 否 | 邮件优先级：`high`、`normal`、`low`。省略或 `normal` 时不设置优先级 |
-| `--confirm-send` | 否 | 确认发送回复（默认只保存草稿）。仅在用户明确确认后使用 |
-| `--send-time <timestamp>` | 否 | 定时发送时间，Unix 时间戳（秒）。需至少为当前时间 + 5 分钟。配合 `--confirm-send` 使用可定时发送邮件 |
-| `--request-receipt` | 否 | 请求已读回执（RFC 3798 Message Disposition Notification）。在出站 EML 里写 `Disposition-Notification-To: <sender>` 头。收件人的邮件客户端可能弹出提示、自动发送或忽略——送达不保证 |
-| `--dry-run` | 否 | 仅打印请求，不执行 |
+| 参数                      | 必填 | 说明                                                                                                                                                                                                                                                                       |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--message-id <id>`       | 是   | 被回复的邮件 ID                                                                                                                                                                                                                                                            |
+| `--body <text>`           | 是   | 回复正文。推荐使用 HTML 获得富文本排版；也支持纯文本。根据回复正文和原邮件正文自动检测 HTML。使用 `--plain-text` 可强制纯文本模式。支持 `<img src="./local.png" />` 相对路径自动解析为内嵌图片（仅支持相对路径，不支持绝对路径）                                           |
+| `--from <email>`          | 否   | 发件人邮箱地址（EML From 头）。使用别名（send_as）发信时，设为别名地址并配合 `--mailbox` 指定所属邮箱。默认读取邮箱主地址                                                                                                                                                  |
+| `--mailbox <email>`       | 否   | 邮箱地址，指定草稿所属的邮箱（默认回退到 `--from`，再回退到 `me`）。当发件人（`--from`）与邮箱不同时使用。可通过 `accessible_mailboxes` 查询可用邮箱                                                                                                                       |
+| `--to <emails>`           | 否   | 额外收件人，多个用逗号分隔（追加到原发件人）                                                                                                                                                                                                                               |
+| `--cc <emails>`           | 否   | 抄送邮箱，多个用逗号分隔                                                                                                                                                                                                                                                   |
+| `--bcc <emails>`          | 否   | 密送邮箱，多个用逗号分隔                                                                                                                                                                                                                                                   |
+| `--plain-text`            | 否   | 强制纯文本模式，忽略所有 HTML 自动检测。不可与 `--inline` 同时使用                                                                                                                                                                                                         |
+| `--attach <paths>`        | 否   | 附件文件路径，多个用逗号分隔。相对路径。当附件导致 EML 总大小超过 25 MB 时，超出部分自动上传为超大附件（HTML 邮件插入下载卡片，纯文本邮件追加下载链接），单个文件上限 3 GB                                                                                                 |
+| `--inline <json>`         | 否   | 高级用法：手动指定内嵌图片 CID 映射。推荐直接在 `--body` 中使用 `<img src="./path" />`（自动解析）。仅在需要精确控制 CID 命名时使用此参数。格式：`'[{"cid":"mycid","file_path":"./logo.png"}]'`，在 body 中用 `<img src="cid:mycid">` 引用。不可与 `--plain-text` 同时使用 |
+| `--signature-id <id>`     | 否   | 签名 ID。附加邮箱签名到回复正文与引用块之间。运行 `mail +signature` 查看可用签名。不可与 `--plain-text` 同时使用                                                                                                                                                           |
+| `--priority <level>`      | 否   | 邮件优先级：`high`、`normal`、`low`。省略或 `normal` 时不设置优先级                                                                                                                                                                                                        |
+| `--confirm-send`          | 否   | 确认发送回复（默认只保存草稿）。仅在用户明确确认后使用                                                                                                                                                                                                                     |
+| `--send-time <timestamp>` | 否   | 定时发送时间，Unix 时间戳（秒）。需至少为当前时间 + 5 分钟。配合 `--confirm-send` 使用可定时发送邮件                                                                                                                                                                       |
+| `--request-receipt`       | 否   | 请求已读回执（RFC 3798 Message Disposition Notification）。在出站 EML 里写 `Disposition-Notification-To: <sender>` 头。收件人的邮件客户端可能弹出提示、自动发送或忽略——送达不保证                                                                                          |
+| `--dry-run`               | 否   | 仅打印请求，不执行                                                                                                                                                                                                                                                         |
 
 ## 返回值
 
 默认（草稿模式）：
+
 ```json
 {
   "ok": true,
@@ -96,6 +102,7 @@ lark-cli mail +reply --message-id <邮件ID> --body '<p>测试</p>' --dry-run
 ```
 
 `--confirm-send` 模式（发送成功）：
+
 ```json
 {
   "ok": true,
@@ -118,12 +125,15 @@ lark-cli mail +reply --message-id <邮件ID> --body '<p>测试</p>' --dry-run
 ## 典型场景
 
 ### 场景 1：用户说"帮我写个回复草稿"（只创建草稿）
+
 ```bash
 lark-cli mail +reply --message-id <邮件ID> --body '<p>收到，谢谢！</p>'
 ```
+
 → 返回 `draft_id`，告诉用户回复草稿已创建。**注意：用 `+reply` 而不是 `+draft-create`**，这样草稿会自动关联原邮件的主题、收件人和会话头。
 
 ### 场景 2：用户说"回复这封邮件说已处理"（需要发送）
+
 ```bash
 # 方式 A: 创建回复草稿
 lark-cli mail +reply --message-id <邮件ID> --body '<p>已处理，谢谢。</p>'
@@ -139,6 +149,7 @@ lark-cli mail +reply --message-id <邮件ID> --body '<p>已处理，谢谢。</p
 ```
 
 ### 场景 3：用户说"下午 3 点回复这封邮件说已处理"（定时发送）
+
 ```bash
 # Step 1: 创建回复草稿
 lark-cli mail +reply --message-id <邮件ID> --body '<p>已处理，谢谢。</p>'
@@ -151,10 +162,12 @@ lark-cli mail user_mailbox.drafts send --params '{"user_mailbox_id":"me","draft_
 ```
 
 ### 场景 4：用户说"等等，先不回复了"（取消定时发送）
+
 ```bash
 # 取消定时发送（取消后邮件变回草稿）
 lark-cli mail user_mailbox.drafts cancel_scheduled_send --params '{"user_mailbox_id":"me","draft_id":"<draft_id>"}'
 ```
+
 → 取消成功后邮件恢复为草稿状态，用户可重新编辑或在之后重新发送。
 
 ## 实现说明

@@ -38,6 +38,7 @@ api/
 ## How it works
 
 `api/spec/components.yaml` is auto-assembled by `mise run generate:api`:
+
 ```
 spec/components/common.yaml + spec/domain/*/schemas.yaml
     → (yq merge, glob — new domains picked up automatically)

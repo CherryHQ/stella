@@ -24,13 +24,13 @@ lark-cli base +record-history-list \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID |
-| `--record-id <id>` | 是 | 记录 ID |
-| `--page-size <n>` | 否 | 每页条数，默认 `30`，最大 `50` |
-| `--max-version <n>` | 否 | 翻页游标，取上一页返回的 `next_max_version` 值 |
+| 参数                      | 必填 | 说明                                           |
+| ------------------------- | ---- | ---------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                     |
+| `--table-id <id_or_name>` | 是   | 表 ID                                          |
+| `--record-id <id>`        | 是   | 记录 ID                                        |
+| `--page-size <n>`         | 否   | 每页条数，默认 `30`，最大 `50`                 |
+| `--max-version <n>`       | 否   | 翻页游标，取上一页返回的 `next_max_version` 值 |
 
 ## API 入参详情
 
@@ -51,8 +51,8 @@ GET /open-apis/base/v3/bases/:base_token/record_history
 
 ### activity_type 取值
 
-| 值 | 含义 |
-|------|------|
+| 值       | 含义     |
+| -------- | -------- |
 | `create` | 记录创建 |
 | `update` | 记录编辑 |
 | `delete` | 记录删除 |
@@ -60,6 +60,7 @@ GET /open-apis/base/v3/bases/:base_token/record_history
 ### 不出现在历史中的字段类型
 
 以下字段类型的变更**不会**出现在 `field_changes` 中：
+
 - **计算字段**：公式(formula)、查找引用(lookup)
 - **系统字段**：自动编号、创建时间、创建人、修改时间、修改人
 

@@ -22,11 +22,11 @@ lark-cli base +workflow-get \
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | 多维表格 Base Token，以 `Basc` 开头 |
-| `--workflow-id <id>` | 是 | Workflow ID，以 `wkf` 开头 |
-| `--user-id-type <type>` | 否 | 控制 `creator_id` / `updater_id` 字段返回的用户 ID 格式；枚举值：`open_id`（默认）、`union_id`、`user_id` |
+| 参数                    | 必填 | 说明                                                                                                      |
+| ----------------------- | ---- | --------------------------------------------------------------------------------------------------------- |
+| `--base-token <token>`  | 是   | 多维表格 Base Token，以 `Basc` 开头                                                                       |
+| `--workflow-id <id>`    | 是   | Workflow ID，以 `wkf` 开头                                                                                |
+| `--user-id-type <type>` | 否   | 控制 `creator_id` / `updater_id` 字段返回的用户 ID 格式；枚举值：`open_id`（默认）、`union_id`、`user_id` |
 
 ## 如何从链接中提取参数
 
@@ -49,16 +49,16 @@ GET /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
 
 **Path 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `base_token` | 是 | 多维表格 Base Token |
-| `workflow_id` | 是 | Workflow ID（`wkf` 开头） |
+| 参数          | 必填 | 说明                      |
+| ------------- | ---- | ------------------------- |
+| `base_token`  | 是   | 多维表格 Base Token       |
+| `workflow_id` | 是   | Workflow ID（`wkf` 开头） |
 
 **Query 参数：**
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `user_id_type` | 否 | 用户 ID 类型：`open_id` / `union_id` / `user_id` |
+| 参数           | 必填 | 说明                                             |
+| -------------- | ---- | ------------------------------------------------ |
+| `user_id_type` | 否   | 用户 ID 类型：`open_id` / `union_id` / `user_id` |
 
 **Request Body：** 无
 
@@ -66,32 +66,32 @@ GET /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
 
 **Response `data` 字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `workflow_id` | string | Workflow 唯一标识，`wkf` 开头 |
-| `title` | string | Workflow 标题 |
-| `status` | string | 状态：`enabled`（已启用）/ `disabled`（已停用） |
-| `creator_id` | string | 创建人 ID（格式受 `user_id_type` 控制） |
-| `updater_id` | string | 最后修改人 ID |
-| `create_time` | string | 创建时间（Unix 时间戳，秒） |
-| `update_time` | string | 最后更新时间（Unix 时间戳，秒） |
-| `steps` | []step | 步骤列表，见下方 |
+| 字段          | 类型   | 说明                                            |
+| ------------- | ------ | ----------------------------------------------- |
+| `workflow_id` | string | Workflow 唯一标识，`wkf` 开头                   |
+| `title`       | string | Workflow 标题                                   |
+| `status`      | string | 状态：`enabled`（已启用）/ `disabled`（已停用） |
+| `creator_id`  | string | 创建人 ID（格式受 `user_id_type` 控制）         |
+| `updater_id`  | string | 最后修改人 ID                                   |
+| `create_time` | string | 创建时间（Unix 时间戳，秒）                     |
+| `update_time` | string | 最后更新时间（Unix 时间戳，秒）                 |
+| `steps`       | []step | 步骤列表，见下方                                |
 
 **steps 元素字段：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 步骤唯一 ID |
-| `type` | string | 步骤类型，见 [workflow-schema.md](lark-base-workflow-schema.md) |
-| `title` | string | 步骤标题 |
-| `children` | object | 子关系边，`children.links[]` 承担分支/循环/slot 连线，结构见 schema |
-| `children.links[].kind` | string | 关系类型：`if_true` / `if_false` / `case` / `loop_start` / `slot` |
-| `children.links[].to` | string | 目标节点 ID |
-| `children.links[].label` | string | 可选标签（如 `branch_1`、`tool`） |
-| `children.links[].desc` | string | 可选语义说明 |
-| `next` | string \| null | 线性后继节点 ID；`null` 表示流程结束 |
-| `data` | object | 步骤详细配置，结构随 `type` 变化，见 [workflow-schema.md](lark-base-workflow-schema.md) |
-| `meta` | object | 扩展元信息，仅 `APIHubAction` / `AIAgentLLMAction` / `AIAgentMCPAction` 等子节点有值 |
+| 字段                     | 类型           | 说明                                                                                    |
+| ------------------------ | -------------- | --------------------------------------------------------------------------------------- |
+| `id`                     | string         | 步骤唯一 ID                                                                             |
+| `type`                   | string         | 步骤类型，见 [workflow-schema.md](lark-base-workflow-schema.md)                         |
+| `title`                  | string         | 步骤标题                                                                                |
+| `children`               | object         | 子关系边，`children.links[]` 承担分支/循环/slot 连线，结构见 schema                     |
+| `children.links[].kind`  | string         | 关系类型：`if_true` / `if_false` / `case` / `loop_start` / `slot`                       |
+| `children.links[].to`    | string         | 目标节点 ID                                                                             |
+| `children.links[].label` | string         | 可选标签（如 `branch_1`、`tool`）                                                       |
+| `children.links[].desc`  | string         | 可选语义说明                                                                            |
+| `next`                   | string \| null | 线性后继节点 ID；`null` 表示流程结束                                                    |
+| `data`                   | object         | 步骤详细配置，结构随 `type` 变化，见 [workflow-schema.md](lark-base-workflow-schema.md) |
+| `meta`                   | object         | 扩展元信息，仅 `APIHubAction` / `AIAgentLLMAction` / `AIAgentMCPAction` 等子节点有值    |
 
 > 步骤类型（`type`）的完整枚举和每种类型的 `data` 字段结构，参见 [lark-base-workflow-schema.md](lark-base-workflow-schema.md)。
 
@@ -123,7 +123,7 @@ GET /open-apis/base/v3/bases/:base_token/workflows/:workflow_id
         "type": "LarkMessageAction",
         "title": "发送通知",
         "next": null,
-        "data": { "..." : "..." }
+        "data": { "...": "..." }
       }
     ]
   }

@@ -22,12 +22,12 @@ When using `--as user`, the reply is sent as the authorized end user and require
 
 ## Choose The Right Content Flag
 
-| Need | Recommended flag | Why |
-|------|------|------|
-| Reply with plain text exactly as written | `--text` | Wrapped directly to `{"text":"..."}` |
-| Reply with simple Markdown and accept conversion | `--markdown` | Automatically converted to `post` JSON |
-| Precisely control the reply payload | `--content` | You provide the exact JSON |
-| Reply with media | `--image` / `--file` / `--video` / `--audio` | Shortcut uploads local files automatically |
+| Need                                             | Recommended flag                             | Why                                        |
+| ------------------------------------------------ | -------------------------------------------- | ------------------------------------------ |
+| Reply with plain text exactly as written         | `--text`                                     | Wrapped directly to `{"text":"..."}`       |
+| Reply with simple Markdown and accept conversion | `--markdown`                                 | Automatically converted to `post` JSON     |
+| Precisely control the reply payload              | `--content`                                  | You provide the exact JSON                 |
+| Reply with media                                 | `--image` / `--file` / `--video` / `--audio` | Shortcut uploads local files automatically |
 
 ### `--text` vs `--markdown`
 
@@ -47,7 +47,7 @@ The shortcut:
 4. Wraps the final content as:
 
 ```json
-{"zh_cn":{"content":[[{"tag":"md","text":"..."}]]}}
+{ "zh_cn": { "content": [[{ "tag": "md", "text": "..." }]] } }
 ```
 
 So `--markdown` is a convenience mode, not a full Markdown compatibility layer.
@@ -58,8 +58,8 @@ So `--markdown` is a convenience mode, not a full Markdown compatibility layer.
 - It always becomes a `post` payload with a single `zh_cn` locale.
 - It does **not** let you set a `post` title.
 - Headings are rewritten:
-    - `# Title` becomes `#### Title`
-    - `##` to `######` are normalized to `#####` when the content contains H1-H3
+  - `# Title` becomes `#### Title`
+  - `##` to `######` are normalized to `#####` when the content contains H1-H3
 - Consecutive headings are separated with blank lines after heading normalization.
 - Block spacing and line breaks may be normalized during conversion.
 - Code blocks are preserved as code blocks.
@@ -82,9 +82,9 @@ Use `--text` plus `$'...'`:
 lark-cli im +messages-reply --message-id om_xxx --text $'Received\nI will check this today.\nOwner: alice'
 ```
 
-```bash
+````bash
 lark-cli im +messages-reply --message-id om_xxx --text $'```sql\nselect * from jobs;\n```'
-```
+````
 
 This keeps the reply as plain text instead of converting it to a `post`.
 
@@ -140,22 +140,22 @@ lark-cli im +messages-reply --message-id om_xxx --markdown $'## Test\n\nhello' -
 
 ## Parameters
 
-| Parameter | Required | Description |
-|------|------|------|
-| `--message-id <id>` | Yes | ID of the message being replied to (`om_xxx`) |
-| `--msg-type <type>` | No | Message type (default `text`). If you use `--text` / `--markdown` / media flags, the effective type is inferred automatically. Explicitly setting a conflicting `--msg-type` fails validation |
-| `--content <json>` | One content option | Exact reply content as JSON. The JSON must match the effective `--msg-type` |
-| `--text <string>` | One content option | Plain text reply. Best default when you need exact text and formatting preservation |
-| `--markdown <string>` | One content option | Convenience Markdown input. Internally converted to `post` JSON with Feishu-specific normalization |
-| `--image <path\|key>` | One content option | Local image path or `image_key` (`img_xxx`) |
-| `--file <path\|key>` | One content option | Local file path or `file_key` (`file_xxx`) |
-| `--video <path\|key>` | One content option | Local video path or `file_key`; **must be used together with `--video-cover`** |
-| `--video-cover <path\|key>` | **Required with `--video`** | Video cover image path or `image_key` (`img_xxx`) |
-| `--audio <path\|key>` | One content option | Local audio path or `file_key` |
-| `--reply-in-thread` | No | Reply inside the thread. The reply appears in the target message's thread instead of the main chat stream |
-| `--idempotency-key <key>` | No | Idempotency key; the same key sends only one reply within 1 hour |
-| `--as <identity>` | No | Identity type: `bot` or `user` (default `bot`) |
-| `--dry-run` | No | Print the request only, do not execute it |
+| Parameter                   | Required                    | Description                                                                                                                                                                                   |
+| --------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--message-id <id>`         | Yes                         | ID of the message being replied to (`om_xxx`)                                                                                                                                                 |
+| `--msg-type <type>`         | No                          | Message type (default `text`). If you use `--text` / `--markdown` / media flags, the effective type is inferred automatically. Explicitly setting a conflicting `--msg-type` fails validation |
+| `--content <json>`          | One content option          | Exact reply content as JSON. The JSON must match the effective `--msg-type`                                                                                                                   |
+| `--text <string>`           | One content option          | Plain text reply. Best default when you need exact text and formatting preservation                                                                                                           |
+| `--markdown <string>`       | One content option          | Convenience Markdown input. Internally converted to `post` JSON with Feishu-specific normalization                                                                                            |
+| `--image <path\|key>`       | One content option          | Local image path or `image_key` (`img_xxx`)                                                                                                                                                   |
+| `--file <path\|key>`        | One content option          | Local file path or `file_key` (`file_xxx`)                                                                                                                                                    |
+| `--video <path\|key>`       | One content option          | Local video path or `file_key`; **must be used together with `--video-cover`**                                                                                                                |
+| `--video-cover <path\|key>` | **Required with `--video`** | Video cover image path or `image_key` (`img_xxx`)                                                                                                                                             |
+| `--audio <path\|key>`       | One content option          | Local audio path or `file_key`                                                                                                                                                                |
+| `--reply-in-thread`         | No                          | Reply inside the thread. The reply appears in the target message's thread instead of the main chat stream                                                                                     |
+| `--idempotency-key <key>`   | No                          | Idempotency key; the same key sends only one reply within 1 hour                                                                                                                              |
+| `--as <identity>`           | No                          | Identity type: `bot` or `user` (default `bot`)                                                                                                                                                |
+| `--dry-run`                 | No                          | Print the request only, do not execute it                                                                                                                                                     |
 
 > **Mutual exclusivity rule:** `--text`, `--markdown`, `--content`, and `--image`/`--file`/`--video`/`--audio` cannot be used together. Media flags are also mutually exclusive with each other.
 >

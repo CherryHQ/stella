@@ -15,11 +15,11 @@ lark-cli base +record-batch-update --base-token <base_token> --table-id <table_i
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--base-token <token>` | 是 | Base Token |
-| `--table-id <id_or_name>` | 是 | 表 ID 或表名 |
-| `--json <body>` | 是 | 批量更新请求体，必须是 JSON 对象。支持直接传 JSON 字符串，或 `@<file_path>` 从文件读取 |
+| 参数                      | 必填 | 说明                                                                                   |
+| ------------------------- | ---- | -------------------------------------------------------------------------------------- |
+| `--base-token <token>`    | 是   | Base Token                                                                             |
+| `--table-id <id_or_name>` | 是   | 表 ID 或表名                                                                           |
+| `--json <body>`           | 是   | 批量更新请求体，必须是 JSON 对象。支持直接传 JSON 字符串，或 `@<file_path>` 从文件读取 |
 
 ## API
 
@@ -31,10 +31,10 @@ lark-cli base +record-batch-update --base-token <base_token> --table-id <table_i
 
 对象形态：`{"record_id_list":[...],"patch":{...}}`。
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `record_id_list` | `string[]` | 是 | 要更新的记录 ID 列表（单次最多 200 条） |
-| `patch` | `Map<FieldNameOrID, CellValue>` | 是 | 字段更新对象；key 是字段名或字段 ID，value 是 `CellValue`；同一份 `patch` 会应用到 `record_id_list` 内所有记录 |
+| 字段             | 类型                            | 必填 | 说明                                                                                                           |
+| ---------------- | ------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------- |
+| `record_id_list` | `string[]`                      | 是   | 要更新的记录 ID 列表（单次最多 200 条）                                                                        |
+| `patch`          | `Map<FieldNameOrID, CellValue>` | 是   | 字段更新对象；key 是字段名或字段 ID，value 是 `CellValue`；同一份 `patch` 会应用到 `record_id_list` 内所有记录 |
 
 ## 返回重点
 

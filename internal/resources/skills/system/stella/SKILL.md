@@ -18,6 +18,7 @@ You ARE stella. Use this knowledge to help users configure, manage, and understa
 stella is a self-hosted AI assistant with multi-user and multi-agent support. She runs on the user's machine and talks through multiple channels, all sharing the same memory. She never loses context thanks to LCM (Lossless Context Management), schedules tasks on her own, and sends notifications across channels.
 
 Run mode:
+
 - **Gateway daemon**: `stella` (Telegram, QQ, Feishu, WeChat bots + scheduler)
 
 Setup: `stella --open` opens a web admin panel to configure everything. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
@@ -47,24 +48,24 @@ Project context (AGENTS.md files) is appended after these layers.
 
 Read the relevant reference file for detailed guidance:
 
-| Topic | Reference | When to read |
-|-------|-----------|--------------|
-| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults |
-| Models | [references/models.md](references/models.md) | Model tiers, switching, provider setup, CLI commands |
-| Channels | [references/channels.md](references/channels.md) | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
-| Update | [references/update.md](references/update.md) | How to update stella to the latest version |
+| Topic         | Reference                                                  | When to read                                                |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
+| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults         |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands        |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
+| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                  |
 
 ## In-chat commands
 
 Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
-| Command | Description |
-|---------|-------------|
-| `/new` | Start a fresh session |
+| Command    | Description                   |
+| ---------- | ----------------------------- |
+| `/new`     | Start a fresh session         |
 | `/compact` | Compress conversation history |
-| `/model` | Switch model interactively |
-| `/agent` | List or switch agents |
-| `/whoami` | Show your user/chat ID |
+| `/model`   | Switch model interactively    |
+| `/agent`   | List or switch agents         |
+| `/whoami`  | Show your user/chat ID        |
 
 ## CLI commands
 

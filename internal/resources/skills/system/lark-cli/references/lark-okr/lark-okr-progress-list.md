@@ -20,14 +20,14 @@ lark-cli okr +progress-list \
 
 ## 参数
 
-| 参数                    | 必填 | 默认值             | 说明                                             |
-|-------------------------|----|--------------------|--------------------------------------------------|
-| `--target-id`           | 是  | —                  | 目标 ID 或关键结果 ID（int64 类型，正整数）       |
-| `--target-type`         | 是  | —                  | 目标类型：`objective` \| `key_result`            |
-| `--user-id-type`        | 否  | `open_id`          | 用户 ID 类型：`open_id` \| `union_id` \| `user_id` |
-| `--department-id-type`  | 否  | `open_department_id` | 部门 ID 类型：`department_id` \| `open_department_id` |
-| `--dry-run`             | 否  | —                  | 预览 API 调用而不实际执行。                       |
-| `--format`              | 否  | `json`             | 输出格式。                                        |
+| 参数                   | 必填 | 默认值               | 说明                                                  |
+| ---------------------- | ---- | -------------------- | ----------------------------------------------------- |
+| `--target-id`          | 是   | —                    | 目标 ID 或关键结果 ID（int64 类型，正整数）           |
+| `--target-type`        | 是   | —                    | 目标类型：`objective` \| `key_result`                 |
+| `--user-id-type`       | 否   | `open_id`            | 用户 ID 类型：`open_id` \| `union_id` \| `user_id`    |
+| `--department-id-type` | 否   | `open_department_id` | 部门 ID 类型：`department_id` \| `open_department_id` |
+| `--dry-run`            | 否   | —                    | 预览 API 调用而不实际执行。                           |
+| `--format`             | 否   | `json`               | 输出格式。                                            |
 
 ## 工作流程
 
@@ -64,8 +64,8 @@ lark-cli okr +progress-list \
 
 ## 与 +progress-get 的区别
 
-| 命令             | 用途                               | API 版本 |
-|------------------|------------------------------------|----------|
+| 命令             | 用途                                | API 版本 |
+| ---------------- | ----------------------------------- | -------- |
 | `+progress-list` | 获取某个目标/关键结果的所有进展记录 | v2       |
 | `+progress-get`  | 根据进展记录 ID 获取单条记录        | v1       |
 

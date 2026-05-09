@@ -23,30 +23,29 @@ lark-cli approval <resource> <method> [flags] # 调用 API
 
 ### instances
 
-  - `get` — 获取单个审批实例详情
-  - `cancel` — 撤回审批实例
-  - `cc` — 抄送审批实例
-  - `initiated` — 查询用户的已发起列表
+- `get` — 获取单个审批实例详情
+- `cancel` — 撤回审批实例
+- `cc` — 抄送审批实例
+- `initiated` — 查询用户的已发起列表
 
 ### tasks
 
-  - `remind` — 催办审批人
-  - `approve` — 同意审批任务
-  - `reject` — 拒绝审批任务
-  - `transfer` — 转交审批任务
-  - `query` — 查询用户的任务列表
+- `remind` — 催办审批人
+- `approve` — 同意审批任务
+- `reject` — 拒绝审批任务
+- `transfer` — 转交审批任务
+- `query` — 查询用户的任务列表
 
 ## 权限表
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `instances.get` | `approval:instance:read` |
-| `instances.cancel` | `approval:instance:write` |
-| `instances.cc` | `approval:instance:write` |
-| `instances.initiated` | `approval:instance:read` |
-| `tasks.remind` | `approval:instance:write` |
-| `tasks.approve` | `approval:task:write` |
-| `tasks.reject` | `approval:task:write` |
-| `tasks.transfer` | `approval:task:write` |
-| `tasks.query` | `approval:task:read` |
-
+| 方法                  | 所需 scope                |
+| --------------------- | ------------------------- |
+| `instances.get`       | `approval:instance:read`  |
+| `instances.cancel`    | `approval:instance:write` |
+| `instances.cc`        | `approval:instance:write` |
+| `instances.initiated` | `approval:instance:read`  |
+| `tasks.remind`        | `approval:instance:write` |
+| `tasks.approve`       | `approval:task:write`     |
+| `tasks.reject`        | `approval:task:write`     |
+| `tasks.transfer`      | `approval:task:write`     |
+| `tasks.query`         | `approval:task:read`      |

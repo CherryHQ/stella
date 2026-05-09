@@ -13,14 +13,18 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "../../components.yaml#/components/schemas/BuiltinResource" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/BuiltinResource",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/builtin/{kind}/{id}:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
-      - { name: id,   in: path, required: true, schema: { type: string } }
+      - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [builtin]
       summary: Get a specific builtin resource
@@ -30,6 +34,10 @@ paths:
           description: ok
           content:
             application/json:
-              schema: { $ref: "../../components.yaml#/components/schemas/BuiltinResourceDetail" }
-        "401": { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/BuiltinResourceDetail",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

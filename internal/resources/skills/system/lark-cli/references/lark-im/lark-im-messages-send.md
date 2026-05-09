@@ -22,12 +22,12 @@ When using `--as user`, the message is sent as the authorized end user and requi
 
 ## Choose The Right Content Flag
 
-| Need | Recommended flag | Why |
-|------|------|------|
-| Send plain text exactly as written | `--text` | Wrapped directly to `{"text":"..."}`; no Markdown conversion |
-| Send simple Markdown and accept Feishu-style rendering | `--markdown` | Automatically converted to `post` JSON |
-| Precisely control the final payload | `--content` | You provide the exact JSON for `text` / `post` / `interactive` / `share_*` / media payloads |
-| Send image / file / video / audio | `--image` / `--file` / `--video` / `--audio` | Shortcut uploads local files automatically |
+| Need                                                   | Recommended flag                             | Why                                                                                         |
+| ------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Send plain text exactly as written                     | `--text`                                     | Wrapped directly to `{"text":"..."}`; no Markdown conversion                                |
+| Send simple Markdown and accept Feishu-style rendering | `--markdown`                                 | Automatically converted to `post` JSON                                                      |
+| Precisely control the final payload                    | `--content`                                  | You provide the exact JSON for `text` / `post` / `interactive` / `share_*` / media payloads |
+| Send image / file / video / audio                      | `--image` / `--file` / `--video` / `--audio` | Shortcut uploads local files automatically                                                  |
 
 ### `--text` vs `--markdown`
 
@@ -47,7 +47,7 @@ The shortcut does all of the following before sending:
 4. Wraps the result as:
 
 ```json
-{"zh_cn":{"content":[[{"tag":"md","text":"..."}]]}}
+{ "zh_cn": { "content": [[{ "tag": "md", "text": "..." }]] } }
 ```
 
 This means `--markdown` is convenient, but it is not a full-fidelity Markdown transport.
@@ -58,8 +58,8 @@ This means `--markdown` is convenient, but it is not a full-fidelity Markdown tr
 - It always becomes a `post` payload with a single `zh_cn` locale.
 - It does **not** let you set a `post` title. If you need a title, use `--msg-type post --content ...`.
 - Headings are rewritten:
-    - `# Title` becomes `#### Title`
-    - `##` to `######` are normalized to `#####` when the content contains H1-H3
+  - `# Title` becomes `#### Title`
+  - `##` to `######` are normalized to `#####` when the content contains H1-H3
 - Consecutive headings are separated with blank lines after heading normalization.
 - Block spacing and line breaks may be normalized during conversion.
 - Code blocks are preserved as code blocks.
@@ -84,9 +84,9 @@ Use `--text` plus `$'...'`:
 lark-cli im +messages-send --chat-id oc_xxx --text $'Build failed\nBranch: feature/im-docs\nAction: please check logs'
 ```
 
-```bash
+````bash
 lark-cli im +messages-send --chat-id oc_xxx --text $'```bash\nmake test\nmake lint\n```'
-```
+````
 
 Use this path when you want the receiver to see the text exactly as entered, not a converted Markdown post.
 
@@ -146,22 +146,22 @@ lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Test\n\nhello' --dry
 
 ## Parameters
 
-| Parameter | Required | Description |
-|------|------|------|
-| `--chat-id <id>` | One of two | Group chat ID (`oc_xxx`) |
-| `--user-id <id>` | One of two | User open_id (`ou_xxx`) for direct messages |
-| `--text <string>` | One content option | Plain text message. Best default for exact text and preserved formatting. Automatically wrapped as `{"text":"..."}` |
-| `--markdown <string>` | One content option | Convenience Markdown input. Internally converted to `post` JSON with Feishu-specific normalization; not full Markdown passthrough |
-| `--content <json>` | One content option | Exact message content JSON string; use this when you need full control over `msg_type` and payload. The JSON must match the effective `--msg-type` |
-| `--image <path\|key>` | One content option | Local image path or `image_key` (`img_xxx`). Local paths are uploaded automatically |
-| `--file <path\|key>` | One content option | Local file path or `file_key` (`file_xxx`). Local paths are uploaded automatically |
-| `--video <path\|key>` | One content option | Local video path or `file_key`. Local paths are uploaded automatically. **Must be paired with `--video-cover`** |
-| `--video-cover <path\|key>` | **Required with `--video`** | Video cover image path or `image_key` (`img_xxx`). Local paths are uploaded automatically |
-| `--audio <path\|key>` | One content option | Local audio path or `file_key`. Local paths are uploaded automatically |
-| `--msg-type <type>` | No | Message type (default `text`). If you use `--text` / `--markdown` / media flags, the effective type is inferred automatically. Explicitly setting a conflicting `--msg-type` fails validation |
-| `--idempotency-key <key>` | No | Idempotency key; the same key sends only one message within 1 hour |
-| `--as <identity>` | No | Identity type: `bot` or `user` (default `bot`) |
-| `--dry-run` | No | Print the request only, do not execute it |
+| Parameter                   | Required                    | Description                                                                                                                                                                                   |
+| --------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--chat-id <id>`            | One of two                  | Group chat ID (`oc_xxx`)                                                                                                                                                                      |
+| `--user-id <id>`            | One of two                  | User open_id (`ou_xxx`) for direct messages                                                                                                                                                   |
+| `--text <string>`           | One content option          | Plain text message. Best default for exact text and preserved formatting. Automatically wrapped as `{"text":"..."}`                                                                           |
+| `--markdown <string>`       | One content option          | Convenience Markdown input. Internally converted to `post` JSON with Feishu-specific normalization; not full Markdown passthrough                                                             |
+| `--content <json>`          | One content option          | Exact message content JSON string; use this when you need full control over `msg_type` and payload. The JSON must match the effective `--msg-type`                                            |
+| `--image <path\|key>`       | One content option          | Local image path or `image_key` (`img_xxx`). Local paths are uploaded automatically                                                                                                           |
+| `--file <path\|key>`        | One content option          | Local file path or `file_key` (`file_xxx`). Local paths are uploaded automatically                                                                                                            |
+| `--video <path\|key>`       | One content option          | Local video path or `file_key`. Local paths are uploaded automatically. **Must be paired with `--video-cover`**                                                                               |
+| `--video-cover <path\|key>` | **Required with `--video`** | Video cover image path or `image_key` (`img_xxx`). Local paths are uploaded automatically                                                                                                     |
+| `--audio <path\|key>`       | One content option          | Local audio path or `file_key`. Local paths are uploaded automatically                                                                                                                        |
+| `--msg-type <type>`         | No                          | Message type (default `text`). If you use `--text` / `--markdown` / media flags, the effective type is inferred automatically. Explicitly setting a conflicting `--msg-type` fails validation |
+| `--idempotency-key <key>`   | No                          | Idempotency key; the same key sends only one message within 1 hour                                                                                                                            |
+| `--as <identity>`           | No                          | Identity type: `bot` or `user` (default `bot`)                                                                                                                                                |
+| `--dry-run`                 | No                          | Print the request only, do not execute it                                                                                                                                                     |
 
 > **Mutual exclusivity rule:** `--text`, `--markdown`, `--content`, and `--image`/`--file`/`--video`/`--audio` cannot be used together. Media flags are also mutually exclusive with each other.
 >
@@ -178,17 +178,17 @@ lark-cli im +messages-send --chat-id oc_xxx --markdown $'## Test\n\nhello' --dry
 
 ## `content` Format Reference
 
-| `msg_type` | Example `content` |
-|----------|-------------|
-| `text` | `{"text":"Hello <at user_id=\"ou_xxx\">name</at>"}` |
-| `post` | `{"zh_cn":{"title":"Title","content":[[{"tag":"text","text":"Body"}]]}}` |
-| `image` | `{"image_key":"img_xxx"}` |
-| `file` | `{"file_key":"file_xxx"}` |
-| `audio` | `{"file_key":"file_xxx"}` |
-| `media` | `{"file_key":"file_xxx","image_key":"img_xxx"}` (video; `image_key` is the cover from `--video-cover` — **required**) |
-| `share_chat` | `{"chat_id":"oc_xxx"}` |
-| `share_user` | `{"user_id":"ou_xxx"}` |
-| `interactive` | Card JSON (see Feishu interactive card documentation) |
+| `msg_type`    | Example `content`                                                                                                     |
+| ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `text`        | `{"text":"Hello <at user_id=\"ou_xxx\">name</at>"}`                                                                   |
+| `post`        | `{"zh_cn":{"title":"Title","content":[[{"tag":"text","text":"Body"}]]}}`                                              |
+| `image`       | `{"image_key":"img_xxx"}`                                                                                             |
+| `file`        | `{"file_key":"file_xxx"}`                                                                                             |
+| `audio`       | `{"file_key":"file_xxx"}`                                                                                             |
+| `media`       | `{"file_key":"file_xxx","image_key":"img_xxx"}` (video; `image_key` is the cover from `--video-cover` — **required**) |
+| `share_chat`  | `{"chat_id":"oc_xxx"}`                                                                                                |
+| `share_user`  | `{"user_id":"ou_xxx"}`                                                                                                |
+| `interactive` | Card JSON (see Feishu interactive card documentation)                                                                 |
 
 ## Return Value
 

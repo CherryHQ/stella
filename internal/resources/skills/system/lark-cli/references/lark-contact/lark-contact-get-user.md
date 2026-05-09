@@ -1,4 +1,3 @@
-
 # contact +get-user（获取用户信息）
 
 > **前置条件：** 先阅读 [`../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) 了解认证、全局参数和安全规则。
@@ -28,11 +27,11 @@ lark-cli contact +get-user --user-id ou_xxx --table
 
 ## 参数
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--user-id <id>` | 否 | 用户 ID；不传则获取当前用户 |
-| `--user-id-type <type>` | 否 | `open_id`（默认）/ `union_id` / `user_id` |
-| `--table` | 否 | 表格输出（默认 JSON） |
+| 参数                    | 必填 | 说明                                      |
+| ----------------------- | ---- | ----------------------------------------- |
+| `--user-id <id>`        | 否   | 用户 ID；不传则获取当前用户               |
+| `--user-id-type <type>` | 否   | `open_id`（默认）/ `union_id` / `user_id` |
+| `--table`               | 否   | 表格输出（默认 JSON）                     |
 
 ## 常见错误（41050）
 

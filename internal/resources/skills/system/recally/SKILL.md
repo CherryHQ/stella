@@ -1,11 +1,11 @@
 ---
 name: recally
 description: |
-    Reading assistant for saving, organizing, and recalling web content. Use when the user says "save this article", "read this link", "summarize this", "check my feeds", "add to my library", or asks about previously saved content. Handles articles, tweets, YouTube videos, GitHub repos, PDFs, and RSS feeds. Articles are stored as markdown files with metadata and indexed for fast search.
+  Reading assistant for saving, organizing, and recalling web content. Use when the user says "save this article", "read this link", "summarize this", "check my feeds", "add to my library", or asks about previously saved content. Handles articles, tweets, YouTube videos, GitHub repos, PDFs, and RSS feeds. Articles are stored as markdown files with metadata and indexed for fast search.
 metadata:
-    author: CherryHQ/stella
-    owner_plugin: system/recally
-    version: "1.0"
+  author: CherryHQ/stella
+  owner_plugin: system/recally
+  version: "1.0"
 ---
 
 # Recally - Reading Assistant
@@ -17,10 +17,10 @@ open the SQLite database directly.
 
 ## References
 
-| Topic | File |
-|-------|------|
+| Topic                                       | File                                                       |
+| ------------------------------------------- | ---------------------------------------------------------- |
 | Saving an article (fetch → generate → save) | [references/save-workflow.md](references/save-workflow.md) |
-| RSS batch processing | [references/rss-workflow.md](references/rss-workflow.md) |
+| RSS batch processing                        | [references/rss-workflow.md](references/rss-workflow.md)   |
 
 ## Search and Retrieve
 
@@ -61,6 +61,7 @@ stella recally digest
 ```
 
 Format for user:
+
 ```
 Reading Digest for [Date]
 📚 Yesterday's saves ([count]): [title] - [summary], ...
