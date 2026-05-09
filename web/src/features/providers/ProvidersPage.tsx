@@ -673,7 +673,9 @@ function ProviderRow({
                       {t("common.cancel")}
                     </Button>
                     <Button onClick={handleSubmitCustomModel} variant="default" size="sm">
-                      {customModelForm.original_id ? "Update model" : "Add model"}
+                      {customModelForm.original_id
+                        ? t("providers.updateModel")
+                        : t("providers.addModel")}
                     </Button>
                   </div>
                 </div>
@@ -718,7 +720,7 @@ function ProviderRow({
                 checked={provider.enabled}
                 onCheckedChange={(checked) => updateField("enabled", checked)}
               />
-              <span className="text-sm">Enabled</span>
+              <span className="text-sm">{t("providers.enabled")}</span>
             </div>
             <Button onClick={handleSave} variant="default" size="sm">
               {t("common.save")}

@@ -1,10 +1,14 @@
+import type { ReactNode } from "react";
 import { Link, Outlet } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 
-const settingsNav = [
+const settingsNav: {
+  section: string;
+  items: { id: string; label: MessageKey; href: string; adminOnly: boolean; icon: ReactNode }[];
+}[] = [
   {
     section: "Configuration",
     items: [
@@ -202,7 +206,7 @@ export function SettingsLayout() {
                   }}
                 >
                   {item.icon}
-                  {t(item.label as MessageKey)}
+                  {t(item.label)}
                 </Link>
               ))}
             </div>

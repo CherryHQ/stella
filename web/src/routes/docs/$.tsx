@@ -27,7 +27,10 @@ export const Route = createFileRoute("/docs/$")({
     // Validate that a page exists in at least one language so we can 404 early.
     const exists =
       getPage(slugs, urlLang ?? i18n.defaultLanguage) ??
-      getPage(slugs, i18n.languages.find((l) => l !== i18n.defaultLanguage) ?? i18n.defaultLanguage);
+      getPage(
+        slugs,
+        i18n.languages.find((l) => l !== i18n.defaultLanguage) ?? i18n.defaultLanguage,
+      );
     if (!exists) throw notFound();
     return { urlLang, slugs };
   },
@@ -38,9 +41,10 @@ function Page() {
   const { locale } = useI18n();
   // Explicit URL lang prefix takes priority; otherwise follow the app locale.
   const lang = urlLang ?? (locale as Lang);
-  const page = getPage(slugs, lang) ?? getPage(slugs, i18n.defaultLanguage);
+  // The loader already verified existence; fallback to default lang if locale has no translation.
+  const page = (getPage(slugs, lang) ?? getPage(slugs, i18n.defaultLanguage))!;
   const sidebar = getSidebar(lang);
-  const MDXContent = page!.default;
+  const MDXContent = page.default;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -81,16 +85,16 @@ function Page() {
               <Menu className="size-5" />
             </button>
             <span className="ml-3 text-sm font-medium text-foreground truncate">
-              {page!.frontmatter?.title}
+              {page.frontmatter?.title}
             </span>
           </div>
 
           <article className="max-w-3xl mx-auto px-6 py-8 md:px-8">
-            {page!.frontmatter?.title && (
-              <h1 className="text-3xl font-bold text-foreground mb-2">{page!.frontmatter.title}</h1>
+            {page.frontmatter?.title && (
+              <h1 className="text-3xl font-bold text-foreground mb-2">{page.frontmatter.title}</h1>
             )}
-            {page!.frontmatter?.description && (
-              <p className="text-lg text-muted-foreground mb-8">{page!.frontmatter.description}</p>
+            {page.frontmatter?.description && (
+              <p className="text-lg text-muted-foreground mb-8">{page.frontmatter.description}</p>
             )}
             <MDXContent components={mdxComponents} />
           </article>

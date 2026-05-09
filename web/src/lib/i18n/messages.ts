@@ -48,6 +48,7 @@ const en = {
   "common.success": "Success",
   "common.warning": "Warning",
   "common.info": "Info",
+  "common.reset": "Reset",
 
   // Header
   "header.login": "Login",
@@ -191,6 +192,12 @@ const en = {
   "plugins.mcp.title": "MCP Servers",
   "plugins.mcp.new": "Add MCP Server",
   "plugins.mcp.noServers": "No MCP servers configured",
+  "plugins.tab.tools": "Tools",
+  "plugins.tab.channels": "Channels",
+  "plugins.tab.hooks": "Hooks",
+  "plugins.tab.memory": "Memory",
+  "plugins.tab.sandbox": "Sandbox",
+  "plugins.tab.others": "Others",
 
   // Providers
   "providers.title": "Providers",
@@ -207,6 +214,9 @@ const en = {
   "providers.updateFailed": "Failed to update provider",
   "providers.deleteConfirm": "Delete provider?",
   "providers.deleteConfirmDesc": "This will permanently delete the provider {{name}}.",
+  "providers.enabled": "Enabled",
+  "providers.updateModel": "Update model",
+  "providers.addModel": "Add model",
 
   // Scheduler
   "scheduler.title": "Scheduler",
@@ -319,6 +329,7 @@ const zh: Record<MessageKey, string> = {
   "common.success": "成功",
   "common.warning": "警告",
   "common.info": "信息",
+  "common.reset": "重置",
 
   // Header
   "header.login": "登录",
@@ -462,6 +473,12 @@ const zh: Record<MessageKey, string> = {
   "plugins.mcp.title": "MCP 服务器",
   "plugins.mcp.new": "添加 MCP 服务器",
   "plugins.mcp.noServers": "暂无 MCP 服务器",
+  "plugins.tab.tools": "工具",
+  "plugins.tab.channels": "频道",
+  "plugins.tab.hooks": "钩子",
+  "plugins.tab.memory": "内存",
+  "plugins.tab.sandbox": "沙盒",
+  "plugins.tab.others": "其他",
 
   // Providers
   "providers.title": "提供商",
@@ -478,6 +495,9 @@ const zh: Record<MessageKey, string> = {
   "providers.updateFailed": "更新提供商失败",
   "providers.deleteConfirm": "删除提供商？",
   "providers.deleteConfirmDesc": "这将永久删除提供商 {{name}}。",
+  "providers.enabled": "已启用",
+  "providers.updateModel": "更新模型",
+  "providers.addModel": "添加模型",
 
   // Scheduler
   "scheduler.title": "调度器",

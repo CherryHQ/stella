@@ -53,7 +53,7 @@ export function GenericConfigEditor({
           <div className="flex items-center gap-2">
             {isLoading && <Spinner className="size-4" />}
             <Button onClick={onReset} disabled={isLoading || isSaving} variant="ghost" size="xs">
-              Reset
+              {t("common.reset")}
             </Button>
             <Button onClick={onSave} disabled={isLoading || isSaving} variant="default" size="xs">
               {t("common.save")}

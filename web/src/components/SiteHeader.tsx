@@ -15,7 +15,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
-import { useI18n, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n";
+import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -133,8 +133,7 @@ function LocaleSelector() {
   const { locale, setLocale, t } = useI18n();
 
   function toggle() {
-    const next = SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale;
-    setLocale(next as Locale);
+    setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale);
   }
 
   const label = locale === "en" ? t("locale.en") : t("locale.zh");

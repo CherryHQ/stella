@@ -447,15 +447,15 @@ export function PluginsPage() {
   }
 
   const tabs: { id: Tab; label: string; count: number; show: boolean }[] = [
-    { id: "tools", label: "Tools", count: toolPlugins.length, show: true },
+    { id: "tools", label: t("plugins.tab.tools"), count: toolPlugins.length, show: true },
     { id: "mcp", label: t("plugins.mcp.title"), count: mcpServers.length, show: true },
-    { id: "channels", label: "Channels", count: channelPlugins.length, show: true },
-    { id: "hooks", label: "Hooks", count: hookPlugins.length, show: true },
-    { id: "memory", label: "Memory", count: memoryPlugins.length, show: true },
-    { id: "sandbox", label: "Sandbox", count: sandboxPlugins.length, show: true },
+    { id: "channels", label: t("plugins.tab.channels"), count: channelPlugins.length, show: true },
+    { id: "hooks", label: t("plugins.tab.hooks"), count: hookPlugins.length, show: true },
+    { id: "memory", label: t("plugins.tab.memory"), count: memoryPlugins.length, show: true },
+    { id: "sandbox", label: t("plugins.tab.sandbox"), count: sandboxPlugins.length, show: true },
     {
       id: "standalone",
-      label: "Others",
+      label: t("plugins.tab.others"),
       count: standalonePlugins.length,
       show: standalonePlugins.length > 0,
     },
