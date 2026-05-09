@@ -5,6 +5,7 @@ go = "1.25"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
+"npm:portless" = "latest"
 
 [env]
 BINARY_NAME = "stella"
@@ -55,7 +56,7 @@ depends = ["dev:ui", "dev:api"]
 [tasks."dev:ui"]
 description = "Start stella webui"
 dir = "web"
-run = 'vp dev'
+run = 'portless stella vp dev'
 
 [tasks."dev:api"]
 description = "Start stella API server"

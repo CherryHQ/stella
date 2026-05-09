@@ -97,7 +97,8 @@ const translations = {
     heroTitle1: "你的助手",
     heroTitle2: "永远不会",
     heroTitle3: "遗忘",
-    heroDescription: "单一二进制文件，无损上下文管理。在终端或任何即时通讯中对话——stella 记住一切。",
+    heroDescription:
+      "单一二进制文件，无损上下文管理。在终端或任何即时通讯中对话——stella 记住一切。",
     readTheDocs: "阅读文档",
     sourceOnGithub: "GitHub 源码",
     featuresTitle: "stella 的独特之处",
