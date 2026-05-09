@@ -13,6 +13,8 @@ You are working on **stella**, a Go CLI/service project. Act as an engineering c
 
 ## Commands
 
+- This project requires `mise` for development workflows.
+- On a fresh clone, run `mise run setup` once to set up the development environment and pre-commit hooks.
 - Use `mise tasks` to discover available workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - Before committing, **ALWAYS** run:

@@ -235,6 +235,8 @@ stella upgrade               # Self-update to latest release
 
 ## Development
 
+Development requires [mise](https://mise.jdx.dev/). On a fresh clone, run setup once to install the development hooks:
+
 ```bash
 mise run setup             # Set up dev environment and install pre-commit hooks
 mise run build             # Build binary -> bin/stella
