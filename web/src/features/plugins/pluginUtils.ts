@@ -51,7 +51,12 @@ export function withManifestMeta(
   manifestPlugins: ManifestPlugin[],
 ): PluginWithMeta {
   const manifest = manifestPlugins.find((m) => m.id === plugin.id) || null;
-  return { ...plugin, _manifest: !!manifest, _manifestPlugin: manifest };
+  return {
+    ...plugin,
+    enabled: manifest ? manifest.enabled : plugin.enabled,
+    _manifest: !!manifest,
+    _manifestPlugin: manifest,
+  };
 }
 
 export function manifestOnlyPlugin(manifest: ManifestPlugin): PluginWithMeta {
