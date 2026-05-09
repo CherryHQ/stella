@@ -22,10 +22,10 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
+	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
-	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
+	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 	mcp "github.com/CherryHQ/stella/plugins/tools/mcp"
@@ -103,6 +103,28 @@ func setupAdmin(t *testing.T) *testEnv {
 		}), nil
 	})
 	t.Cleanup(resetTelegramRuntime)
+	resetFeishuRuntime := feishuplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
+		return feishuplugin.NewFeishuManagedRuntime(feishuplugin.FeishuRuntimeDeps{
+			Parent:        context.Background(),
+			Handler:       testChannelHandler{},
+			Notifications: dispatcher,
+			NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+				return newTestChannel(pkgchannel.PlatformFeishu), nil
+			},
+		}), nil
+	})
+	t.Cleanup(resetFeishuRuntime)
+	resetWeixinRuntime := weixinplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
+		return weixinplugin.NewWeixinManagedRuntime(weixinplugin.WeixinRuntimeDeps{
+			Parent:        context.Background(),
+			Handler:       testChannelHandler{},
+			Notifications: dispatcher,
+			NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+				return newTestChannel(pkgchannel.PlatformWeixin), nil
+			},
+		}), nil
+	})
+	t.Cleanup(resetWeixinRuntime)
 	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}

@@ -76,3 +76,12 @@ func init() {
 		})
 	}))
 }
+
+// SetRuntimeFactoryForTesting swaps the Feishu managed runtime factory for tests.
+func SetRuntimeFactoryForTesting(factory func(platform pkgplugins.Platform) (pkgplugins.Runtime, error)) func() {
+	prev := newRuntime
+	newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+		return factory(platform)
+	}
+	return func() { newRuntime = prev }
+}
