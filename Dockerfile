@@ -35,7 +35,8 @@ RUN go mod download
 RUN GOBIN=/usr/local/bin go install github.com/a-h/templ/cmd/templ@v0.3.1001
 RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 
-ARG TARGETOS TARGETARCH
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 COPY . .
 COPY --from=web-builder /web/static/dist/ ./web/static/dist/

@@ -6,6 +6,8 @@ go = "1.25"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
 "npm:portless" = "latest"
+prek = "latest"
+dprint = "latest"
 
 [env]
 BINARY_NAME = "stella"
@@ -84,8 +86,12 @@ description = "Run tests with race detection and coverage report (CI)"
 run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks.format]
-description = "Fix and format Go code"
-run = "golangci-lint run --fix ./..."
+description = "Fix and format files"
+run = [
+  "dprint fmt",
+  "golangci-lint run --fix ./...",
+  "cd web && vp check --fix",
+]
 
 # ============================================================================
 # Dev
