@@ -66,7 +66,7 @@ export function SiteHeader() {
             />
           ))}
         </nav>
-        <LocaleSelector />
+        {me && <LocaleSelector />}
         <GithubLink />
         {me ? (
           <UserMenu />
