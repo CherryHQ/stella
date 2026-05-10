@@ -17,7 +17,6 @@ type ToolSet map[string]ToolFunc
 type loopConfig struct {
 	Model           ai.Model
 	StreamOptions   ai.StreamOptions
-	MaxTurns        int
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
 	System          string

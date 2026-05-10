@@ -55,7 +55,6 @@ func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 		Tools:           agent.ToolSetFromRegistry(reg),
 		ToolDefinitions: reg.Definitions(),
 	},
-		agent.WithMaxTurns(3),
 		agent.WithSystem(system),
 	)
 	if err != nil {

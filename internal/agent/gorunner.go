@@ -25,11 +25,6 @@ import (
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 )
 
-// maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
-// A single turn may include multiple tool calls; the limit is on loop rounds,
-// not individual tool executions.
-const maxAgentLoopTurns = 50
-
 // VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
 // It is a subset of vault.Service and is defined here to avoid a circular
 // import between the runner and vault packages.
@@ -196,7 +191,6 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 		ToolDefinitions: toolDefs,
 	},
 		coreagent.WithStreamOptions(streamOptions),
-		coreagent.WithMaxTurns(maxAgentLoopTurns),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),

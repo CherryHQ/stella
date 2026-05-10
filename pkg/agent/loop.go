@@ -38,12 +38,7 @@ func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, histo
 }
 
 func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	maxTurns := cfg.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = 128
-	}
-
-	for turn := 1; turn <= maxTurns; turn++ {
+	for turn := 1; ; turn++ {
 		if emit != nil {
 			emit(TurnStarted{Turn: turn})
 		}
@@ -173,8 +168,6 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 			emit(TurnFinished{Turn: turn})
 		}
 	}
-
-	return history, fmt.Errorf("agent loop exceeded maximum turns (%d)", maxTurns)
 }
 
 // streamAssistant opens a provider stream, emits granular assistant events,

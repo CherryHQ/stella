@@ -16,7 +16,6 @@ type Runner struct {
 	providers     providers.ProviderGetter
 	model         ai.Model
 	streamOptions ai.StreamOptions
-	maxTurns      int
 	tools         ToolSet
 	toolDefs      []ai.ToolDefinition
 	system        string
@@ -40,11 +39,6 @@ type Option func(*Runner)
 // WithStreamOptions sets stream options (API key, base URL, etc.).
 func WithStreamOptions(opts ai.StreamOptions) Option {
 	return func(r *Runner) { r.streamOptions = opts }
-}
-
-// WithMaxTurns sets the maximum number of loop turns.
-func WithMaxTurns(n int) Option {
-	return func(r *Runner) { r.maxTurns = n }
 }
 
 // WithSystem sets the system prompt.
@@ -123,7 +117,6 @@ func (r *Runner) loopConfig() loopConfig {
 	return loopConfig{
 		Model:           r.model,
 		StreamOptions:   r.streamOptions,
-		MaxTurns:        r.maxTurns,
 		Tools:           r.tools,
 		ToolDefinitions: r.toolDefs,
 		System:          r.system,
