@@ -38,7 +38,14 @@ func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, histo
 }
 
 func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+	loopStart := time.Now()
 	for turn := 1; ; turn++ {
+		if cfg.TurnNotify != nil {
+			if msg := cfg.TurnNotify(turn, time.Since(loopStart)); msg != nil {
+				history = append(history, ai.UserMessage{Content: *msg})
+			}
+		}
+
 		if emit != nil {
 			emit(TurnStarted{Turn: turn})
 		}

@@ -58,6 +58,7 @@ type GoRunnerConfig struct {
 	TokenService     *auth.TokenService               // optional; if set, ensures STELLA_TOKEN before vault env injection
 	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
 	SubagentTimeout  time.Duration                    // default wall-clock timeout per subagent (0 = 15m)
+	ChatTimeout      time.Duration                    // wall-clock timeout per main agent chat turn (0 = 30m)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -70,6 +71,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
+	chatTimeout   time.Duration
 	session       *runnerSession // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
@@ -171,6 +173,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system:        system,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
+		chatTimeout:   cfg.ChatTimeout,
 		session:       session,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
@@ -349,9 +352,17 @@ func buildHookSet(cfg GoRunnerConfig) *hooks.HookSet {
 	return nil
 }
 
+const defaultChatTimeout = 30 * time.Minute
+
 // Chat runs the Engine agent loop with the provided history and forwards events.
 func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
+
+	timeout := r.chatTimeout
+	if timeout <= 0 {
+		timeout = defaultChatTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 
 	r.mu.Lock()
 	r.lastActivity = time.Now()
@@ -359,6 +370,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 	r.mu.Unlock()
 
 	go func() {
+		defer cancel()
 		defer close(out)
 		defer func() {
 			r.mu.Lock()
@@ -402,6 +414,25 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 				channel, _ := ChannelFromContext(ctx)
 				return channel
 			}(),
+		})
+
+		// Inject progress nudges at milestone turns so the model can summarize
+		// its state before the timeout fires.
+		chatStart := time.Now()
+		loopRunner.SetTurnNotify(func(turn int, _ time.Duration) *string {
+			elapsed := time.Since(chatStart).Round(time.Second)
+			var msg string
+			switch turn {
+			case 50:
+				msg = fmt.Sprintf("You have been running for %s and completed 50 turns. Please report your current progress. If the user's request is not yet resolved, suggest alternative approaches.", elapsed)
+			case 80:
+				msg = fmt.Sprintf("You have been running for %s and completed 80 turns. Please report your progress again and consider whether a simpler approach could resolve the problem.", elapsed)
+			case 100:
+				msg = fmt.Sprintf("You have been running for %s and completed 100 turns. Please summarize the current state clearly and stop further attempts. Wait for the user's instructions before continuing.", elapsed)
+			default:
+				return nil
+			}
+			return &msg
 		})
 
 		messages := make([]ai.Message, len(history))

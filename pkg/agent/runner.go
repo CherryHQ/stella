@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -23,6 +24,7 @@ type Runner struct {
 	hooks         *hooks.HookSet
 	hookMeta      hooks.HookMeta
 	toolLifecycle *ToolLifecycle
+	turnNotify    func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -66,6 +68,13 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
+// WithTurnNotify sets a callback invoked at the start of each turn.
+// If it returns a non-nil string, that text is injected as a UserMessage
+// before the model call for that turn.
+func WithTurnNotify(fn func(turn int, elapsed time.Duration) *string) Option {
+	return func(r *Runner) { r.turnNotify = fn }
+}
+
 // NewRunner constructs a Runner with the given config and options.
 func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	if cfg.Providers == nil {
@@ -93,6 +102,12 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 // Safe to call between Run invocations; not safe during a Run.
 func (r *Runner) SetHookMeta(meta hooks.HookMeta) {
 	r.hookMeta = meta
+}
+
+// SetTurnNotify updates the turn notify callback.
+// Safe to call between Run invocations; not safe during a Run.
+func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string) {
+	r.turnNotify = fn
 }
 
 // Run executes the agent loop from scratch.
@@ -124,5 +139,6 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
+		TurnNotify:      r.turnNotify,
 	}
 }
