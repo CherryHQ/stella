@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -354,6 +355,9 @@ func buildHookSet(cfg GoRunnerConfig) *hooks.HookSet {
 
 const defaultChatTimeout = 30 * time.Minute
 
+// ErrChatTimeout is returned when the main agent chat exceeds its wall-clock timeout.
+var ErrChatTimeout = errors.New("chat timeout exceeded")
+
 // Chat runs the Engine agent loop with the provided history and forwards events.
 func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
@@ -449,6 +453,9 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 				out <- evt
 			}
 		}); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				err = fmt.Errorf("%w: %w", ErrChatTimeout, err)
+			}
 			out <- Event{Err: err}
 		}
 

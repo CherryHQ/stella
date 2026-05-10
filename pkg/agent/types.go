@@ -29,6 +29,7 @@ type loopConfig struct {
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).
 	// The injected messages are ephemeral — they exist only in the in-memory
-	// history slice and are not persisted to the session store.
+	// history slice and are not persisted to the session store. The model's
+	// responses to nudges ARE persisted, so they should read coherently standalone.
 	TurnNotify func(turn int, elapsed time.Duration) *string
 }

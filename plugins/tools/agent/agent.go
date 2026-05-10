@@ -233,7 +233,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		}
 	}
 
-	// Two independent limits bound every subagent run:
 	// The wall-clock timeout is the only limit applied to subagent runs.
 	// It kills the run if it takes too long regardless of what the agent is doing.
 	// Configurable via runner.subagent_timeout (admin settings) or per-preset

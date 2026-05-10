@@ -220,7 +220,7 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession me
 			// On timeout, emit a friendly status notice instead of a raw error
 			// so the user sees context rather than a crash. The session remains
 			// intact; the user can send a new message to continue.
-			if errors.Is(evt.Err, context.DeadlineExceeded) {
+			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
 				noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
 				if err := p.mem.Append(persistCtx, memSession, noticeMsg); err != nil {
