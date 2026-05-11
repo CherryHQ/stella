@@ -69,6 +69,10 @@ func (m *systemdManager) Install(system bool) error {
 		return fmt.Errorf("systemctl not found: stella service requires systemd")
 	}
 
+	if err := checkBwrap(); err != nil {
+		return err
+	}
+
 	bin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
@@ -260,6 +264,29 @@ func removeMode() error {
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove service mode file: %w", err)
+	}
+	return nil
+}
+
+// checkBwrap verifies that bwrap (bubblewrap) is on PATH and can actually
+// create a user namespace. A plain LookPath is not enough: inside containers
+// bwrap is often installed but namespace creation is blocked by the seccomp
+// profile, so we probe with a no-op sandbox.
+func checkBwrap() error {
+	p, err := exec.LookPath("bwrap")
+	if err != nil {
+		return fmt.Errorf(
+			"bwrap (bubblewrap) is required but not found on PATH\n" +
+				"  install: apt install bubblewrap  |  dnf install bubblewrap  |  pacman -S bubblewrap",
+		)
+	}
+	if err := exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run(); err != nil {
+		return fmt.Errorf(
+			"bwrap is installed but cannot create a user namespace (got: %w)\n"+
+				"  on some hosts you may need to set: sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n"+
+				"  or ensure /proc/sys/user/max_user_namespaces is non-zero",
+			err,
+		)
 	}
 	return nil
 }
