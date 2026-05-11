@@ -12,11 +12,11 @@ stella 中的每个代理都有三个模型字段，存储在数据库（`settin
 | `model_strong` | 重度推理、复杂任务 |
 | `model_fast`   | 快速响应、简单查询 |
 
-`model_strong` 和 `model_fast` 在未设置时都回退到 `model`。通过 admin 面板（`stella --open`）按代理配置这些。
+`model_strong` 和 `model_fast` 在未设置时都回退到 `model`。通过 admin 面板（Web UI）按代理配置这些。
 
 ## 提供商设置
 
-提供商通过 admin 面板（`stella --open`）配置。每个提供商作为插件存储在 `settings_plugins` 表中（kind=`provider`），凭证存储在 `config` JSON 字段中。
+提供商通过 admin 面板（Web UI）配置。每个提供商作为插件存储在 `settings_plugins` 表中（kind=`provider`），凭证存储在 `config` JSON 字段中。
 
 当提供商的 `api_key` 字段在数据库中为空时，环境变量作为回退：
 

@@ -12,7 +12,7 @@ stella 内置了通过 WebSocket 连接的 Feishu（Lark）机器人，因此不
    - `im.message.receive_v1`
    - 如果需要表情事件，再添加 `im.message.reaction.created_v1`
 4. 复制 App ID、App Secret、Encrypt Key 和 Verification Token。
-5. 运行 `stella --open`，在管理面板里配置 Feishu 频道。
+5. 启动 stella（`stella`），通过 `http://localhost:25678` 的 Web UI 配置 Feishu 频道。
 6. 启动 stella：
 
 ```bash

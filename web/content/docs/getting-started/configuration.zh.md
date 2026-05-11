@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.stella/stella.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `stella --open` 打开 Web 管理面板。
+所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.stella/stella.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `stella` 并通过 `http://localhost:25678` 打开 Web UI。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
@@ -187,7 +187,7 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 | `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                           |
 | `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                            |
 
-所有其他配置必须通过管理面板（`stella --open`）或直接在数据库中设置。
+所有其他配置必须通过 Web UI 或直接在数据库中设置。
 
 ## 记忆默认设置
 

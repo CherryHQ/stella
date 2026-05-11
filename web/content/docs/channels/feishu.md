@@ -12,7 +12,7 @@ stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not 
    - `im.message.receive_v1`
    - `im.message.reaction.created_v1` if you want reaction events
 4. Copy your App ID, App Secret, Encrypt Key, and Verification Token.
-5. Run `stella --open` and configure the Feishu channel in the admin panel.
+5. Start stella (`stella`) and configure the Feishu channel in the web UI at `http://localhost:25678`.
 6. Start stella:
 
 ```bash

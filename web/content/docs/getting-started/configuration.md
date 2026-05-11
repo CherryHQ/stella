@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-All configuration is stored in a single SQLite database at `~/.stella/stella.db`. There are no YAML config files. To set up or modify your configuration, run `stella --open` to open the web admin panel.
+All configuration is stored in a single SQLite database at `~/.stella/stella.db`. There are no YAML config files. To set up or modify your configuration, run `stella` and open the web UI at `http://localhost:25678`.
 
 The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
@@ -187,7 +187,7 @@ The old `STELLA_*` prefix overrides for all config fields are removed. Only the 
 | `OPENAI_API_KEY`     | Fallback API key for the OpenAI provider                                                                                                                                     |
 | `OPENAI_BASE_URL`    | Fallback base URL for the OpenAI provider                                                                                                                                    |
 
-All other configuration must be set through the admin panel (`stella --open`) or directly in the database.
+All other configuration must be set through the web UI or directly in the database.
 
 ## Memory Defaults
 

@@ -2,11 +2,11 @@
 
 All configuration is stored in a SQLite database at `$STELLA_HOME/stella.db` (`~/.stella/stella.db` by default).
 
-The easiest way to configure stella is `stella --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `stella --port 8080`.
+The easiest way to configure stella is to run `stella` and open `http://localhost:25678`. Use `--port` to change the port.
 
 ## Quick start
 
-1. Run `stella --open` to open the admin panel
+1. Run `stella` and open `http://localhost:25678`
 2. Add a provider (e.g., "anthropic" with your API key)
 3. Create or edit an agent (set provider, model, system prompt)
 4. Configure channels (Telegram token, etc.)

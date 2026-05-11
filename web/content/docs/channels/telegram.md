@@ -7,7 +7,7 @@ stella includes a Telegram bot that runs via long polling -- no webhook or publi
 ## Setup
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
-2. Run `stella --open` to launch the admin panel
+2. Start stella (`stella`) and open the web UI at `http://localhost:25678`
 3. In the admin panel: add an AI provider, then go to the Channels page and configure a Telegram channel instance with your bot token
 4. Start the daemon:
 
@@ -127,7 +127,7 @@ Users can switch models mid-conversation via an inline keyboard triggered by the
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`stella --open`).
+All settings below are managed through the web UI.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

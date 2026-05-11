@@ -7,9 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -41,21 +39,15 @@ func serverFlags() []ucli.Flag {
 	return []ucli.Flag{
 		&ucli.StringFlag{
 			Name:    "host",
-			Aliases: []string{"admin-host"},
 			Usage:   "Host/interface for admin panel",
 			Value:   "127.0.0.1",
 			EnvVars: []string{"HOST"},
 		},
 		&ucli.IntFlag{
 			Name:    "port",
-			Aliases: []string{"admin-port"},
-			Usage:   "Port for admin panel (0 = disabled)",
+			Usage:   "Port for admin panel",
 			Value:   defaultAdminPort,
 			EnvVars: []string{"PORT"},
-		},
-		&ucli.BoolFlag{
-			Name:  "open",
-			Usage: "Open admin panel in browser on startup",
 		},
 	}
 }
@@ -73,10 +65,10 @@ func serverAction(c *ucli.Context) error {
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
 	}()
-	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"), c.Bool("open"))
+	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"))
 }
 
-func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, openBrowser bool) error {
+func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []pkgchannel.Channel
 
@@ -158,42 +150,32 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
 
 	// Start admin panel server.
-	if adminPort > 0 {
-		listenAddr := adminListenAddress(adminHost, adminPort)
-		ln, err := net.Listen("tcp", listenAddr)
-		if err != nil {
-			return fmt.Errorf("admin listen: %w", err)
-		}
-		addr := ln.Addr().String()
-		slog.Info("starting admin panel", "addr", addr)
-		fmt.Printf("Admin panel running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-
-		if openBrowser {
-			launchBrowser(adminBrowserURL(adminHost, adminPort, addr))
-		}
-
-		httpSrv := &http.Server{Handler: adminSrv.Handler()}
-		g.Go(func() error {
-			<-gctx.Done()
-			shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			return httpSrv.Shutdown(shutCtx)
-		})
-		g.Go(func() error {
-			if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
-				return fmt.Errorf("admin serve: %w", err)
-			}
-			return nil
-		})
+	listenAddr := adminListenAddress(adminHost, adminPort)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("admin listen: %w", err)
 	}
+	addr := ln.Addr().String()
+	slog.Info("starting admin panel", "addr", addr)
+	fmt.Printf("Admin panel running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
+
+	httpSrv := &http.Server{Handler: adminSrv.Handler()}
+	g.Go(func() error {
+		<-gctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return httpSrv.Shutdown(shutCtx)
+	})
+	g.Go(func() error {
+		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("admin serve: %w", err)
+		}
+		return nil
+	})
 
 	if len(channels) == 0 && managedChannels.Started == 0 {
 		reason := noRunningChannelReason(managedChannels)
-		if adminPort > 0 {
-			slog.Warn(reason+"; running admin panel only", "configured_channels", managedChannels.Configured)
-		} else {
-			return fmt.Errorf("no services to run: %s and admin panel disabled", reason)
-		}
+		slog.Warn(reason+"; running admin panel only", "configured_channels", managedChannels.Configured)
 	}
 
 	// Start all channels.
@@ -202,16 +184,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			if err := ch.Start(gctx); err != nil && gctx.Err() == nil {
 				return fmt.Errorf("%s: %w", ch.Name(), err)
 			}
-			return nil
-		})
-	}
-
-	// Managed channel runtimes are started by plugin application rather than by the
-	// legacy channels slice. When the admin panel is disabled, keep the gateway alive
-	// until shutdown so managed runtimes can continue serving traffic.
-	if adminPort == 0 && managedChannels.Started > 0 {
-		g.Go(func() error {
-			<-gctx.Done()
 			return nil
 		})
 	}
@@ -319,18 +291,6 @@ func schedulerJobMessage(job scheduler.Job) string {
 	return fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s\n\nUse the notify tool to send results to the user only when you have something meaningful to communicate.", job.Name, job.Message)
 }
 
-func launchBrowser(url string) {
-	cmd := browserCommand(url)
-	if cmd == nil {
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		slog.Warn("failed to open browser", "error", err)
-		return
-	}
-	go func() { _ = cmd.Wait() }()
-}
-
 func adminListenAddress(host string, port int) string {
 	if host == "" {
 		host = "127.0.0.1"
@@ -349,36 +309,12 @@ func adminURLForDisplay(host string, port int, fallbackAddr string) string {
 	return "http://" + net.JoinHostPort(displayHost, fmt.Sprintf("%d", port))
 }
 
-func adminBrowserURL(host string, port int, fallbackAddr string) string {
-	browserHost := host
-	if browserHost == "" {
-		browserHost = hostFromAddr(fallbackAddr)
-	}
-	if browserHost == "" || browserHost == "0.0.0.0" || browserHost == "::" {
-		browserHost = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(browserHost, fmt.Sprintf("%d", port))
-}
-
 func hostFromAddr(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return ""
 	}
 	return host
-}
-
-func browserCommand(url string) *exec.Cmd {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", url)
-	case "linux":
-		return exec.Command("xdg-open", url)
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		return nil
-	}
 }
 
 func newIntentClassifier(store config.Store, ph *pluginhost.Host) *channel.LLMIntentClassifier {

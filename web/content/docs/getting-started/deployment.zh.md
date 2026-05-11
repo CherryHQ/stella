@@ -29,13 +29,13 @@ cd stella && go build -o stella .
 
 ### 运行
 
-运行 onboard 命令打开管理面板并配置 stella（提供商、频道、agents 等）：
+启动 stella，通过 `http://localhost:25678` 访问管理面板进行配置：
 
 ```bash
-stella --open
+stella
 ```
 
-这会启动一个本地 Web UI，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
+这会启动守护进程并提供 Web UI 服务，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
 启动网关守护进程：
 
@@ -197,7 +197,7 @@ stella service uninstall
 
 ### 快速开始
 
-首先，运行 onboard 来配置 stella：
+首先，使用 `--port 8080` 运行 stella 通过 Web UI 进行配置：
 
 ```bash
 docker run -it --rm \
@@ -205,7 +205,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --open
+  stella --port 8080
 ```
 
 然后启动网关：
@@ -242,7 +242,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `docker compose exec stella stella --open` 或使用 `--port 8080` 启动网关并通过 Web UI 进行配置。
+要运行初始设置，使用 `--port 8080` 启动守护进程，通过 `http://localhost:8080` 的 Web UI 进行配置，或使用 `docker compose exec stella stella --port 8080`。
 
 ### 本地构建
 
@@ -287,7 +287,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 环境变量
 
-配置通过管理面板管理（通过 `stella --open` 或 `--port`）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
+配置通过 Web UI 管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                                                            |
 | ------------------- | ---- | --------------------------------------------------------------- |

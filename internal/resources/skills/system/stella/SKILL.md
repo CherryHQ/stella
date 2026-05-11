@@ -21,7 +21,7 @@ Run mode:
 
 - **Gateway daemon**: `stella` (Telegram, QQ, Feishu, WeChat bots + scheduler)
 
-Setup: `stella --open` opens a web admin panel to configure everything. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
+Setup: run `stella` and open `http://localhost:25678` to configure everything via the web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
 
 ## Architecture
 
@@ -70,9 +70,8 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 ## CLI commands
 
 ```
-stella                   # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler)
-stella --open            # Start daemon and open admin panel in browser
-stella --port 8080       # Start daemon with admin panel on custom port
+stella                   # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler); web UI at http://localhost:25678
+stella --port 8080       # Start daemon with web UI on custom port
 stella models list       # List models
 stella models set <p/m>  # Switch model
 stella models update     # Refresh model cache

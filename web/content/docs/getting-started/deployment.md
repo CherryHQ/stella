@@ -29,13 +29,13 @@ cd stella && go build -o stella .
 
 ### Running
 
-Run the setup command to open the admin panel and configure stella (providers, channels, agents, etc.):
+Start stella to access the admin panel at `http://localhost:25678`:
 
 ```bash
-stella --open
+stella
 ```
 
-This starts a local web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` -- no manual config files needed.
+This starts the daemon and serves the web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` -- no manual config files needed.
 
 Start the daemon:
 
@@ -197,7 +197,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Quick Start
 
-First, run setup to configure stella:
+First, run stella with `--port 8080` to configure it via the web UI:
 
 ```bash
 docker run -it --rm \
@@ -205,7 +205,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --open
+  stella --port 8080
 ```
 
 Then start the daemon:
@@ -242,7 +242,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, use `docker compose exec stella stella --open` or start the daemon with `--port 8080` and configure via the web UI.
+To run initial setup, start the daemon with `--port 8080` and configure via the web UI at `http://localhost:8080`, or use `docker compose exec stella stella --port 8080`.
 
 ### Build Locally
 
@@ -287,7 +287,7 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 ## Environment Variables
 
-Configuration is managed through the admin panel (via `stella --open` or `--port`). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
+Configuration is managed through the web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
 
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |

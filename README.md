@@ -185,28 +185,27 @@ To run stella as a background service (launchd on macOS, systemd on Linux), see 
 ### Set up
 
 ```bash
-stella --open
+stella
 ```
 
-This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu, WeChat), users, scheduled jobs, and settings. All configuration is stored in `~/.stella/stella.db`. There are no YAML config files.
+This starts the daemon and serves the web UI at `http://localhost:25678` where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu, WeChat), users, scheduled jobs, and settings. All configuration is stored in `~/.stella/stella.db`. There are no YAML config files.
 
 ### Use
 
 ```bash
-stella                         # Start daemon (bots + scheduler)
-stella --port 8080             # Start daemon with admin panel
-stella --host 0.0.0.0 --port 8080  # Bind admin panel to all interfaces
+stella                             # Start daemon (bots + scheduler); web UI at http://localhost:25678
+stella --port 8080                 # Start daemon with web UI on custom port
+stella --host 0.0.0.0 --port 8080 # Bind web UI to all interfaces
 ```
 
-`stella` (bare command) starts all your configured channels and the scheduler. Add `--port` to expose the admin panel alongside the daemon for runtime configuration. `HOST` and `PORT` environment variables are also supported.
+`stella` (bare command) starts all your configured channels, the scheduler, and the web UI. Use `--port` to change the port; `--host` to bind to a specific interface. `HOST` and `PORT` environment variables are also supported.
 
 ## CLI reference
 
 ```bash
-stella --open                        # Open web admin panel to configure stella
-stella                               # Start daemon (bots + scheduler)
-stella --port <port>                 # Start daemon with admin panel
-stella --host <host> --port <port>   # Bind admin panel to a specific host/interface
+stella                               # Start daemon (bots + scheduler); web UI at http://localhost:25678
+stella --port <port>                 # Start daemon with web UI on custom port
+stella --host <host> --port <port>   # Bind web UI to a specific host/interface
 stella models list           # List available models
 stella models set <p/m>      # Switch model (e.g. openai/gpt-4o)
 stella models search <q>     # Search models

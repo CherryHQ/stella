@@ -7,7 +7,7 @@ stella includes a QQ bot that connects via WebSocket (persistent connection, no 
 ## Setup
 
 1. Register a QQ Bot at [QQ Bot Platform](https://q.qq.com/) and get your AppID and AppSecret
-2. Run `stella --open` to launch the admin panel
+2. Start stella (`stella`) and open the web UI at `http://localhost:25678`
 3. In the admin panel: add an AI provider, then configure the QQ channel with your AppID and AppSecret
 4. Start the daemon:
 
@@ -82,7 +82,7 @@ Send these commands as text messages to the bot:
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`stella --open`).
+All settings below are managed through the web UI.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

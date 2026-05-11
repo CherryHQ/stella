@@ -263,20 +263,6 @@ func TestRunHelpShort(t *testing.T) {
 	}
 }
 
-func TestRunGatewayNoServices(t *testing.T) {
-	t.Setenv("STELLA_HOME", t.TempDir())
-	config.ResetStellaHome()
-	t.Cleanup(config.ResetStellaHome)
-	app := newApp()
-	err := app.Run([]string{"stella", "--admin-port", "0", "gateway"})
-	if err == nil {
-		t.Fatal("expected error for no configured services")
-	}
-	if !strings.Contains(err.Error(), "no services to run") {
-		t.Errorf("err = %q, want contains 'no services to run'", err.Error())
-	}
-}
-
 func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	setupCommandTestStellaHome(t)
 
