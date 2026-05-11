@@ -182,6 +182,7 @@ func (c *Client) GetUpdates(buf, channelVersion string, timeout time.Duration) (
 		SetHeaders(c.commonHeaders()).
 		SetBody(body).
 		SetResult(&result).
+		ForceContentType("application/json").
 		Post(c.baseURL + "/ilink/bot/getupdates")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getupdates: %w", err)
@@ -213,6 +214,7 @@ func (c *Client) SendMessage(msg WeixinMessage, channelVersion string) error {
 		SetHeaders(c.commonHeaders()).
 		SetBody(body).
 		SetResult(&result).
+		ForceContentType("application/json").
 		Post(c.baseURL + "/ilink/bot/sendmessage")
 	if err != nil {
 		return fmt.Errorf("weixin: sendmessage: %w", err)
@@ -238,6 +240,7 @@ func (c *Client) GetConfig(userID, contextToken, channelVersion string) (*GetCon
 		SetHeaders(c.commonHeaders()).
 		SetBody(body).
 		SetResult(&result).
+		ForceContentType("application/json").
 		Post(c.baseURL + "/ilink/bot/getconfig")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getconfig: %w", err)
@@ -272,6 +275,7 @@ func (c *Client) SendTyping(userID, typingTicket string, status int, channelVers
 		SetHeaders(c.commonHeaders()).
 		SetBody(body).
 		SetResult(&result).
+		ForceContentType("application/json").
 		Post(c.baseURL + "/ilink/bot/sendtyping")
 	if err != nil {
 		return fmt.Errorf("weixin: sendtyping: %w", err)
@@ -300,6 +304,7 @@ func (c *Client) GetUploadURL(params UploadParams, channelVersion string) (*GetU
 		SetHeaders(c.commonHeaders()).
 		SetBody(reqBody).
 		SetResult(&result).
+		ForceContentType("application/json").
 		Post(c.baseURL + "/ilink/bot/getuploadurl")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getuploadurl: %w", err)
