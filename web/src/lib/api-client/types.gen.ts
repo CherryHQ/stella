@@ -176,6 +176,10 @@ export type OAuthFlowStatus = ComponentsOAuthFlowStatus;
 
 export type OAuthConnectedResponse = ComponentsOAuthConnectedResponse;
 
+export type OAuthProviderConfig = ComponentsOAuthProviderConfig;
+
+export type OAuthProviderConfigInput = ComponentsOAuthProviderConfigInput;
+
 export type LoginRequest = ComponentsLoginRequest;
 
 export type RegisterRequest = ComponentsRegisterRequest;
@@ -618,9 +622,23 @@ export type ComponentsOAuthFlowStatus = {
   state: string;
 };
 
+export type ComponentsOAuthProviderConfig = {
+  provider_id: string;
+  client_id: string;
+  client_secret: string;
+  redirect_url?: string;
+};
+
+export type ComponentsOAuthProviderConfigInput = {
+  client_id: string;
+  client_secret: string;
+  redirect_url?: string;
+};
+
 export type ComponentsOAuthProviderStatus = {
   provider: string;
   available: boolean;
+  configured: boolean;
   connected: boolean;
   username?: string;
   unavailable?: string;
@@ -1124,6 +1142,8 @@ export type _1Api1PluginStatus1Kind1Name = unknown;
 export type _1Api1Plugins = unknown;
 
 export type _1Api1Plugins1Kind1Name = unknown;
+
+export type _1Api1Admin1OauthProviders1Id1Config = unknown;
 
 export type _1Api1Auth1Profile1Identities = unknown;
 
@@ -5831,6 +5851,86 @@ export type OauthCallbackErrors = {
    */
   500: unknown;
 };
+
+export type GetOAuthProviderConfigData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/admin/oauth-providers/{id}/config";
+};
+
+export type GetOAuthProviderConfigErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type GetOAuthProviderConfigError =
+  GetOAuthProviderConfigErrors[keyof GetOAuthProviderConfigErrors];
+
+export type GetOAuthProviderConfigResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsOAuthProviderConfig;
+};
+
+export type GetOAuthProviderConfigResponse =
+  GetOAuthProviderConfigResponses[keyof GetOAuthProviderConfigResponses];
+
+export type SetOAuthProviderConfigData = {
+  body: ComponentsOAuthProviderConfigInput;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/admin/oauth-providers/{id}/config";
+};
+
+export type SetOAuthProviderConfigErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type SetOAuthProviderConfigError =
+  SetOAuthProviderConfigErrors[keyof SetOAuthProviderConfigErrors];
+
+export type SetOAuthProviderConfigResponses = {
+  /**
+   * saved
+   */
+  204: void;
+};
+
+export type SetOAuthProviderConfigResponse =
+  SetOAuthProviderConfigResponses[keyof SetOAuthProviderConfigResponses];
 
 export type ListSchedulerJobsData = {
   body?: never;
