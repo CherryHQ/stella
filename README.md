@@ -170,56 +170,17 @@ See [Architecture](/docs/core/architecture) for the session interface, execution
 
 ### Install
 
-**Homebrew (macOS and Linux)**
-
 ```bash
-brew tap CherryHQ/stella
-brew install stella
-```
+# Homebrew (macOS and Linux)
+brew tap CherryHQ/stella && brew install stella
 
-**Go**
-
-```bash
+# Go
 go install github.com/CherryHQ/stella@latest
 ```
 
-**Binary** — grab a release from [Releases](https://github.com/CherryHQ/stella/releases), or self-update an existing install with `stella upgrade`.
+Or grab a binary from [Releases](https://github.com/CherryHQ/stella/releases), or self-update with `stella upgrade`.
 
-### Run as a background service
-
-**macOS / Homebrew**
-
-```bash
-brew services start stella   # start on login, restart on crash
-brew services stop stella
-```
-
-**macOS / manual**
-
-```bash
-stella service install       # install LaunchAgent + start
-stella service status
-stella service logs -f
-stella service uninstall
-```
-
-**Linux (systemd, user mode — no root)**
-
-```bash
-stella service install       # installs ~/.config/systemd/user/stella.service
-stella service status
-stella service logs -f
-stella service uninstall
-```
-
-**Linux (systemd, system-wide)**
-
-```bash
-sudo stella service install --system   # installs /etc/systemd/system/stella.service
-stella service status
-stella service logs -f
-sudo stella service uninstall --system
-```
+To run stella as a background service (launchd on macOS, systemd on Linux), see the [Installation guide](web/content/docs/getting-started/installation.md).
 
 ### Set up
 
