@@ -18,6 +18,7 @@ type SendOptions struct {
 	Attachments []string // file paths
 	From        string   // override sender
 	ReplyTo     string
+	InReplyTo   string // Message-ID of the message being replied to
 }
 
 // Send composes and sends an email via SMTP using the provided account configuration.
@@ -64,6 +65,10 @@ func Send(acct EmailAccount, opts SendOptions) error {
 		if err := msg.ReplyTo(opts.ReplyTo); err != nil {
 			return fmt.Errorf("set Reply-To header: %w", err)
 		}
+	}
+
+	if opts.InReplyTo != "" {
+		msg.SetGenHeader("In-Reply-To", opts.InReplyTo)
 	}
 
 	for _, path := range opts.Attachments {
@@ -128,6 +133,9 @@ func FormatDryRun(acct EmailAccount, opts SendOptions) string {
 	}
 	if opts.ReplyTo != "" {
 		fmt.Fprintf(&sb, "Reply-To: %s\n", opts.ReplyTo)
+	}
+	if opts.InReplyTo != "" {
+		fmt.Fprintf(&sb, "In-Reply-To: %s\n", opts.InReplyTo)
 	}
 	fmt.Fprintf(&sb, "Subject: %s\n", opts.Subject)
 	fmt.Fprintf(&sb, "Content-Type: %s\n", contentType)

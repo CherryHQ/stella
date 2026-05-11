@@ -369,6 +369,35 @@ func safeDestPath(absDir, filename string) (string, error) {
 	return "", fmt.Errorf("cannot find a free filename for %q", filename)
 }
 
+// MarkSeen adds or removes the \Seen flag on a message identified by UID.
+// seen=true marks the message as read; seen=false marks it as unread.
+func MarkSeen(acct EmailAccount, folder string, uid uint32, seen bool) error {
+	c, err := dialIMAP(acct)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
+
+	folder = cmp.Or(folder, "INBOX")
+	if _, err := c.Select(folder, nil).Wait(); err != nil {
+		return fmt.Errorf("select %q: %w", folder, err)
+	}
+
+	op := imap.StoreFlagsDel
+	if seen {
+		op = imap.StoreFlagsAdd
+	}
+	storeFlags := &imap.StoreFlags{
+		Op:     op,
+		Silent: true,
+		Flags:  []imap.Flag{imap.FlagSeen},
+	}
+	if _, err := c.Store(imap.UIDSetNum(imap.UID(uid)), storeFlags, nil).Collect(); err != nil {
+		return fmt.Errorf("store flags uid=%d: %w", uid, err)
+	}
+	return nil
+}
+
 // buildEnvelope converts a FetchMessageBuffer into our Envelope type.
 func buildEnvelope(msg *imapclient.FetchMessageBuffer) Envelope {
 	env := Envelope{
@@ -380,9 +409,12 @@ func buildEnvelope(msg *imapclient.FetchMessageBuffer) Envelope {
 		e := msg.Envelope
 		env.Subject = e.Subject
 		env.Date = e.Date
+		env.MessageID = e.MessageID
 
 		if len(e.From) > 0 {
 			env.From = formatAddress(e.From[0])
+			env.FromName = e.From[0].Name
+			env.FromAddr = e.From[0].Mailbox + "@" + e.From[0].Host
 		}
 		for _, addr := range e.To {
 			env.To = append(env.To, formatAddress(addr))
