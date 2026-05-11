@@ -14,4 +14,3 @@ internal/resources/binaries/binaries/*/*.gz
 
 cmd/stella/.agents/
 internal/agent/runner/.agents/
-stella
