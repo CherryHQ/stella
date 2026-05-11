@@ -289,13 +289,16 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 Configuration is managed through the admin panel (via `stella --open` or `--port`). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
 
-| Variable            | Required | Description                                 |
-| ------------------- | -------- | ------------------------------------------- |
-| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                      |
-| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                         |
+| Variable            | Required | Description                                                                   |
+| ------------------- | -------- | ----------------------------------------------------------------------------- |
+| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`)                                   |
+| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                                                        |
+| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
+| `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
 
 \* At least one provider key is required. API keys can also be configured via the admin panel.
+
+† Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
 ## Health Check
 

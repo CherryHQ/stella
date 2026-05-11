@@ -289,13 +289,16 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 配置通过管理面板管理（通过 `stella --open` 或 `--port`）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
 
-| 变量                | 必需 | 描述                              |
-| ------------------- | ---- | --------------------------------- |
-| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`） |
-| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥              |
-| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                 |
+| 变量                | 必需 | 描述                                                            |
+| ------------------- | ---- | --------------------------------------------------------------- |
+| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`）                               |
+| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥                                            |
+| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
+| `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
+
+† 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
 ## 健康检查
 
