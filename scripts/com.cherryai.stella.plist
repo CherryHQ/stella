@@ -4,14 +4,14 @@
   macOS LaunchAgent for stella daemon.
 
   Install (substitutes your home directory and stella binary path automatically):
-    sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" com.vaayne.stella.plist \
-      > ~/Library/LaunchAgents/com.vaayne.stella.plist
+    sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" com.cherryai.stella.plist \
+      > ~/Library/LaunchAgents/com.cherryai.stella.plist
     mkdir -p ~/Library/Logs/stella
-    launchctl load ~/Library/LaunchAgents/com.vaayne.stella.plist
+    launchctl load ~/Library/LaunchAgents/com.cherryai.stella.plist
 
   Uninstall:
-    launchctl unload ~/Library/LaunchAgents/com.vaayne.stella.plist
-    rm ~/Library/LaunchAgents/com.vaayne.stella.plist
+    launchctl unload ~/Library/LaunchAgents/com.cherryai.stella.plist
+    rm ~/Library/LaunchAgents/com.cherryai.stella.plist
 
   Logs:
     ~/Library/Logs/stella/stella.log
@@ -21,7 +21,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.vaayne.stella</string>
+    <string>com.cherryai.stella</string>
 
     <key>ProgramArguments</key>
     <array>
