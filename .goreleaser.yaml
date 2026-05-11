@@ -39,7 +39,7 @@ brews:
       owner: CherryHQ
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: "https://stella.cherryin.com"
     description: "Self-hosted AI assistant"
