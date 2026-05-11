@@ -2,13 +2,30 @@
 title: 部署
 ---
 
-两种部署方式：**二进制文件**（直接安装）和 **Docker**。
+## 安装
 
-## 二进制文件
+### Homebrew（macOS 和 Linux）
 
-### 从发布版本安装
+```bash
+brew tap CherryHQ/stella
+brew install stella
+```
 
-从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载预构建的二进制文件。支持 linux、macOS 和 Windows 平台的 amd64/arm64 架构。
+### Linux 软件包（.deb / .rpm）
+
+预构建的安装包可在 [Releases](https://github.com/CherryHQ/stella/releases) 页面获取。`bubblewrap` 已声明为依赖项，会自动安装。
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
+### 二进制文件
+
+从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载适用于 linux、macOS 或 Windows（amd64/arm64）的预编译二进制文件，然后将其放置在 `$PATH` 中。
 
 ```bash
 # 示例：Linux amd64
@@ -18,7 +35,7 @@ chmod +x stella
 sudo mv stella /usr/local/bin/
 ```
 
-### 从源码构建
+### Go
 
 ```bash
 go install github.com/CherryHQ/stella@latest
@@ -27,27 +44,19 @@ git clone https://github.com/CherryHQ/stella.git
 cd stella && go build -o stella .
 ```
 
-### 运行
+## 运行
 
-运行 onboard 命令打开管理面板并配置 stella（提供商、频道、agents 等）：
-
-```bash
-stella --open
-```
-
-这会启动一个本地 Web UI，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
-
-启动网关守护进程：
+启动 stella —— Web UI 访问地址：`http://localhost:25678`：
 
 ```bash
 stella
 ```
 
-要在网关运行时同时提供管理面板服务（用于运行时配置更改）：
+这会启动守护进程并提供 Web UI 服务，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
 ```bash
-stella --port 8080
-stella --host 0.0.0.0 --port 8080
+stella --port 8080                  # 自定义端口
+stella --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ```
 
 ### 版本和自动升级
@@ -60,132 +69,58 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 `stella upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并将二进制文件安装到 `$HOME/.local/bin`（默认位置）。
 
-### Systemd 服务（Linux）
+## 作为后台服务运行
 
-项目提供了现成的 unit 文件：[`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service)。
-
-```bash
-# 创建专用用户
-sudo useradd --system --no-create-home --shell /bin/false stella
-sudo mkdir -p /home/stella/.stella
-sudo chown stella:stella /home/stella/.stella
-
-# 安装 unit 文件，自动替换实际的 stella 二进制路径
-sudo sed "s|STELLA_BIN|$(which stella)|g" scripts/stella.service \
-  > /etc/systemd/system/stella.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now stella
-sudo journalctl -u stella -f   # 跟踪日志
-```
-
-所有配置（频道、agents、调度器任务）都存储在 `stella.db` 中。使用 `stella --open` 来访问管理面板管理配置。
-
-### boxsh 沙盒前置条件（Linux）
-
-在 Linux 上，Stella 默认使用托管的 `boxsh` 沙盒来运行本地工作区工具（`bash`、`read`、`write`、`edit`）。`boxsh` 需要宿主机支持用户命名空间和从属 ID 映射。
-
-安装用户命名空间辅助工具：
+### macOS — Homebrew
 
 ```bash
-# Debian / Ubuntu
-sudo apt update
-sudo apt install uidmap
-
-# 验证辅助工具是否存在
-which newuidmap
-which newgidmap
-ls -l /usr/bin/newuidmap /usr/bin/newgidmap
+brew services start stella   # 登录时启动，崩溃后自动重启
+brew services stop stella
+brew services restart stella
 ```
 
-确保服务用户具有从属 UID/GID 范围：
+### macOS — 手动
 
 ```bash
-grep '^stella:' /etc/subuid
-grep '^stella:' /etc/subgid
+stella service install       # 安装 LaunchAgent 并启动
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-预期格式：
+日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
 
-```text
-stella:100000:65536
-```
+### Linux — systemd 用户模式（无需 root）
 
-如果缺少这些条目，请添加它们：
+服务以当前用户身份运行，登录时自动启动。运行前需先安装 `bubblewrap`（通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`）。
 
 ```bash
-sudo usermod --add-subuids 100000-165535 stella
-sudo usermod --add-subgids 100000-165535 stella
+stella service install
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-验证内核是否允许非特权用户命名空间：
+Unit 文件安装至 `~/.config/systemd/user/stella.service`。
+
+### Linux — systemd 系统模式（需要 root）
+
+以 root 身份运行，开机自动启动。
 
 ```bash
-sysctl kernel.unprivileged_userns_clone
-sysctl user.max_user_namespaces
+sudo stella service install --system
+stella service status
+stella service logs --follow
+sudo stella service uninstall --system
 ```
 
-典型的工作值：
-
-```text
-kernel.unprivileged_userns_clone = 1
-user.max_user_namespaces = 15000
-```
-
-某些 Ubuntu 主机即使启用了上述内核设置，仍可能通过 AppArmor 阻止非特权用户命名空间。请检查：
-
-```bash
-sysctl kernel.apparmor_restrict_unprivileged_userns
-```
-
-如果 `boxsh` 失败并显示 `sandbox_apply failed: write uid_map: Operation not permitted`，请临时禁用该限制并重新测试：
-
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
-
-要使 Linux 前置条件在重启后持久生效：
-
-```bash
-sudo tee /etc/sysctl.d/99-stella-boxsh.conf >/dev/null <<'EOF'
-kernel.unprivileged_userns_clone=1
-user.max_user_namespaces=15000
-kernel.apparmor_restrict_unprivileged_userns=0
-EOF
-
-sudo sysctl --system
-```
-
-以服务用户身份直接对 `boxsh` 进行冒烟测试：
-
-```bash
-$STELLA_HOME/bin/boxsh --version
-$STELLA_HOME/bin/boxsh --rpc --sandbox
-```
-
-如果第二个命令立即以 `uid_map` 错误退出，说明宿主机仍在阻止用户命名空间设置。如果您需要在修复宿主机之前让 Stella 工作，请将 agent 沙盒后端配置为 `docker` 作为临时回退（需要可访问的 docker 守护进程）。
-
-### LaunchAgent（macOS）
-
-项目提供了现成的 plist 文件：[`scripts/com.vaayne.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.vaayne.stella.plist)。
-
-```bash
-# 安装 —— 自动替换 $HOME 路径和 stella 二进制路径
-sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" scripts/com.vaayne.stella.plist \
-  > ~/Library/LaunchAgents/com.vaayne.stella.plist
-mkdir -p ~/Library/Logs/stella
-
-launchctl load ~/Library/LaunchAgents/com.vaayne.stella.plist
-
-# 管理
-launchctl start com.vaayne.stella
-launchctl stop  com.vaayne.stella
-
-# 卸载
-launchctl unload ~/Library/LaunchAgents/com.vaayne.stella.plist
-rm ~/Library/LaunchAgents/com.vaayne.stella.plist
-```
-
-日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。API 密钥和其他所有配置均通过 `stella --open` 或管理面板设置。
+Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ## Docker
 
@@ -201,7 +136,7 @@ rm ~/Library/LaunchAgents/com.vaayne.stella.plist
 
 ### 快速开始
 
-首先，运行 onboard 来配置 stella：
+首先，使用 `--port 8080` 运行 stella 通过 Web UI 进行配置：
 
 ```bash
 docker run -it --rm \
@@ -209,7 +144,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --open
+  stella --port 8080
 ```
 
 然后启动网关：
@@ -223,7 +158,7 @@ docker run -d \
   ghcr.io/cherryhq/stella:latest
 ```
 
-容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。如果要在 Docker 中使用默认的 boxsh 沙箱，请在运行时加上 `--security-opt seccomp=unconfined`，这样 boxsh 才能调用 `unshare(2)`。没有这个选项时，带沙箱的核心工具会因为 Docker 运行时限制而失败。
+容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
 
 ### Docker Compose
 
@@ -246,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `docker compose exec stella stella --open` 或使用 `--port 8080` 启动网关并通过 Web UI 进行配置。
+要运行初始设置，使用 `--port 8080` 启动守护进程，通过 `http://localhost:8080` 的 Web UI 进行配置，或使用 `docker compose exec stella stella --port 8080`。
 
 ### 本地构建
 
@@ -264,7 +199,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ### 何时优先选择 `docker` 沙箱后端
 
-- **Windows**：`boxsh` 仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
+- **Windows**：本地沙箱后端仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
 - **自定义工具链**：需要与宿主机不同的特定 Python/Node/Go 版本，或需要干净的 Linux 用户空间。
 - **副作用隔离**：需要可复现的文件系统状态，不希望 agent 脚本产生宿主机级别的副作用。
 
@@ -272,7 +207,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 - **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
 - **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
-- **无写时复制隔离**：与 `boxsh`（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
+- **无写时复制隔离**：与本地后端（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
 有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/getting-started/configuration)。
 
@@ -291,15 +226,18 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 环境变量
 
-配置通过管理面板管理（通过 `stella --open` 或 `--port`）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
+配置通过 Web UI 管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                | 必需 | 描述                              |
-| ------------------- | ---- | --------------------------------- |
-| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`） |
-| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥              |
-| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                 |
+| 变量                | 必需 | 描述                                                            |
+| ------------------- | ---- | --------------------------------------------------------------- |
+| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`）                               |
+| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥                                            |
+| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
+| `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
 
-\* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
+\* 至少需要一个提供商密钥。API 密钥也可以通过 Web UI 配置。
+
+† 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
 ## 健康检查
 

@@ -31,6 +31,48 @@ archives:
     ids:
       - stella
 
+brews:
+  - name: stella
+    ids:
+      - stella
+    repository:
+      owner: CherryHQ
+      name: stella
+      branch: main
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: HomebrewFormula
+    homepage: "https://stella.cherryin.com"
+    description: "Self-hosted AI assistant"
+    license: "AGPL-3.0-or-later"
+    install: |
+      bin.install "stella"
+    service: |
+      run [opt_bin/"stella"]
+      keep_alive crashed: true
+      log_path var/"log/stella.log"
+      error_log_path var/"log/stella.log"
+    dependencies:
+      - name: bubblewrap
+        os: linux
+    test: |
+      system "#{bin}/stella", "version"
+
+nfpms:
+  - id: stella
+    package_name: stella
+    ids:
+      - stella
+    vendor: CherryHQ
+    homepage: https://stella.cherryin.com
+    description: Self-hosted AI assistant
+    license: AGPL-3.0-or-later
+    maintainer: CherryHQ <hello@cherryin.com>
+    formats:
+      - deb
+      - rpm
+    dependencies:
+      - bubblewrap
+
 changelog:
   sort: asc
   filters:

@@ -2,13 +2,30 @@
 title: Deployment
 ---
 
-Two deployment methods: **binary** (direct install) and **Docker**.
+## Install
 
-## Binary
+### Homebrew (macOS and Linux)
 
-### From Release
+```bash
+brew tap CherryHQ/stella
+brew install stella
+```
 
-Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases). Binaries are available for linux, macOS, and Windows on amd64/arm64.
+### Linux packages (.deb / .rpm)
+
+Pre-built packages are available on the [Releases](https://github.com/CherryHQ/stella/releases) page. `bubblewrap` is declared as a dependency and will be installed automatically.
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
+### Binary
+
+Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases) for linux, macOS, or Windows (amd64/arm64), then place it on your `$PATH`.
 
 ```bash
 # Example: Linux amd64
@@ -18,7 +35,7 @@ chmod +x stella
 sudo mv stella /usr/local/bin/
 ```
 
-### From Source
+### Go
 
 ```bash
 go install github.com/CherryHQ/stella@latest
@@ -27,30 +44,22 @@ git clone https://github.com/CherryHQ/stella.git
 cd stella && go build -o stella .
 ```
 
-### Running
+## Run
 
-Run the setup command to open the admin panel and configure stella (providers, channels, agents, etc.):
-
-```bash
-stella --open
-```
-
-This starts a local web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` -- no manual config files needed.
-
-Start the daemon:
+Start stella — the web UI is available at `http://localhost:25678`:
 
 ```bash
 stella
 ```
 
-To serve the admin panel alongside the daemon (for runtime config changes):
+This starts the daemon and the web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
 
 ```bash
-stella --port 8080
-stella --host 0.0.0.0 --port 8080
+stella --port 8080             # custom port
+stella --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```
 
-### Version And Self-Upgrade
+### Version and Self-Upgrade
 
 ```bash
 stella version
@@ -60,132 +69,58 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 `stella upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and installs the binary into `$HOME/.local/bin` by default.
 
-### Systemd Service (Linux)
+## Run as a Background Service
 
-A ready-to-use unit file is provided at [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service).
-
-```bash
-# Create a dedicated user
-sudo useradd --system --no-create-home --shell /bin/false stella
-sudo mkdir -p /home/stella/.stella
-sudo chown stella:stella /home/stella/.stella
-
-# Install the unit file, substituting the actual stella binary path
-sudo sed "s|STELLA_BIN|$(which stella)|g" scripts/stella.service \
-  > /etc/systemd/system/stella.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now stella
-sudo journalctl -u stella -f   # follow logs
-```
-
-All configuration (channels, agents, scheduler jobs) is stored in `stella.db`. Use `stella --open` or the admin panel to manage it.
-
-### boxsh Sandbox Prerequisites (Linux)
-
-On Linux, Stella uses the managed `boxsh` sandbox by default for the local workspace tools (`bash`, `read`, `write`, `edit`). `boxsh` needs user namespaces and subordinate ID mapping support on the host.
-
-Install the user namespace helpers:
+### macOS — Homebrew
 
 ```bash
-# Debian / Ubuntu
-sudo apt update
-sudo apt install uidmap
-
-# Verify helpers exist
-which newuidmap
-which newgidmap
-ls -l /usr/bin/newuidmap /usr/bin/newgidmap
+brew services start stella   # start on login, restart on crash
+brew services stop stella
+brew services restart stella
 ```
 
-Make sure the service user has subordinate UID/GID ranges:
+### macOS — manual
 
 ```bash
-grep '^stella:' /etc/subuid
-grep '^stella:' /etc/subgid
+stella service install       # install LaunchAgent and start
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-Expected shape:
+Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
 
-```text
-stella:100000:65536
-```
+### Linux — systemd user mode (no root required)
 
-If the entries are missing, add them:
+The service runs as your user and starts on login. `bubblewrap` must be installed first (pulled in automatically by Homebrew and package-manager installs; for raw binary installs: `apt install bubblewrap` / `dnf install bubblewrap`).
 
 ```bash
-sudo usermod --add-subuids 100000-165535 stella
-sudo usermod --add-subgids 100000-165535 stella
+stella service install
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-Verify the kernel allows unprivileged user namespaces:
+The unit file is installed to `~/.config/systemd/user/stella.service`.
+
+### Linux — systemd system mode (root required)
+
+Runs as root, starts on boot.
 
 ```bash
-sysctl kernel.unprivileged_userns_clone
-sysctl user.max_user_namespaces
+sudo stella service install --system
+stella service status
+stella service logs --follow
+sudo stella service uninstall --system
 ```
 
-Typical working values are:
-
-```text
-kernel.unprivileged_userns_clone = 1
-user.max_user_namespaces = 15000
-```
-
-Some Ubuntu hosts also block unprivileged user namespaces through AppArmor even when the kernel settings above are enabled. Check:
-
-```bash
-sysctl kernel.apparmor_restrict_unprivileged_userns
-```
-
-If `boxsh` fails with `sandbox_apply failed: write uid_map: Operation not permitted`, temporarily disable that restriction and retest:
-
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
-
-To persist the Linux prerequisites across reboot:
-
-```bash
-sudo tee /etc/sysctl.d/99-stella-boxsh.conf >/dev/null <<'EOF'
-kernel.unprivileged_userns_clone=1
-user.max_user_namespaces=15000
-kernel.apparmor_restrict_unprivileged_userns=0
-EOF
-
-sudo sysctl --system
-```
-
-Smoke-test `boxsh` directly as the service user:
-
-```bash
-$STELLA_HOME/bin/boxsh --version
-$STELLA_HOME/bin/boxsh --rpc --sandbox
-```
-
-If the second command exits immediately with a `uid_map` error, the host is still blocking user namespace setup. If you need Stella working before the host is fixed, configure the agent sandbox backend to `docker` as a temporary fallback (requires a reachable docker daemon).
-
-### LaunchAgent (macOS)
-
-A ready-to-use plist is provided at [`scripts/com.vaayne.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.vaayne.stella.plist).
-
-```bash
-# Install — substitutes $HOME and stella binary path automatically
-sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" scripts/com.vaayne.stella.plist \
-  > ~/Library/LaunchAgents/com.vaayne.stella.plist
-mkdir -p ~/Library/Logs/stella
-
-launchctl load ~/Library/LaunchAgents/com.vaayne.stella.plist
-
-# Manage
-launchctl start com.vaayne.stella
-launchctl stop  com.vaayne.stella
-
-# Uninstall
-launchctl unload ~/Library/LaunchAgents/com.vaayne.stella.plist
-rm ~/Library/LaunchAgents/com.vaayne.stella.plist
-```
-
-Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash. Configure API keys and everything else via `stella --open` or the admin panel.
+The unit file is installed to `/etc/systemd/system/stella.service`.
 
 ## Docker
 
@@ -201,7 +136,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Quick Start
 
-First, run setup to configure stella:
+First, run stella with `--port 8080` to configure it via the web UI:
 
 ```bash
 docker run -it --rm \
@@ -209,7 +144,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --open
+  stella --port 8080
 ```
 
 Then start the daemon:
@@ -223,7 +158,7 @@ docker run -d \
   ghcr.io/cherryhq/stella:latest
 ```
 
-The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. If you want the default boxsh-backed sandbox to work inside Docker, run the container with `--security-opt seccomp=unconfined` so boxsh can call `unshare(2)`. Without that option, sandboxed core tools fall back to a Docker runtime limitation rather than an stella bug.
+The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
 
 ### Docker Compose
 
@@ -246,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, use `docker compose exec stella stella --open` or start the daemon with `--port 8080` and configure via the web UI.
+To run initial setup, start the daemon with `--port 8080` and configure via the web UI at `http://localhost:8080`, or use `docker compose exec stella stella --port 8080`.
 
 ### Build Locally
 
@@ -264,7 +199,7 @@ Running stella inside a Docker container (described above) is separate from usin
 
 ### When to prefer the `docker` sandbox backend
 
-- **Windows**: `boxsh` is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
+- **Windows**: The local sandbox backend is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
 - **Custom toolchain**: You need a specific Python/Node/Go version or a clean Linux userspace that differs from the host.
 - **Side-effect isolation**: You want reproducible filesystem state and do not want host-level side effects from agent scripts.
 
@@ -272,7 +207,7 @@ Running stella inside a Docker container (described above) is separate from usin
 
 - **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
 - **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
-- **No copy-on-write isolation**: Unlike `boxsh` (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
+- **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
 See the [Configuration guide](/docs/getting-started/configuration) for `sandbox.docker` config keys and an example JSON payload.
 
@@ -291,15 +226,18 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 ## Environment Variables
 
-Configuration is managed through the admin panel (via `stella --open` or `--port`). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
+Configuration is managed through the web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable            | Required | Description                                 |
-| ------------------- | -------- | ------------------------------------------- |
-| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                      |
-| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                         |
+| Variable            | Required | Description                                                                   |
+| ------------------- | -------- | ----------------------------------------------------------------------------- |
+| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`)                                   |
+| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                                                        |
+| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
+| `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
 
-\* At least one provider key is required. API keys can also be configured via the admin panel.
+\* At least one provider key is required. API keys can also be configured via the web UI.
+
+† Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
 ## Health Check
 

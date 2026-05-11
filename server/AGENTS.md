@@ -61,7 +61,7 @@ server/
 
 ```bash
 mise run build      # Build binary (runs generate first)
-stella --open         # Start admin panel at localhost:8080
+stella                # Start daemon; web UI at http://localhost:25678
 ```
 
 ### Adding a new page

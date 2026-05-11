@@ -159,7 +159,7 @@ type Tool interface {
 
 ### 平台要求
 
-Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Stella 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto`、`boxsh` 或 `Relaxed` 模式。
+Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Stella 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto` 或 `Relaxed` 模式。
 
 ### 网络策略配置
 

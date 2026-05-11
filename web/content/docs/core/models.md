@@ -14,11 +14,11 @@ Each agent in stella has three model fields, stored in the database (`settings_a
 | `model_strong` | Heavy reasoning, complex tasks  |
 | `model_fast`   | Quick responses, simple queries |
 
-Both `model_strong` and `model_fast` fall back to `model` when not set. Configure these per-agent through the admin panel (`stella --open`).
+Both `model_strong` and `model_fast` fall back to `model` when not set. Configure these per-agent through the admin panel (web UI).
 
 ## Provider Setup
 
-Providers are configured through the admin panel (`stella --open`). Each provider is stored as a plugin in the `settings_plugins` table (kind=`provider`) with credentials in the `config` JSON field.
+Providers are configured through the admin panel (web UI). Each provider is stored as a plugin in the `settings_plugins` table (kind=`provider`) with credentials in the `config` JSON field.
 
 Environment variables serve as fallbacks when a provider's `api_key` field is empty in the database:
 

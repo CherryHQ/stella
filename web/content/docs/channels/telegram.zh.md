@@ -7,7 +7,7 @@ stella 包含一个通过长轮询运行的 Telegram 机器人 —— 无需 web
 ## 设置
 
 1. 通过 [@BotFather](https://t.me/BotFather) 创建一个机器人并记录 bot token
-2. 运行 `stella --open` 启动管理面板
+2. 启动 stella（`stella`），通过 `http://localhost:25678` 打开 Web UI
 3. 在管理面板中：添加一个 AI 提供商，然后使用你的 bot token 配置 Telegram 频道
 4. 启动网关：
 
@@ -124,7 +124,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过 `stella --open` 管理面板管理。
+以下所有设置都通过 Web UI 管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |

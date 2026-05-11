@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.stella/stella.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `stella --open` 打开 Web 管理面板。
+所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.stella/stella.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `stella` 并通过 `http://localhost:25678` 打开 Web UI。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
@@ -154,15 +154,15 @@ title: 配置
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
 - **cache/** 包含可重新生成的数据。运行 `stella models update` 来重建。
 - **agent 沙箱配置**存储在每个 agent 记录（`settings_agents.sandbox`）上。管理面板可编辑网络策略；也可以直接在存储的 JSON 中设置 backend。
-  - `backend`：`auto`（默认）、`boxsh` 或 `docker`
+  - `backend`：`auto`（默认）、`local` 或 `docker`
   - `network.mode`：`disabled`（默认）、`allow_all` 或 `whitelist`
   - `network.allowlist`：仅当 mode 为 `whitelist` 时必填
-  - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
-  - `auto` 在 Linux/macOS 上选择 `boxsh`；在其他平台上失败关闭 —— 需显式配置 `docker`。
-  - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
-  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 stella 二进制的版本锁定：开发构建使用本地 `stella-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/cherryhq/stella-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
+  - Linux 和 macOS 会在选择 `local` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
+  - `auto` 在 Linux/macOS 上选择 `local`；在其他平台上失败关闭 —— 需显式配置 `docker`。
+  - `local` 后端可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
+  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 stella 二进制的版本锁定：开发构建使用本地 `stella-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/cherryhq/stella-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`local` 不可用）以及需要特定 Linux 用户空间的工作流。
   - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`stella`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 stella 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `STELLA_HOME_HOST` 环境变量 —— stella 会自动推导出路径转换。
-  - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
+  - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 与 `local` 相同，失败关闭。请使用 `disabled` 或 `allow_all`。
   - Docker 将工作区根目录绑定挂载到 `/home/stella/workspace`，将每个只读路径挂载到 `/home/stella/readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
 
 docker 后端 agent `sandbox` 字段的 JSON 示例：
@@ -187,7 +187,7 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 | `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                           |
 | `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                            |
 
-所有其他配置必须通过管理面板（`stella --open`）或直接在数据库中设置。
+所有其他配置必须通过 Web UI 或直接在数据库中设置。
 
 ## 记忆默认设置
 

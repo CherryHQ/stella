@@ -6,7 +6,7 @@ stella includes a WeChat bot that connects via the iLink Bot API using long-poll
 
 ## Setup
 
-1. Run `stella --open` to launch the admin panel
+1. Start stella (`stella`) and open the web UI at `http://localhost:25678`
 2. In the admin panel, go to the Channels tab and find the WeChat section
 3. Click "Scan QR to Login" to generate a QR code
 4. Scan the QR code with your WeChat account to authorize the bot
@@ -75,7 +75,7 @@ The WeChat channel supports notifications (scheduler results, notify tool). Set 
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel (`stella --open`).
+All settings below are managed through the web UI.
 
 | Field         | Description                                | Default    |
 | ------------- | ------------------------------------------ | ---------- |
