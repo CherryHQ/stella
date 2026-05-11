@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -55,7 +56,6 @@ func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 		Tools:           agent.ToolSetFromRegistry(reg),
 		ToolDefinitions: reg.Definitions(),
 	},
-		agent.WithMaxTurns(3),
 		agent.WithSystem(system),
 	)
 	if err != nil {
@@ -65,7 +65,12 @@ func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 	return &reviewer{runner: r}, nil
 }
 
+const reviewerTimeout = 2 * time.Minute
+
 func (r *reviewer) review(ctx context.Context, conversationText string) (reviewResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, reviewerTimeout)
+	defer cancel()
+
 	history := []ai.Message{
 		ai.UserMessage{Content: conversationText},
 	}

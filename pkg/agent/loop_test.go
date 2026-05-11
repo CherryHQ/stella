@@ -177,7 +177,7 @@ func TestRunMultiTurnLoop(t *testing.T) {
 		},
 	}
 
-	runner := newTestRunner(provider, WithMaxTurns(0)) // 0 = use default 128
+	runner := newTestRunner(provider)
 	// Override tools after construction — tests use the unexported run() path via Runner.
 	runner.tools = ToolSet{
 		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
@@ -206,32 +206,6 @@ func TestRunMultiTurnLoop(t *testing.T) {
 	}
 	if countEvents[AssistantFinished](events) != 3 {
 		t.Fatalf("expected 3 AssistantFinished, got %d", countEvents[AssistantFinished](events))
-	}
-}
-
-func TestRunMaxTurnsEnforced(t *testing.T) {
-	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			out := providers.NewChannelEventStream(8)
-			go func() {
-				out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-				out.Finish(nil)
-			}()
-			return out, nil
-		},
-	}
-
-	runner := newTestRunner(provider, WithMaxTurns(2))
-	runner.tools = ToolSet{
-		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: "ok"}, nil
-		},
-	}
-
-	_, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
-	if err == nil {
-		t.Fatalf("expected max turns error")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -16,7 +17,6 @@ type Runner struct {
 	providers     providers.ProviderGetter
 	model         ai.Model
 	streamOptions ai.StreamOptions
-	maxTurns      int
 	tools         ToolSet
 	toolDefs      []ai.ToolDefinition
 	system        string
@@ -24,6 +24,7 @@ type Runner struct {
 	hooks         *hooks.HookSet
 	hookMeta      hooks.HookMeta
 	toolLifecycle *ToolLifecycle
+	turnNotify    func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -40,11 +41,6 @@ type Option func(*Runner)
 // WithStreamOptions sets stream options (API key, base URL, etc.).
 func WithStreamOptions(opts ai.StreamOptions) Option {
 	return func(r *Runner) { r.streamOptions = opts }
-}
-
-// WithMaxTurns sets the maximum number of loop turns.
-func WithMaxTurns(n int) Option {
-	return func(r *Runner) { r.maxTurns = n }
 }
 
 // WithSystem sets the system prompt.
@@ -70,6 +66,13 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	return func(r *Runner) {
 		r.toolLifecycle = tl
 	}
+}
+
+// WithTurnNotify sets a callback invoked at the start of each turn.
+// If it returns a non-nil string, that text is injected as a UserMessage
+// before the model call for that turn.
+func WithTurnNotify(fn func(turn int, elapsed time.Duration) *string) Option {
+	return func(r *Runner) { r.turnNotify = fn }
 }
 
 // NewRunner constructs a Runner with the given config and options.
@@ -101,6 +104,12 @@ func (r *Runner) SetHookMeta(meta hooks.HookMeta) {
 	r.hookMeta = meta
 }
 
+// SetTurnNotify updates the turn notify callback.
+// Safe to call between Run invocations; not safe during a Run.
+func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string) {
+	r.turnNotify = fn
+}
+
 // Run executes the agent loop from scratch.
 func (r *Runner) Run(ctx context.Context, messages []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	return run(ctx, r.loopConfig(), r.providers, messages, emit)
@@ -123,7 +132,6 @@ func (r *Runner) loopConfig() loopConfig {
 	return loopConfig{
 		Model:           r.model,
 		StreamOptions:   r.streamOptions,
-		MaxTurns:        r.maxTurns,
 		Tools:           r.tools,
 		ToolDefinitions: r.toolDefs,
 		System:          r.system,
@@ -131,5 +139,6 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
+		TurnNotify:      r.turnNotify,
 	}
 }

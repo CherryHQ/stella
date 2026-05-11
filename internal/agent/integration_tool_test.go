@@ -99,7 +99,6 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				ToolDefinitions: []ai.ToolDefinition{toolDef},
 			},
 				agent.WithStreamOptions(ai.StreamOptions{APIKey: apiKey}),
-				agent.WithMaxTurns(5),
 				agent.WithSystem("You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise."),
 			)
 			if err != nil {

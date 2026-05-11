@@ -41,7 +41,6 @@ func TestNewRunner_WithOptions(t *testing.T) {
 	r, err := NewRunner(
 		RunnerConfig{Providers: &fakeProviders{}},
 		WithSystem("you are helpful"),
-		WithMaxTurns(5),
 		WithHooks(hs, meta),
 		WithStreamOptions(ai.StreamOptions{}),
 	)
@@ -50,9 +49,6 @@ func TestNewRunner_WithOptions(t *testing.T) {
 	}
 	if r.system != "you are helpful" {
 		t.Errorf("expected system prompt, got %q", r.system)
-	}
-	if r.maxTurns != 5 {
-		t.Errorf("expected maxTurns=5, got %d", r.maxTurns)
 	}
 	if r.hooks != hs {
 		t.Error("expected hooks to be set")
