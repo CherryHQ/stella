@@ -194,6 +194,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 					switch f.AuthStyle {
 					case "in_params":
 						authStyle = oauth2.AuthStyleInParams
+					case "in_header":
+						authStyle = oauth2.AuthStyleInHeader
 					default:
 						authStyle = oauth2.AuthStyleAutoDetect
 					}

@@ -193,7 +193,7 @@ oauth_providers:
       - type: authorization_code
         auth_url: https://x.com/i/oauth2/authorize
         token_url: https://api.x.com/2/oauth2/token
-        auth_style: in_params
+        auth_style: in_header
         pkce: true
 
   - id: feishu
