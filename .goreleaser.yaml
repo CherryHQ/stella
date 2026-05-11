@@ -51,6 +51,9 @@ brews:
       keep_alive crashed: true
       log_path var/"log/stella.log"
       error_log_path var/"log/stella.log"
+    dependencies:
+      - name: bubblewrap
+        os: linux
     test: |
       system "#{bin}/stella", "version"
 
