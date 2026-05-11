@@ -7,8 +7,7 @@ title: Deployment
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew tap CherryHQ/stella
-brew install stella
+brew install CherryHQ/tap/stella
 ```
 
 ### Linux packages (.deb / .rpm)

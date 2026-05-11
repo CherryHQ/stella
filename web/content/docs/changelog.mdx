@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-05-11
+
+### ✨ Features
+
+- **Service**: Add `stella service` command with install/uninstall/start/stop/restart/status/logs subcommands for macOS (launchd) and Linux (systemd) ([#163](https://github.com/CherryHQ/stella/pull/163))
+- **Homebrew**: Publish formula to [CherryHQ/homebrew-tap](https://github.com/CherryHQ/homebrew-tap) — install with `brew install CherryHQ/tap/stella`
+- **Email**: Add MessageID, FromName, FromAddr, InReplyTo fields and `mark` command ([#164](https://github.com/CherryHQ/stella/pull/164))
+- **Workspace**: Add inline PDF preview, download button, and open-in-browser for all file types
+- **Workspace**: Add open-in-browser and download to file tree context menu
+
+### 🐛 Bug Fixes
+
+- **Workspace**: Use blob URL for PDF open-in-browser to avoid auth cookie issue
+- **Workspace**: Skip content fetch for binary/PDF/image files in workspace panel
+- **Workspace**: Unify blob URL logic across all file types
+
+### ♻️ Refactoring
+
+- **Agent**: Replace hard turn limit with timeout + milestone nudges ([#160](https://github.com/CherryHQ/stella/pull/160))
+
+### 📝 Documentation
+
+- **Install**: Update Homebrew install instructions to use `CherryHQ/homebrew-tap`
+
+**Full Changelog**: [v0.25.5...v0.26.0](https://github.com/CherryHQ/stella/compare/v0.25.5...v0.26.0)
+
 ## [0.25.5] - 2026-05-09
 
 ### ✨ Features

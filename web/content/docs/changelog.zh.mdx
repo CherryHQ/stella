@@ -11,6 +11,32 @@ icon: History
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-05-11
+
+### ✨ 功能
+
+- **服务管理**: 新增 `stella service` 命令，支持 install/uninstall/start/stop/restart/status/logs 子命令，兼容 macOS（launchd）和 Linux（systemd）([#163](https://github.com/CherryHQ/stella/pull/163))
+- **Homebrew**: 发布 formula 至 [CherryHQ/homebrew-tap](https://github.com/CherryHQ/homebrew-tap)，支持 `brew install CherryHQ/tap/stella` 一键安装
+- **邮件**: 新增 MessageID、FromName、FromAddr、InReplyTo 字段及 `mark` 命令 ([#164](https://github.com/CherryHQ/stella/pull/164))
+- **工作区**: 新增 PDF 内联预览、下载按钮及所有文件类型的浏览器打开功能
+- **工作区**: 文件树右键菜单新增浏览器打开和下载选项
+
+### 🐛 修复
+
+- **工作区**: 使用 blob URL 打开 PDF，避免 auth cookie 问题
+- **工作区**: 跳过二进制/PDF/图片文件的内容预取
+- **工作区**: 统一所有文件类型的 blob URL 逻辑
+
+### ♻️ 重构
+
+- **Agent**: 以超时 + 里程碑提示替换硬性轮次上限 ([#160](https://github.com/CherryHQ/stella/pull/160))
+
+### 📝 文档
+
+- **安装**: 更新 Homebrew 安装说明，使用 `CherryHQ/homebrew-tap`
+
+**完整变更日志**：[v0.25.5...v0.26.0](https://github.com/CherryHQ/stella/compare/v0.25.5...v0.26.0)
+
 ## [0.25.5] - 2026-05-09
 
 ### ✨ 功能

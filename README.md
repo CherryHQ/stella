@@ -172,7 +172,7 @@ See [Architecture](/docs/core/architecture) for the session interface, execution
 
 ```bash
 # Homebrew (macOS and Linux)
-brew tap CherryHQ/stella && brew install stella
+brew install CherryHQ/tap/stella
 
 # Go
 go install github.com/CherryHQ/stella@latest

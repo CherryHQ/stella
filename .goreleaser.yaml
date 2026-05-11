@@ -37,10 +37,10 @@ brews:
       - stella
     repository:
       owner: CherryHQ
-      name: stella
+      name: homebrew-tap
       branch: main
       token: "{{ .Env.GITHUB_TOKEN }}"
-    directory: HomebrewFormula
+    directory: Formula
     homepage: "https://stella.cherryin.com"
     description: "Self-hosted AI assistant"
     license: "AGPL-3.0-or-later"

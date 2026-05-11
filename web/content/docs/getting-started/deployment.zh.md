@@ -7,8 +7,7 @@ title: 部署
 ### Homebrew（macOS 和 Linux）
 
 ```bash
-brew tap CherryHQ/stella
-brew install stella
+brew install CherryHQ/tap/stella
 ```
 
 ### Linux 软件包（.deb / .rpm）
