@@ -39,6 +39,16 @@ type AuthIdentity struct {
 	LinkedAt   string `json:"linked_at"`
 }
 
+type AuthOauthProvider struct {
+	ID              int64  `json:"id"`
+	ProviderID      string `json:"provider_id"`
+	ClientID        string `json:"client_id"`
+	ClientSecretEnc string `json:"client_secret_enc"`
+	RedirectUrl     string `json:"redirect_url"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
 type AuthPolicy struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -202,14 +212,6 @@ type MemorySnapshot struct {
 	Version   int64  `json:"version"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
-}
-
-type OauthProviderConfig struct {
-	ProviderID   string `json:"provider_id"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	RedirectUrl  string `json:"redirect_url"`
-	UpdatedAt    string `json:"updated_at"`
 }
 
 type PluginStateEntry struct {

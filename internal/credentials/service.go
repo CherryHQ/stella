@@ -156,13 +156,17 @@ func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID 
 
 	// DB override wins over YAML default.
 	if s.q != nil {
-		cfg, err := s.q.GetOAuthProviderConfig(ctx, providerID)
+		cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID)
 		if err == nil && cfg.ClientID != "" {
+			secret := ""
+			if cfg.ClientSecretEnc != "" && s.vaultSvc != nil {
+				secret, _ = s.vaultSvc.DecryptSystem(cfg.ClientSecretEnc)
+			}
 			redirectURL := cfg.RedirectUrl
 			if redirectURL == "" {
 				redirectURL = redirectFallback
 			}
-			return cfg.ClientID, cfg.ClientSecret, redirectURL, nil
+			return cfg.ClientID, secret, redirectURL, nil
 		}
 	}
 
@@ -193,11 +197,11 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 
 	// DB override (takes precedence).
 	if s.q != nil {
-		cfg, err := s.q.GetOAuthProviderConfig(ctx, providerID)
+		cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID)
 		if err == nil && cfg.ClientID != "" {
 			out.ClientID = cfg.ClientID
 			out.RedirectURL = cfg.RedirectUrl
-			if cfg.ClientSecret != "" {
+			if cfg.ClientSecretEnc != "" {
 				out.ClientSecret = "***"
 			}
 		}
@@ -207,15 +211,27 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 }
 
 // SetOAuthProviderConfig persists a provider credential override to the DB.
+// The client_secret is encrypted with the master vault key before storage.
 func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderConfig) error {
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	return s.q.UpsertOAuthProviderConfig(ctx, pkgdb.UpsertOAuthProviderConfigParams{
-		ProviderID:   cfg.ProviderID,
-		ClientID:     cfg.ClientID,
-		ClientSecret: cfg.ClientSecret,
-		RedirectUrl:  cfg.RedirectURL,
+	secretEnc := ""
+	if cfg.ClientSecret != "" {
+		if s.vaultSvc == nil {
+			return fmt.Errorf("vault not configured: cannot encrypt client_secret")
+		}
+		var err error
+		secretEnc, err = s.vaultSvc.EncryptSystem(cfg.ClientSecret)
+		if err != nil {
+			return fmt.Errorf("encrypt client_secret: %w", err)
+		}
+	}
+	return s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+		ProviderID:      cfg.ProviderID,
+		ClientID:        cfg.ClientID,
+		ClientSecretEnc: secretEnc,
+		RedirectUrl:     cfg.RedirectURL,
 	})
 }
 
@@ -323,7 +339,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 		ps.Configured = true
 	}
 	if s.q != nil {
-		if cfg, err := s.q.GetOAuthProviderConfig(ctx, provider); err == nil && cfg.ClientID != "" {
+		if cfg, err := s.q.GetAuthOAuthProvider(ctx, provider); err == nil && cfg.ClientID != "" {
 			ps.Configured = true
 		}
 	}
