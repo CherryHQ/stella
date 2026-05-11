@@ -62,23 +62,24 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 ### Systemd Service (Linux)
 
-A ready-to-use unit file is provided at [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service).
+Use the built-in service command — it writes the unit file, runs `daemon-reload`, and enables the service in one step:
 
 ```bash
-# Create a dedicated user
-sudo useradd --system --no-create-home --shell /bin/false stella
-sudo mkdir -p /home/stella/.stella
-sudo chown stella:stella /home/stella/.stella
+# User mode (no root, starts on login)
+stella service install
+stella service status
+stella service logs --follow
+stella service uninstall
 
-# Install the unit file, substituting the actual stella binary path
-sudo sed "s|STELLA_BIN|$(which stella)|g" scripts/stella.service \
-  > /etc/systemd/system/stella.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now stella
-sudo journalctl -u stella -f   # follow logs
+# System mode (root, starts on boot)
+sudo stella service install --system
+stella service status
+sudo stella service uninstall --system
 ```
 
-All configuration (channels, agents, scheduler jobs) is stored in `stella.db`. Use `stella --open` or the admin panel to manage it.
+`bubblewrap` must be present before running `stella service install`. It is installed automatically with the Homebrew and package-manager methods; for raw binaries: `apt install bubblewrap` / `dnf install bubblewrap`.
+
+A reference unit file for manual or sysadmin use is at [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service).
 
 ### boxsh Sandbox Prerequisites (Linux)
 
@@ -166,26 +167,21 @@ If the second command exits immediately with a `uid_map` error, the host is stil
 
 ### LaunchAgent (macOS)
 
-A ready-to-use plist is provided at [`scripts/com.vaayne.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.vaayne.stella.plist).
+Use the built-in service command — it writes the plist, loads the agent, and starts the service:
 
 ```bash
-# Install — substitutes $HOME and stella binary path automatically
-sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" scripts/com.vaayne.stella.plist \
-  > ~/Library/LaunchAgents/com.vaayne.stella.plist
-mkdir -p ~/Library/Logs/stella
-
-launchctl load ~/Library/LaunchAgents/com.vaayne.stella.plist
-
-# Manage
-launchctl start com.vaayne.stella
-launchctl stop  com.vaayne.stella
-
-# Uninstall
-launchctl unload ~/Library/LaunchAgents/com.vaayne.stella.plist
-rm ~/Library/LaunchAgents/com.vaayne.stella.plist
+stella service install       # install LaunchAgent and start
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash. Configure API keys and everything else via `stella --open` or the admin panel.
+Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
+
+A reference plist for manual use is at [`scripts/com.cherryai.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.cherryai.stella.plist).
 
 ## Docker
 

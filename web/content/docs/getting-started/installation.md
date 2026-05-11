@@ -9,6 +9,18 @@ brew tap CherryHQ/stella
 brew install stella
 ```
 
+## Linux packages (.deb / .rpm)
+
+Pre-built packages are available on the [Releases](https://github.com/CherryHQ/stella/releases) page. `bubblewrap` is declared as a dependency and will be installed automatically.
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
 ## Binary
 
 Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases) for linux, macOS, or Windows (amd64/arm64), then place it on your `$PATH`.
@@ -50,7 +62,7 @@ Logs are written to `~/Library/Logs/stella/stella.log`.
 
 ### Linux — systemd user mode (no root required)
 
-The service runs as your user and starts on login.
+The service runs as your user and starts on login. `bubblewrap` must be installed first (it is pulled in automatically by the Homebrew and package-manager installs above; for raw binary installs: `apt install bubblewrap` / `dnf install bubblewrap`).
 
 ```bash
 stella service install

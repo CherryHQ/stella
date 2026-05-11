@@ -62,23 +62,24 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 ### Systemd 服务（Linux）
 
-项目提供了现成的 unit 文件：[`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service)。
+使用内置的 service 命令 —— 它会写入 unit 文件、执行 `daemon-reload` 并一步完成服务启用：
 
 ```bash
-# 创建专用用户
-sudo useradd --system --no-create-home --shell /bin/false stella
-sudo mkdir -p /home/stella/.stella
-sudo chown stella:stella /home/stella/.stella
+# 用户模式（无需 root，登录时启动）
+stella service install
+stella service status
+stella service logs --follow
+stella service uninstall
 
-# 安装 unit 文件，自动替换实际的 stella 二进制路径
-sudo sed "s|STELLA_BIN|$(which stella)|g" scripts/stella.service \
-  > /etc/systemd/system/stella.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now stella
-sudo journalctl -u stella -f   # 跟踪日志
+# 系统模式（需要 root，开机启动）
+sudo stella service install --system
+stella service status
+sudo stella service uninstall --system
 ```
 
-所有配置（频道、agents、调度器任务）都存储在 `stella.db` 中。使用 `stella --open` 来访问管理面板管理配置。
+运行 `stella service install` 前需先安装 `bubblewrap`。通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`。
+
+手动或系统管理员使用的参考 unit 文件位于 [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service)。
 
 ### boxsh 沙盒前置条件（Linux）
 
@@ -166,26 +167,21 @@ $STELLA_HOME/bin/boxsh --rpc --sandbox
 
 ### LaunchAgent（macOS）
 
-项目提供了现成的 plist 文件：[`scripts/com.vaayne.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.vaayne.stella.plist)。
+使用内置的 service 命令 —— 它会写入 plist、加载 agent 并启动服务：
 
 ```bash
-# 安装 —— 自动替换 $HOME 路径和 stella 二进制路径
-sed "s|HOME_DIR|$HOME|g; s|STELLA_BIN|$(which stella)|g" scripts/com.vaayne.stella.plist \
-  > ~/Library/LaunchAgents/com.vaayne.stella.plist
-mkdir -p ~/Library/Logs/stella
-
-launchctl load ~/Library/LaunchAgents/com.vaayne.stella.plist
-
-# 管理
-launchctl start com.vaayne.stella
-launchctl stop  com.vaayne.stella
-
-# 卸载
-launchctl unload ~/Library/LaunchAgents/com.vaayne.stella.plist
-rm ~/Library/LaunchAgents/com.vaayne.stella.plist
+stella service install       # 安装 LaunchAgent 并启动
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
 ```
 
-日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。API 密钥和其他所有配置均通过 `stella --open` 或管理面板设置。
+日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
+
+手动使用的参考 plist 文件位于 [`scripts/com.cherryai.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.cherryai.stella.plist)。
 
 ## Docker
 

@@ -9,6 +9,18 @@ brew tap CherryHQ/stella
 brew install stella
 ```
 
+## Linux 软件包（.deb / .rpm）
+
+预构建的安装包可在 [Releases](https://github.com/CherryHQ/stella/releases) 页面获取。`bubblewrap` 已声明为依赖项，会自动安装。
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
 ## 二进制文件
 
 从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载适用于 linux、macOS 或 Windows（amd64/arm64）的预编译二进制文件，然后将其放置在 `$PATH` 中。
@@ -50,7 +62,7 @@ stella service uninstall
 
 ### Linux — systemd 用户模式（无需 root）
 
-服务以当前用户身份运行，登录时自动启动。
+服务以当前用户身份运行，登录时自动启动。运行前需先安装 `bubblewrap`（通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`）。
 
 ```bash
 stella service install
