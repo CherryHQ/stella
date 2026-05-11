@@ -57,6 +57,22 @@ brews:
     test: |
       system "#{bin}/stella", "version"
 
+nfpms:
+  - id: stella
+    package_name: stella
+    ids:
+      - stella
+    vendor: CherryHQ
+    homepage: https://stella.cherryin.com
+    description: Self-hosted AI assistant
+    license: MIT
+    maintainer: CherryHQ <hello@cherryin.com>
+    formats:
+      - deb
+      - rpm
+    dependencies:
+      - bubblewrap
+
 changelog:
   sort: asc
   filters:
