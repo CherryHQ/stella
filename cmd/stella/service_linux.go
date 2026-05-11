@@ -13,7 +13,7 @@ import (
 
 const userUnitTemplate = `[Unit]
 Description=stella — self-hosted AI assistant daemon
-Documentation=https://stella.vaayne.com/docs
+Documentation=https://stella.cherryin.com/docs
 After=network-online.target
 Wants=network-online.target
 
@@ -34,7 +34,7 @@ WantedBy=default.target
 // System-mode template: no User=/Group=/WorkingDirectory= — runs as root.
 const systemUnitTemplate = `[Unit]
 Description=stella — self-hosted AI assistant daemon
-Documentation=https://stella.vaayne.com/docs
+Documentation=https://stella.cherryin.com/docs
 After=network-online.target
 Wants=network-online.target
 

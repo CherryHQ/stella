@@ -41,7 +41,7 @@ brews:
       branch: main
       token: "{{ .Env.GITHUB_TOKEN }}"
     directory: HomebrewFormula
-    homepage: "https://stella.vaayne.com"
+    homepage: "https://stella.cherryin.com"
     description: "Self-hosted AI assistant"
     license: "Apache-2.0"
     install: |

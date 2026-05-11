@@ -1,6 +1,6 @@
 [Unit]
 Description=stella — self-hosted AI assistant daemon
-Documentation=https://stella.vaayne.com/docs
+Documentation=https://stella.cherryin.com/docs
 After=network-online.target
 Wants=network-online.target
 
