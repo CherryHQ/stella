@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -89,15 +90,33 @@ func (c *Client) GetQRCode(skRouteTag string) (*QRCodeResponse, error) {
 		r.SetHeader("SKRouteTag", skRouteTag)
 	}
 
-	var result QRCodeResponse
-	resp, err := r.SetResult(&result).Get(c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3")
+	// iLink returns Content-Type: application/octet-stream even for JSON bodies,
+	// so we read the raw body and unmarshal manually.
+	resp, err := r.Get(c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode: %w", err)
 	}
 	if resp.IsError() {
 		return nil, fmt.Errorf("weixin: get qrcode: HTTP %d", resp.StatusCode())
 	}
-	return &result, nil
+
+	var result struct {
+		Ret              int    `json:"ret"`
+		ErrCode          int    `json:"errcode,omitempty"`
+		ErrMsg           string `json:"errmsg,omitempty"`
+		QRCode           string `json:"qrcode,omitempty"`
+		QRCodeImgContent string `json:"qrcode_img_content,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return nil, fmt.Errorf("weixin: get qrcode: decode response: %w", err)
+	}
+	if err := checkError(result.Ret, result.ErrCode, result.ErrMsg); err != nil {
+		return nil, err
+	}
+	return &QRCodeResponse{
+		QRCode:           result.QRCode,
+		QRCodeImgContent: result.QRCodeImgContent,
+	}, nil
 }
 
 // GetQRCodeStatus polls the QR code scan status.
@@ -109,15 +128,38 @@ func (c *Client) GetQRCodeStatus(qrcode, skRouteTag string) (*QRCodeStatusRespon
 		r.SetHeader("SKRouteTag", skRouteTag)
 	}
 
-	var result QRCodeStatusResponse
-	resp, err := r.SetResult(&result).Get(c.baseURL + "/ilink/bot/get_qrcode_status")
+	// iLink returns Content-Type: application/octet-stream even for JSON bodies.
+	resp, err := r.Get(c.baseURL + "/ilink/bot/get_qrcode_status")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode status: %w", err)
 	}
 	if resp.IsError() {
 		return nil, fmt.Errorf("weixin: get qrcode status: HTTP %d", resp.StatusCode())
 	}
-	return &result, nil
+
+	var result struct {
+		Ret         int    `json:"ret"`
+		ErrCode     int    `json:"errcode,omitempty"`
+		ErrMsg      string `json:"errmsg,omitempty"`
+		Status      string `json:"status,omitempty"`
+		BotToken    string `json:"bot_token,omitempty"`
+		ILinkBotID  string `json:"ilink_bot_id,omitempty"`
+		ILinkUserID string `json:"ilink_user_id,omitempty"`
+		BaseURL     string `json:"baseurl,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return nil, fmt.Errorf("weixin: get qrcode status: decode response: %w", err)
+	}
+	if err := checkError(result.Ret, result.ErrCode, result.ErrMsg); err != nil {
+		return nil, err
+	}
+	return &QRCodeStatusResponse{
+		Status:      result.Status,
+		BotToken:    result.BotToken,
+		ILinkBotID:  result.ILinkBotID,
+		ILinkUserID: result.ILinkUserID,
+		BaseURL:     result.BaseURL,
+	}, nil
 }
 
 // GetUpdates performs a long-poll for new messages.
