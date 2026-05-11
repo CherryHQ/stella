@@ -153,11 +153,11 @@ Memory operations (append, assemble, compact, search, etc.) are captured as `mem
 
 ### Sandbox Lifecycle
 
-Sandbox startup is captured with `sandbox.*` spans so boxsh failures can be traced past the final broken-pipe symptom:
+Sandbox startup is captured with `sandbox.*` spans so sandbox failures can be traced past the final broken-pipe symptom:
 
 - Session creation in the runner
 - Backend startup and overlay/session directory setup
-- Boxsh client process startup
+- Sandbox client process startup
 - JSON-RPC handshake
 - Session close or liveness loss reason
 
@@ -216,13 +216,13 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 | Attribute                           | Description                                      |
 | ----------------------------------- | ------------------------------------------------ |
-| `stella.sandbox.backend`            | Sandbox backend name, currently `boxsh`          |
+| `stella.sandbox.backend`            | Sandbox backend name (`local`, `docker`, `none`) |
 | `stella.sandbox.agent_root`         | Agent workspace root from runner config          |
 | `stella.sandbox.user_root`          | Requested sandbox user root                      |
 | `stella.sandbox.resolved_user_root` | Resolved absolute user root used to build policy |
 | `stella.sandbox.project_root`       | Project root when present                        |
 | `stella.sandbox.work_dir`           | Requested or resolved working directory          |
-| `stella.sandbox.src`                | Boxsh copy-on-write source root                  |
+| `stella.sandbox.src`                | Copy-on-write source root                        |
 | `stella.sandbox.dst`                | Overlay/session destination root                 |
 | `stella.sandbox.cwd`                | Remapped working directory inside the session    |
 | `stella.sandbox.network.mode`       | Effective network mode                           |
@@ -231,7 +231,7 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 | `stella.sandbox.close_reason`       | Why the session span ended                       |
 | `stella.sandbox.server.name`        | Handshake-reported sandbox server name           |
 | `stella.sandbox.server.version`     | Handshake-reported sandbox server version        |
-| `stella.sandbox.protocol_version`   | RPC protocol version returned by boxsh           |
+| `stella.sandbox.protocol_version`   | RPC protocol version returned by the sandbox     |
 
 ## Managing the Plugin
 

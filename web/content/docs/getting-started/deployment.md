@@ -77,92 +77,6 @@ stella service status
 sudo stella service uninstall --system
 ```
 
-`bubblewrap` must be present before running `stella service install`. It is installed automatically with the Homebrew and package-manager methods; for raw binaries: `apt install bubblewrap` / `dnf install bubblewrap`.
-
-### boxsh Sandbox Prerequisites (Linux)
-
-On Linux, Stella uses the managed `boxsh` sandbox by default for the local workspace tools (`bash`, `read`, `write`, `edit`). `boxsh` needs user namespaces and subordinate ID mapping support on the host.
-
-Install the user namespace helpers:
-
-```bash
-# Debian / Ubuntu
-sudo apt update
-sudo apt install uidmap
-
-# Verify helpers exist
-which newuidmap
-which newgidmap
-ls -l /usr/bin/newuidmap /usr/bin/newgidmap
-```
-
-Make sure the service user has subordinate UID/GID ranges:
-
-```bash
-grep '^stella:' /etc/subuid
-grep '^stella:' /etc/subgid
-```
-
-Expected shape:
-
-```text
-stella:100000:65536
-```
-
-If the entries are missing, add them:
-
-```bash
-sudo usermod --add-subuids 100000-165535 stella
-sudo usermod --add-subgids 100000-165535 stella
-```
-
-Verify the kernel allows unprivileged user namespaces:
-
-```bash
-sysctl kernel.unprivileged_userns_clone
-sysctl user.max_user_namespaces
-```
-
-Typical working values are:
-
-```text
-kernel.unprivileged_userns_clone = 1
-user.max_user_namespaces = 15000
-```
-
-Some Ubuntu hosts also block unprivileged user namespaces through AppArmor even when the kernel settings above are enabled. Check:
-
-```bash
-sysctl kernel.apparmor_restrict_unprivileged_userns
-```
-
-If `boxsh` fails with `sandbox_apply failed: write uid_map: Operation not permitted`, temporarily disable that restriction and retest:
-
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
-
-To persist the Linux prerequisites across reboot:
-
-```bash
-sudo tee /etc/sysctl.d/99-stella-boxsh.conf >/dev/null <<'EOF'
-kernel.unprivileged_userns_clone=1
-user.max_user_namespaces=15000
-kernel.apparmor_restrict_unprivileged_userns=0
-EOF
-
-sudo sysctl --system
-```
-
-Smoke-test `boxsh` directly as the service user:
-
-```bash
-$STELLA_HOME/bin/boxsh --version
-$STELLA_HOME/bin/boxsh --rpc --sandbox
-```
-
-If the second command exits immediately with a `uid_map` error, the host is still blocking user namespace setup. If you need Stella working before the host is fixed, configure the agent sandbox backend to `docker` as a temporary fallback (requires a reachable docker daemon).
-
 ### LaunchAgent (macOS)
 
 Use the built-in service command — it writes the plist, loads the agent, and starts the service:
@@ -215,7 +129,7 @@ docker run -d \
   ghcr.io/cherryhq/stella:latest
 ```
 
-The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. If you want the default boxsh-backed sandbox to work inside Docker, run the container with `--security-opt seccomp=unconfined` so boxsh can call `unshare(2)`. Without that option, sandboxed core tools fall back to a Docker runtime limitation rather than an stella bug.
+The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
 
 ### Docker Compose
 
@@ -256,7 +170,7 @@ Running stella inside a Docker container (described above) is separate from usin
 
 ### When to prefer the `docker` sandbox backend
 
-- **Windows**: `boxsh` is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
+- **Windows**: The local sandbox backend is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
 - **Custom toolchain**: You need a specific Python/Node/Go version or a clean Linux userspace that differs from the host.
 - **Side-effect isolation**: You want reproducible filesystem state and do not want host-level side effects from agent scripts.
 
@@ -264,7 +178,7 @@ Running stella inside a Docker container (described above) is separate from usin
 
 - **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
 - **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
-- **No copy-on-write isolation**: Unlike `boxsh` (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
+- **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
 See the [Configuration guide](/docs/getting-started/configuration) for `sandbox.docker` config keys and an example JSON payload.
 

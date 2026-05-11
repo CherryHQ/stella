@@ -154,15 +154,15 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `stella models update` to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). The agent form edits network policy; backend can also be set in the stored JSON.
-  - `backend`: `auto` (default), `boxsh`, or `docker`
+  - `backend`: `auto` (default), `local`, or `docker`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
   - `network.allowlist`: required only when mode is `whitelist`
-  - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
-  - `auto` selects `boxsh` on Linux/macOS; on other platforms it fails closed — configure `docker` explicitly.
-  - Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
-  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the stella binary: dev builds use a local `stella-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/cherryhq/stella-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
+  - Linux and macOS validate the `local` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
+  - `auto` selects `local` on Linux/macOS; on other platforms it fails closed — configure `docker` explicitly.
+  - `local` may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
+  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the stella binary: dev builds use a local `stella-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/cherryhq/stella-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `local` is unavailable) and for workflows that need a specific Linux userspace.
   - The docker backend takes no per-agent knobs. The image, the in-container user (`stella`, UID 1000), and bind-mount layout are all fixed by the shipped image. When stella itself runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker), set the `STELLA_HOME_HOST` environment variable — stella auto-derives the path translation from it.
-  - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
+  - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `local`. Use `disabled` or `allow_all`.
   - Docker bind-mounts the workspace root at `/home/stella/workspace` and each read-only path at `/home/stella/readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
 
 Example JSON for a docker-backed agent's `sandbox` field:

@@ -77,92 +77,6 @@ stella service status
 sudo stella service uninstall --system
 ```
 
-运行 `stella service install` 前需先安装 `bubblewrap`。通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`。
-
-### boxsh 沙盒前置条件（Linux）
-
-在 Linux 上，Stella 默认使用托管的 `boxsh` 沙盒来运行本地工作区工具（`bash`、`read`、`write`、`edit`）。`boxsh` 需要宿主机支持用户命名空间和从属 ID 映射。
-
-安装用户命名空间辅助工具：
-
-```bash
-# Debian / Ubuntu
-sudo apt update
-sudo apt install uidmap
-
-# 验证辅助工具是否存在
-which newuidmap
-which newgidmap
-ls -l /usr/bin/newuidmap /usr/bin/newgidmap
-```
-
-确保服务用户具有从属 UID/GID 范围：
-
-```bash
-grep '^stella:' /etc/subuid
-grep '^stella:' /etc/subgid
-```
-
-预期格式：
-
-```text
-stella:100000:65536
-```
-
-如果缺少这些条目，请添加它们：
-
-```bash
-sudo usermod --add-subuids 100000-165535 stella
-sudo usermod --add-subgids 100000-165535 stella
-```
-
-验证内核是否允许非特权用户命名空间：
-
-```bash
-sysctl kernel.unprivileged_userns_clone
-sysctl user.max_user_namespaces
-```
-
-典型的工作值：
-
-```text
-kernel.unprivileged_userns_clone = 1
-user.max_user_namespaces = 15000
-```
-
-某些 Ubuntu 主机即使启用了上述内核设置，仍可能通过 AppArmor 阻止非特权用户命名空间。请检查：
-
-```bash
-sysctl kernel.apparmor_restrict_unprivileged_userns
-```
-
-如果 `boxsh` 失败并显示 `sandbox_apply failed: write uid_map: Operation not permitted`，请临时禁用该限制并重新测试：
-
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
-
-要使 Linux 前置条件在重启后持久生效：
-
-```bash
-sudo tee /etc/sysctl.d/99-stella-boxsh.conf >/dev/null <<'EOF'
-kernel.unprivileged_userns_clone=1
-user.max_user_namespaces=15000
-kernel.apparmor_restrict_unprivileged_userns=0
-EOF
-
-sudo sysctl --system
-```
-
-以服务用户身份直接对 `boxsh` 进行冒烟测试：
-
-```bash
-$STELLA_HOME/bin/boxsh --version
-$STELLA_HOME/bin/boxsh --rpc --sandbox
-```
-
-如果第二个命令立即以 `uid_map` 错误退出，说明宿主机仍在阻止用户命名空间设置。如果您需要在修复宿主机之前让 Stella 工作，请将 agent 沙盒后端配置为 `docker` 作为临时回退（需要可访问的 docker 守护进程）。
-
 ### LaunchAgent（macOS）
 
 使用内置的 service 命令 —— 它会写入 plist、加载 agent 并启动服务：
@@ -215,7 +129,7 @@ docker run -d \
   ghcr.io/cherryhq/stella:latest
 ```
 
-容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。如果要在 Docker 中使用默认的 boxsh 沙箱，请在运行时加上 `--security-opt seccomp=unconfined`，这样 boxsh 才能调用 `unshare(2)`。没有这个选项时，带沙箱的核心工具会因为 Docker 运行时限制而失败。
+容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
 
 ### Docker Compose
 
@@ -256,7 +170,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ### 何时优先选择 `docker` 沙箱后端
 
-- **Windows**：`boxsh` 仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
+- **Windows**：本地沙箱后端仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
 - **自定义工具链**：需要与宿主机不同的特定 Python/Node/Go 版本，或需要干净的 Linux 用户空间。
 - **副作用隔离**：需要可复现的文件系统状态，不希望 agent 脚本产生宿主机级别的副作用。
 
@@ -264,7 +178,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 - **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
 - **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
-- **无写时复制隔离**：与 `boxsh`（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
+- **无写时复制隔离**：与本地后端（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
 有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/getting-started/configuration)。
 

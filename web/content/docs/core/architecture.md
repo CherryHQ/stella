@@ -162,7 +162,7 @@ All core tools share the same container session per runner:
 
 ### Platform Requirements
 
-Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Stella contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto`, `boxsh`, or `Relaxed` mode.
+Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Stella contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto` or `Relaxed` mode.
 
 ### Network Policy Configuration
 
