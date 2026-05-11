@@ -2,13 +2,30 @@
 title: 部署
 ---
 
-两种部署方式：**二进制文件**（直接安装）和 **Docker**。
+## 安装
 
-## 二进制文件
+### Homebrew（macOS 和 Linux）
 
-### 从发布版本安装
+```bash
+brew tap CherryHQ/stella
+brew install stella
+```
 
-从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载预构建的二进制文件。支持 linux、macOS 和 Windows 平台的 amd64/arm64 架构。
+### Linux 软件包（.deb / .rpm）
+
+预构建的安装包可在 [Releases](https://github.com/CherryHQ/stella/releases) 页面获取。`bubblewrap` 已声明为依赖项，会自动安装。
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
+### 二进制文件
+
+从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载适用于 linux、macOS 或 Windows（amd64/arm64）的预编译二进制文件，然后将其放置在 `$PATH` 中。
 
 ```bash
 # 示例：Linux amd64
@@ -18,7 +35,7 @@ chmod +x stella
 sudo mv stella /usr/local/bin/
 ```
 
-### 从源码构建
+### Go
 
 ```bash
 go install github.com/CherryHQ/stella@latest
@@ -27,9 +44,9 @@ git clone https://github.com/CherryHQ/stella.git
 cd stella && go build -o stella .
 ```
 
-### 运行
+## 运行
 
-启动 stella，通过 `http://localhost:25678` 访问管理面板进行配置：
+启动 stella —— Web UI 访问地址：`http://localhost:25678`：
 
 ```bash
 stella
@@ -37,17 +54,9 @@ stella
 
 这会启动守护进程并提供 Web UI 服务，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
-启动网关守护进程：
-
 ```bash
-stella
-```
-
-要在网关运行时同时提供管理面板服务（用于运行时配置更改）：
-
-```bash
-stella --port 8080
-stella --host 0.0.0.0 --port 8080
+stella --port 8080                  # 自定义端口
+stella --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ```
 
 ### 版本和自动升级
@@ -60,26 +69,17 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 `stella upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并将二进制文件安装到 `$HOME/.local/bin`（默认位置）。
 
-### Systemd 服务（Linux）
+## 作为后台服务运行
 
-使用内置的 service 命令 —— 它会写入 unit 文件、执行 `daemon-reload` 并一步完成服务启用：
+### macOS — Homebrew
 
 ```bash
-# 用户模式（无需 root，登录时启动）
-stella service install
-stella service status
-stella service logs --follow
-stella service uninstall
-
-# 系统模式（需要 root，开机启动）
-sudo stella service install --system
-stella service status
-sudo stella service uninstall --system
+brew services start stella   # 登录时启动，崩溃后自动重启
+brew services stop stella
+brew services restart stella
 ```
 
-### LaunchAgent（macOS）
-
-使用内置的 service 命令 —— 它会写入 plist、加载 agent 并启动服务：
+### macOS — 手动
 
 ```bash
 stella service install       # 安装 LaunchAgent 并启动
@@ -92,6 +92,35 @@ stella service uninstall
 ```
 
 日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
+
+### Linux — systemd 用户模式（无需 root）
+
+服务以当前用户身份运行，登录时自动启动。运行前需先安装 `bubblewrap`（通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`）。
+
+```bash
+stella service install
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
+```
+
+Unit 文件安装至 `~/.config/systemd/user/stella.service`。
+
+### Linux — systemd 系统模式（需要 root）
+
+以 root 身份运行，开机自动启动。
+
+```bash
+sudo stella service install --system
+stella service status
+stella service logs --follow
+sudo stella service uninstall --system
+```
+
+Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ## Docker
 
@@ -197,7 +226,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 环境变量
 
-配置通过 Web UI 管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
+配置通过 Web UI 管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                                                            |
 | ------------------- | ---- | --------------------------------------------------------------- |
@@ -206,7 +235,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
 | `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
 
-\* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
+\* 至少需要一个提供商密钥。API 密钥也可以通过 Web UI 配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 

@@ -2,13 +2,30 @@
 title: Deployment
 ---
 
-Two deployment methods: **binary** (direct install) and **Docker**.
+## Install
 
-## Binary
+### Homebrew (macOS and Linux)
 
-### From Release
+```bash
+brew tap CherryHQ/stella
+brew install stella
+```
 
-Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases). Binaries are available for linux, macOS, and Windows on amd64/arm64.
+### Linux packages (.deb / .rpm)
+
+Pre-built packages are available on the [Releases](https://github.com/CherryHQ/stella/releases) page. `bubblewrap` is declared as a dependency and will be installed automatically.
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./stella_*_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./stella_*_linux_amd64.rpm
+```
+
+### Binary
+
+Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases) for linux, macOS, or Windows (amd64/arm64), then place it on your `$PATH`.
 
 ```bash
 # Example: Linux amd64
@@ -18,7 +35,7 @@ chmod +x stella
 sudo mv stella /usr/local/bin/
 ```
 
-### From Source
+### Go
 
 ```bash
 go install github.com/CherryHQ/stella@latest
@@ -27,30 +44,22 @@ git clone https://github.com/CherryHQ/stella.git
 cd stella && go build -o stella .
 ```
 
-### Running
+## Run
 
-Start stella to access the admin panel at `http://localhost:25678`:
-
-```bash
-stella
-```
-
-This starts the daemon and serves the web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` -- no manual config files needed.
-
-Start the daemon:
+Start stella — the web UI is available at `http://localhost:25678`:
 
 ```bash
 stella
 ```
 
-To serve the admin panel alongside the daemon (for runtime config changes):
+This starts the daemon and the web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
 
 ```bash
-stella --port 8080
-stella --host 0.0.0.0 --port 8080
+stella --port 8080             # custom port
+stella --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```
 
-### Version And Self-Upgrade
+### Version and Self-Upgrade
 
 ```bash
 stella version
@@ -60,26 +69,17 @@ stella upgrade --install-dir "$HOME/.local/bin"
 
 `stella upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and installs the binary into `$HOME/.local/bin` by default.
 
-### Systemd Service (Linux)
+## Run as a Background Service
 
-Use the built-in service command — it writes the unit file, runs `daemon-reload`, and enables the service in one step:
+### macOS — Homebrew
 
 ```bash
-# User mode (no root, starts on login)
-stella service install
-stella service status
-stella service logs --follow
-stella service uninstall
-
-# System mode (root, starts on boot)
-sudo stella service install --system
-stella service status
-sudo stella service uninstall --system
+brew services start stella   # start on login, restart on crash
+brew services stop stella
+brew services restart stella
 ```
 
-### LaunchAgent (macOS)
-
-Use the built-in service command — it writes the plist, loads the agent, and starts the service:
+### macOS — manual
 
 ```bash
 stella service install       # install LaunchAgent and start
@@ -92,6 +92,35 @@ stella service uninstall
 ```
 
 Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
+
+### Linux — systemd user mode (no root required)
+
+The service runs as your user and starts on login. `bubblewrap` must be installed first (pulled in automatically by Homebrew and package-manager installs; for raw binary installs: `apt install bubblewrap` / `dnf install bubblewrap`).
+
+```bash
+stella service install
+stella service status
+stella service logs --follow
+stella service stop
+stella service start
+stella service restart
+stella service uninstall
+```
+
+The unit file is installed to `~/.config/systemd/user/stella.service`.
+
+### Linux — systemd system mode (root required)
+
+Runs as root, starts on boot.
+
+```bash
+sudo stella service install --system
+stella service status
+stella service logs --follow
+sudo stella service uninstall --system
+```
+
+The unit file is installed to `/etc/systemd/system/stella.service`.
 
 ## Docker
 
@@ -197,7 +226,7 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 ## Environment Variables
 
-Configuration is managed through the web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
+Configuration is managed through the web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |
@@ -206,7 +235,7 @@ Configuration is managed through the web UI (default `http://localhost:25678`; u
 | `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
 | `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
 
-\* At least one provider key is required. API keys can also be configured via the admin panel.
+\* At least one provider key is required. API keys can also be configured via the web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 

@@ -180,7 +180,7 @@ go install github.com/CherryHQ/stella@latest
 
 Or grab a binary from [Releases](https://github.com/CherryHQ/stella/releases), or self-update with `stella upgrade`.
 
-To run stella as a background service (launchd on macOS, systemd on Linux), see the [Installation guide](web/content/docs/getting-started/installation.md).
+To run stella as a background service (launchd on macOS, systemd on Linux), see the [Deployment guide](web/content/docs/getting-started/deployment.md).
 
 ### Set up
 
