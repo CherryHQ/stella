@@ -62,7 +62,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	}
 
 	flowStore := oauth.NewFlowStore()
-	credSvc := credentials.NewService(nil, pluginHost.Config(), flowStore, corsOrigin)
+	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, corsOrigin)
 
 	s := &Server{
 		store:       store,

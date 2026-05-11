@@ -2,62 +2,20 @@ package credentials_test
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/pkg/memory"
 )
 
-// --- pluginhost.ConfigBackend stub ---
-
-type stubPluginCfg struct {
-	state  map[string]pkgplugins.PluginState
-	getErr error
-}
-
-func newStubPluginCfg() *stubPluginCfg {
-	return &stubPluginCfg{state: map[string]pkgplugins.PluginState{}}
-}
-
-func (s *stubPluginCfg) Get(_ context.Context, pluginID string) (pkgplugins.PluginState, error) {
-	if s.getErr != nil {
-		return pkgplugins.PluginState{}, s.getErr
-	}
-	ps, ok := s.state[pluginID]
-	if !ok {
-		return pkgplugins.PluginState{}, errors.New("plugin not found")
-	}
-	return ps, nil
-}
-
-func (s *stubPluginCfg) Set(_ context.Context, pluginID string, config map[string]any) error {
-	ps := s.state[pluginID]
-	ps.Config = config
-	s.state[pluginID] = ps
-	return nil
-}
-
-func (s *stubPluginCfg) SetEnabled(_ context.Context, pluginID string, enabled bool) error {
-	ps := s.state[pluginID]
-	ps.Enabled = enabled
-	s.state[pluginID] = ps
-	return nil
-}
-
-var _ pluginhost.ConfigBackend = (*stubPluginCfg)(nil)
-
 // --- helpers ---
 
-func newService(t *testing.T, cfg pluginhost.ConfigBackend) *credentials.Service {
+func newService(t *testing.T) *credentials.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
-	return credentials.NewService(nil, cfg, flowStore, "http://localhost:8080")
+	return credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
 }
 
 func ctxWithUser(userID int64) context.Context {
@@ -76,10 +34,17 @@ func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
 	}
 }
 
+func testProviderConfigWithCreds(id, vaultKey, clientID, clientSecret string) oauth.ProviderConfig {
+	cfg := testProviderConfig(id, vaultKey)
+	cfg.ClientID = clientID
+	cfg.ClientSecret = clientSecret
+	return cfg
+}
+
 // --- Service tests ---
 
 func TestAddSecretInstruction(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	inst := svc.AddSecretInstruction("OPENAI_API_KEY", "access the OpenAI API")
 	if inst.Name != "OPENAI_API_KEY" {
 		t.Errorf("Name = %q; want OPENAI_API_KEY", inst.Name)
@@ -93,7 +58,7 @@ func TestAddSecretInstruction(t *testing.T) {
 }
 
 func TestListVaultNilVault(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	_, err := svc.ListVault(context.Background(), 1)
 	if err == nil {
 		t.Error("expected error when vault is nil")
@@ -101,22 +66,22 @@ func TestListVaultNilVault(t *testing.T) {
 }
 
 func TestDeleteVaultEntryNilVault(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	err := svc.DeleteVaultEntry(context.Background(), 1, "FOO")
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
 }
 
-func TestGetProviderStatusesPluginNotFound(t *testing.T) {
-	cfg := newStubPluginCfg()
-	svc := newService(t, cfg)
+func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
+	svc := newService(t)
 
 	registry := oauth.NewProviderRegistry()
-	registry.Register(testProviderConfig("github", oauth.VaultKeyGitHub))
+	// github has YAML credentials — available without DB.
+	registry.Register(testProviderConfigWithCreds("github", oauth.VaultKeyGitHub, "client-id", ""))
+	// lark has no credentials — unavailable.
 	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
 	svc.SetRegistry(registry)
-	svc.SetProviderPluginIDs(map[string]string{"lark": "tool/lark-cli"})
 
 	statuses := svc.GetProviderStatuses(context.Background(), 1)
 	if len(statuses) == 0 {
@@ -126,11 +91,17 @@ func TestGetProviderStatusesPluginNotFound(t *testing.T) {
 		switch ps.Provider {
 		case "github":
 			if !ps.Available {
-				t.Errorf("github should be available without admin plugin config: %+v", ps)
+				t.Errorf("github should be available with YAML client_id: %+v", ps)
+			}
+			if !ps.Configured {
+				t.Errorf("github should be configured when YAML has client_id: %+v", ps)
 			}
 		case "lark":
 			if ps.Available {
-				t.Errorf("lark should be unavailable when plugin not configured: %+v", ps)
+				t.Errorf("lark should be unavailable when no credentials configured: %+v", ps)
+			}
+			if ps.Configured {
+				t.Errorf("lark should not be configured when no client_id: %+v", ps)
 			}
 			if ps.Unavailable == "" {
 				t.Error("lark missing unavailable reason")
@@ -139,29 +110,8 @@ func TestGetProviderStatusesPluginNotFound(t *testing.T) {
 	}
 }
 
-func TestGetProviderStatusesDisabledPlugin(t *testing.T) {
-	cfg := newStubPluginCfg()
-	cfg.state["tool/lark-cli"] = pkgplugins.PluginState{
-		Enabled: false,
-		Config:  map[string]any{"app_id": "cid", "app_secret": "csecret"},
-	}
-	svc := newService(t, cfg)
-
-	registry := oauth.NewProviderRegistry()
-	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
-	svc.SetRegistry(registry)
-	svc.SetProviderPluginIDs(map[string]string{"lark": "tool/lark-cli"})
-
-	statuses := svc.GetProviderStatuses(context.Background(), 1)
-	for _, ps := range statuses {
-		if ps.Provider == "lark" && ps.Available {
-			t.Error("lark should be unavailable when plugin is disabled")
-		}
-	}
-}
-
 func TestStartFlowNilVault(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	_, err := svc.StartFlow(context.Background(), 1, "github")
 	if err == nil {
 		t.Error("expected error when vault is nil")
@@ -169,7 +119,7 @@ func TestStartFlowNilVault(t *testing.T) {
 }
 
 func TestPollFlowUnknownFlow(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	_, _, err := svc.PollFlow(context.Background(), 1, "github", "nonexistent-flow-id")
 	if err == nil {
 		t.Error("expected error for unknown flow")
@@ -177,7 +127,7 @@ func TestPollFlowUnknownFlow(t *testing.T) {
 }
 
 func TestStartFlowUnsupportedProvider(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	_, err := svc.StartFlow(context.Background(), 1, "unsupported-provider")
 	if err == nil {
 		t.Error("expected error for unsupported provider")
@@ -185,7 +135,7 @@ func TestStartFlowUnsupportedProvider(t *testing.T) {
 }
 
 func TestDisconnectNilVault(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	err := svc.Disconnect(context.Background(), 1, "github")
 	if err == nil {
 		t.Error("expected error when vault is nil")
@@ -193,7 +143,7 @@ func TestDisconnectNilVault(t *testing.T) {
 }
 
 func TestDisconnectUnsupportedProvider(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	err := svc.Disconnect(context.Background(), 1, "badprovider")
 	if err == nil {
 		t.Error("expected error for unsupported provider")
@@ -201,7 +151,7 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 }
 
 func TestInvalidateUserNilInvalidator(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	if err := svc.InvalidateUser(42); err != nil {
 		t.Errorf("InvalidateUser with nil invalidator should be a no-op, got %v", err)
 	}
@@ -215,7 +165,7 @@ func (s *stubInvalidator) InvalidateUser(userID int64) error {
 }
 
 func TestInvalidateUserCallsInvalidator(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	inv := &stubInvalidator{}
 	svc.SetInvalidator(inv)
 	if err := svc.InvalidateUser(99); err != nil {
@@ -226,11 +176,21 @@ func TestInvalidateUserCallsInvalidator(t *testing.T) {
 	}
 }
 
+func TestSetOAuthProviderConfigNilDB(t *testing.T) {
+	svc := newService(t)
+	err := svc.SetOAuthProviderConfig(context.Background(), credentials.OAuthProviderConfig{
+		ProviderID: "lark", ClientID: "cid", ClientSecret: "csecret",
+	})
+	if err == nil {
+		t.Error("expected error when DB is nil")
+	}
+}
+
 // --- OAuthTool tests ---
 
 func newOAuthTool(t *testing.T) *credentials.OAuthTool {
 	t.Helper()
-	return credentials.NewOAuthTool(newService(t, newStubPluginCfg()))
+	return credentials.NewOAuthTool(newService(t))
 }
 
 func TestOAuthToolNoUserContext(t *testing.T) {
@@ -270,7 +230,7 @@ func TestOAuthToolConnectMissingProvider(t *testing.T) {
 
 func TestOAuthToolConnectPollMissingFlowID(t *testing.T) {
 	// Providing an unknown flow_id should error, not silently start a new flow.
-	svc := newService(t, newStubPluginCfg())
+	svc := newService(t)
 	tool := credentials.NewOAuthTool(svc)
 	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "connect", "provider": "github", "flow_id": "bad-id"})
 	if err == nil {
@@ -300,7 +260,7 @@ func TestOAuthDefinition(t *testing.T) {
 
 func newVaultTool(t *testing.T) *credentials.VaultTool {
 	t.Helper()
-	return credentials.NewVaultTool(newService(t, newStubPluginCfg()))
+	return credentials.NewVaultTool(newService(t))
 }
 
 func TestVaultToolNoUserContext(t *testing.T) {

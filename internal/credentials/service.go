@@ -9,44 +9,34 @@ import (
 	"golang.org/x/oauth2"
 
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/vault"
-)
-
-const (
-	githubProviderID = "github"
-
-	// ghOAuthClientID is GitHub CLI's public OAuth app client ID. GitHub's
-	// device flow only requires the client ID, so Stella can offer gh OAuth
-	// without any admin-side plugin configuration.
-	ghOAuthClientID = "178c6fc778ccc68e1d6a"
+	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Service is the shared host-side credential manager. It owns vault secret
 // operations and OAuth orchestration. Admin HTTP handlers and the built-in
 // credentials tool both delegate to this service.
 type Service struct {
-	vaultSvc          *vault.Service
-	pluginCfg         pluginhost.ConfigBackend
-	flowStore         *oauth.FlowStore
-	registry          *oauth.ProviderRegistry
-	invalidator       RunnerInvalidator // optional; nil = no invalidation
-	corsOrigin        string
-	log               *slog.Logger
-	providerPluginIDs map[string]string // provider ID → plugin ID
+	vaultSvc    *vault.Service
+	q           *pkgdb.Queries
+	flowStore   *oauth.FlowStore
+	registry    *oauth.ProviderRegistry
+	invalidator RunnerInvalidator // optional; nil = no invalidation
+	corsOrigin  string
+	log         *slog.Logger
 }
 
-// NewService creates a credentials service. vaultSvc may be nil if the vault
-// is not configured (methods that need it return errors).
+// NewService creates a credentials service. vaultSvc and q may be nil if the
+// vault / DB is not yet configured (methods that need them return errors).
 func NewService(
 	vaultSvc *vault.Service,
-	pluginCfg pluginhost.ConfigBackend,
+	q *pkgdb.Queries,
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
 	return &Service{
 		vaultSvc:   vaultSvc,
-		pluginCfg:  pluginCfg,
+		q:          q,
 		flowStore:  flowStore,
 		corsOrigin: corsOrigin,
 		log:        slog.With("component", "credentials"),
@@ -56,12 +46,6 @@ func NewService(
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
 func (s *Service) SetRegistry(r *oauth.ProviderRegistry) {
 	s.registry = r
-}
-
-// SetProviderPluginIDs maps each provider ID to the plugin ID that supplies its
-// OAuth credentials. Populated from manifest oauth_provider fields at startup.
-func (s *Service) SetProviderPluginIDs(m map[string]string) {
-	s.providerPluginIDs = m
 }
 
 // SetVaultService sets or replaces the vault service at runtime (e.g. after startup).
@@ -168,43 +152,71 @@ func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID 
 	if origin != "" {
 		baseOrigin = origin
 	}
-	if providerID == githubProviderID {
-		return ghOAuthClientID, "", baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback", nil
+	redirectFallback := baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+
+	// DB override wins over YAML default.
+	if s.q != nil {
+		cfg, err := s.q.GetOAuthProviderConfig(ctx, providerID)
+		if err == nil && cfg.ClientID != "" {
+			redirectURL := cfg.RedirectUrl
+			if redirectURL == "" {
+				redirectURL = redirectFallback
+			}
+			return cfg.ClientID, cfg.ClientSecret, redirectURL, nil
+		}
 	}
 
-	pluginID, ok := s.providerPluginIDs[providerID]
-	if !ok {
-		return "", "", "", fmt.Errorf("no plugin configured for provider: %s", providerID)
+	// Fall back to YAML defaults baked into the registry at startup.
+	if s.registry != nil {
+		if providerCfg, ok := s.registry.Get(providerID); ok && providerCfg.ClientID != "" {
+			return providerCfg.ClientID, providerCfg.ClientSecret, redirectFallback, nil
+		}
 	}
 
-	state, err := s.pluginCfg.Get(ctx, pluginID)
-	if err != nil {
-		return "", "", "", fmt.Errorf("plugin config unavailable for %s: %w", pluginID, err)
-	}
-	if !state.Enabled {
-		return "", "", "", fmt.Errorf("%s plugin is not enabled", pluginID)
-	}
-	if brand, _ := state.Config["brand"].(string); brand != "" && (providerID == "lark" || providerID == "feishu") && brand != providerID {
-		return "", "", "", fmt.Errorf("%s plugin brand is %q; connect provider %q instead", pluginID, brand, brand)
+	return "", "", "", fmt.Errorf("oauth credentials not configured for provider %q — set client_id and client_secret on the Credentials page", providerID)
+}
+
+// GetOAuthProviderConfig returns the effective config for a provider:
+// DB override merged over the YAML default. ClientSecret is masked.
+func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string) (OAuthProviderConfig, error) {
+	out := OAuthProviderConfig{ProviderID: providerID}
+
+	// YAML default from registry.
+	if s.registry != nil {
+		if providerCfg, ok := s.registry.Get(providerID); ok {
+			out.ClientID = providerCfg.ClientID
+			if providerCfg.ClientSecret != "" {
+				out.ClientSecret = "***"
+			}
+		}
 	}
 
-	clientID, _ = state.Config["client_id"].(string)
-	if clientID == "" {
-		clientID, _ = state.Config["app_id"].(string)
-	}
-	clientSecret, _ = state.Config["client_secret"].(string)
-	if clientSecret == "" {
-		clientSecret, _ = state.Config["app_secret"].(string)
-	}
-	if clientID == "" || clientSecret == "" {
-		return "", "", "", fmt.Errorf("%s OAuth app is not configured (set client_id/client_secret or app_id/app_secret in %s plugin)", providerID, pluginID)
+	// DB override (takes precedence).
+	if s.q != nil {
+		cfg, err := s.q.GetOAuthProviderConfig(ctx, providerID)
+		if err == nil && cfg.ClientID != "" {
+			out.ClientID = cfg.ClientID
+			out.RedirectURL = cfg.RedirectUrl
+			if cfg.ClientSecret != "" {
+				out.ClientSecret = "***"
+			}
+		}
 	}
 
-	redirectURI, _ = state.Config["redirect_url"].(string)
-	if redirectURI == "" {
-		redirectURI = baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+	return out, nil
+}
+
+// SetOAuthProviderConfig persists a provider credential override to the DB.
+func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderConfig) error {
+	if s.q == nil {
+		return fmt.Errorf("database not configured")
 	}
-	return clientID, clientSecret, redirectURI, nil
+	return s.q.UpsertOAuthProviderConfig(ctx, pkgdb.UpsertOAuthProviderConfigParams{
+		ProviderID:   cfg.ProviderID,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		RedirectUrl:  cfg.RedirectURL,
+	})
 }
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
@@ -304,6 +316,16 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 	if !ok {
 		ps.Unavailable = fmt.Sprintf("unknown provider: %s", provider)
 		return ps
+	}
+
+	// Configured = DB row exists with a client_id OR YAML has a client_id.
+	if providerCfg.ClientID != "" {
+		ps.Configured = true
+	}
+	if s.q != nil {
+		if cfg, err := s.q.GetOAuthProviderConfig(ctx, provider); err == nil && cfg.ClientID != "" {
+			ps.Configured = true
+		}
 	}
 
 	_, err := s.getBroker(ctx, provider, "")

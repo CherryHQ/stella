@@ -83,7 +83,6 @@ type setupResult struct {
 	skillStore               pkgplugins.SkillStore
 	cliUserID                int64 // resolved CLI user for session creation
 	oauthRegistry            *oauth.ProviderRegistry
-	providerPluginIDs        map[string]string // provider ID → plugin ID
 	backgroundTasks          *sync.WaitGroup
 }
 
@@ -122,10 +121,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	backgroundTasks := &sync.WaitGroup{}
 
-	// OAuth provider registry and mapping populated from manifest below.
+	// OAuth provider registry populated from manifest below.
 	var (
 		oauthRegistry       *oauth.ProviderRegistry
-		providerPluginIDs   map[string]string
 		manifestToReconcile *manifestplugins.Manifest
 	)
 
@@ -218,16 +216,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				})
 			}
 
-			// Build provider → plugin ID mapping from manifest.
-			providerPluginIDs = make(map[string]string)
-			for _, p := range merged.Plugins {
-				if p.OAuthProvider != "" {
-					providerPluginIDs[p.OAuthProvider] = p.ID
-				}
-				for _, providerID := range p.OAuthProviderChoices {
-					providerPluginIDs[providerID] = p.ID
-				}
-			}
 		}
 	}
 
@@ -507,7 +495,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		skillStore:               pluginhost.NewSkillStoreAdapter(skillStore),
 		cliUserID:                cliUserID,
 		oauthRegistry:            oauthRegistry,
-		providerPluginIDs:        providerPluginIDs,
 		backgroundTasks:          backgroundTasks,
 	}, nil
 }

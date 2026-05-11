@@ -6,9 +6,19 @@ import "time"
 type ProviderStatus struct {
 	Provider    string `json:"provider"`
 	Available   bool   `json:"available"`
+	Configured  bool   `json:"configured"` // true when DB or YAML has a client_id
 	Connected   bool   `json:"connected"`
 	Username    string `json:"username,omitempty"`    // label for the connected account
 	Unavailable string `json:"unavailable,omitempty"` // reason when Available is false
+}
+
+// OAuthProviderConfig holds the mutable credentials for an OAuth provider.
+// ClientSecret is masked as "***" in read responses.
+type OAuthProviderConfig struct {
+	ProviderID   string `json:"provider_id"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	RedirectURL  string `json:"redirect_url,omitempty"`
 }
 
 // FlowStatus is the model-visible view of an in-flight OAuth flow.
