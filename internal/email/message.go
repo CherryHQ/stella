@@ -5,7 +5,10 @@ import "time"
 // Envelope holds metadata about an email message.
 type Envelope struct {
 	UID            uint32    `json:"uid"`
+	MessageID      string    `json:"message_id,omitempty"`
 	From           string    `json:"from"`
+	FromName       string    `json:"from_name,omitempty"`
+	FromAddr       string    `json:"from_addr,omitempty"`
 	To             []string  `json:"to"`
 	Subject        string    `json:"subject"`
 	Date           time.Time `json:"date"`

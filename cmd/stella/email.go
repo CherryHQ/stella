@@ -35,6 +35,7 @@ func emailCommand() *ucli.Command {
 			emailListCommand(),
 			emailReadCommand(),
 			emailSendCommand(),
+			emailMarkCommand(),
 		},
 	}
 }
@@ -618,6 +619,7 @@ func emailSendCommand() *ucli.Command {
 			&ucli.StringSliceFlag{Name: "attach", Usage: "Attachment file path(s)"},
 			&ucli.StringFlag{Name: "from", Usage: "Override From address"},
 			&ucli.StringFlag{Name: "reply-to", Usage: "Reply-To address"},
+			&ucli.StringFlag{Name: "in-reply-to", Usage: "Message-ID of the message being replied to (sets In-Reply-To header)"},
 			&ucli.BoolFlag{Name: "dry-run", Usage: "Print composed message without sending"},
 		},
 		Action: func(c *ucli.Context) error {
@@ -662,6 +664,7 @@ func emailSendCommand() *ucli.Command {
 				Attachments: c.StringSlice("attach"),
 				From:        c.String("from"),
 				ReplyTo:     c.String("reply-to"),
+				InReplyTo:   c.String("in-reply-to"),
 			}
 
 			if c.Bool("dry-run") {
@@ -673,6 +676,52 @@ func emailSendCommand() *ucli.Command {
 				return err
 			}
 			fmt.Println("Email sent successfully.")
+			return nil
+		},
+	}
+}
+
+func emailMarkCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "mark",
+		Usage:     "Add or remove the \\Seen flag on a message",
+		ArgsUsage: "<uid>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name"},
+			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
+			&ucli.BoolFlag{Name: "seen", Usage: "Mark message as read"},
+			&ucli.BoolFlag{Name: "unseen", Usage: "Mark message as unread"},
+		},
+		Action: func(c *ucli.Context) error {
+			uidStr := c.Args().First()
+			if uidStr == "" {
+				return fmt.Errorf("uid is required")
+			}
+			var uid uint32
+			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
+				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
+			}
+			if c.Bool("seen") == c.Bool("unseen") {
+				return fmt.Errorf("exactly one of --seen or --unseen is required")
+			}
+
+			cfg, err := loadEmailConfig(c.Context)
+			if err != nil {
+				return err
+			}
+			acct, err := cfg.Resolve(c.String("account"))
+			if err != nil {
+				return err
+			}
+
+			if err := email.MarkSeen(acct, c.String("folder"), uid, c.Bool("seen")); err != nil {
+				return err
+			}
+			if c.Bool("seen") {
+				fmt.Printf("Message %d marked as read.\n", uid)
+			} else {
+				fmt.Printf("Message %d marked as unread.\n", uid)
+			}
 			return nil
 		},
 	}
