@@ -43,7 +43,7 @@ brews:
     directory: HomebrewFormula
     homepage: "https://stella.cherryin.com"
     description: "Self-hosted AI assistant"
-    license: "Apache-2.0"
+    license: "AGPL-3.0-or-later"
     install: |
       bin.install "stella"
     service: |
@@ -65,7 +65,7 @@ nfpms:
     vendor: CherryHQ
     homepage: https://stella.cherryin.com
     description: Self-hosted AI assistant
-    license: MIT
+    license: AGPL-3.0-or-later
     maintainer: CherryHQ <hello@cherryin.com>
     formats:
       - deb
