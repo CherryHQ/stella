@@ -361,6 +361,41 @@ func TestResolveSessionEnvProviderUsesPluginDefaults(t *testing.T) {
 	}
 }
 
+func TestManifestSessionEnvPropagatesOAuthProviderChoices(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	manifest := &manifestplugins.Manifest{
+		Plugins: []manifestplugins.ManifestPlugin{{
+			ID:      "tool/lark-cli",
+			Kind:    "tool",
+			Name:    "lark-cli",
+			Enabled: true,
+			SessionEnvs: []manifestplugins.ManifestSessionEnv{{
+				EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+				Source: "oauth.access_token",
+			}},
+			OAuthProviderConfigField: "brand",
+			OAuthProviderChoices:     []string{"lark", "feishu"},
+		}},
+	}
+	host.RegisterManifestPlugins(manifest)
+
+	specs := host.AllSessionEnvSpecs()
+	var found bool
+	for _, spec := range specs {
+		if spec.PluginID == "tool/lark-cli" && spec.EnvVar == "LARKSUITE_CLI_USER_ACCESS_TOKEN" {
+			found = true
+			if len(spec.OAuthProviderChoices) != 2 || spec.OAuthProviderChoices[0] != "lark" || spec.OAuthProviderChoices[1] != "feishu" {
+				t.Errorf("OAuthProviderChoices = %v, want [lark feishu]", spec.OAuthProviderChoices)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("lark-cli session env spec not found")
+	}
+}
+
 func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

@@ -206,6 +206,7 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 				Required:                 se.Required,
 				OAuthProviderID:          p.OAuthProvider,
 				OAuthProviderConfigField: p.OAuthProviderConfigField,
+				OAuthProviderChoices:     append([]string(nil), p.OAuthProviderChoices...),
 			})
 		}
 
