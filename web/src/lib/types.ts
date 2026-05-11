@@ -338,6 +338,18 @@ export interface VaultEntry {
 
 export interface OAuthProvider {
   provider: string;
+  available: boolean;
+  configured: boolean;
+  connected: boolean;
+  username?: string;
+  unavailable?: string;
+}
+
+export interface OAuthProviderConfig {
+  provider_id: string;
+  client_id: string;
+  client_secret: string;
+  redirect_url?: string;
 }
 
 export interface OAuthFlow {
