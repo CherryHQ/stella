@@ -79,8 +79,6 @@ sudo stella service uninstall --system
 
 `bubblewrap` must be present before running `stella service install`. It is installed automatically with the Homebrew and package-manager methods; for raw binaries: `apt install bubblewrap` / `dnf install bubblewrap`.
 
-A reference unit file for manual or sysadmin use is at [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service).
-
 ### boxsh Sandbox Prerequisites (Linux)
 
 On Linux, Stella uses the managed `boxsh` sandbox by default for the local workspace tools (`bash`, `read`, `write`, `edit`). `boxsh` needs user namespaces and subordinate ID mapping support on the host.
@@ -180,8 +178,6 @@ stella service uninstall
 ```
 
 Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
-
-A reference plist for manual use is at [`scripts/com.cherryai.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.cherryai.stella.plist).
 
 ## Docker
 

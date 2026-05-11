@@ -79,8 +79,6 @@ sudo stella service uninstall --system
 
 运行 `stella service install` 前需先安装 `bubblewrap`。通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`。
 
-手动或系统管理员使用的参考 unit 文件位于 [`scripts/stella.service`](https://github.com/CherryHQ/stella/blob/main/scripts/stella.service)。
-
 ### boxsh 沙盒前置条件（Linux）
 
 在 Linux 上，Stella 默认使用托管的 `boxsh` 沙盒来运行本地工作区工具（`bash`、`read`、`write`、`edit`）。`boxsh` 需要宿主机支持用户命名空间和从属 ID 映射。
@@ -180,8 +178,6 @@ stella service uninstall
 ```
 
 日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
-
-手动使用的参考 plist 文件位于 [`scripts/com.cherryai.stella.plist`](https://github.com/CherryHQ/stella/blob/main/scripts/com.cherryai.stella.plist)。
 
 ## Docker
 
