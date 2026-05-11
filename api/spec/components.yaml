@@ -511,17 +511,41 @@ components:
           type: string
     OAuthProviderStatus:
       type: object
-      required: [provider, available, connected]
+      required: [provider, available, configured, connected]
       properties:
         provider:
           type: string
         available:
+          type: boolean
+        configured:
           type: boolean
         connected:
           type: boolean
         username:
           type: string
         unavailable:
+          type: string
+    OAuthProviderConfig:
+      type: object
+      required: [provider_id, client_id, client_secret]
+      properties:
+        provider_id:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        redirect_url:
+          type: string
+    OAuthProviderConfigInput:
+      type: object
+      required: [client_id, client_secret]
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        redirect_url:
           type: string
     OAuthFlowStatus:
       type: object

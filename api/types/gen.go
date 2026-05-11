@@ -514,9 +514,25 @@ type OAuthFlowStatus struct {
 	VerificationUri string  `json:"verification_uri"`
 }
 
+// OAuthProviderConfig defines model for OAuthProviderConfig.
+type OAuthProviderConfig struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	ProviderId   string  `json:"provider_id"`
+	RedirectUrl  *string `json:"redirect_url,omitempty"`
+}
+
+// OAuthProviderConfigInput defines model for OAuthProviderConfigInput.
+type OAuthProviderConfigInput struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	RedirectUrl  *string `json:"redirect_url,omitempty"`
+}
+
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus struct {
 	Available   bool    `json:"available"`
+	Configured  bool    `json:"configured"`
 	Connected   bool    `json:"connected"`
 	Provider    string  `json:"provider"`
 	Unavailable *string `json:"unavailable,omitempty"`

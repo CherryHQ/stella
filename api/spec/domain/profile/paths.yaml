@@ -378,3 +378,48 @@ paths:
           description: bad request
         "500":
           description: internal server error
+
+  /api/admin/oauth-providers/{id}/config:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Get OAuth provider config (admin only)
+      operationId: getOAuthProviderConfig
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthProviderConfig",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": {
+          $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
+    put:
+      tags: [profile]
+      summary: Set OAuth provider credentials (admin only)
+      operationId: setOAuthProviderConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/OAuthProviderConfigInput",
+            }
+      responses:
+        "204":
+          description: saved
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": {
+          $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
