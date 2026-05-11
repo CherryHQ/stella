@@ -1,5 +1,6 @@
 oauth_providers:
   - id: github
+    client_id: 178c6fc778ccc68e1d6a
     scopes:
       - repo
       - workflow
@@ -162,6 +163,38 @@ oauth_providers:
         auth_url: https://open.larksuite.com/open-apis/authen/v1/authorize
         token_url: https://open.larksuite.com/open-apis/authen/v2/oauth/token
         auth_style: in_params
+
+  - id: x
+    scopes:
+      - tweet.read
+      - tweet.write
+      - tweet.moderate.write
+      - users.read
+      - users.email
+      - follows.read
+      - follows.write
+      - offline.access
+      - space.read
+      - mute.read
+      - mute.write
+      - like.read
+      - like.write
+      - list.read
+      - list.write
+      - block.read
+      - block.write
+      - bookmark.read
+      - bookmark.write
+      - dm.read
+      - dm.write
+      - media.write
+    vault_key: X_OAUTH
+    flows:
+      - type: authorization_code
+        auth_url: https://x.com/i/oauth2/authorize
+        token_url: https://api.x.com/2/oauth2/token
+        auth_style: in_params
+        pkce: true
 
   - id: feishu
     scopes:
@@ -336,6 +369,17 @@ plugins:
       - name: lightpanda
         tool: github:lightpanda-io/browser
         version: "nightly"
+
+  - id: tool/x
+    kind: tool
+    name: x
+    display_name: X (Twitter)
+    description: "X API integration with OAuth 2.0-backed session auth."
+    enabled: true
+    oauth_provider: x
+    session_env:
+      - env_var: X_ACCESS_TOKEN
+        source: oauth.access_token
 
   - id: tool/gh
     kind: tool

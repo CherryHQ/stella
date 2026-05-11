@@ -26,5 +26,6 @@
 -- atlas:import tables/skills.sql
 -- atlas:import tables/skill_files.sql
 -- atlas:import tables/vault_entries.sql
+-- atlas:import tables/oauth_provider_configs.sql
 -- atlas:import tables/articles.sql
 -- atlas:import tables/rss_feeds.sql

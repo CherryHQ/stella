@@ -62,10 +62,12 @@ func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
 		flows = append(flows, ManifestOAuthFlow(rf))
 	}
 	return ManifestOAuthProvider{
-		ID:       ro.ID,
-		Scopes:   ro.Scopes,
-		VaultKey: ro.VaultKey,
-		Flows:    flows,
+		ID:           ro.ID,
+		Scopes:       ro.Scopes,
+		VaultKey:     ro.VaultKey,
+		Flows:        flows,
+		ClientID:     ro.ClientID,
+		ClientSecret: ro.ClientSecret,
 	}
 }
 
@@ -151,10 +153,12 @@ func manifestToRaw(m *Manifest) rawManifest {
 			flows = append(flows, rawManifestOAuthFlow(f))
 		}
 		rm.OAuthProviders = append(rm.OAuthProviders, rawManifestOAuthProvider{
-			ID:       o.ID,
-			Scopes:   o.Scopes,
-			VaultKey: o.VaultKey,
-			Flows:    flows,
+			ID:           o.ID,
+			Scopes:       o.Scopes,
+			VaultKey:     o.VaultKey,
+			Flows:        flows,
+			ClientID:     o.ClientID,
+			ClientSecret: o.ClientSecret,
 		})
 	}
 	for _, p := range m.Plugins {

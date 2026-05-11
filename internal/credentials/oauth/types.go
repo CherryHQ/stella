@@ -35,6 +35,7 @@ type FlowStatus struct {
 	State           FlowState
 	FlowType        string        // "device_code" or "authorization_code"
 	Token           *oauth2.Token // set by DeviceCodeBroker when authorized
+	PKCEVerifier    string        // PKCE code verifier; set when PKCE is enabled
 }
 
 // OAuthBundle is the generic versioned vault payload for all YAML-driven

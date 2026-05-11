@@ -205,13 +205,16 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 						DeviceAuthURL: f.DeviceAuthURL,
 						TokenURL:      f.TokenURL,
 						AuthStyle:     authStyle,
+						PKCE:          f.PKCE,
 					})
 				}
 				oauthRegistry.Register(oauth.ProviderConfig{
-					ID:       op.ID,
-					Scopes:   op.Scopes,
-					VaultKey: op.VaultKey,
-					Flows:    flows,
+					ID:           op.ID,
+					Scopes:       op.Scopes,
+					VaultKey:     op.VaultKey,
+					Flows:        flows,
+					ClientID:     op.ClientID,
+					ClientSecret: op.ClientSecret,
 				})
 			}
 

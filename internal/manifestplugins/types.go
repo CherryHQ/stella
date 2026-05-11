@@ -78,13 +78,16 @@ type ManifestOAuthFlow struct {
 	DeviceAuthURL string `json:"device_auth_url,omitempty" yaml:"device_auth_url,omitempty"`
 	TokenURL      string `json:"token_url" yaml:"token_url"`
 	AuthStyle     string `json:"auth_style,omitempty" yaml:"auth_style,omitempty"`
+	PKCE          bool   `json:"pkce,omitempty" yaml:"pkce,omitempty"`
 }
 
 type ManifestOAuthProvider struct {
-	ID       string              `json:"id" yaml:"id"`
-	Scopes   []string            `json:"scopes" yaml:"scopes"`
-	VaultKey string              `json:"vault_key" yaml:"vault_key"`
-	Flows    []ManifestOAuthFlow `json:"flows" yaml:"flows"`
+	ID           string              `json:"id" yaml:"id"`
+	Scopes       []string            `json:"scopes" yaml:"scopes"`
+	VaultKey     string              `json:"vault_key" yaml:"vault_key"`
+	Flows        []ManifestOAuthFlow `json:"flows" yaml:"flows"`
+	ClientID     string              `json:"client_id,omitempty" yaml:"client_id,omitempty"`
+	ClientSecret string              `json:"client_secret,omitempty" yaml:"client_secret,omitempty"`
 }
 
 type Manifest struct {
@@ -114,13 +117,16 @@ type rawManifestOAuthFlow struct {
 	DeviceAuthURL string `yaml:"device_auth_url,omitempty"`
 	TokenURL      string `yaml:"token_url"`
 	AuthStyle     string `yaml:"auth_style,omitempty"`
+	PKCE          bool   `yaml:"pkce,omitempty"`
 }
 
 type rawManifestOAuthProvider struct {
-	ID       string                 `yaml:"id"`
-	Scopes   []string               `yaml:"scopes"`
-	VaultKey string                 `yaml:"vault_key"`
-	Flows    []rawManifestOAuthFlow `yaml:"flows"`
+	ID           string                 `yaml:"id"`
+	Scopes       []string               `yaml:"scopes"`
+	VaultKey     string                 `yaml:"vault_key"`
+	Flows        []rawManifestOAuthFlow `yaml:"flows"`
+	ClientID     string                 `yaml:"client_id,omitempty"`
+	ClientSecret string                 `yaml:"client_secret,omitempty"`
 }
 
 type rawManifest struct {

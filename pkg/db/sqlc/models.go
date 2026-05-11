@@ -204,6 +204,14 @@ type MemorySnapshot struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type OauthProviderConfig struct {
+	ProviderID   string `json:"provider_id"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	RedirectUrl  string `json:"redirect_url"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
 type PluginStateEntry struct {
 	PluginID  string `json:"plugin_id"`
 	ScopeKind string `json:"scope_kind"`

@@ -143,7 +143,7 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 			Scopes:       providerCfg.Scopes,
 			Endpoint:     endpoint,
 		}
-		return oauth.NewAuthCodeBroker(cfg, s.flowStore), nil
+		return oauth.NewAuthCodeBroker(cfg, s.flowStore, flow.PKCE), nil
 	case "device_code":
 		endpoint.DeviceAuthURL = flow.DeviceAuthURL
 		cfg := &oauth2.Config{
