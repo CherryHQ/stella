@@ -2,7 +2,7 @@
 
 All configuration is stored in a SQLite database at `$STELLA_HOME/stella.db` (`~/.stella/stella.db` by default).
 
-The easiest way to configure stella is `stella --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `stella --admin-port 8080`.
+The easiest way to configure stella is `stella --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `stella --port 8080`.
 
 ## Quick start
 

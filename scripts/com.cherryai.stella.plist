@@ -27,7 +27,7 @@
     <array>
         <string>STELLA_BIN</string>
         <!-- Uncomment to expose the admin panel on port 8080 -->
-        <!-- <string>--admin-port</string> -->
+        <!-- <string>--port</string> -->
         <!-- <string>8080</string> -->
     </array>
 

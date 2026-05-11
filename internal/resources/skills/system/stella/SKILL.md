@@ -72,7 +72,7 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 ```
 stella                   # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler)
 stella --open            # Start daemon and open admin panel in browser
-stella --admin-port 8080 # Start daemon with admin panel on custom port
+stella --port 8080       # Start daemon with admin panel on custom port
 stella models list       # List models
 stella models set <p/m>  # Switch model
 stella models update     # Refresh model cache

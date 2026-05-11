@@ -27,7 +27,7 @@ Environment=STELLA_HOME=/home/stella/.stella
 # See docs: /docs/getting-started/deployment#boxsh-sandbox-prerequisites-linux
 
 # Optional: expose admin panel for runtime config changes
-# ExecStart=STELLA_BIN --admin-port 8080
+# ExecStart=STELLA_BIN --port 8080
 
 # Harden the service
 NoNewPrivileges=true
