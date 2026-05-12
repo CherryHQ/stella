@@ -579,10 +579,10 @@ export function buildManifestInstallDraft(plugin: PluginWithMeta): ManifestInsta
     binaries: (manifest.binaries || []).map((b) => ({
       id: nextRowID(),
       name: b.name || "",
-      repo: b.repo || "",
+      tool: b.tool || "",
       version: b.version || "",
       bin_path: b.bin_path || "",
-      exe: b.exe || "",
+      bin: b.bin || "",
     })),
     session_env: (manifest.session_env || []).map((e) => ({
       id: nextRowID(),
@@ -600,14 +600,14 @@ export function buildManifestPluginFromDraft(draft: ManifestInstallDraft): Manif
     .map((row) => {
       const binary: ManifestBinary = {
         name: String(row.name || "").trim(),
-        repo: String(row.repo || "").trim(),
+        tool: String(row.tool || "").trim(),
       };
       if (row.version) binary.version = String(row.version).trim();
       if (row.bin_path) binary.bin_path = String(row.bin_path).trim();
-      if (row.exe) binary.exe = String(row.exe).trim();
+      if (row.bin) binary.bin = String(row.bin).trim();
       return binary;
     })
-    .filter((b) => b.name || b.repo);
+    .filter((b) => b.name || b.tool);
 
   const sessionEnv = (draft.session_env || [])
     .map((row) => {

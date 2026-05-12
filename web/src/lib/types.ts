@@ -200,10 +200,10 @@ export interface Plugin {
 
 export interface ManifestBinary {
   name: string;
-  repo: string;
+  tool: string;
   version?: string;
   bin_path?: string;
-  exe?: string;
+  bin?: string;
 }
 
 export interface ManifestSessionEnv {

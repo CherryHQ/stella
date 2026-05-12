@@ -24,7 +24,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
     update({
       binaries: [
         ...draft.binaries,
-        { id: nextRowID(), name: "", repo: "", version: "", bin_path: "", exe: "" },
+        { id: nextRowID(), name: "", tool: "", version: "", bin_path: "", bin: "" },
       ],
     });
   }
@@ -159,9 +159,9 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                   />
                   <Input
                     nativeInput
-                    value={binary.repo}
+                    value={binary.tool}
                     onChange={(e) =>
-                      updateBinary(index, "repo", (e.target as HTMLInputElement).value)
+                      updateBinary(index, "tool", (e.target as HTMLInputElement).value)
                     }
                     placeholder="owner/repo"
                     className="font-mono"
@@ -189,9 +189,9 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                   />
                   <Input
                     nativeInput
-                    value={binary.exe ?? ""}
+                    value={binary.bin ?? ""}
                     onChange={(e) =>
-                      updateBinary(index, "exe", (e.target as HTMLInputElement).value)
+                      updateBinary(index, "bin", (e.target as HTMLInputElement).value)
                     }
                     placeholder="exe"
                     className="font-mono"

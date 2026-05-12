@@ -83,10 +83,10 @@ export function PluginsPage() {
     display_name: "",
     description: "",
     binary_name: "",
-    repo: "",
+    tool: "",
     version: "",
     bin_path: "",
-    exe: "",
+    bin: "",
   });
 
   // MCP state
@@ -427,17 +427,17 @@ export function PluginsPage() {
       const id = (draft.id || "").trim();
       const name = (draft.name || "").trim();
       const binaryName = (draft.binary_name || "").trim();
-      const repo = (draft.repo || "").trim();
+      const tool = (draft.tool || "").trim();
       if (!id || !id.startsWith("tool/")) throw new Error("Plugin ID must start with tool/");
       if (!name) throw new Error("Name is required");
       if (!binaryName) throw new Error("Binary name is required");
-      if (!repo) throw new Error("GitHub repo is required");
+      if (!tool) throw new Error("GitHub repo is required");
       if (manifestPlugins.some((p) => p.id === id)) throw new Error(id + " already exists");
 
-      const binary: Record<string, string> = { name: binaryName, repo };
+      const binary: Record<string, string> = { name: binaryName, tool };
       if (draft.version) binary.version = draft.version.trim();
       if (draft.bin_path) binary.bin_path = draft.bin_path.trim();
-      if (draft.exe) binary.exe = draft.exe.trim();
+      if (draft.bin) binary.bin = draft.bin.trim();
 
       const newPlugin: ManifestPlugin = {
         id,
@@ -460,10 +460,10 @@ export function PluginsPage() {
         display_name: "",
         description: "",
         binary_name: "",
-        repo: "",
+        tool: "",
         version: "",
         bin_path: "",
-        exe: "",
+        bin: "",
       });
       showToast(id + " added");
     } catch (e) {
@@ -570,10 +570,10 @@ export function PluginsPage() {
                       display_name: "",
                       description: "",
                       binary_name: "",
-                      repo: "",
+                      tool: "",
                       version: "",
                       bin_path: "",
-                      exe: "",
+                      bin: "",
                     })
                   }
                   variant="ghost"
@@ -605,11 +605,11 @@ export function PluginsPage() {
                   <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
                   <Input
                     nativeInput
-                    value={newManifestTool.repo}
+                    value={newManifestTool.tool}
                     onChange={(e) =>
                       setNewManifestTool((prev) => ({
                         ...prev,
-                        repo: (e.target as HTMLInputElement).value,
+                        tool: (e.target as HTMLInputElement).value,
                       }))
                     }
                     type="text"
@@ -706,11 +706,11 @@ export function PluginsPage() {
                   <label className="text-xs font-medium text-muted-foreground">Exe override</label>
                   <Input
                     nativeInput
-                    value={newManifestTool.exe}
+                    value={newManifestTool.bin}
                     onChange={(e) =>
                       setNewManifestTool((prev) => ({
                         ...prev,
-                        exe: (e.target as HTMLInputElement).value,
+                        bin: (e.target as HTMLInputElement).value,
                       }))
                     }
                     type="text"
