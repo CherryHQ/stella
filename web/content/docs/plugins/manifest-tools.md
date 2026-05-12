@@ -66,19 +66,17 @@ plugins:
 
 ## Plugin fields
 
-| Field                         | Required    | Description                                                                        |
-| ----------------------------- | ----------- | ---------------------------------------------------------------------------------- |
-| `id`                          | Yes         | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                           |
-| `kind`                        | Yes         | Plugin kind, typically `tool`                                                      |
-| `name`                        | Yes         | Short machine-readable name                                                        |
-| `display_name`                | No          | Human-readable label shown in the admin UI                                         |
-| `description`                 | No          | Short description shown in the admin UI                                            |
-| `enabled`                     | No          | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries`                    | No          | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
-| `session_env`                 | No          | Environment variables to inject into sandbox sessions                              |
-| `oauth_provider`              | No          | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
-| `oauth_provider_config_field` | No          | Plugin config field that dynamically selects the OAuth provider, such as `brand`   |
-| `oauth_provider_choices`      | Conditional | Allowed provider IDs when `oauth_provider_config_field` is set                     |
+| Field            | Required | Description                                                                        |
+| ---------------- | -------- | ---------------------------------------------------------------------------------- |
+| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                           |
+| `kind`           | Yes      | Plugin kind, typically `tool`                                                      |
+| `name`           | Yes      | Short machine-readable name                                                        |
+| `display_name`   | No       | Human-readable label shown in the admin UI                                         |
+| `description`    | No       | Short description shown in the admin UI                                            |
+| `enabled`        | No       | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
+| `binaries`       | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
+| `session_env`    | No       | Environment variables to inject into sandbox sessions                              |
+| `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
 
 ## Binary fields
 
@@ -218,25 +216,16 @@ plugin to change one field, include the rest of the fields you still need.
 
 ### Switching `lark-cli` between Feishu and Lark
 
-The built-in `tool/lark-cli` manifest does not hard-code Feishu or Lark twice.
-Instead, it resolves the OAuth provider from the plugin's `brand` config field and
-injects the brand from the saved OAuth bundle:
+The built-in `tool/lark-cli` manifest uses `oauth_provider: lark` by default.
+To switch to Feishu, override the provider in `plugins.yaml`:
 
 ```yaml
-oauth_provider_config_field: brand
-oauth_provider_choices: [lark, feishu]
-session_env:
-  - env_var: LARKSUITE_CLI_BRAND
-    source: oauth.brand
+plugins:
+  - id: tool/lark-cli
+    oauth_provider: feishu
 ```
 
-Set `brand` in the Lark CLI plugin settings:
-
-- `feishu` uses Feishu OAuth and injects `LARKSUITE_CLI_BRAND=feishu`.
-- `lark` uses international Lark OAuth and injects `LARKSUITE_CLI_BRAND=lark`.
-
-Do not override the manifest just to switch between Feishu and Lark. A manifest
-override is only needed when changing the binary or env declarations themselves.
+A manifest override is only needed when changing the binary or env declarations themselves.
 
 ## Admin UI
 
@@ -245,7 +234,7 @@ Manifest-backed plugins are shown once, in the tab that matches their kind:
 - `tool/gh`, `tool/lark-cli`, and `tool/tap-web` appear in **Tools**.
 - `hook/rtk` appears in **Hooks**.
 
-Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the YAML-backed plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, such as Lark CLI credentials and `brand`, the row also shows **Configure**.
+Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the YAML-backed plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**.
 
 The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$STELLA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
 

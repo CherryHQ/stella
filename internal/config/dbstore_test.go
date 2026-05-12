@@ -848,7 +848,7 @@ func TestSeedDefaultsMigratesLegacyLarkAuthAndPurgesLegacyGitHubAuth(t *testing.
 	if err != nil {
 		t.Fatalf("GetPlugin tool/lark-cli: %v", err)
 	}
-	if lark.Config["app_id"] != "lark-app" || lark.Config["app_secret"] != "lark-secret" || lark.Config["brand"] != "feishu" {
+	if lark.Config["app_id"] != "lark-app" || lark.Config["app_secret"] != "lark-secret" {
 		t.Fatalf("tool/lark-cli config = %+v", lark.Config)
 	}
 

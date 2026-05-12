@@ -14,7 +14,7 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
-func TestLoadBuiltinLarkCLISelectsOAuthProviderFromBrand(t *testing.T) {
+func TestLoadBuiltinLarkCLIOAuthProvider(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -23,14 +23,8 @@ func TestLoadBuiltinLarkCLISelectsOAuthProviderFromBrand(t *testing.T) {
 		if p.ID != "tool/lark-cli" {
 			continue
 		}
-		if p.OAuthProvider != "" {
-			t.Fatalf("OAuthProvider = %q, want dynamic provider from config", p.OAuthProvider)
-		}
-		if p.OAuthProviderConfigField != "brand" {
-			t.Fatalf("OAuthProviderConfigField = %q, want brand", p.OAuthProviderConfigField)
-		}
-		if len(p.OAuthProviderChoices) != 2 || p.OAuthProviderChoices[0] != "lark" || p.OAuthProviderChoices[1] != "feishu" {
-			t.Fatalf("OAuthProviderChoices = %#v, want [lark feishu]", p.OAuthProviderChoices)
+		if p.OAuthProvider != "lark" {
+			t.Fatalf("OAuthProvider = %q, want lark", p.OAuthProvider)
 		}
 		for _, se := range p.SessionEnvs {
 			if se.EnvVar == "LARKSUITE_CLI_BRAND" && se.Source != "oauth.brand" {

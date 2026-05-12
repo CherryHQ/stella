@@ -324,44 +324,7 @@ func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 	}
 }
 
-func TestResolveSessionEnvProviderFromPluginConfig(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{
-		"tool/lark-cli": {ID: "tool/lark-cli", Enabled: true, Config: map[string]any{"brand": "lark"}},
-	}}
-	host := New(store)
-	spec := host.resolveSessionEnvProvider(context.Background(), pkgplugins.SessionEnvSpec{
-		PluginID:                 "tool/lark-cli",
-		EnvVar:                   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
-		Source:                   pkgplugins.SessionEnvSource("oauth.access_token"),
-		OAuthProviderConfigField: "brand",
-	})
-	if spec.OAuthProviderID != "lark" {
-		t.Fatalf("OAuthProviderID = %q, want lark", spec.OAuthProviderID)
-	}
-}
-
-func TestResolveSessionEnvProviderUsesPluginDefaults(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{
-		"tool/lark-cli": {ID: "tool/lark-cli", Enabled: true, Config: map[string]any{}},
-	}}
-	host := New(store)
-	host.RegisterPluginID("tool/lark-cli")
-	host.AddAdmin(pkgplugins.AdminSpec{
-		PluginID:      "tool/lark-cli",
-		DefaultConfig: func() map[string]any { return map[string]any{"brand": "feishu"} },
-	})
-	spec := host.resolveSessionEnvProvider(context.Background(), pkgplugins.SessionEnvSpec{
-		PluginID:                 "tool/lark-cli",
-		EnvVar:                   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
-		Source:                   pkgplugins.SessionEnvSource("oauth.access_token"),
-		OAuthProviderConfigField: "brand",
-	})
-	if spec.OAuthProviderID != "feishu" {
-		t.Fatalf("OAuthProviderID = %q, want feishu", spec.OAuthProviderID)
-	}
-}
-
-func TestManifestSessionEnvPropagatesOAuthProviderChoices(t *testing.T) {
+func TestManifestSessionEnvPropagatesOAuthProvider(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	manifest := &manifestplugins.Manifest{
@@ -374,8 +337,7 @@ func TestManifestSessionEnvPropagatesOAuthProviderChoices(t *testing.T) {
 				EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN",
 				Source: "oauth.access_token",
 			}},
-			OAuthProviderConfigField: "brand",
-			OAuthProviderChoices:     []string{"lark", "feishu"},
+			OAuthProvider: "lark",
 		}},
 	}
 	host.RegisterManifestPlugins(manifest)
@@ -385,8 +347,8 @@ func TestManifestSessionEnvPropagatesOAuthProviderChoices(t *testing.T) {
 	for _, spec := range specs {
 		if spec.PluginID == "tool/lark-cli" && spec.EnvVar == "LARKSUITE_CLI_USER_ACCESS_TOKEN" {
 			found = true
-			if len(spec.OAuthProviderChoices) != 2 || spec.OAuthProviderChoices[0] != "lark" || spec.OAuthProviderChoices[1] != "feishu" {
-				t.Errorf("OAuthProviderChoices = %v, want [lark feishu]", spec.OAuthProviderChoices)
+			if spec.OAuthProviderID != "lark" {
+				t.Errorf("OAuthProviderID = %q, want lark", spec.OAuthProviderID)
 			}
 			break
 		}

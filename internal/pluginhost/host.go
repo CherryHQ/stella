@@ -199,14 +199,12 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 		// Go-registered ones. The manifest is the source of truth.
 		for _, se := range p.SessionEnvs {
 			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
-				PluginID:                 p.ID,
-				EnvVar:                   se.EnvVar,
-				Source:                   pkgplugins.SessionEnvSource(se.Source),
-				Value:                    se.Value,
-				Required:                 se.Required,
-				OAuthProviderID:          p.OAuthProvider,
-				OAuthProviderConfigField: p.OAuthProviderConfigField,
-				OAuthProviderChoices:     append([]string(nil), p.OAuthProviderChoices...),
+				PluginID:        p.ID,
+				EnvVar:          se.EnvVar,
+				Source:          pkgplugins.SessionEnvSource(se.Source),
+				Value:           se.Value,
+				Required:        se.Required,
+				OAuthProviderID: p.OAuthProvider,
 			})
 		}
 

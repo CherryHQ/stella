@@ -159,14 +159,12 @@ const (
 // Sources are metadata-driven so plugins can declare what they need without
 // depending on runner-owned services such as TokenManager.
 type SessionEnvSpec struct {
-	PluginID                 string
-	EnvVar                   string
-	Source                   SessionEnvSource
-	Value                    string   // used only when Source == SessionEnvSourceStatic
-	Required                 bool     // if true, session creation fails when this env cannot be resolved
-	OAuthProviderID          string   // set when source is oauth.*; identifies which provider bundle to load
-	OAuthProviderConfigField string   // optional plugin config field used to resolve OAuthProviderID dynamically
-	OAuthProviderChoices     []string // ordered list of provider IDs to try; first connected bundle wins
+	PluginID        string
+	EnvVar          string
+	Source          SessionEnvSource
+	Value           string // used only when Source == SessionEnvSourceStatic
+	Required        bool   // if true, session creation fails when this env cannot be resolved
+	OAuthProviderID string // set when source is oauth.*; identifies which provider bundle to load
 }
 
 // BundledSkillSyncContext is the build-time context for syncing a bundled skill

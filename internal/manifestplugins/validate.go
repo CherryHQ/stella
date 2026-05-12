@@ -118,8 +118,8 @@ func Validate(m *Manifest) error {
 			} else if !isValidSource(se.Source, providerIDs) {
 				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: unknown source %q", p.ID, j, se.Source))
 			}
-			if strings.HasPrefix(se.Source, "oauth.") && p.OAuthProvider == "" && p.OAuthProviderConfigField == "" {
-				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: oauth source requires oauth_provider or oauth_provider_config_field", p.ID, j))
+			if strings.HasPrefix(se.Source, "oauth.") && p.OAuthProvider == "" {
+				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: oauth source requires oauth_provider", p.ID, j))
 			}
 		}
 		if p.OAuthProvider != "" {
@@ -127,16 +127,7 @@ func Validate(m *Manifest) error {
 				errs = append(errs, fmt.Errorf("plugin %q: unknown oauth_provider %q", p.ID, p.OAuthProvider))
 			}
 		}
-		if p.OAuthProviderConfigField != "" && len(p.OAuthProviderChoices) == 0 {
-			errs = append(errs, fmt.Errorf("plugin %q: oauth_provider_config_field requires oauth_provider_choices", p.ID))
-		}
-		for j, choice := range p.OAuthProviderChoices {
-			if choice == "" {
-				errs = append(errs, fmt.Errorf("plugin %q oauth_provider_choices[%d]: id is required", p.ID, j))
-			} else if _, ok := providerIDs[choice]; !ok {
-				errs = append(errs, fmt.Errorf("plugin %q: unknown oauth_provider choice %q", p.ID, choice))
-			}
-		}
+
 	}
 	return errors.Join(errs...)
 }

@@ -200,16 +200,6 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]st
 			continue
 		}
 		providerID := spec.OAuthProviderID
-		if providerID == "" && len(spec.OAuthProviderChoices) > 0 {
-			// Pick the first provider in OAuthProviderChoices that has a connected bundle.
-			for _, choice := range spec.OAuthProviderChoices {
-				if b, _ := cfg.TokenManager.GetOAuthToken(ctx, choice, cfg.UserID); b != nil {
-					providerID = choice
-					oauthBundles[choice] = b
-					break
-				}
-			}
-		}
 		if providerID == "" {
 			if spec.Required {
 				return fmt.Errorf("required session env %q has oauth source but no OAuthProviderID", spec.EnvVar)

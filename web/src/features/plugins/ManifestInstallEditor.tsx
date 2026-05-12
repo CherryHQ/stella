@@ -296,34 +296,6 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
               size="sm"
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">
-              Provider config field
-            </label>
-            <Input
-              nativeInput
-              value={draft.oauth_provider_config_field}
-              onChange={(e) =>
-                update({ oauth_provider_config_field: (e.target as HTMLInputElement).value })
-              }
-              placeholder="brand"
-              className="font-mono"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1 md:col-span-2">
-            <label className="text-xs font-medium text-muted-foreground">Provider choices</label>
-            <Input
-              nativeInput
-              value={draft.oauth_provider_choices}
-              onChange={(e) =>
-                update({ oauth_provider_choices: (e.target as HTMLInputElement).value })
-              }
-              placeholder="feishu, lark"
-              className="font-mono"
-              size="sm"
-            />
-          </div>
         </div>
       </div>
     </div>

@@ -223,8 +223,6 @@ export interface ManifestPlugin {
   binaries?: ManifestBinary[];
   session_env?: ManifestSessionEnv[];
   oauth_provider?: string;
-  oauth_provider_config_field?: string;
-  oauth_provider_choices?: string[];
 }
 
 export interface McpServer {

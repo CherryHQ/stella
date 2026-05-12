@@ -63,7 +63,7 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 
 	for _, spec := range h.AllSessionEnvSpecs() {
 		if _, ok := enabledSet[spec.PluginID]; ok {
-			view.SessionEnvSpecs = append(view.SessionEnvSpecs, h.resolveSessionEnvProvider(ctx, spec))
+			view.SessionEnvSpecs = append(view.SessionEnvSpecs, spec)
 		}
 	}
 	sort.Slice(view.SessionEnvSpecs, func(i, j int) bool {
@@ -74,25 +74,4 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 	})
 
 	return view, nil
-}
-
-func (h *Host) resolveSessionEnvProvider(ctx context.Context, spec pkgplugins.SessionEnvSpec) pkgplugins.SessionEnvSpec {
-	if spec.OAuthProviderConfigField == "" || spec.OAuthProviderID != "" || h.store == nil {
-		return spec
-	}
-
-	var value string
-	if plugin, err := h.store.GetPlugin(ctx, spec.PluginID); err == nil {
-		value, _ = plugin.Config[spec.OAuthProviderConfigField].(string)
-	}
-	if value == "" {
-		h.mu.RLock()
-		reg, ok := h.configRegs[spec.PluginID]
-		h.mu.RUnlock()
-		if ok {
-			value, _ = reg.Defaults()[spec.OAuthProviderConfigField].(string)
-		}
-	}
-	spec.OAuthProviderID = value
-	return spec
 }
