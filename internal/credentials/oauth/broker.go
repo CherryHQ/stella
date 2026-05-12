@@ -105,25 +105,35 @@ func (b *DeviceCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus,
 type AuthCodeBroker struct {
 	cfg   *oauth2.Config
 	store *FlowStore
+	pkce  bool
 }
 
 // NewAuthCodeBroker creates an AuthCodeBroker backed by store.
-func NewAuthCodeBroker(cfg *oauth2.Config, store *FlowStore) *AuthCodeBroker {
-	return &AuthCodeBroker{cfg: cfg, store: store}
+// When pkce is true, PKCE (RFC 7636) is enabled: a verifier is generated per flow
+// and the S256 challenge is included in the authorization URL.
+func NewAuthCodeBroker(cfg *oauth2.Config, store *FlowStore, pkce bool) *AuthCodeBroker {
+	return &AuthCodeBroker{cfg: cfg, store: store, pkce: pkce}
 }
 
 // StartFlow generates a state token, constructs the authorization URL, and
 // stores a pending FlowStatus. The user must navigate to VerificationURI.
 func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userID int64) (FlowStatus, error) {
 	flowID := uuid.NewString()
+	var verifier string
+	var authURLOpts []oauth2.AuthCodeOption
+	if b.pkce {
+		verifier = oauth2.GenerateVerifier()
+		authURLOpts = append(authURLOpts, oauth2.S256ChallengeOption(verifier))
+	}
 	status := FlowStatus{
 		Provider:        provider,
 		FlowID:          flowID,
 		UserID:          userID,
-		VerificationURI: b.cfg.AuthCodeURL(flowID),
+		VerificationURI: b.cfg.AuthCodeURL(flowID, authURLOpts...),
 		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		State:           FlowStatePending,
 		FlowType:        "authorization_code",
+		PKCEVerifier:    verifier,
 	}
 	b.store.Create(status)
 	return status, nil
@@ -148,11 +158,16 @@ func (b *AuthCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus, e
 // Complete exchanges an authorization code for tokens and returns the token.
 // The code comes from the OAuth callback handler's query parameter.
 func (b *AuthCodeBroker) Complete(ctx context.Context, flowID string, code string) (*oauth2.Token, error) {
-	if _, ok := b.store.Get(flowID); !ok {
+	flow, ok := b.store.Get(flowID)
+	if !ok {
 		return nil, fmt.Errorf("oauth: unknown flow %q", flowID)
 	}
 
-	tok, err := b.cfg.Exchange(ctx, code)
+	var opts []oauth2.AuthCodeOption
+	if flow.PKCEVerifier != "" {
+		opts = append(opts, oauth2.VerifierOption(flow.PKCEVerifier))
+	}
+	tok, err := b.cfg.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: exchange code: %w", err)
 	}

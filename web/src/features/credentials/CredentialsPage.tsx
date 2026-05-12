@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
-import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
+import type { OAuthFlow, OAuthProvider, OAuthProviderConfig, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
+import { meQueryOptions } from "@/lib/queries/me";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
 export function CredentialsPage() {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
@@ -23,6 +27,13 @@ export function CredentialsPage() {
   >({});
   const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
   const [oauthFlowActive, setOauthFlowActive] = useState<Record<string, boolean>>({});
+
+  // Configure form state per provider
+  const [configOpen, setConfigOpen] = useState<Record<string, boolean>>({});
+  const [configValues, setConfigValues] = useState<
+    Record<string, { clientId: string; clientSecret: string; redirectUrl: string }>
+  >({});
+  const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
 
   const [toast, setToast] = useState<Toast>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,6 +90,33 @@ export function CredentialsPage() {
     }
   }, []);
 
+  const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
+
+  const loadProviderConfig = useCallback(async (provider: string) => {
+    try {
+      const cfg = await api<OAuthProviderConfig>(
+        "GET",
+        `/api/admin/oauth-providers/${provider}/config`,
+      );
+      if (cfg) {
+        setConfigValues((prev) => ({
+          ...prev,
+          [provider]: {
+            clientId: cfg.client_id,
+            clientSecret: "",
+            redirectUrl: cfg.redirect_url ?? "",
+          },
+        }));
+        setHasExistingSecret((prev) => ({
+          ...prev,
+          [provider]: cfg.client_secret === "***",
+        }));
+      }
+    } catch {
+      // not admin or no config yet — ignore
+    }
+  }, []);
+
   const checkOAuthConnected = useCallback(async (provider: string) => {
     setOauthStatus((prev) => ({ ...prev, [provider]: "checking" }));
     try {
@@ -99,7 +137,10 @@ export function CredentialsPage() {
     const init = async () => {
       await loadVaultEntries();
       const providers = await loadOAuthProviders();
-      await Promise.all(providers.map((p) => checkOAuthConnected(p.provider)));
+      await Promise.all([
+        ...providers.map((p) => checkOAuthConnected(p.provider)),
+        ...(isAdmin ? providers.map((p) => loadProviderConfig(p.provider)) : []),
+      ]);
     };
     void init();
     return () => {
@@ -108,7 +149,7 @@ export function CredentialsPage() {
         pollAbortRef.current[key] = true;
       }
     };
-  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected]);
+  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected, loadProviderConfig, isAdmin]);
 
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
@@ -207,6 +248,49 @@ export function CredentialsPage() {
     [showToast, checkOAuthConnected],
   );
 
+  const saveProviderConfig = useCallback(
+    async (provider: string) => {
+      const vals = configValues[provider];
+      if (!vals?.clientId) {
+        showToast("Client ID is required", "error");
+        return;
+      }
+      setConfigSaving((prev) => ({ ...prev, [provider]: true }));
+      try {
+        await api("PUT", `/api/admin/oauth-providers/${provider}/config`, {
+          client_id: vals.clientId,
+          client_secret: vals.clientSecret,
+          redirect_url: vals.redirectUrl || undefined,
+        });
+        showToast(`${provider} credentials saved`);
+        await loadOAuthProviders();
+        await loadProviderConfig(provider);
+        await checkOAuthConnected(provider);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to save config", "error");
+      } finally {
+        setConfigSaving((prev) => ({ ...prev, [provider]: false }));
+      }
+    },
+    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
+  );
+
+  const deleteProviderConfig = useCallback(
+    async (provider: string) => {
+      if (!window.confirm(`Reset ${provider} credentials to defaults?`)) return;
+      try {
+        await api("DELETE", `/api/admin/oauth-providers/${provider}/config`);
+        showToast(`${provider} credentials reset to defaults`);
+        await loadOAuthProviders();
+        await loadProviderConfig(provider);
+        await checkOAuthConnected(provider);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to reset config", "error");
+      }
+    },
+    [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
+  );
+
   return (
     <div>
       <div className="mb-6">
@@ -250,9 +334,21 @@ export function CredentialsPage() {
                     {oauthStatus[p.provider] === "checking" && (
                       <span className="text-xs text-muted-foreground">Checking…</span>
                     )}
+                    {p.configured && <Badge variant="secondary">Configured</Badge>}
                   </div>
-                  <div>
-                    {oauthStatus[p.provider] !== "connected" ? (
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
+                        }
+                      >
+                        {configOpen[p.provider] ? "Hide" : "Configure"}
+                      </Button>
+                    )}
+                    {p.available && oauthStatus[p.provider] !== "connected" ? (
                       <Button
                         size="sm"
                         loading={oauthFlowActive[p.provider]}
@@ -260,7 +356,7 @@ export function CredentialsPage() {
                       >
                         Connect
                       </Button>
-                    ) : (
+                    ) : oauthStatus[p.provider] === "connected" ? (
                       <Button
                         size="sm"
                         variant="destructive-outline"
@@ -268,9 +364,73 @@ export function CredentialsPage() {
                       >
                         Disconnect
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
+
+                {configOpen[p.provider] && (
+                  <div className="mt-2 rounded-lg border border-border p-4">
+                    <h3 className="text-sm font-medium mb-3">Configure {p.provider} OAuth App</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Client ID</label>
+                        <Input
+                          type="text"
+                          value={configValues[p.provider]?.clientId ?? ""}
+                          onChange={(e) =>
+                            setConfigValues((prev) => ({
+                              ...prev,
+                              [p.provider]: { ...prev[p.provider], clientId: e.target.value },
+                            }))
+                          }
+                          placeholder="OAuth app client ID"
+                          autoComplete="off"
+                          nativeInput
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Client Secret</label>
+                        <Input
+                          type="password"
+                          value={configValues[p.provider]?.clientSecret ?? ""}
+                          onChange={(e) =>
+                            setConfigValues((prev) => ({
+                              ...prev,
+                              [p.provider]: {
+                                ...prev[p.provider],
+                                clientSecret: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={
+                            hasExistingSecret[p.provider]
+                              ? "Leave empty to keep existing"
+                              : "OAuth app client secret"
+                          }
+                          autoComplete="new-password"
+                          nativeInput
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        loading={configSaving[p.provider]}
+                        onClick={() => saveProviderConfig(p.provider)}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive-outline"
+                        onClick={() => deleteProviderConfig(p.provider)}
+                      >
+                        Reset to defaults
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {oauthFlow[p.provider] && (
                   <div className="mt-2 rounded-lg border border-info/36 bg-info/8 p-4 text-sm">
                     <p className="font-medium">Authorize stella:</p>

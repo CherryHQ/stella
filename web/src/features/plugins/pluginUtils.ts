@@ -565,8 +565,6 @@ export interface ManifestInstallDraft {
   binaries: (ManifestBinary & { id: number })[];
   session_env: (ManifestSessionEnv & { id: number })[];
   oauth_provider: string;
-  oauth_provider_config_field: string;
-  oauth_provider_choices: string;
 }
 
 export function buildManifestInstallDraft(plugin: PluginWithMeta): ManifestInstallDraft {
@@ -594,8 +592,6 @@ export function buildManifestInstallDraft(plugin: PluginWithMeta): ManifestInsta
       required: !!e.required,
     })),
     oauth_provider: manifest.oauth_provider || "",
-    oauth_provider_config_field: manifest.oauth_provider_config_field || "",
-    oauth_provider_choices: (manifest.oauth_provider_choices || []).join(", "),
   };
 }
 
@@ -637,14 +633,6 @@ export function buildManifestPluginFromDraft(draft: ManifestInstallDraft): Manif
   };
 
   if (draft.oauth_provider) next.oauth_provider = draft.oauth_provider.trim();
-  if (draft.oauth_provider_config_field)
-    next.oauth_provider_config_field = draft.oauth_provider_config_field.trim();
-
-  const choices = String(draft.oauth_provider_choices || "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-  if (choices.length > 0) next.oauth_provider_choices = choices;
 
   return next;
 }

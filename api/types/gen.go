@@ -487,8 +487,22 @@ type LoginRequest struct {
 	Username string `json:"username"`
 }
 
+// ManifestOAuthProvider defines model for ManifestOAuthProvider.
+type ManifestOAuthProvider struct {
+	ClientId *string   `json:"client_id,omitempty"`
+	Id       *string   `json:"id,omitempty"`
+	Scopes   *[]string `json:"scopes,omitempty"`
+	VaultKey *string   `json:"vault_key,omitempty"`
+}
+
 // ManifestPlugin defines model for ManifestPlugin.
 type ManifestPlugin map[string]interface{}
+
+// ManifestPluginsResponse defines model for ManifestPluginsResponse.
+type ManifestPluginsResponse struct {
+	OauthProviders *[]ManifestOAuthProvider `json:"oauth_providers,omitempty"`
+	Plugins        *[]ManifestPlugin        `json:"plugins,omitempty"`
+}
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
@@ -514,9 +528,25 @@ type OAuthFlowStatus struct {
 	VerificationUri string  `json:"verification_uri"`
 }
 
+// OAuthProviderConfig defines model for OAuthProviderConfig.
+type OAuthProviderConfig struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	ProviderId   string  `json:"provider_id"`
+	RedirectUrl  *string `json:"redirect_url,omitempty"`
+}
+
+// OAuthProviderConfigInput defines model for OAuthProviderConfigInput.
+type OAuthProviderConfigInput struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	RedirectUrl  *string `json:"redirect_url,omitempty"`
+}
+
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus struct {
 	Available   bool    `json:"available"`
+	Configured  bool    `json:"configured"`
 	Connected   bool    `json:"connected"`
 	Provider    string  `json:"provider"`
 	Unavailable *string `json:"unavailable,omitempty"`

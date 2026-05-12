@@ -59,6 +59,9 @@ import type {
   DeleteFeedData,
   DeleteFeedErrors,
   DeleteFeedResponses,
+  DeleteOAuthProviderConfigData,
+  DeleteOAuthProviderConfigErrors,
+  DeleteOAuthProviderConfigResponses,
   DeleteProfileMemoryData,
   DeleteProfileMemoryErrors,
   DeleteProfileMemoryResponses,
@@ -134,6 +137,9 @@ import type {
   GetOAuthConnectedData,
   GetOAuthConnectedErrors,
   GetOAuthConnectedResponses,
+  GetOAuthProviderConfigData,
+  GetOAuthProviderConfigErrors,
+  GetOAuthProviderConfigResponses,
   GetPluginConfigData,
   GetPluginConfigErrors,
   GetPluginConfigResponses,
@@ -310,6 +316,9 @@ import type {
   SendSessionMessageErrors,
   SendSessionMessageResponse,
   SendSessionMessageResponses,
+  SetOAuthProviderConfigData,
+  SetOAuthProviderConfigErrors,
+  SetOAuthProviderConfigResponses,
   SetProfileMemoryData,
   SetProfileMemoryErrors,
   SetProfileMemoryResponses,
@@ -2429,6 +2438,58 @@ export const oauthCallback = <ThrowOnError extends boolean = false>(
   (options.client ?? client).get<unknown, OauthCallbackErrors, ThrowOnError>({
     url: "/api/auth/profile/oauth/{provider}/callback",
     ...options,
+  });
+
+/**
+ * Delete OAuth provider config override (admin only)
+ */
+export const deleteOAuthProviderConfig = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteOAuthProviderConfigData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteOAuthProviderConfigResponses,
+    DeleteOAuthProviderConfigErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/admin/oauth-providers/{id}/config",
+    ...options,
+  });
+
+/**
+ * Get OAuth provider config (admin only)
+ */
+export const getOAuthProviderConfig = <ThrowOnError extends boolean = false>(
+  options: Options<GetOAuthProviderConfigData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetOAuthProviderConfigResponses,
+    GetOAuthProviderConfigErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/admin/oauth-providers/{id}/config",
+    ...options,
+  });
+
+/**
+ * Set OAuth provider credentials (admin only)
+ */
+export const setOAuthProviderConfig = <ThrowOnError extends boolean = false>(
+  options: Options<SetOAuthProviderConfigData, ThrowOnError>,
+) =>
+  (options.client ?? client).put<
+    SetOAuthProviderConfigResponses,
+    SetOAuthProviderConfigErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/admin/oauth-providers/{id}/config",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
   });
 
 /**

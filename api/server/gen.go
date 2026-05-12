@@ -161,6 +161,12 @@ type OAuthConnectedResponse = externalRef0.OAuthConnectedResponse
 // OAuthFlowStatus defines model for OAuthFlowStatus.
 type OAuthFlowStatus = externalRef0.OAuthFlowStatus
 
+// OAuthProviderConfig defines model for OAuthProviderConfig.
+type OAuthProviderConfig = externalRef0.OAuthProviderConfig
+
+// OAuthProviderConfigInput defines model for OAuthProviderConfigInput.
+type OAuthProviderConfigInput = externalRef0.OAuthProviderConfigInput
+
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
@@ -459,6 +465,9 @@ type GetSkillFileParams struct {
 	Path string `form:"path" json:"path"`
 }
 
+// SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
+type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInput
+
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
@@ -602,6 +611,15 @@ type UpdateUserNotifyIdentityJSONRequestBody = externalRef0.UpdateNotifyIdentity
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Delete OAuth provider config override (admin only)
+	// (DELETE /api/admin/oauth-providers/{id}/config)
+	DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string)
+	// Get OAuth provider config (admin only)
+	// (GET /api/admin/oauth-providers/{id}/config)
+	GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string)
+	// Set OAuth provider credentials (admin only)
+	// (PUT /api/admin/oauth-providers/{id}/config)
+	SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string)
 	// List agents (any authenticated user; non-admin sees accessible only)
 	// (GET /api/agents)
 	ListAgents(w http.ResponseWriter, r *http.Request)
@@ -1005,6 +1023,102 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// DeleteOAuthProviderConfig operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOAuthProviderConfig(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOAuthProviderConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOAuthProviderConfig(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetOAuthProviderConfig operation middleware
+func (siw *ServerInterfaceWrapper) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetOAuthProviderConfig(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAgents operation middleware
 func (siw *ServerInterfaceWrapper) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -5374,6 +5488,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.DeleteOAuthProviderConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.GetOAuthProviderConfig)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.SetOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents", wrapper.CreateAgent)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}", wrapper.DeleteAgent)

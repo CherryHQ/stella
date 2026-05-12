@@ -223,8 +223,13 @@ export interface ManifestPlugin {
   binaries?: ManifestBinary[];
   session_env?: ManifestSessionEnv[];
   oauth_provider?: string;
-  oauth_provider_config_field?: string;
-  oauth_provider_choices?: string[];
+}
+
+export interface ManifestOAuthProvider {
+  id: string;
+  scopes?: string[];
+  vault_key?: string;
+  client_id?: string;
 }
 
 export interface McpServer {
@@ -338,6 +343,18 @@ export interface VaultEntry {
 
 export interface OAuthProvider {
   provider: string;
+  available: boolean;
+  configured: boolean;
+  connected: boolean;
+  username?: string;
+  unavailable?: string;
+}
+
+export interface OAuthProviderConfig {
+  provider_id: string;
+  client_id: string;
+  client_secret: string;
+  redirect_url?: string;
 }
 
 export interface OAuthFlow {

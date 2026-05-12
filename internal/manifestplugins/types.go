@@ -1,19 +1,17 @@
 package manifestplugins
 
 type ManifestPlugin struct {
-	ID                       string               `json:"id" yaml:"id"`
-	Kind                     string               `json:"kind" yaml:"kind"`
-	Name                     string               `json:"name" yaml:"name"`
-	DisplayName              string               `json:"display_name" yaml:"display_name"`
-	Description              string               `json:"description" yaml:"description"`
-	Enabled                  bool                 `json:"enabled" yaml:"enabled"`
-	Prompt                   string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	Binaries                 []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
-	Skills                   []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
-	SessionEnvs              []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
-	OAuthProvider            string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
-	OAuthProviderConfigField string               `json:"oauth_provider_config_field,omitempty" yaml:"oauth_provider_config_field,omitempty"`
-	OAuthProviderChoices     []string             `json:"oauth_provider_choices,omitempty" yaml:"oauth_provider_choices,omitempty"`
+	ID            string               `json:"id" yaml:"id"`
+	Kind          string               `json:"kind" yaml:"kind"`
+	Name          string               `json:"name" yaml:"name"`
+	DisplayName   string               `json:"display_name" yaml:"display_name"`
+	Description   string               `json:"description" yaml:"description"`
+	Enabled       bool                 `json:"enabled" yaml:"enabled"`
+	Prompt        string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Binaries      []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
+	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
+	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
+	OAuthProvider string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
 }
 
 type ManifestBinary struct {
@@ -78,13 +76,16 @@ type ManifestOAuthFlow struct {
 	DeviceAuthURL string `json:"device_auth_url,omitempty" yaml:"device_auth_url,omitempty"`
 	TokenURL      string `json:"token_url" yaml:"token_url"`
 	AuthStyle     string `json:"auth_style,omitempty" yaml:"auth_style,omitempty"`
+	PKCE          bool   `json:"pkce,omitempty" yaml:"pkce,omitempty"`
 }
 
 type ManifestOAuthProvider struct {
-	ID       string              `json:"id" yaml:"id"`
-	Scopes   []string            `json:"scopes" yaml:"scopes"`
-	VaultKey string              `json:"vault_key" yaml:"vault_key"`
-	Flows    []ManifestOAuthFlow `json:"flows" yaml:"flows"`
+	ID           string              `json:"id" yaml:"id"`
+	Scopes       []string            `json:"scopes" yaml:"scopes"`
+	VaultKey     string              `json:"vault_key" yaml:"vault_key"`
+	Flows        []ManifestOAuthFlow `json:"flows" yaml:"flows"`
+	ClientID     string              `json:"client_id,omitempty" yaml:"client_id,omitempty"`
+	ClientSecret string              `json:"client_secret,omitempty" yaml:"client_secret,omitempty"`
 }
 
 type Manifest struct {
@@ -93,19 +94,17 @@ type Manifest struct {
 }
 
 type rawManifestPlugin struct {
-	ID                       string               `yaml:"id"`
-	Kind                     string               `yaml:"kind"`
-	Name                     string               `yaml:"name"`
-	DisplayName              string               `yaml:"display_name"`
-	Description              string               `yaml:"description"`
-	Enabled                  *bool                `yaml:"enabled"`
-	Prompt                   string               `yaml:"prompt,omitempty"`
-	Binaries                 []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills                   []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs              []ManifestSessionEnv `yaml:"session_env,omitempty"`
-	OAuthProvider            string               `yaml:"oauth_provider,omitempty"`
-	OAuthProviderConfigField string               `yaml:"oauth_provider_config_field,omitempty"`
-	OAuthProviderChoices     []string             `yaml:"oauth_provider_choices,omitempty"`
+	ID            string               `yaml:"id"`
+	Kind          string               `yaml:"kind"`
+	Name          string               `yaml:"name"`
+	DisplayName   string               `yaml:"display_name"`
+	Description   string               `yaml:"description"`
+	Enabled       *bool                `yaml:"enabled"`
+	Prompt        string               `yaml:"prompt,omitempty"`
+	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
+	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
+	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
 }
 
 type rawManifestOAuthFlow struct {
@@ -114,13 +113,16 @@ type rawManifestOAuthFlow struct {
 	DeviceAuthURL string `yaml:"device_auth_url,omitempty"`
 	TokenURL      string `yaml:"token_url"`
 	AuthStyle     string `yaml:"auth_style,omitempty"`
+	PKCE          bool   `yaml:"pkce,omitempty"`
 }
 
 type rawManifestOAuthProvider struct {
-	ID       string                 `yaml:"id"`
-	Scopes   []string               `yaml:"scopes"`
-	VaultKey string                 `yaml:"vault_key"`
-	Flows    []rawManifestOAuthFlow `yaml:"flows"`
+	ID           string                 `yaml:"id"`
+	Scopes       []string               `yaml:"scopes"`
+	VaultKey     string                 `yaml:"vault_key"`
+	Flows        []rawManifestOAuthFlow `yaml:"flows"`
+	ClientID     string                 `yaml:"client_id,omitempty"`
+	ClientSecret string                 `yaml:"client_secret,omitempty"`
 }
 
 type rawManifest struct {

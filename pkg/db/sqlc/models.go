@@ -39,6 +39,16 @@ type AuthIdentity struct {
 	LinkedAt   string `json:"linked_at"`
 }
 
+type AuthOauthProvider struct {
+	ID              int64  `json:"id"`
+	ProviderID      string `json:"provider_id"`
+	ClientID        string `json:"client_id"`
+	ClientSecretEnc string `json:"client_secret_enc"`
+	RedirectUrl     string `json:"redirect_url"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
 type AuthPolicy struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`

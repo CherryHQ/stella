@@ -21,16 +21,19 @@ type ProviderFlowConfig struct {
 	DeviceAuthURL string
 	TokenURL      string
 	AuthStyle     oauth2.AuthStyle
+	PKCE          bool
 }
 
 // ProviderConfig holds the static configuration for an OAuth provider read
-// from manifest YAML. Credentials are not baked in — they are fetched from
-// plugin config at flow-start time so admin UI edits take effect immediately.
+// from manifest YAML. ClientID and ClientSecret are YAML defaults; DB overrides
+// take precedence at flow-start time.
 type ProviderConfig struct {
-	ID       string
-	Scopes   []string
-	VaultKey string
-	Flows    []ProviderFlowConfig
+	ID           string
+	Scopes       []string
+	VaultKey     string
+	Flows        []ProviderFlowConfig
+	ClientID     string
+	ClientSecret string
 }
 
 // ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.

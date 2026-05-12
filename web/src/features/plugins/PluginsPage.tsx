@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type {
+  ManifestOAuthProvider,
   ManifestPlugin,
   McpServer,
   McpStatus,
@@ -51,6 +52,7 @@ export function PluginsPage() {
   const [tab, setTab] = useState<Tab>("tools");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [manifestPlugins, setManifestPlugins] = useState<ManifestPlugin[]>([]);
+  const [oauthProviders, setOAuthProviders] = useState<ManifestOAuthProvider[]>([]);
   const [schemas, setSchemas] = useState<
     Record<string, { properties?: Record<string, PluginSchemaProperty> }>
   >({});
@@ -184,8 +186,12 @@ export function PluginsPage() {
 
   const loadManifestPlugins = useCallback(async () => {
     try {
-      const list = (await api<ManifestPlugin[]>("GET", "/api/manifest-plugins")) ?? [];
-      setManifestPlugins(list);
+      const res = (await api<{
+        plugins: ManifestPlugin[];
+        oauth_providers: ManifestOAuthProvider[];
+      }>("GET", "/api/manifest-plugins")) ?? { plugins: [], oauth_providers: [] };
+      setManifestPlugins(res.plugins);
+      setOAuthProviders(res.oauth_providers);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -747,6 +753,7 @@ export function PluginsPage() {
             pluginConfigDrafts={pluginConfigDrafts}
             manifestInstallOpen={manifestInstallOpen}
             manifestInstallDrafts={manifestInstallDrafts}
+            oauthProviders={oauthProviders}
             onToggle={toggleSemanticPlugin}
             onToggleConfigEditor={togglePluginConfigEditor}
             onDraftChange={(pluginID, field, value) =>
@@ -803,6 +810,7 @@ export function PluginsPage() {
             pluginConfigDrafts={pluginConfigDrafts}
             manifestInstallOpen={manifestInstallOpen}
             manifestInstallDrafts={manifestInstallDrafts}
+            oauthProviders={oauthProviders}
             onToggle={toggleSemanticPlugin}
             onToggleConfigEditor={togglePluginConfigEditor}
             onDraftChange={(pluginID, field, value) =>
@@ -835,6 +843,7 @@ export function PluginsPage() {
           pluginConfigDrafts={pluginConfigDrafts}
           manifestInstallOpen={manifestInstallOpen}
           manifestInstallDrafts={manifestInstallDrafts}
+          oauthProviders={oauthProviders}
           onToggle={toggleSemanticPlugin}
           onToggleConfigEditor={togglePluginConfigEditor}
           onDraftChange={(pluginID, field, value) =>
@@ -999,6 +1008,7 @@ export function PluginsPage() {
             pluginConfigDrafts={pluginConfigDrafts}
             manifestInstallOpen={manifestInstallOpen}
             manifestInstallDrafts={manifestInstallDrafts}
+            oauthProviders={oauthProviders}
             onToggle={toggleSemanticPlugin}
             onToggleConfigEditor={togglePluginConfigEditor}
             onDraftChange={(pluginID, field, value) =>
@@ -1033,6 +1043,7 @@ interface PluginListProps {
   pluginConfigDrafts: Record<string, Record<string, unknown>>;
   manifestInstallOpen: Record<string, boolean>;
   manifestInstallDrafts: Record<string, ManifestInstallDraft>;
+  oauthProviders: ManifestOAuthProvider[];
   onToggle: (plugin: PluginWithMeta, enabled: boolean) => void;
   onToggleConfigEditor: (plugin: Plugin) => void;
   onDraftChange: (pluginID: string, field: string, value: unknown) => void;
@@ -1055,6 +1066,7 @@ function PluginList({
   pluginConfigDrafts,
   manifestInstallOpen,
   manifestInstallDrafts,
+  oauthProviders,
   onToggle,
   onToggleConfigEditor,
   onDraftChange,
@@ -1139,6 +1151,7 @@ function PluginList({
             {showManifestEditor && p._manifest && isManifestOpen && manifestInstallDrafts[p.id] && (
               <ManifestInstallEditor
                 draft={manifestInstallDrafts[p.id]}
+                oauthProviders={oauthProviders}
                 onChange={(draft) => onManifestDraftChange(p.id, draft)}
                 onSave={() => onSaveManifest(p)}
                 onReset={() => onResetManifest(p)}

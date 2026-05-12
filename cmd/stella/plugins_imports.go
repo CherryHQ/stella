@@ -18,7 +18,6 @@ import (
 	// Plugin tools.
 	_ "github.com/CherryHQ/stella/plugins/tools/bash"
 	_ "github.com/CherryHQ/stella/plugins/tools/edit"
-	_ "github.com/CherryHQ/stella/plugins/tools/lark-cli"
 	_ "github.com/CherryHQ/stella/plugins/tools/mcp"
 	_ "github.com/CherryHQ/stella/plugins/tools/notify"
 	_ "github.com/CherryHQ/stella/plugins/tools/read"

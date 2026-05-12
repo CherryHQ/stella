@@ -37,3 +37,23 @@ components:
     ManifestPlugin:
       type: object
       additionalProperties: true
+
+    ManifestOAuthProvider:
+      type: object
+      properties:
+        id: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        vault_key: { type: string }
+        client_id: { type: string }
+
+    ManifestPluginsResponse:
+      type: object
+      properties:
+        plugins:
+          type: array
+          items: { $ref: "#/components/schemas/ManifestPlugin" }
+        oauth_providers:
+          type: array
+          items: { $ref: "#/components/schemas/ManifestOAuthProvider" }

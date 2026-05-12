@@ -98,7 +98,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	credSvc.SetInvalidator(s.poolManager)
 	if s.oauthRegistry != nil {
 		credSvc.SetRegistry(s.oauthRegistry)
-		credSvc.SetProviderPluginIDs(s.providerPluginIDs)
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {

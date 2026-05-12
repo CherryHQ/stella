@@ -27,6 +27,7 @@ import {
   deleteAuthUserIdentity,
   deleteChannel,
   deleteFeed,
+  deleteOAuthProviderConfig,
   deleteProfileMemory,
   deleteProfileSkill,
   deleteProfileSkillFile,
@@ -52,6 +53,7 @@ import {
   getFeed,
   getMe,
   getOAuthConnected,
+  getOAuthProviderConfig,
   getPluginConfig,
   getPluginConfigSchema,
   getPluginStatus,
@@ -111,6 +113,7 @@ import {
   saveArticle,
   saveManifestPlugins,
   searchSkills,
+  setOAuthProviderConfig,
   setProfileMemory,
   setProfileSoul,
   setUserMemory,
@@ -194,6 +197,9 @@ import type {
   DeleteFeedData,
   DeleteFeedError,
   DeleteFeedResponse,
+  DeleteOAuthProviderConfigData,
+  DeleteOAuthProviderConfigError,
+  DeleteOAuthProviderConfigResponse,
   DeleteProfileMemoryData,
   DeleteProfileMemoryError,
   DeleteProfileMemoryResponse,
@@ -269,6 +275,9 @@ import type {
   GetOAuthConnectedData,
   GetOAuthConnectedError,
   GetOAuthConnectedResponse,
+  GetOAuthProviderConfigData,
+  GetOAuthProviderConfigError,
+  GetOAuthProviderConfigResponse,
   GetPluginConfigData,
   GetPluginConfigError,
   GetPluginConfigResponse,
@@ -440,6 +449,9 @@ import type {
   SearchSkillsData,
   SearchSkillsError,
   SearchSkillsResponse,
+  SetOAuthProviderConfigData,
+  SetOAuthProviderConfigError,
+  SetOAuthProviderConfigResponse,
   SetProfileMemoryData,
   SetProfileMemoryError,
   SetProfileMemoryResponse,
@@ -3713,6 +3725,88 @@ export const oauthCallbackOptions = (options: Options<OauthCallbackData>) =>
     },
     queryKey: oauthCallbackQueryKey(options),
   });
+
+/**
+ * Delete OAuth provider config override (admin only)
+ */
+export const deleteOAuthProviderConfigMutation = (
+  options?: Partial<Options<DeleteOAuthProviderConfigData>>,
+): UseMutationOptions<
+  DeleteOAuthProviderConfigResponse,
+  DeleteOAuthProviderConfigError,
+  Options<DeleteOAuthProviderConfigData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteOAuthProviderConfigResponse,
+    DeleteOAuthProviderConfigError,
+    Options<DeleteOAuthProviderConfigData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteOAuthProviderConfig({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getOAuthProviderConfigQueryKey = (
+  options: Options<GetOAuthProviderConfigData>,
+) => createQueryKey("getOAuthProviderConfig", options);
+
+/**
+ * Get OAuth provider config (admin only)
+ */
+export const getOAuthProviderConfigOptions = (
+  options: Options<GetOAuthProviderConfigData>,
+) =>
+  queryOptions<
+    GetOAuthProviderConfigResponse,
+    GetOAuthProviderConfigError,
+    GetOAuthProviderConfigResponse,
+    ReturnType<typeof getOAuthProviderConfigQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getOAuthProviderConfig({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getOAuthProviderConfigQueryKey(options),
+  });
+
+/**
+ * Set OAuth provider credentials (admin only)
+ */
+export const setOAuthProviderConfigMutation = (
+  options?: Partial<Options<SetOAuthProviderConfigData>>,
+): UseMutationOptions<
+  SetOAuthProviderConfigResponse,
+  SetOAuthProviderConfigError,
+  Options<SetOAuthProviderConfigData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SetOAuthProviderConfigResponse,
+    SetOAuthProviderConfigError,
+    Options<SetOAuthProviderConfigData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await setOAuthProviderConfig({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listSchedulerJobsQueryKey = (
   options?: Options<ListSchedulerJobsData>,

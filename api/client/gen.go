@@ -163,6 +163,12 @@ type OAuthConnectedResponse = externalRef0.OAuthConnectedResponse
 // OAuthFlowStatus defines model for OAuthFlowStatus.
 type OAuthFlowStatus = externalRef0.OAuthFlowStatus
 
+// OAuthProviderConfig defines model for OAuthProviderConfig.
+type OAuthProviderConfig = externalRef0.OAuthProviderConfig
+
+// OAuthProviderConfigInput defines model for OAuthProviderConfigInput.
+type OAuthProviderConfigInput = externalRef0.OAuthProviderConfigInput
+
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
@@ -461,6 +467,9 @@ type GetSkillFileParams struct {
 	Path string `form:"path" json:"path"`
 }
 
+// SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
+type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInput
+
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
@@ -675,6 +684,17 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// DeleteOAuthProviderConfig request
+	DeleteOAuthProviderConfig(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetOAuthProviderConfig request
+	GetOAuthProviderConfig(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetOAuthProviderConfigWithBody request with any body
+	SetOAuthProviderConfigWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetOAuthProviderConfig(ctx context.Context, id string, body SetOAuthProviderConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListAgents request
 	ListAgents(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1155,6 +1175,54 @@ type ClientInterface interface {
 	UpdateUserNotifyIdentityWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateUserNotifyIdentity(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) DeleteOAuthProviderConfig(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteOAuthProviderConfigRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetOAuthProviderConfig(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOAuthProviderConfigRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetOAuthProviderConfigWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetOAuthProviderConfigRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetOAuthProviderConfig(ctx context.Context, id string, body SetOAuthProviderConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetOAuthProviderConfigRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListAgents(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -3255,6 +3323,121 @@ func (c *Client) UpdateUserNotifyIdentity(ctx context.Context, id int64, body Up
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewDeleteOAuthProviderConfigRequest generates requests for DeleteOAuthProviderConfig
+func NewDeleteOAuthProviderConfigRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/oauth-providers/%s/config", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetOAuthProviderConfigRequest generates requests for GetOAuthProviderConfig
+func NewGetOAuthProviderConfigRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/oauth-providers/%s/config", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetOAuthProviderConfigRequest calls the generic SetOAuthProviderConfig builder with application/json body
+func NewSetOAuthProviderConfigRequest(server string, id string, body SetOAuthProviderConfigJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetOAuthProviderConfigRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewSetOAuthProviderConfigRequestWithBody generates requests for SetOAuthProviderConfig with any type of body
+func NewSetOAuthProviderConfigRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/oauth-providers/%s/config", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewListAgentsRequest generates requests for ListAgents
@@ -8724,6 +8907,17 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// DeleteOAuthProviderConfigWithResponse request
+	DeleteOAuthProviderConfigWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteOAuthProviderConfigResponse, error)
+
+	// GetOAuthProviderConfigWithResponse request
+	GetOAuthProviderConfigWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetOAuthProviderConfigResponse, error)
+
+	// SetOAuthProviderConfigWithBodyWithResponse request with any body
+	SetOAuthProviderConfigWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetOAuthProviderConfigResponse, error)
+
+	SetOAuthProviderConfigWithResponse(ctx context.Context, id string, body SetOAuthProviderConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*SetOAuthProviderConfigResponse, error)
+
 	// ListAgentsWithResponse request
 	ListAgentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAgentsResponse, error)
 
@@ -9204,6 +9398,101 @@ type ClientWithResponsesInterface interface {
 	UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
 
 	UpdateUserNotifyIdentityWithResponse(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
+}
+
+type DeleteOAuthProviderConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteOAuthProviderConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteOAuthProviderConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteOAuthProviderConfigResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetOAuthProviderConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OAuthProviderConfig
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r GetOAuthProviderConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetOAuthProviderConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetOAuthProviderConfigResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetOAuthProviderConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r SetOAuthProviderConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetOAuthProviderConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetOAuthProviderConfigResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListAgentsResponse struct {
@@ -11279,7 +11568,7 @@ func (r UpdateChannelResponse) ContentType() string {
 type ListManifestPluginsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *[]externalRef0.ManifestPlugin
+	JSON200      *externalRef0.ManifestPluginsResponse
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 }
@@ -11311,7 +11600,7 @@ func (r ListManifestPluginsResponse) ContentType() string {
 type SaveManifestPluginsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *[]externalRef0.ManifestPlugin
+	JSON200      *externalRef0.ManifestPluginsResponse
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -13469,6 +13758,41 @@ func (r UpdateUserNotifyIdentityResponse) ContentType() string {
 	return ""
 }
 
+// DeleteOAuthProviderConfigWithResponse request returning *DeleteOAuthProviderConfigResponse
+func (c *ClientWithResponses) DeleteOAuthProviderConfigWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteOAuthProviderConfigResponse, error) {
+	rsp, err := c.DeleteOAuthProviderConfig(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteOAuthProviderConfigResponse(rsp)
+}
+
+// GetOAuthProviderConfigWithResponse request returning *GetOAuthProviderConfigResponse
+func (c *ClientWithResponses) GetOAuthProviderConfigWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetOAuthProviderConfigResponse, error) {
+	rsp, err := c.GetOAuthProviderConfig(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetOAuthProviderConfigResponse(rsp)
+}
+
+// SetOAuthProviderConfigWithBodyWithResponse request with arbitrary body returning *SetOAuthProviderConfigResponse
+func (c *ClientWithResponses) SetOAuthProviderConfigWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetOAuthProviderConfigResponse, error) {
+	rsp, err := c.SetOAuthProviderConfigWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetOAuthProviderConfigResponse(rsp)
+}
+
+func (c *ClientWithResponses) SetOAuthProviderConfigWithResponse(ctx context.Context, id string, body SetOAuthProviderConfigJSONRequestBody, reqEditors ...RequestEditorFn) (*SetOAuthProviderConfigResponse, error) {
+	rsp, err := c.SetOAuthProviderConfig(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetOAuthProviderConfigResponse(rsp)
+}
+
 // ListAgentsWithResponse request returning *ListAgentsResponse
 func (c *ClientWithResponses) ListAgentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAgentsResponse, error) {
 	rsp, err := c.ListAgents(ctx, reqEditors...)
@@ -14998,6 +15322,119 @@ func (c *ClientWithResponses) UpdateUserNotifyIdentityWithResponse(ctx context.C
 		return nil, err
 	}
 	return ParseUpdateUserNotifyIdentityResponse(rsp)
+}
+
+// ParseDeleteOAuthProviderConfigResponse parses an HTTP response from a DeleteOAuthProviderConfigWithResponse call
+func ParseDeleteOAuthProviderConfigResponse(rsp *http.Response) (*DeleteOAuthProviderConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteOAuthProviderConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetOAuthProviderConfigResponse parses an HTTP response from a GetOAuthProviderConfigWithResponse call
+func ParseGetOAuthProviderConfigResponse(rsp *http.Response) (*GetOAuthProviderConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetOAuthProviderConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OAuthProviderConfig
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetOAuthProviderConfigResponse parses an HTTP response from a SetOAuthProviderConfigWithResponse call
+func ParseSetOAuthProviderConfigResponse(rsp *http.Response) (*SetOAuthProviderConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetOAuthProviderConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListAgentsResponse parses an HTTP response from a ListAgentsWithResponse call
@@ -17678,7 +18115,7 @@ func ParseListManifestPluginsResponse(rsp *http.Response) (*ListManifestPluginsR
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []externalRef0.ManifestPlugin
+		var dest externalRef0.ManifestPluginsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -17718,7 +18155,7 @@ func ParseSaveManifestPluginsResponse(rsp *http.Response) (*SaveManifestPluginsR
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []externalRef0.ManifestPlugin
+		var dest externalRef0.ManifestPluginsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

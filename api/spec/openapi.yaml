@@ -223,6 +223,9 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}"
   /api/auth/profile/oauth/{provider}/callback:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback"
+  # ── Admin: OAuth provider config ───────────────────────────────────────────
+  /api/admin/oauth-providers/{id}/config:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/scheduler/jobs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs"
@@ -448,6 +451,12 @@ components:
     }
     OAuthConnectedResponse: {
       $ref: "./components.yaml#/components/schemas/OAuthConnectedResponse",
+    }
+    OAuthProviderConfig: {
+      $ref: "./components.yaml#/components/schemas/OAuthProviderConfig",
+    }
+    OAuthProviderConfigInput: {
+      $ref: "./components.yaml#/components/schemas/OAuthProviderConfigInput",
     }
     LoginRequest: { $ref: "./components.yaml#/components/schemas/LoginRequest" }
     RegisterRequest: {

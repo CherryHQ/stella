@@ -9,6 +9,7 @@ export async function api<T = unknown>(
     headers: isFormData ? undefined : body ? { "Content-Type": "application/json" } : undefined,
     body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
   });
+  if (res.status === 204) return undefined as T;
   const json = await res.json();
   if (json.error) throw new Error(json.error);
   return json.data ?? json;

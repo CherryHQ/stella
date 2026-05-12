@@ -267,5 +267,5 @@ func (s *Server) OauthCallback(w http.ResponseWriter, r *http.Request, provider 
 		return
 	}
 
-	http.Redirect(w, r, "/credentials", http.StatusFound)
+	http.Redirect(w, r, "/settings/credentials", http.StatusFound)
 }

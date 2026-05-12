@@ -53,6 +53,17 @@ type EntryMeta struct {
 	UpdatedAt string
 }
 
+// EncryptSystem encrypts plaintext with the master key for system-level storage
+// (not tied to any user).
+func (s *Service) EncryptSystem(plaintext string) (string, error) {
+	return encryptArmored(s.masterRecipient, plaintext)
+}
+
+// DecryptSystem decrypts ciphertext that was produced by EncryptSystem.
+func (s *Service) DecryptSystem(ciphertext string) (string, error) {
+	return decryptArmored(s.masterIdentity, ciphertext)
+}
+
 // Set validates name, encrypts plaintext with the user's public key, and
 // upserts the vault entry. The user must already have age keys provisioned.
 func (s *Service) Set(ctx context.Context, userID int64, name string, plaintext string) error {

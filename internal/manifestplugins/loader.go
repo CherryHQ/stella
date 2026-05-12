@@ -62,10 +62,12 @@ func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
 		flows = append(flows, ManifestOAuthFlow(rf))
 	}
 	return ManifestOAuthProvider{
-		ID:       ro.ID,
-		Scopes:   ro.Scopes,
-		VaultKey: ro.VaultKey,
-		Flows:    flows,
+		ID:           ro.ID,
+		Scopes:       ro.Scopes,
+		VaultKey:     ro.VaultKey,
+		Flows:        flows,
+		ClientID:     ro.ClientID,
+		ClientSecret: ro.ClientSecret,
 	}
 }
 
@@ -77,19 +79,17 @@ func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
 		enabled = *fallbackEnabled
 	}
 	return ManifestPlugin{
-		ID:                       rp.ID,
-		Kind:                     rp.Kind,
-		Name:                     rp.Name,
-		DisplayName:              rp.DisplayName,
-		Description:              rp.Description,
-		Enabled:                  enabled,
-		Prompt:                   rp.Prompt,
-		Binaries:                 rp.Binaries,
-		Skills:                   rp.Skills,
-		SessionEnvs:              rp.SessionEnvs,
-		OAuthProvider:            rp.OAuthProvider,
-		OAuthProviderConfigField: rp.OAuthProviderConfigField,
-		OAuthProviderChoices:     append([]string(nil), rp.OAuthProviderChoices...),
+		ID:            rp.ID,
+		Kind:          rp.Kind,
+		Name:          rp.Name,
+		DisplayName:   rp.DisplayName,
+		Description:   rp.Description,
+		Enabled:       enabled,
+		Prompt:        rp.Prompt,
+		Binaries:      rp.Binaries,
+		Skills:        rp.Skills,
+		SessionEnvs:   rp.SessionEnvs,
+		OAuthProvider: rp.OAuthProvider,
 	}
 }
 
@@ -151,28 +151,28 @@ func manifestToRaw(m *Manifest) rawManifest {
 			flows = append(flows, rawManifestOAuthFlow(f))
 		}
 		rm.OAuthProviders = append(rm.OAuthProviders, rawManifestOAuthProvider{
-			ID:       o.ID,
-			Scopes:   o.Scopes,
-			VaultKey: o.VaultKey,
-			Flows:    flows,
+			ID:           o.ID,
+			Scopes:       o.Scopes,
+			VaultKey:     o.VaultKey,
+			Flows:        flows,
+			ClientID:     o.ClientID,
+			ClientSecret: o.ClientSecret,
 		})
 	}
 	for _, p := range m.Plugins {
 		enabled := p.Enabled
 		rm.Plugins = append(rm.Plugins, rawManifestPlugin{
-			ID:                       p.ID,
-			Kind:                     p.Kind,
-			Name:                     p.Name,
-			DisplayName:              p.DisplayName,
-			Description:              p.Description,
-			Enabled:                  &enabled,
-			Prompt:                   p.Prompt,
-			Binaries:                 p.Binaries,
-			Skills:                   p.Skills,
-			SessionEnvs:              p.SessionEnvs,
-			OAuthProvider:            p.OAuthProvider,
-			OAuthProviderConfigField: p.OAuthProviderConfigField,
-			OAuthProviderChoices:     append([]string(nil), p.OAuthProviderChoices...),
+			ID:            p.ID,
+			Kind:          p.Kind,
+			Name:          p.Name,
+			DisplayName:   p.DisplayName,
+			Description:   p.Description,
+			Enabled:       &enabled,
+			Prompt:        p.Prompt,
+			Binaries:      p.Binaries,
+			Skills:        p.Skills,
+			SessionEnvs:   p.SessionEnvs,
+			OAuthProvider: p.OAuthProvider,
 		})
 	}
 	return rm
