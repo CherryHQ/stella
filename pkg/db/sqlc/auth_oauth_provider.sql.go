@@ -9,6 +9,15 @@ import (
 	"context"
 )
 
+const deleteAuthOAuthProvider = `-- name: DeleteAuthOAuthProvider :exec
+DELETE FROM auth_oauth_provider WHERE provider_id = ?
+`
+
+func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, providerID string) error {
+	_, err := q.db.ExecContext(ctx, deleteAuthOAuthProvider, providerID)
+	return err
+}
+
 const getAuthOAuthProvider = `-- name: GetAuthOAuthProvider :one
 SELECT id, provider_id, client_id, client_secret_enc, redirect_url, created_at, updated_at
 FROM auth_oauth_provider

@@ -16,6 +16,11 @@ type manifestFile struct {
 	Plugins []manifestplugins.ManifestPlugin `yaml:"plugins"`
 }
 
+type manifestPluginsResponse struct {
+	Plugins        []manifestplugins.ManifestPlugin        `json:"plugins"`
+	OAuthProviders []manifestplugins.ManifestOAuthProvider `json:"oauth_providers"`
+}
+
 func loadMergedManifest() (*manifestplugins.Manifest, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
@@ -37,7 +42,7 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, merged.Plugins)
+	writeData(w, http.StatusOK, manifestPluginsResponse{Plugins: merged.Plugins, OAuthProviders: merged.OAuthProviders})
 }
 
 func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +89,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())
-	writeData(w, http.StatusOK, merged.Plugins)
+	writeData(w, http.StatusOK, manifestPluginsResponse{Plugins: merged.Plugins, OAuthProviders: merged.OAuthProviders})
 }
 
 func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {

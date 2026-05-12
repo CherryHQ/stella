@@ -160,7 +160,11 @@ func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID 
 		if err == nil && cfg.ClientID != "" {
 			secret := ""
 			if cfg.ClientSecretEnc != "" && s.vaultSvc != nil {
-				secret, _ = s.vaultSvc.DecryptSystem(cfg.ClientSecretEnc)
+				var err error
+				secret, err = s.vaultSvc.DecryptSystem(cfg.ClientSecretEnc)
+				if err != nil {
+					s.log.Error("decrypt provider client_secret", "provider", providerID, "error", err)
+				}
 			}
 			redirectURL := cfg.RedirectUrl
 			if redirectURL == "" {
@@ -226,6 +230,12 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		if err != nil {
 			return fmt.Errorf("encrypt client_secret: %w", err)
 		}
+	} else {
+		// Preserve existing encrypted secret when no new value is provided.
+		existing, err := s.q.GetAuthOAuthProvider(ctx, cfg.ProviderID)
+		if err == nil {
+			secretEnc = existing.ClientSecretEnc
+		}
 	}
 	return s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 		ProviderID:      cfg.ProviderID,
@@ -233,6 +243,14 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		ClientSecretEnc: secretEnc,
 		RedirectUrl:     cfg.RedirectURL,
 	})
+}
+
+// DeleteOAuthProviderConfig removes the DB override for a provider, reverting to YAML defaults.
+func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID string) error {
+	if s.q == nil {
+		return fmt.Errorf("database not configured")
+	}
+	return s.q.DeleteAuthOAuthProvider(ctx, providerID)
 }
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under

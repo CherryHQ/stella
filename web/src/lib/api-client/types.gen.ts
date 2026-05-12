@@ -597,8 +597,20 @@ export type ComponentsLoginRequest = {
   password: string;
 };
 
+export type ManifestOAuthProvider = {
+  id?: string;
+  scopes?: Array<string>;
+  vault_key?: string;
+  client_id?: string;
+};
+
 export type ComponentsManifestPlugin = {
   [key: string]: unknown;
+};
+
+export type ManifestPluginsResponse = {
+  plugins?: Array<ComponentsManifestPlugin>;
+  oauth_providers?: Array<ManifestOAuthProvider>;
 };
 
 export type ComponentsMeResponse = {
@@ -5852,6 +5864,43 @@ export type OauthCallbackErrors = {
   500: unknown;
 };
 
+export type DeleteOAuthProviderConfigData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/admin/oauth-providers/{id}/config";
+};
+
+export type DeleteOAuthProviderConfigErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type DeleteOAuthProviderConfigError =
+  DeleteOAuthProviderConfigErrors[keyof DeleteOAuthProviderConfigErrors];
+
+export type DeleteOAuthProviderConfigResponses = {
+  /**
+   * deleted
+   */
+  204: void;
+};
+
+export type DeleteOAuthProviderConfigResponse =
+  DeleteOAuthProviderConfigResponses[keyof DeleteOAuthProviderConfigResponses];
+
 export type GetOAuthProviderConfigData = {
   body?: never;
   path: {
@@ -6460,7 +6509,7 @@ export type ListManifestPluginsResponses = {
   /**
    * ok
    */
-  200: Array<ComponentsManifestPlugin>;
+  200: ManifestPluginsResponse;
 };
 
 export type ListManifestPluginsResponse =
@@ -6503,7 +6552,7 @@ export type SaveManifestPluginsResponses = {
   /**
    * ok
    */
-  200: Array<ComponentsManifestPlugin>;
+  200: ManifestPluginsResponse;
 };
 
 export type SaveManifestPluginsResponse =

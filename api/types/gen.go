@@ -487,8 +487,22 @@ type LoginRequest struct {
 	Username string `json:"username"`
 }
 
+// ManifestOAuthProvider defines model for ManifestOAuthProvider.
+type ManifestOAuthProvider struct {
+	ClientId *string   `json:"client_id,omitempty"`
+	Id       *string   `json:"id,omitempty"`
+	Scopes   *[]string `json:"scopes,omitempty"`
+	VaultKey *string   `json:"vault_key,omitempty"`
+}
+
 // ManifestPlugin defines model for ManifestPlugin.
 type ManifestPlugin map[string]interface{}
+
+// ManifestPluginsResponse defines model for ManifestPluginsResponse.
+type ManifestPluginsResponse struct {
+	OauthProviders *[]ManifestOAuthProvider `json:"oauth_providers,omitempty"`
+	Plugins        *[]ManifestPlugin        `json:"plugins,omitempty"`
+}
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {

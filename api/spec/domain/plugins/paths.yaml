@@ -143,10 +143,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
-                }
+                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -173,10 +170,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
-                }
+                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

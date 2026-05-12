@@ -11,3 +11,6 @@ ON CONFLICT(provider_id) DO UPDATE SET
     client_secret_enc = excluded.client_secret_enc,
     redirect_url      = excluded.redirect_url,
     updated_at        = datetime('now');
+
+-- name: DeleteAuthOAuthProvider :exec
+DELETE FROM auth_oauth_provider WHERE provider_id = ?;

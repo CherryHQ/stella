@@ -225,6 +225,13 @@ export interface ManifestPlugin {
   oauth_provider?: string;
 }
 
+export interface ManifestOAuthProvider {
+  id: string;
+  scopes?: string[];
+  vault_key?: string;
+  client_id?: string;
+}
+
 export interface McpServer {
   id: number;
   expanded: boolean;

@@ -611,6 +611,9 @@ type UpdateUserNotifyIdentityJSONRequestBody = externalRef0.UpdateNotifyIdentity
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Delete OAuth provider config override (admin only)
+	// (DELETE /api/admin/oauth-providers/{id}/config)
+	DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string)
 	// Get OAuth provider config (admin only)
 	// (GET /api/admin/oauth-providers/{id}/config)
 	GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string)
@@ -1020,6 +1023,38 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// DeleteOAuthProviderConfig operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOAuthProviderConfig(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetOAuthProviderConfig operation middleware
 func (siw *ServerInterfaceWrapper) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -5453,6 +5488,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.DeleteOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.GetOAuthProviderConfig)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.SetOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents", wrapper.ListAgents)

@@ -59,6 +59,9 @@ import type {
   DeleteFeedData,
   DeleteFeedErrors,
   DeleteFeedResponses,
+  DeleteOAuthProviderConfigData,
+  DeleteOAuthProviderConfigErrors,
+  DeleteOAuthProviderConfigResponses,
   DeleteProfileMemoryData,
   DeleteProfileMemoryErrors,
   DeleteProfileMemoryResponses,
@@ -2434,6 +2437,22 @@ export const oauthCallback = <ThrowOnError extends boolean = false>(
 ) =>
   (options.client ?? client).get<unknown, OauthCallbackErrors, ThrowOnError>({
     url: "/api/auth/profile/oauth/{provider}/callback",
+    ...options,
+  });
+
+/**
+ * Delete OAuth provider config override (admin only)
+ */
+export const deleteOAuthProviderConfig = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteOAuthProviderConfigData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteOAuthProviderConfigResponses,
+    DeleteOAuthProviderConfigErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/admin/oauth-providers/{id}/config",
     ...options,
   });
 

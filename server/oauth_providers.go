@@ -20,6 +20,18 @@ func (s *Server) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, toAPIProviderConfig(cfg))
 }
 
+// DeleteOAuthProviderConfig handles DELETE /api/admin/oauth-providers/{id}/config.
+func (s *Server) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if err := s.credSvc.DeleteOAuthProviderConfig(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // SetOAuthProviderConfig handles PUT /api/admin/oauth-providers/{id}/config.
 func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
@@ -28,6 +40,10 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 	var body apiserver.SetOAuthProviderConfigJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.ClientId == "" {
+		writeError(w, http.StatusBadRequest, "client_id is required")
 		return
 	}
 	err := s.credSvc.SetOAuthProviderConfig(r.Context(), credentials.OAuthProviderConfig{
@@ -44,12 +60,15 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 }
 
 func toAPIProviderConfig(cfg credentials.OAuthProviderConfig) apiserver.OAuthProviderConfig {
-	return apiserver.OAuthProviderConfig{
+	out := apiserver.OAuthProviderConfig{
 		ProviderId:   cfg.ProviderID,
 		ClientId:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
-		RedirectUrl:  &cfg.RedirectURL,
 	}
+	if cfg.RedirectURL != "" {
+		out.RedirectUrl = &cfg.RedirectURL
+	}
+	return out
 }
 
 func stringVal(s *string) string {

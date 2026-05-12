@@ -27,6 +27,7 @@ import {
   deleteAuthUserIdentity,
   deleteChannel,
   deleteFeed,
+  deleteOAuthProviderConfig,
   deleteProfileMemory,
   deleteProfileSkill,
   deleteProfileSkillFile,
@@ -196,6 +197,9 @@ import type {
   DeleteFeedData,
   DeleteFeedError,
   DeleteFeedResponse,
+  DeleteOAuthProviderConfigData,
+  DeleteOAuthProviderConfigError,
+  DeleteOAuthProviderConfigResponse,
   DeleteProfileMemoryData,
   DeleteProfileMemoryError,
   DeleteProfileMemoryResponse,
@@ -3721,6 +3725,33 @@ export const oauthCallbackOptions = (options: Options<OauthCallbackData>) =>
     },
     queryKey: oauthCallbackQueryKey(options),
   });
+
+/**
+ * Delete OAuth provider config override (admin only)
+ */
+export const deleteOAuthProviderConfigMutation = (
+  options?: Partial<Options<DeleteOAuthProviderConfigData>>,
+): UseMutationOptions<
+  DeleteOAuthProviderConfigResponse,
+  DeleteOAuthProviderConfigError,
+  Options<DeleteOAuthProviderConfigData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteOAuthProviderConfigResponse,
+    DeleteOAuthProviderConfigError,
+    Options<DeleteOAuthProviderConfigData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteOAuthProviderConfig({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const getOAuthProviderConfigQueryKey = (
   options: Options<GetOAuthProviderConfigData>,

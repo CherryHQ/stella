@@ -1,5 +1,6 @@
 import { nextRowID } from "./pluginUtils";
 import type { ManifestInstallDraft } from "./pluginUtils";
+import type { ManifestOAuthProvider } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -7,12 +8,13 @@ import { useI18n } from "@/lib/i18n";
 
 interface Props {
   draft: ManifestInstallDraft;
+  oauthProviders: ManifestOAuthProvider[];
   onChange: (draft: ManifestInstallDraft) => void;
   onSave: () => void;
   onReset: () => void;
 }
 
-export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Props) {
+export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave, onReset }: Props) {
   const { t } = useI18n();
   function update(partial: Partial<ManifestInstallDraft>) {
     onChange({ ...draft, ...partial });
@@ -285,17 +287,24 @@ export function ManifestInstallEditor({ draft, onChange, onSave, onReset }: Prop
           </div>
 
           {/* OAuth */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">OAuth provider</label>
-            <Input
-              nativeInput
-              value={draft.oauth_provider}
-              onChange={(e) => update({ oauth_provider: (e.target as HTMLInputElement).value })}
-              placeholder="github"
-              className="font-mono"
-              size="sm"
-            />
-          </div>
+          {(draft.oauth_provider ||
+            draft.session_env.some((e) => e.source.startsWith("oauth."))) && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">OAuth provider</label>
+              <select
+                value={draft.oauth_provider}
+                onChange={(e) => update({ oauth_provider: e.target.value })}
+                className="select select-bordered select-sm w-full font-mono"
+              >
+                <option value="">—</option>
+                {oauthProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
     </div>

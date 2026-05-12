@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import type { OAuthFlow, OAuthProvider, OAuthProviderConfig, VaultEntry } from "@/lib/types";
@@ -6,11 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
+import { meQueryOptions } from "@/lib/queries/me";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
 export function CredentialsPage() {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
@@ -86,6 +90,8 @@ export function CredentialsPage() {
     }
   }, []);
 
+  const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
+
   const loadProviderConfig = useCallback(async (provider: string) => {
     try {
       const cfg = await api<OAuthProviderConfig>(
@@ -97,9 +103,13 @@ export function CredentialsPage() {
           ...prev,
           [provider]: {
             clientId: cfg.client_id,
-            clientSecret: cfg.client_secret === "***" ? "" : cfg.client_secret,
+            clientSecret: "",
             redirectUrl: cfg.redirect_url ?? "",
           },
+        }));
+        setHasExistingSecret((prev) => ({
+          ...prev,
+          [provider]: cfg.client_secret === "***",
         }));
       }
     } catch {
@@ -129,7 +139,7 @@ export function CredentialsPage() {
       const providers = await loadOAuthProviders();
       await Promise.all([
         ...providers.map((p) => checkOAuthConnected(p.provider)),
-        ...providers.map((p) => loadProviderConfig(p.provider)),
+        ...(isAdmin ? providers.map((p) => loadProviderConfig(p.provider)) : []),
       ]);
     };
     void init();
@@ -139,7 +149,7 @@ export function CredentialsPage() {
         pollAbortRef.current[key] = true;
       }
     };
-  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected, loadProviderConfig]);
+  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected, loadProviderConfig, isAdmin]);
 
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
@@ -254,6 +264,7 @@ export function CredentialsPage() {
         });
         showToast(`${provider} credentials saved`);
         await loadOAuthProviders();
+        await loadProviderConfig(provider);
         await checkOAuthConnected(provider);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Failed to save config", "error");
@@ -261,7 +272,23 @@ export function CredentialsPage() {
         setConfigSaving((prev) => ({ ...prev, [provider]: false }));
       }
     },
-    [configValues, showToast, loadOAuthProviders, checkOAuthConnected],
+    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
+  );
+
+  const deleteProviderConfig = useCallback(
+    async (provider: string) => {
+      if (!window.confirm(`Reset ${provider} credentials to defaults?`)) return;
+      try {
+        await api("DELETE", `/api/admin/oauth-providers/${provider}/config`);
+        showToast(`${provider} credentials reset to defaults`);
+        await loadOAuthProviders();
+        await loadProviderConfig(provider);
+        await checkOAuthConnected(provider);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to reset config", "error");
+      }
+    },
+    [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
   );
 
   return (
@@ -310,15 +337,17 @@ export function CredentialsPage() {
                     {p.configured && <Badge variant="secondary">Configured</Badge>}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
-                      }
-                    >
-                      {configOpen[p.provider] ? "Hide" : "Configure"}
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
+                        }
+                      >
+                        {configOpen[p.provider] ? "Hide" : "Configure"}
+                      </Button>
+                    )}
                     {p.available && oauthStatus[p.provider] !== "connected" ? (
                       <Button
                         size="sm"
@@ -373,19 +402,30 @@ export function CredentialsPage() {
                               },
                             }))
                           }
-                          placeholder="OAuth app client secret"
+                          placeholder={
+                            hasExistingSecret[p.provider]
+                              ? "Leave empty to keep existing"
+                              : "OAuth app client secret"
+                          }
                           autoComplete="new-password"
                           nativeInput
                         />
                       </div>
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-4 flex items-center gap-2">
                       <Button
                         size="sm"
                         loading={configSaving[p.provider]}
                         onClick={() => saveProviderConfig(p.provider)}
                       >
                         Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive-outline"
+                        onClick={() => deleteProviderConfig(p.provider)}
+                      >
+                        Reset to defaults
                       </Button>
                     </div>
                   </div>

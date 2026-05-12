@@ -400,6 +400,19 @@ paths:
         "403": {
           $ref: "../../components.yaml#/components/responses/Forbidden",
         }
+    delete:
+      tags: [profile]
+      summary: Delete OAuth provider config override (admin only)
+      operationId: deleteOAuthProviderConfig
+      responses:
+        "204":
+          description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": {
+          $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
     put:
       tags: [profile]
       summary: Set OAuth provider credentials (admin only)
