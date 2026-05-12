@@ -96,6 +96,31 @@ const (
 	skillScopeAgent = "agent"
 )
 
+// skillDirForScope returns the absolute host path to the skill's directory so
+// agents can execute scripts directly. Returns empty string if the path cannot
+// be determined.
+func (t *Tool) skillDirForScope(scope, agentID string, userID int64, skillName string) string {
+	switch scope {
+	case "system":
+		if t.stellaHome == "" {
+			return ""
+		}
+		return filepath.Join(t.stellaHome, ".agents", "skills", skillName)
+	case "agent":
+		if t.agentRoot == "" {
+			return ""
+		}
+		return filepath.Join(t.agentRoot, ".agents", "skills", skillName)
+	case "user":
+		if t.userSkillsDir == "" {
+			return ""
+		}
+		return filepath.Join(t.userSkillsDir, skillName)
+	default:
+		return ""
+	}
+}
+
 // errProjectScopeWriteRejected is the error returned when a write action is attempted on project scope.
 const errProjectScopeMsg = "scope=project is not supported for write operations — project skills live in {PROJECT_ROOT}/.agents/skills and come with the repo; edit the files directly in git"
 
@@ -213,7 +238,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 				if err != nil {
 					return "", fmt.Errorf("load project skill %q file %q: %w", name, path, err)
 				}
-				return fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data), nil
+				return fmt.Sprintf("<skill_dir>%s</skill_dir>\n<skill_content name=%q path=%q>\n%s\n</skill_content>", skillDir, name, path, data), nil
 			}
 		}
 	}
@@ -236,7 +261,12 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("load skill %q file %q: %w", name, path, err)
 	}
 
-	return fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", s.Name, path, data), nil
+	skillDir := t.skillDirForScope(s.Scope, s.AgentID, s.UserID, s.Name)
+	prefix := ""
+	if skillDir != "" {
+		prefix = fmt.Sprintf("<skill_dir>%s</skill_dir>\n", skillDir)
+	}
+	return prefix + fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", s.Name, path, data), nil
 }
 
 type installedSkill struct {

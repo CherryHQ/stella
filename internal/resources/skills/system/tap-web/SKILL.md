@@ -1,10 +1,14 @@
 ---
-description: Access websites, search the web, and extract clean content using the `tap` CLI. Supports structured site scripts, readable page extraction, and browser automation for tabs, screenshots, forms, cookies, JavaScript evaluation, and network capture. Use for web lookup, page reading, content extraction, browser interaction, authenticated sessions, request interception, or CDP-connected desktop apps.
+name: tap-web
 metadata:
   author: vaayne/tap
-  owner_plugin: tool/tap-web
-  version: v0.4.4
-name: tap-web
+  version: "v0.4.6"
+description: >
+  Access websites, search the web, and extract clean content using the `tap` CLI.
+  Supports structured site scripts, readable page extraction, and browser automation
+  for tabs, screenshots, forms, cookies, JavaScript evaluation, and network capture.
+  Use for web lookup, page reading, content extraction, browser interaction,
+  authenticated sessions, request interception, or CDP-connected desktop apps.
 ---
 
 # tap-web
@@ -176,6 +180,21 @@ Preferred order:
 5. `tap browser text`
 6. targeted `tap browser evaluate`
 7. screenshot
+
+## Platform-specific tool selection
+
+### Search
+
+When searching the web, prefer `site exa/search` if available, before falling back to `tap fetch` on a search engine results page.
+
+### Twitter / X
+
+- **Get content**: Try `tap fetch --lp <url>` first. If it fails or returns incomplete data, try `site twitter/getxapi-article` or `site twitter/getxapi-tweet-detail`.
+- **Post content**: Use `site twitter post-tweet`.
+
+### WeChat Official Accounts (微信公众号)
+
+When accessing `https://mp.weixin.qq.com/` articles, prefer `tap fetch --lp <url>` for fast JS rendering without Chrome auth flows.
 
 ## References
 

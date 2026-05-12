@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // MigrateFSConfig controls how on-disk skills are discovered and mapped to DB rows.
@@ -49,7 +46,7 @@ type migrateLoadedSkill struct {
 //
 // Skills with source="stella" (builtin) are skipped — use SyncBuiltin for those.
 // The function is safe to call multiple times; existing rows are counted as Skipped.
-func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSConfig) (MigrateFSResult, error) {
+func MigrateFilesystem(ctx context.Context, store Store, cfg MigrateFSConfig) (MigrateFSResult, error) {
 	loaded := loadFSSkills(cfg)
 
 	var result MigrateFSResult
@@ -66,7 +63,7 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 		}
 
 		// Check for existing row — skip if already imported.
-		exists, checkErr := skillExistsInDB(ctx, store.q, scope, cs.Name, cfg)
+		exists, checkErr := skillExistsInDB(ctx, store, scope, cs.Name, cfg)
 		if checkErr != nil {
 			return result, fmt.Errorf("migrate_fs: check existing %q: %w", cs.Name, checkErr)
 		}
@@ -225,31 +222,28 @@ func sourceToScope(source string) (string, error) {
 }
 
 // skillExistsInDB checks whether a skill with the given (scope, name, owner) is already
-// present in the DB. It dispatches to the appropriate typed query to avoid NULL = NULL pitfalls.
-func skillExistsInDB(ctx context.Context, q *sqlc.Queries, scope, name string, cfg MigrateFSConfig) (bool, error) {
-	var err error
-	switch scope {
-	case "agent":
-		_, err = q.GetAgentSkillByName(ctx, sqlc.GetAgentSkillByNameParams{
-			AgentID: sql.NullString{String: cfg.AgentID, Valid: cfg.AgentID != ""},
-			Name:    name,
-		})
-	case "user":
-		_, err = q.GetUserSkillByName(ctx, sqlc.GetUserSkillByNameParams{
-			UserID: sql.NullInt64{Int64: cfg.UserID, Valid: cfg.UserID != 0},
-			Name:   name,
-		})
-	default:
-		return false, fmt.Errorf("unsupported scope %q", scope)
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
+// present in the DB using the Store interface.
+func skillExistsInDB(ctx context.Context, store Store, scope, name string, cfg MigrateFSConfig) (bool, error) {
+	all, err := store.ListAll(ctx)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	for _, sk := range all {
+		if sk.Scope != scope || sk.Name != name {
+			continue
+		}
+		switch scope {
+		case "agent":
+			if sk.AgentID == cfg.AgentID {
+				return true, nil
+			}
+		case "user":
+			if sk.UserID == cfg.UserID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // walkSkillDir recursively collects all files under baseDir into a map keyed by

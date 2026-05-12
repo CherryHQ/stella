@@ -20,9 +20,11 @@ type runnerPaths struct {
 // Sandbox execution is defined entirely by the user-scoped writable root and an
 // internal working directory derived from that root.
 type sandboxPaths struct {
-	StellaHome string
-	UserRoot   string
-	WorkDir    string
+	StellaHome  string
+	UserRoot    string
+	WorkDir     string
+	AgentRoot   string
+	ProjectRoot string
 }
 
 // resolveRunnerPaths converts GoRunnerConfig into the minimal path set the
@@ -58,9 +60,11 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 	workDir := resolveSandboxWorkingDir(cfg, userRoot)
 
 	return sandboxPaths{
-		StellaHome: stellaHome,
-		UserRoot:   userRoot,
-		WorkDir:    workDir,
+		StellaHome:  stellaHome,
+		UserRoot:    userRoot,
+		WorkDir:     workDir,
+		AgentRoot:   cfg.AgentRoot,
+		ProjectRoot: cfg.ProjectRoot,
 	}, nil
 }
 
@@ -71,7 +75,7 @@ func resolveToolsBinDir(_ runnerPaths, _ string) string {
 }
 
 func (p runnerPaths) stellaSkillsDir() string {
-	return filepath.Join(p.StellaHome, "skills")
+	return filepath.Join(p.StellaHome, ".agents", "skills")
 }
 
 func (p runnerPaths) stellaAgentsDir() string {

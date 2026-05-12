@@ -106,17 +106,36 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("copy stella cli into sandbox path: %w", err)
 	}
 
-	if err := builtinres.ExtractSkills(filepath.Join(config.StellaHome(), "skills")); err != nil {
-		return nil, fmt.Errorf("extract builtin skills: %w", err)
-	}
+	rawSkillStore := skills.New(db)
+	skillStore := skills.NewDiskSyncStore(rawSkillStore, func(scope, agentID string, userID int64) string {
+		base := config.StellaHome()
+		switch scope {
+		case "system":
+			return filepath.Join(base, ".agents", "skills")
+		case "agent":
+			if agentID == "" {
+				return ""
+			}
+			return filepath.Join(base, "workspaces", agentID, ".agents", "skills")
+		case "user":
+			if agentID == "" || userID == 0 {
+				return ""
+			}
+			return filepath.Join(base, "workspaces", agentID, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+		default:
+			return ""
+		}
+	})
 
-	skillStore := skills.New(db)
 	builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
 	if !ok {
 		return nil, fmt.Errorf("builtin skills FS unavailable")
 	}
 	if err := skills.SyncBuiltin(parent, skillStore, builtinSkillsFS); err != nil {
 		return nil, fmt.Errorf("sync builtin skills: %w", err)
+	}
+	if err := skillStore.SyncAllToDisk(parent); err != nil {
+		return nil, fmt.Errorf("sync skills to disk: %w", err)
 	}
 
 	backgroundTasks := &sync.WaitGroup{}
