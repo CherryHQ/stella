@@ -300,7 +300,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 		maxTokens := 4096
 		temperature := 0.0
-		msg, err := providers.CompleteWithFunc(ctx, model, ai.Context{
+		msg, err := providers.Complete(ctx, model, ai.Context{
 			Messages: []ai.Message{ai.UserMessage{Content: prompt}},
 		}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{
 			MaxTokens:   &maxTokens,

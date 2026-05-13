@@ -27,7 +27,7 @@ func skipWithoutAPIKey(t *testing.T) string {
 }
 
 func TestIntegrationToolUseAllProviders(t *testing.T) {
-	apiKey := skipWithoutAPIKey(t)
+	skipWithoutAPIKey(t)
 	baseURL := os.Getenv("STELLA_BASE_URL")
 	if baseURL == "" {
 		baseURL = "https://cc2.vaayne.com"
@@ -97,7 +97,6 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				Tools:           tools,
 				ToolDefinitions: []ai.ToolDefinition{toolDef},
 			},
-				agent.WithStreamOptions(ai.StreamOptions{APIKey: apiKey}),
 				agent.WithSystem("You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise."),
 			)
 			if err != nil {

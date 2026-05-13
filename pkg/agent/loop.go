@@ -66,7 +66,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 				MessageCount:    len(normalized),
 				API:             cfg.Model.API,
 				Provider:        cfg.Model.Provider,
-				BaseURL:         resolveBaseURL(cfg.Model, cfg.StreamOptions),
+				BaseURL:         cfg.Model.BaseURL,
 				MaxTokens:       cfg.StreamOptions.MaxTokens,
 				Temperature:     cfg.StreamOptions.Temperature,
 			}
@@ -106,7 +106,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 				Model:            effectiveModel.Name,
 				Provider:         effectiveModel.Provider,
 				API:              effectiveModel.API,
-				BaseURL:          resolveBaseURL(effectiveModel, cfg.StreamOptions),
+				BaseURL:          effectiveModel.BaseURL,
 				Usage:            complete.Usage,
 				StopReason:       complete.StopReason,
 				Duration:         duration,
@@ -310,13 +310,4 @@ func extractToolCalls(msg ai.AssistantMessage) []ai.ToolCall {
 		}
 	}
 	return calls
-}
-
-// resolveBaseURL returns the effective endpoint URL, preferring the
-// per-request override over the model-level default.
-func resolveBaseURL(model ai.Model, opts ai.StreamOptions) string {
-	if opts.BaseURL != "" {
-		return opts.BaseURL
-	}
-	return model.BaseURL
 }

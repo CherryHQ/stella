@@ -98,21 +98,6 @@ func TestRunner_Continue_InvalidTail(t *testing.T) {
 	}
 }
 
-func TestResolveBaseURL(t *testing.T) {
-	// opts.BaseURL takes precedence.
-	model := ai.Model{BaseURL: "http://model.base"}
-	got := resolveBaseURL(model, ai.StreamOptions{BaseURL: "http://override"})
-	if got != "http://override" {
-		t.Errorf("expected override URL, got %q", got)
-	}
-
-	// Falls back to model.BaseURL when opts.BaseURL is empty.
-	got = resolveBaseURL(model, ai.StreamOptions{})
-	if got != "http://model.base" {
-		t.Errorf("expected model base URL, got %q", got)
-	}
-}
-
 func TestNewRunner_CopiesToolsAndDefs(t *testing.T) {
 	tools := ToolSet{"foo": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
 		return ai.TextContent{Text: "ok"}, nil

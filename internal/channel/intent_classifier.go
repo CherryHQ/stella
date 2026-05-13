@@ -83,7 +83,7 @@ func NewLLMIntentClassifier(loadSnapshot SnapshotLoader, buildStream StreamFuncB
 	return &LLMIntentClassifier{
 		loadSnapshot: loadSnapshot,
 		buildStream:  buildStream,
-		complete:     providers.CompleteWithFunc,
+		complete:     providers.Complete,
 		timeout:      1500 * time.Millisecond,
 		log:          slog.With("component", "intent_classifier"),
 	}

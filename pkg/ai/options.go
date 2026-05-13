@@ -6,8 +6,6 @@ import "time"
 type StreamOptions struct {
 	Temperature     *float64
 	MaxTokens       *int
-	APIKey          string
-	BaseURL         string
 	Transport       Transport
 	CacheRetention  CacheRetention
 	SessionID       string

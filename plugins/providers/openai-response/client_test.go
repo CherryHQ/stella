@@ -47,32 +47,13 @@ func TestBuildRequestOptionsEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildRequestOptionsWithAPIKey(t *testing.T) {
-	opts := ai.StreamOptions{APIKey: "key123"}
-	reqOpts := buildRequestOptions(opts)
-	if len(reqOpts) != 1 {
-		t.Errorf("expected 1 request option, got %d", len(reqOpts))
-	}
-}
-
-func TestBuildRequestOptionsWithBaseURL(t *testing.T) {
-	opts := ai.StreamOptions{BaseURL: "https://example.com"}
-	reqOpts := buildRequestOptions(opts)
-	if len(reqOpts) != 1 {
-		t.Errorf("expected 1 request option, got %d", len(reqOpts))
-	}
-}
-
 func TestBuildRequestOptionsWithHeaders(t *testing.T) {
 	opts := ai.StreamOptions{
-		APIKey:  "key",
-		BaseURL: "https://example.com",
 		Headers: map[string]string{"X-Custom": "value", "X-Other": "val2"},
 	}
 	reqOpts := buildRequestOptions(opts)
-	// apikey + baseurl + 2 headers
-	if len(reqOpts) != 4 {
-		t.Errorf("expected 4 request options, got %d", len(reqOpts))
+	if len(reqOpts) != 2 {
+		t.Errorf("expected 2 request options, got %d", len(reqOpts))
 	}
 }
 

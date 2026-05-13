@@ -72,7 +72,7 @@ func dumpLLMContextIfEnabled(cfg loopConfig, messages []ai.Message) {
 		Messages:  dumpMessages(messages),
 		Tools:     cfg.ToolDefinitions,
 		Options: dumpedStreamOptions{
-			BaseURL:     resolveBaseURL(cfg.Model, cfg.StreamOptions),
+			BaseURL:     cfg.Model.BaseURL,
 			MaxTokens:   cfg.StreamOptions.MaxTokens,
 			Temperature: cfg.StreamOptions.Temperature,
 			Transport:   cfg.StreamOptions.Transport,

@@ -89,16 +89,6 @@ func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers
 	})
 }
 
-func (h *Host) BuildProviderRegistry(name string, stateConfig map[string]any) (*providers.Registry, error) {
-	adapter, err := h.BuildProvider(name, stateConfig)
-	if err != nil {
-		return nil, err
-	}
-	reg := providers.NewRegistry()
-	reg.Register(adapter)
-	return reg, nil
-}
-
 func (h *Host) BuildStreamFunc(name string, stateConfig map[string]any) (providers.StreamFunc, error) {
 	adapter, err := h.BuildProvider(name, stateConfig)
 	if err != nil {

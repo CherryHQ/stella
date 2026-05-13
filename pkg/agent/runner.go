@@ -38,7 +38,7 @@ type RunnerConfig struct {
 // Option configures optional Runner fields.
 type Option func(*Runner)
 
-// WithStreamOptions sets stream options (API key, base URL, etc.).
+// WithStreamOptions sets stream options (temperature, headers, etc.).
 func WithStreamOptions(opts ai.StreamOptions) Option {
 	return func(r *Runner) { r.streamOptions = opts }
 }
