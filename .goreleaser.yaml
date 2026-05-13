@@ -22,7 +22,7 @@ builds:
       - arm64
     hooks:
       pre:
-        - cmd: env -u GOOS -u GOARCH go run ./internal/resources/binaries/gen.go
+        - cmd: env -u GOOS -u GOARCH go run ./resources/binaries/gen.go
           env:
             - TARGET_GOOS={{ .Os }}
             - TARGET_GOARCH={{ .Arch }}
