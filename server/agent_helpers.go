@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 )
 
@@ -25,6 +25,6 @@ func slugify(name string) string {
 // fillAgentDefaults populates empty system_prompt with the embedded default.
 func fillAgentDefaults(a *config.Agent) {
 	if a.SystemPrompt == "" {
-		a.SystemPrompt = agent.DefaultSystemPrompt()
+		a.SystemPrompt = prompt.DefaultSystemPrompt()
 	}
 }

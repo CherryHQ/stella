@@ -1,4 +1,4 @@
-package agent
+package prompt
 
 import (
 	"bytes"
@@ -196,7 +196,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 // resolvePromptContextHost returns the host to use for reading prompt context
 // files. When a session host is already available it is used directly. When no
 // host is present (prompt rendering outside of a runner session) the function
-// returns nil and prompt_host.go falls back to plain os.* calls.
+// returns nil and host.go falls back to plain os.* calls.
 func resolvePromptContextHost(_ context.Context, host sandbox.Host, _ string) (sandbox.Host, func()) {
 	return host, func() {}
 }

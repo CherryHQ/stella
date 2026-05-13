@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -122,7 +123,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 	if system == "" {
-		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
+		system = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 			StellaHome:     paths.StellaHome,
 			AgentRoot:      paths.AgentRoot,
 			ProjectRoot:    paths.ProjectRoot,

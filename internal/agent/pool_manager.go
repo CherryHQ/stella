@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -511,7 +512,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 		if pm.pluginPromptsBuilder != nil {
 			pluginPrompts = pm.pluginPromptsBuilder()
 		}
-		params := DBPromptParams{
+		params := prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
 			AgentSoul:         snap.Soul,
 			Memory:            pm.mem,
@@ -528,7 +529,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
 			params.KnowledgeStore = ks
 		}
-		return BuildSystemPromptFromDB(ctx, params)
+		return prompt.BuildSystemPromptFromDB(ctx, params)
 	})
 }
 

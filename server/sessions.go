@@ -13,6 +13,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -852,7 +853,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	prompt := agent.BuildSystemPromptFromDB(r.Context(), agent.DBPromptParams{
+	systemPrompt := prompt.BuildSystemPromptFromDB(r.Context(), prompt.DBPromptParams{
 		SystemPrompt:   agentCfg.SystemPrompt,
 		Memory:         s.mem,
 		UserID:         info.UserID,
@@ -865,7 +866,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		PromptSections: promptSections,
 	})
 
-	writeData(w, http.StatusOK, map[string]string{"system_prompt": prompt})
+	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,

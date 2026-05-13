@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -102,7 +103,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			}
 
 			// Build the full system prompt per-session with profile from memory provider.
-			system := BuildSystemPromptFromDB(ctx, DBPromptParams{
+			system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 				SystemPrompt:   snap.SystemPrompt,
 				AgentSoul:      snap.Soul,
 				Memory:         memProvider,

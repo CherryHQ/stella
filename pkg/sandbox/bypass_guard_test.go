@@ -27,11 +27,10 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"plugins/tools/skills/catalog.go",
 		"plugins/tools/skills/manage.go",
 		"plugins/tools/agent/preset_loader.go",
-		"internal/agent/prompt.go",
-		// prompt_host.go and hostfs.go intentionally use os.* for host-side
-		// operations (no sandbox session available during prompt rendering or
-		// agent preset discovery, which run in the stella process before a session
-		// is created).
+		"internal/agent/prompt/prompt.go",
+		// prompt/host.go intentionally uses os.* for host-side operations (no
+		// sandbox session available during prompt rendering, which runs in the
+		// stella process before a session is created).
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)

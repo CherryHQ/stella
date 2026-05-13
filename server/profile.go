@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/memorywrite"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -168,7 +168,7 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defaultSoul := agent.DefaultAgentSoul()
+	defaultSoul := prompt.DefaultAgentSoul()
 	for i := range memories {
 		if memories[i].Soul == "" {
 			memories[i].Soul = defaultSoul

@@ -1,4 +1,4 @@
-package agent
+package prompt_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 )
 
 func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
@@ -23,14 +25,14 @@ func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
+	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 		SystemPrompt: "You are Stella.",
 		ProjectRoot:  project,
 	})
-	if !strings.Contains(prompt, "root instructions") {
-		t.Fatalf("expected root AGENTS.md content in prompt: %s", prompt)
+	if !strings.Contains(p, "root instructions") {
+		t.Fatalf("expected root AGENTS.md content in prompt: %s", p)
 	}
-	if !strings.Contains(prompt, "project instructions") {
-		t.Fatalf("expected project AGENTS.md content in prompt: %s", prompt)
+	if !strings.Contains(p, "project instructions") {
+		t.Fatalf("expected project AGENTS.md content in prompt: %s", p)
 	}
 }
