@@ -26,6 +26,30 @@ type Agent = externalRef0.Agent
 // AgentList defines model for AgentList.
 type AgentList = externalRef0.AgentList
 
+// AgentTask defines model for AgentTask.
+type AgentTask = externalRef0.AgentTask
+
+// AgentTaskAction An action taken on a task (approve/reject review, respond to block, cancel)
+type AgentTaskAction = externalRef0.AgentTaskAction
+
+// AgentTaskEvent defines model for AgentTaskEvent.
+type AgentTaskEvent = externalRef0.AgentTaskEvent
+
+// AgentTaskEventList defines model for AgentTaskEventList.
+type AgentTaskEventList = externalRef0.AgentTaskEventList
+
+// AgentTaskInput Fields for creating an agent task
+type AgentTaskInput = externalRef0.AgentTaskInput
+
+// AgentTaskList defines model for AgentTaskList.
+type AgentTaskList = externalRef0.AgentTaskList
+
+// AgentTaskReviewRequest Structured review request set by the task agent
+type AgentTaskReviewRequest = externalRef0.AgentTaskReviewRequest
+
+// AgentTaskUpdate Fields for updating an agent task (all optional)
+type AgentTaskUpdate = externalRef0.AgentTaskUpdate
+
 // AgentUser defines model for AgentUser.
 type AgentUser = externalRef0.AgentUser
 
@@ -465,6 +489,11 @@ type GetSkillFileParams struct {
 	Path string `form:"path" json:"path"`
 }
 
+// ListAgentTasksParams defines parameters for ListAgentTasks.
+type ListAgentTasksParams struct {
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
 type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInput
 
@@ -599,6 +628,15 @@ type InstallSkillJSONRequestBody = externalRef0.GlobalInstallSkillRequest
 
 // UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
 type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+
+// CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
+type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
+
+// UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
+type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
+
+// AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
+type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
 
 // UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
 type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
@@ -995,6 +1033,27 @@ type ServerInterface interface {
 	// Get runtime status and version metadata
 	// (GET /api/status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
+	// List agent tasks
+	// (GET /api/tasks)
+	ListAgentTasks(w http.ResponseWriter, r *http.Request, params ListAgentTasksParams)
+	// Create an agent task
+	// (POST /api/tasks)
+	CreateAgentTask(w http.ResponseWriter, r *http.Request)
+	// Delete an agent task
+	// (DELETE /api/tasks/{id})
+	DeleteAgentTask(w http.ResponseWriter, r *http.Request, id string)
+	// Get an agent task
+	// (GET /api/tasks/{id})
+	GetAgentTask(w http.ResponseWriter, r *http.Request, id string)
+	// Update an agent task
+	// (PUT /api/tasks/{id})
+	UpdateAgentTask(w http.ResponseWriter, r *http.Request, id string)
+	// Take an action on an agent task
+	// (POST /api/tasks/{id}/action)
+	AgentTaskAction(w http.ResponseWriter, r *http.Request, id string)
+	// List agent task events
+	// (GET /api/tasks/{id}/events)
+	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id string)
 	// List available agent tools
 	// (GET /api/tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
@@ -5170,6 +5229,225 @@ func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAgentTasksParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTasks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentTask(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAgentTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAgentTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AgentTaskAction operation middleware
+func (siw *ServerInterfaceWrapper) AgentTaskAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AgentTaskAction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTaskEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTaskEvents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTools operation middleware
 func (siw *ServerInterfaceWrapper) ListTools(w http.ResponseWriter, r *http.Request) {
 
@@ -5616,6 +5894,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.DeleteSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.GetSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/status", wrapper.GetStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.ListAgentTasks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.CreateAgentTask)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{id}", wrapper.DeleteAgentTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}", wrapper.GetAgentTask)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/tasks/{id}", wrapper.UpdateAgentTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{id}/action", wrapper.AgentTaskAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}/events", wrapper.ListAgentTaskEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)

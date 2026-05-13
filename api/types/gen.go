@@ -7,6 +7,171 @@ import (
 	"time"
 )
 
+// Defines values for AgentTaskPriority.
+const (
+	AgentTaskPriorityRoutine AgentTaskPriority = "routine"
+	AgentTaskPriorityUrgent  AgentTaskPriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskPriority enum.
+func (e AgentTaskPriority) Valid() bool {
+	switch e {
+	case AgentTaskPriorityRoutine:
+		return true
+	case AgentTaskPriorityUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskStatus.
+const (
+	AgentTaskStatusBlocked         AgentTaskStatus = "blocked"
+	AgentTaskStatusCancelled       AgentTaskStatus = "cancelled"
+	AgentTaskStatusDone            AgentTaskStatus = "done"
+	AgentTaskStatusFailed          AgentTaskStatus = "failed"
+	AgentTaskStatusPending         AgentTaskStatus = "pending"
+	AgentTaskStatusReviewRequested AgentTaskStatus = "review_requested"
+	AgentTaskStatusRunning         AgentTaskStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskStatus enum.
+func (e AgentTaskStatus) Valid() bool {
+	switch e {
+	case AgentTaskStatusBlocked:
+		return true
+	case AgentTaskStatusCancelled:
+		return true
+	case AgentTaskStatusDone:
+		return true
+	case AgentTaskStatusFailed:
+		return true
+	case AgentTaskStatusPending:
+		return true
+	case AgentTaskStatusReviewRequested:
+		return true
+	case AgentTaskStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskActionType.
+const (
+	Approve AgentTaskActionType = "approve"
+	Cancel  AgentTaskActionType = "cancel"
+	Reject  AgentTaskActionType = "reject"
+	Respond AgentTaskActionType = "respond"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskActionType enum.
+func (e AgentTaskActionType) Valid() bool {
+	switch e {
+	case Approve:
+		return true
+	case Cancel:
+		return true
+	case Reject:
+		return true
+	case Respond:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskEventEventType.
+const (
+	AgentTaskEventEventTypeBlocked         AgentTaskEventEventType = "blocked"
+	AgentTaskEventEventTypeCancelled       AgentTaskEventEventType = "cancelled"
+	AgentTaskEventEventTypeDone            AgentTaskEventEventType = "done"
+	AgentTaskEventEventTypeFailed          AgentTaskEventEventType = "failed"
+	AgentTaskEventEventTypeProgress        AgentTaskEventEventType = "progress"
+	AgentTaskEventEventTypeReviewRequested AgentTaskEventEventType = "review_requested"
+	AgentTaskEventEventTypeStarted         AgentTaskEventEventType = "started"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskEventEventType enum.
+func (e AgentTaskEventEventType) Valid() bool {
+	switch e {
+	case AgentTaskEventEventTypeBlocked:
+		return true
+	case AgentTaskEventEventTypeCancelled:
+		return true
+	case AgentTaskEventEventTypeDone:
+		return true
+	case AgentTaskEventEventTypeFailed:
+		return true
+	case AgentTaskEventEventTypeProgress:
+		return true
+	case AgentTaskEventEventTypeReviewRequested:
+		return true
+	case AgentTaskEventEventTypeStarted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskInputPriority.
+const (
+	AgentTaskInputPriorityRoutine AgentTaskInputPriority = "routine"
+	AgentTaskInputPriorityUrgent  AgentTaskInputPriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskInputPriority enum.
+func (e AgentTaskInputPriority) Valid() bool {
+	switch e {
+	case AgentTaskInputPriorityRoutine:
+		return true
+	case AgentTaskInputPriorityUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskReviewRequestRisk.
+const (
+	High   AgentTaskReviewRequestRisk = "high"
+	Low    AgentTaskReviewRequestRisk = "low"
+	Medium AgentTaskReviewRequestRisk = "medium"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskReviewRequestRisk enum.
+func (e AgentTaskReviewRequestRisk) Valid() bool {
+	switch e {
+	case High:
+		return true
+	case Low:
+		return true
+	case Medium:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskUpdatePriority.
+const (
+	Routine AgentTaskUpdatePriority = "routine"
+	Urgent  AgentTaskUpdatePriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskUpdatePriority enum.
+func (e AgentTaskUpdatePriority) Valid() bool {
+	switch e {
+	case Routine:
+		return true
+	case Urgent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ArticleStatus.
 const (
 	Archived ArticleStatus = "archived"
@@ -102,6 +267,98 @@ type Agent struct {
 type AgentList struct {
 	Items []Agent `json:"items"`
 }
+
+// AgentTask defines model for AgentTask.
+type AgentTask struct {
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Context Task-level metadata checkpoint (phase, decisions, blockers)
+	Context     *map[string]interface{} `json:"context,omitempty"`
+	CreatedAt   time.Time               `json:"created_at"`
+	Description *string                 `json:"description,omitempty"`
+	Id          string                  `json:"id"`
+	Priority    AgentTaskPriority       `json:"priority"`
+
+	// ReviewRequest Structured review request set by the task agent
+	ReviewRequest *AgentTaskReviewRequest `json:"review_request,omitempty"`
+	SessionId     *string                 `json:"session_id,omitempty"`
+	Status        AgentTaskStatus         `json:"status"`
+	Title         string                  `json:"title"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+	UserId        *int64                  `json:"user_id,omitempty"`
+}
+
+// AgentTaskPriority defines model for AgentTask.Priority.
+type AgentTaskPriority string
+
+// AgentTaskStatus defines model for AgentTask.Status.
+type AgentTaskStatus string
+
+// AgentTaskAction An action taken on a task (approve/reject review, respond to block, cancel)
+type AgentTaskAction struct {
+	// Message Optional message for respond/reject actions
+	Message *string             `json:"message,omitempty"`
+	Type    AgentTaskActionType `json:"type"`
+}
+
+// AgentTaskActionType defines model for AgentTaskAction.Type.
+type AgentTaskActionType string
+
+// AgentTaskEvent defines model for AgentTaskEvent.
+type AgentTaskEvent struct {
+	CreatedAt time.Time               `json:"created_at"`
+	Detail    *map[string]interface{} `json:"detail,omitempty"`
+	EventType AgentTaskEventEventType `json:"event_type"`
+	Id        string                  `json:"id"`
+	TaskId    string                  `json:"task_id"`
+}
+
+// AgentTaskEventEventType defines model for AgentTaskEvent.EventType.
+type AgentTaskEventEventType string
+
+// AgentTaskEventList defines model for AgentTaskEventList.
+type AgentTaskEventList struct {
+	Items []AgentTaskEvent `json:"items"`
+}
+
+// AgentTaskInput Fields for creating an agent task
+type AgentTaskInput struct {
+	AgentId     *string                 `json:"agent_id,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	Priority    *AgentTaskInputPriority `json:"priority,omitempty"`
+	Title       string                  `json:"title"`
+}
+
+// AgentTaskInputPriority defines model for AgentTaskInput.Priority.
+type AgentTaskInputPriority string
+
+// AgentTaskList defines model for AgentTaskList.
+type AgentTaskList struct {
+	Items []AgentTask `json:"items"`
+}
+
+// AgentTaskReviewRequest Structured review request set by the task agent
+type AgentTaskReviewRequest struct {
+	Details        *string                     `json:"details,omitempty"`
+	Options        *[]string                   `json:"options,omitempty"`
+	Question       *string                     `json:"question,omitempty"`
+	Recommendation *string                     `json:"recommendation,omitempty"`
+	Risk           *AgentTaskReviewRequestRisk `json:"risk,omitempty"`
+}
+
+// AgentTaskReviewRequestRisk defines model for AgentTaskReviewRequest.Risk.
+type AgentTaskReviewRequestRisk string
+
+// AgentTaskUpdate Fields for updating an agent task (all optional)
+type AgentTaskUpdate struct {
+	AgentId     *string                  `json:"agent_id,omitempty"`
+	Description *string                  `json:"description,omitempty"`
+	Priority    *AgentTaskUpdatePriority `json:"priority,omitempty"`
+	Title       *string                  `json:"title,omitempty"`
+}
+
+// AgentTaskUpdatePriority defines model for AgentTaskUpdate.Priority.
+type AgentTaskUpdatePriority string
 
 // AgentUser defines model for AgentUser.
 type AgentUser struct {

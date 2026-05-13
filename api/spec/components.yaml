@@ -1455,6 +1455,145 @@ components:
           $ref: "#/components/schemas/StatusDatabase"
         plugins:
           $ref: "#/components/schemas/StatusPlugins"
+    AgentTask:
+      type: object
+      required: [id, title, status, priority, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [
+            pending,
+            running,
+            blocked,
+            review_requested,
+            done,
+            failed,
+            cancelled,
+          ]
+        priority:
+          type: string
+          enum: [routine, urgent]
+        session_id:
+          type: string
+        context:
+          type: object
+          additionalProperties: {}
+          description: "Task-level metadata checkpoint (phase, decisions, blockers)"
+        review_request:
+          $ref: "#/components/schemas/AgentTaskReviewRequest"
+        agent_id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AgentTaskList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTask"
+    AgentTaskInput:
+      type: object
+      required: [title]
+      description: "Fields for creating an agent task"
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id:
+          type: string
+    AgentTaskUpdate:
+      type: object
+      description: "Fields for updating an agent task (all optional)"
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id:
+          type: string
+    AgentTaskAction:
+      type: object
+      required: [type]
+      description: "An action taken on a task (approve/reject review, respond to block, cancel)"
+      properties:
+        type:
+          type: string
+          enum: [approve, reject, respond, cancel]
+        message:
+          type: string
+          description: "Optional message for respond/reject actions"
+    AgentTaskReviewRequest:
+      type: object
+      description: "Structured review request set by the task agent"
+      properties:
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: string
+        risk:
+          type: string
+          enum: [low, medium, high]
+        details:
+          type: string
+    AgentTaskEvent:
+      type: object
+      required: [id, task_id, event_type, created_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        event_type:
+          type: string
+          enum: [
+            started,
+            progress,
+            blocked,
+            review_requested,
+            done,
+            failed,
+            cancelled,
+          ]
+        detail:
+          type: object
+          additionalProperties: {}
+        created_at:
+          type: string
+          format: date-time
+    AgentTaskEventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskEvent"
     Tool:
       type: object
       required: [name, description, category]
