@@ -24,6 +24,9 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	if stellaHome == "" {
 		stellaHome = config.StellaHome()
 	}
+	if cfg.Paths.AgentRoot == "" {
+		return Paths{}, fmt.Errorf("agent_root is required")
+	}
 	if cfg.Paths.UserRoot == "" {
 		return Paths{}, fmt.Errorf("user_root is required")
 	}

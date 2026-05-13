@@ -69,27 +69,6 @@ type runner struct {
 
 // newRunner creates a runner with built-in providers.
 func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
-	if cfg.Provider.API == "" {
-		return nil, fmt.Errorf("runner: api is required")
-	}
-	if cfg.Provider.Model == "" {
-		return nil, fmt.Errorf("runner: model is required")
-	}
-	if cfg.Provider.APIKey == "" {
-		return nil, fmt.Errorf("runner: api_key is required")
-	}
-	if cfg.Sandbox.Paths.AgentRoot == "" {
-		return nil, fmt.Errorf("runner: agent_root is required")
-	}
-	if cfg.Sandbox.Paths.UserRoot == "" {
-		return nil, fmt.Errorf("runner: user_root is required")
-	}
-
-	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
-	}
-
 	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
 		return nil, err
@@ -103,6 +82,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
+	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
+	}
+
 	if system == "" {
 		system = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 			StellaHome:     paths.StellaHome,
@@ -185,6 +169,15 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 
 // buildProviderRegistry creates the provider registry for the configured API.
 func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
+	if cfg.Provider.API == "" {
+		return nil, fmt.Errorf("runner: api is required")
+	}
+	if cfg.Provider.Model == "" {
+		return nil, fmt.Errorf("runner: model is required")
+	}
+	if cfg.Provider.APIKey == "" {
+		return nil, fmt.Errorf("runner: api_key is required")
+	}
 	if cfg.Provider.Builder == nil {
 		return nil, fmt.Errorf("runner: provider registry builder is required")
 	}
