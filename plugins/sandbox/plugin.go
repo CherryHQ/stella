@@ -20,7 +20,7 @@ func init() {
 		{
 			name:        config.SandboxBackendLocal,
 			displayName: "Local",
-			description: "Default Docker-free sandbox; uses bwrap for filesystem and network isolation on Linux.",
+			description: "Default Docker-free sandbox; uses bwrap on Linux and macOS Seatbelt (sandbox-exec) on macOS for filesystem and network isolation.",
 		},
 		{
 			name:        config.SandboxBackendNone,
