@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Star, Check, EyeOff, Archive, Trash2 } from "lucide-react";
+import {
+  Search,
+  Star,
+  Check,
+  EyeOff,
+  Archive,
+  Trash2,
+  RefreshCw,
+  Rss,
+  AlertCircle,
+} from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import {
   listArticlesOptions,
@@ -11,8 +21,12 @@ import {
   getDigestQueryKey,
   updateArticleMutation,
   deleteArticleMutation,
+  listFeedsOptions,
+  listFeedsQueryKey,
+  createFeedMutation,
+  pollFeedMutation,
 } from "@/lib/api-client/@tanstack/react-query.gen";
-import type { Article, ArticleStatus, SourceType } from "@/lib/api-client/types.gen";
+import type { Article, ArticleStatus, SourceType, Feed } from "@/lib/api-client/types.gen";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 const SOURCE_TYPES: SourceType[] = ["web", "rss", "github", "pdf", "youtube", "twitter"];
@@ -51,6 +65,10 @@ export function RecallyPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [feedUrl, setFeedUrl] = useState("");
+  const [feedPollResults, setFeedPollResults] = useState<
+    Record<string, { newCount: number; error?: string }>
+  >({});
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -114,6 +132,43 @@ export function RecallyPage() {
     },
     onError: () => {
       showToast(t("recally.article.deleteFailed"), "error");
+    },
+  });
+
+  const feedsQuery = useQuery(listFeedsOptions());
+  const feeds = feedsQuery.data?.items ?? [];
+
+  const createFeedMut = useMutation({
+    ...createFeedMutation(),
+    onSuccess: () => {
+      setFeedUrl("");
+      void queryClient.invalidateQueries({ queryKey: listFeedsQueryKey() });
+      showToast(t("recally.feeds.added"));
+    },
+    onError: () => {
+      showToast(t("recally.feeds.addFailed"), "error");
+    },
+  });
+
+  const pollFeedMut = useMutation({
+    ...pollFeedMutation(),
+    onSuccess: (data) => {
+      setFeedPollResults((prev) => ({
+        ...prev,
+        [data.feed.id]: {
+          newCount: data.new_entries.length,
+          error: data.error ?? undefined,
+        },
+      }));
+      void queryClient.invalidateQueries({ queryKey: listFeedsQueryKey() });
+      if (data.error) {
+        showToast(`${t("recally.feeds.pollError")}: ${data.error}`, "error");
+      } else if (data.new_entries.length > 0) {
+        showToast(t("recally.feeds.pollNewEntries", { count: data.new_entries.length }));
+      }
+    },
+    onError: () => {
+      showToast(t("recally.feeds.pollFailed"), "error");
     },
   });
 
@@ -243,13 +298,89 @@ export function RecallyPage() {
             </div>
           </div>
 
-          {/* Feeds placeholder */}
+          {/* Feeds */}
           <div>
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
               {t("recally.section.feeds")}
             </div>
-            <div className="mx-1 px-2.5 py-2 text-xs text-muted-foreground border border-dashed border-border rounded-md">
-              {t("recally.feeds.placeholder")}
+            <div className="px-1 space-y-1.5">
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={feedUrl}
+                  onChange={(e) => setFeedUrl(e.target.value)}
+                  placeholder={t("recally.feeds.addFeedPlaceholder")}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && feedUrl.trim()) {
+                      createFeedMut.mutate({ body: { url: feedUrl.trim() } });
+                    }
+                  }}
+                  className="flex-1 h-7 px-2 text-xs bg-muted rounded-md border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <button
+                  onClick={() => {
+                    if (feedUrl.trim()) {
+                      createFeedMut.mutate({ body: { url: feedUrl.trim() } });
+                    }
+                  }}
+                  disabled={createFeedMut.isPending || !feedUrl.trim()}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+                  title={t("recally.feeds.addFeed")}
+                >
+                  {createFeedMut.isPending ? (
+                    <RefreshCw className="size-3 animate-spin" />
+                  ) : (
+                    <Rss className="size-3" />
+                  )}
+                </button>
+              </div>
+              {feedsQuery.isLoading && (
+                <div className="text-xs text-muted-foreground py-1">{t("common.loading")}</div>
+              )}
+              {feedsQuery.isError && (
+                <div className="text-xs text-destructive py-1">{t("common.error")}</div>
+              )}
+              {!feedsQuery.isLoading && !feedsQuery.isError && feeds.length === 0 && (
+                <div className="text-xs text-muted-foreground py-1">
+                  {t("recally.feeds.noFeedsDesc")}
+                </div>
+              )}
+              {feeds.map((feed: Feed) => (
+                <div key={feed.id} className="flex items-center justify-between gap-1.5 py-0.5">
+                  <span
+                    className="text-xs truncate text-muted-foreground"
+                    title={feed.title || feed.url}
+                  >
+                    {feed.title || feed.url}
+                  </span>
+                  <button
+                    onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
+                    disabled={pollFeedMut.isPending}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border border-border hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+                    title={t("recally.feeds.poll")}
+                  >
+                    {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
+                      <RefreshCw className="size-3 animate-spin" />
+                    ) : feedPollResults[feed.id]?.error ? (
+                      <>
+                        <AlertCircle className="size-3 text-destructive" />
+                        <span className="text-destructive">{t("recally.feeds.pollError")}</span>
+                      </>
+                    ) : feedPollResults[feed.id] ? (
+                      <span className="text-green-700">
+                        {t("recally.feeds.pollNewEntries", {
+                          count: feedPollResults[feed.id].newCount,
+                        })}
+                      </span>
+                    ) : (
+                      <>
+                        <RefreshCw className="size-3" />
+                        <span>{t("recally.feeds.poll")}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
