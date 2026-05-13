@@ -44,7 +44,7 @@ type (
 	PluginPromptsBuilder     func() []pkgplugins.SystemPromptSection
 	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
 	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
-	ProviderRegistryBuilder  func(api, apiKey, baseURL string) (*providers.Registry, error)
+	ProviderStreamBuilder    func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 )
 
 // PoolManagerOption configures a PoolManager.
@@ -129,9 +129,9 @@ func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
 	}
 }
 
-func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
+func WithProviderStreamBuilder(b ProviderStreamBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
-		pm.providerRegistryBuilder = b
+		pm.providerStreamBuilder = b
 	}
 }
 
@@ -182,7 +182,7 @@ type PoolManager struct {
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
-	providerRegistryBuilder  ProviderRegistryBuilder
+	providerStreamBuilder    ProviderStreamBuilder
 	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           sandbox.VaultEnvLoader
@@ -568,7 +568,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		Snap:                     snap,
 		BuiltinTools:             builtinTools,
 		PluginToolsBuilder:       pm.pluginToolsBuilder,
-		ProviderRegistryBuilder:  pm.providerRegistryBuilder,
+		ProviderStreamBuilder:    pm.providerStreamBuilder,
 		PromptToolsBuilder:       pm.promptToolsBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		PluginPromptsBuilder:     pm.pluginPromptsBuilder,

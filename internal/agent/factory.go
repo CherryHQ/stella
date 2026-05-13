@@ -24,7 +24,7 @@ type RunnerFactoryConfig struct {
 	Snap                     *config.Snapshot
 	BuiltinTools             []tools.Tool
 	PluginToolsBuilder       PluginToolsBuilder
-	ProviderRegistryBuilder  ProviderRegistryBuilder
+	ProviderStreamBuilder    ProviderStreamBuilder
 	PromptToolsBuilder       PromptToolsBuilder
 	PromptSectionsBuilder    PromptSectionsBuilder
 	PluginPromptsBuilder     PluginPromptsBuilder
@@ -154,7 +154,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 					Model:   modelID,
 					APIKey:  creds.APIKey,
 					BaseURL: creds.BaseURL,
-					Builder: cfg.ProviderRegistryBuilder,
+					Builder: cfg.ProviderStreamBuilder,
 				},
 				Sandbox: sandbox.Config{
 					SandboxConfig:    cfg.Snap.Sandbox,

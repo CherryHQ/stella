@@ -30,7 +30,7 @@ type providerConfig struct {
 	Model   string // e.g. "claude-sonnet-4-20250514"
 	APIKey  string
 	BaseURL string // optional provider base URL override
-	Builder ProviderRegistryBuilder
+	Builder ProviderStreamBuilder
 }
 
 // runnerConfig configures the runner implementation.
@@ -51,7 +51,7 @@ type runnerConfig struct {
 // runner implements Runner by calling LLM providers directly via agent.Runner.
 type runner struct {
 	runner        *coreagent.Runner
-	reg           *providers.Registry
+	stream        providers.StreamFunc
 	tools         *tools.Registry
 	model         ai.Model
 	streamOptions ai.StreamOptions
@@ -69,14 +69,14 @@ type runner struct {
 
 // newRunner creates a runner with built-in providers.
 func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
-	reg, err := buildProviderRegistry(cfg)
+	stream, err := buildStreamFunc(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, BaseURL: cfg.Provider.BaseURL}
 
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
@@ -110,11 +110,9 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers:      reg,
+		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
-		APIKey:         cfg.Provider.APIKey,
-		BaseURL:        cfg.Provider.BaseURL,
 		System:         systemPrompt,
 		Presets:        presets,
 		Hooks:          hookSet,
@@ -122,8 +120,8 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		DefaultTimeout: cfg.SubagentTimeout,
 	}))
 
-	streamOptions := ai.StreamOptions{APIKey: cfg.Provider.APIKey, BaseURL: cfg.Provider.BaseURL}
-	coreRunner, err := newAgentRunner(reg, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
+	streamOptions := ai.StreamOptions{}
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -133,7 +131,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	return &runner{
 		runner:        coreRunner,
-		reg:           reg,
+		stream:        stream,
 		tools:         toolReg,
 		model:         model,
 		streamOptions: streamOptions,
@@ -147,15 +145,15 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(reg, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	return coreagent.NewRunner(coreagent.RunnerConfig{
-		Providers:       reg,
+		Stream:          stream,
 		Model:           model,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
@@ -167,8 +165,8 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 	)
 }
 
-// buildProviderRegistry creates the provider registry for the configured API.
-func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
+// buildStreamFunc creates the stream function for the configured API.
+func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 	if cfg.Provider.API == "" {
 		return nil, fmt.Errorf("runner: api is required")
 	}
@@ -179,13 +177,13 @@ func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
 		return nil, fmt.Errorf("runner: api_key is required")
 	}
 	if cfg.Provider.Builder == nil {
-		return nil, fmt.Errorf("runner: provider registry builder is required")
+		return nil, fmt.Errorf("runner: provider stream builder is required")
 	}
-	reg, err := cfg.Provider.Builder(cfg.Provider.API, cfg.Provider.APIKey, cfg.Provider.BaseURL)
+	stream, err := cfg.Provider.Builder(cfg.Provider.API, cfg.Provider.APIKey, cfg.Provider.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
-	return reg, nil
+	return stream, nil
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
@@ -336,7 +334,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.reg, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("runner: %w", err)}
 				return

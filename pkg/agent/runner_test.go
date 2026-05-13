@@ -9,22 +9,22 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-// fakeProviders is a minimal ProviderGetter for testing.
-type fakeProviders struct{}
+// fakeStream is a minimal StreamFunc for testing that returns an error.
+var fakeStream providers.StreamFunc = func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, nil
+}
 
-func (f *fakeProviders) Get(_ string) (providers.ProviderAdapter, bool) { return nil, false }
-
-func TestNewRunner_NilProviders(t *testing.T) {
+func TestNewRunner_NilStream(t *testing.T) {
 	_, err := NewRunner(RunnerConfig{})
 	if err == nil {
-		t.Error("expected error with nil providers")
+		t.Error("expected error with nil stream")
 	}
 }
 
 func TestNewRunner_Success(t *testing.T) {
 	r, err := NewRunner(RunnerConfig{
-		Providers: &fakeProviders{},
-		Model:     ai.Model{ID: "claude-3", API: "anthropic"},
+		Stream: fakeStream,
+		Model:  ai.Model{ID: "claude-3", API: "anthropic"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestNewRunner_WithOptions(t *testing.T) {
 	meta := hooks.HookMeta{SessionID: "sess-1", UserID: 42}
 
 	r, err := NewRunner(
-		RunnerConfig{Providers: &fakeProviders{}},
+		RunnerConfig{Stream: fakeStream},
 		WithSystem("you are helpful"),
 		WithHooks(hs, meta),
 		WithStreamOptions(ai.StreamOptions{}),
@@ -59,7 +59,7 @@ func TestNewRunner_WithOptions(t *testing.T) {
 }
 
 func TestRunner_SetHookMeta(t *testing.T) {
-	r, _ := NewRunner(RunnerConfig{Providers: &fakeProviders{}})
+	r, _ := NewRunner(RunnerConfig{Stream: fakeStream})
 	meta := hooks.HookMeta{SessionID: "s1", UserID: 10}
 	r.SetHookMeta(meta)
 	if r.hookMeta != meta {
@@ -70,7 +70,7 @@ func TestRunner_SetHookMeta(t *testing.T) {
 func TestRunner_WithInterrupt(t *testing.T) {
 	ch := make(chan struct{})
 	r, err := NewRunner(
-		RunnerConfig{Providers: &fakeProviders{}},
+		RunnerConfig{Stream: fakeStream},
 		WithInterrupt(ch),
 	)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRunner_WithInterrupt(t *testing.T) {
 }
 
 func TestRunner_Continue_EmptyHistory(t *testing.T) {
-	r, _ := NewRunner(RunnerConfig{Providers: &fakeProviders{}})
+	r, _ := NewRunner(RunnerConfig{Stream: fakeStream})
 	_, err := r.Continue(context.Background(), nil, func(LoopEvent) {})
 	if err == nil {
 		t.Error("expected error for empty history")
@@ -90,7 +90,7 @@ func TestRunner_Continue_EmptyHistory(t *testing.T) {
 }
 
 func TestRunner_Continue_InvalidTail(t *testing.T) {
-	r, _ := NewRunner(RunnerConfig{Providers: &fakeProviders{}})
+	r, _ := NewRunner(RunnerConfig{Stream: fakeStream})
 	msgs := []ai.Message{ai.AssistantMessage{}}
 	_, err := r.Continue(context.Background(), msgs, func(LoopEvent) {})
 	if err == nil {
@@ -120,7 +120,7 @@ func TestNewRunner_CopiesToolsAndDefs(t *testing.T) {
 	defs := []ai.ToolDefinition{{Name: "foo"}}
 
 	r, err := NewRunner(RunnerConfig{
-		Providers:       &fakeProviders{},
+		Stream:          fakeStream,
 		Tools:           tools,
 		ToolDefinitions: defs,
 	})

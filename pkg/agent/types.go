@@ -6,6 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // ToolFunc executes one tool invocation.
@@ -16,6 +17,7 @@ type ToolSet map[string]ToolFunc
 
 // loopConfig configures the agent loop behavior.
 type loopConfig struct {
+	Stream          providers.StreamFunc
 	Model           ai.Model
 	StreamOptions   ai.StreamOptions
 	Tools           ToolSet

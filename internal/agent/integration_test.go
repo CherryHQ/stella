@@ -43,7 +43,7 @@ func TestIntegrationPoolWithRunner(t *testing.T) {
 				Model:   model,
 				APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
 				BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
-				Builder: integrationProviderRegistryBuilder,
+				Builder: integrationProviderStreamBuilder,
 			},
 			Sandbox: sandbox.Config{
 				Paths: sandbox.PathConfig{
@@ -99,14 +99,13 @@ func TestIntegrationPoolWithRunner(t *testing.T) {
 	}
 }
 
-func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+func integrationProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if api != "anthropic" {
 		return nil, providers.ErrProviderNotFound
 	}
-	reg := providers.NewRegistry()
-	reg.Register(anthropicprovider.New(anthropicprovider.Config{
+	adapter := anthropicprovider.New(anthropicprovider.Config{
 		APIKey:  apiKey,
 		BaseURL: baseURL,
-	}))
-	return reg, nil
+	})
+	return providers.AdapterStreamFunc(adapter), nil
 }

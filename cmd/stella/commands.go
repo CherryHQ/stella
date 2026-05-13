@@ -266,11 +266,24 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	builtinTools := []tools.Tool{}
 
+	// providerRegistryBuilder is still needed by reflectRuntimeServices (pluginhost).
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return phost.BuildProviderRegistry(api, map[string]any{
 			"api_key":  apiKey,
 			"base_url": baseURL,
 		})
+	}
+
+	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		reg, err := providerRegistryBuilder(api, apiKey, baseURL)
+		if err != nil {
+			return nil, err
+		}
+		adapter, ok := reg.Get(api)
+		if !ok {
+			return nil, providers.ErrProviderNotFound
+		}
+		return providers.AdapterStreamFunc(adapter), nil
 	}
 
 	memorySummarizer := func(ctx context.Context, prompt string) (string, error) {
@@ -294,20 +307,18 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		model.API = apiName
 		model.BaseURL = creds.BaseURL
 
-		reg, err := providerRegistryBuilder(apiName, creds.APIKey, creds.BaseURL)
+		stream, err := providerStreamBuilder(apiName, creds.APIKey, creds.BaseURL)
 		if err != nil {
 			return "", fmt.Errorf("build summarizer provider: %w", err)
 		}
 		maxTokens := 4096
 		temperature := 0.0
-		msg, err := providers.Complete(ctx, model, ai.Context{
+		msg, err := providers.CompleteWithFunc(ctx, model, ai.Context{
 			Messages: []ai.Message{ai.UserMessage{Content: prompt}},
 		}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{
-			APIKey:      creds.APIKey,
-			BaseURL:     creds.BaseURL,
 			MaxTokens:   &maxTokens,
 			Temperature: &temperature,
-		}}, reg)
+		}}, stream)
 		if err != nil {
 			return "", fmt.Errorf("summarize with model: %w", err)
 		}
@@ -430,7 +441,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
-		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
+		agent.WithProviderStreamBuilder(providerStreamBuilder),
 		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
 		agent.WithPluginPromptsBuilder(phost.ManifestPluginPrompts),
@@ -547,7 +558,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn agent.PluginPromptsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn agent.PluginPromptsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -566,7 +577,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			Snap:                     &snap,
 			BuiltinTools:             builtinTools,
 			PluginToolsBuilder:       pluginToolsBuilder,
-			ProviderRegistryBuilder:  providerRegistryBuilder,
+			ProviderStreamBuilder:    providerStreamBuilder,
 			PromptToolsBuilder:       promptToolsFn,
 			PromptSectionsBuilder:    promptSectionsFn,
 			PluginPromptsBuilder:     pluginPromptsFn,
@@ -596,7 +607,7 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		pool,
 		s.builtinTools,
 		s.pluginToolsBuilder,
-		func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			provider, err := s.store.GetProvider(s.ctx, api)
 			if err != nil {
 				return nil, err
@@ -605,10 +616,18 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 			if providerType == "" {
 				providerType = provider.ID
 			}
-			return s.pluginHost.BuildProviderRegistry(providerType, map[string]any{
+			reg, err := s.pluginHost.BuildProviderRegistry(providerType, map[string]any{
 				"api_key":  apiKey,
 				"base_url": baseURL,
 			})
+			if err != nil {
+				return nil, err
+			}
+			adapter, ok := reg.Get(providerType)
+			if !ok {
+				return nil, providers.ErrProviderNotFound
+			}
+			return providers.AdapterStreamFunc(adapter), nil
 		},
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,

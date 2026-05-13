@@ -77,8 +77,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			default:
 				t.Fatalf("unknown provider %s", p.name)
 			}
-			reg := providerapi.NewRegistry()
-			reg.Register(adapter)
+			stream := providerapi.AdapterStreamFunc(adapter)
 
 			var toolCalled atomic.Bool
 			var capturedCity string
@@ -93,7 +92,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			}
 
 			runner, err := agent.NewRunner(agent.RunnerConfig{
-				Providers:       reg,
+				Stream:          stream,
 				Model:           ai.Model{API: p.name, Name: model},
 				Tools:           tools,
 				ToolDefinitions: []ai.ToolDefinition{toolDef},

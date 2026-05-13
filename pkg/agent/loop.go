@@ -9,21 +9,20 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // run executes the agent loop: repeatedly generating assistant responses
 // and executing tool calls until the model stops calling tools,
 // the turn limit is reached, or an interrupt/error occurs.
-func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	if pg == nil {
-		return nil, errors.New("agent: providers not configured")
+func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+	if cfg.Stream == nil {
+		return nil, errors.New("agent: stream not configured")
 	}
 	if emit != nil {
 		emit(AgentStarted{})
 	}
 
-	history, err := runLoop(ctx, cfg, pg, history, emit)
+	history, err := runLoop(ctx, cfg, history, emit)
 	if err != nil {
 		if emit != nil {
 			emit(AgentErrored{Err: err})
@@ -37,7 +36,7 @@ func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, histo
 	return history, nil
 }
 
-func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	loopStart := time.Now()
 	for turn := 1; ; turn++ {
 		if cfg.TurnNotify != nil {
@@ -96,7 +95,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 		turnCfg.Model = effectiveModel
 
 		start := time.Now()
-		result, err := streamAssistant(streamCtx, normalized, turnCfg, pg, emit)
+		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
 		duration := time.Since(start)
 		complete := result.Message
 
@@ -185,15 +184,14 @@ type streamResult struct {
 	TimeToFirstToken time.Duration // elapsed from stream open to first event
 }
 
-func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
+func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, emit func(LoopEvent)) (streamResult, error) {
 	streamStart := time.Now()
 	dumpLLMContextIfEnabled(cfg, messages)
-	eventStream, err := providers.Stream(
+	eventStream, err := cfg.Stream(
 		ctx,
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
 		cfg.StreamOptions,
-		pg,
 	)
 	if err != nil {
 		return streamResult{}, err

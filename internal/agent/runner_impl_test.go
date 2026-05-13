@@ -35,13 +35,11 @@ func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.Si
 	return nil, errors.New("stub")
 }
 
-func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if api != "anthropic" {
 		return nil, providers.ErrProviderNotFound
 	}
-	reg := providers.NewRegistry()
-	reg.Register(&stubProvider{})
-	return reg, nil
+	return providers.AdapterStreamFunc(&stubProvider{}), nil
 }
 
 func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
@@ -150,19 +148,24 @@ func (f *runnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ a
 // Skips the test if the docker daemon is not reachable or container creation fails.
 func newTestRunner(t *testing.T, fp *runnerFakeProvider) *runner {
 	t.Helper()
+	builder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		if api != fp.api {
+			return nil, providers.ErrProviderNotFound
+		}
+		return providers.AdapterStreamFunc(fp), nil
+	}
 	r, err := newRunner(context.Background(), withTestRunnerPaths(t, runnerConfig{
 		Provider: providerConfig{
 			API:     fp.api,
 			Model:   "test-model",
 			APIKey:  "test-key",
-			Builder: testProviderRegistryBuilder,
+			Builder: builder,
 		},
 	}))
 	if err != nil {
 		t.Skipf("newRunner: docker not available: %v", err)
 	}
 	t.Cleanup(func() { _ = r.Close() })
-	r.reg.Register(fp)
 	return r
 }
 
@@ -221,7 +224,7 @@ func TestChatUnknownProvider(t *testing.T) {
 			API:     "nonexistent",
 			Model:   "test-model",
 			APIKey:  "test-key",
-			Builder: testProviderRegistryBuilder,
+			Builder: testProviderStreamBuilder,
 		},
 	}))
 	if err == nil {

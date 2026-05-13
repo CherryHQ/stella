@@ -30,7 +30,7 @@ func integrationConfig(t *testing.T) runnerConfig {
 			Model:   model,
 			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
 			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
-			Builder: integrationProviderRegistryBuilder,
+			Builder: integrationProviderStreamBuilder,
 		},
 		Sandbox: sandbox.Config{
 			Paths: sandbox.PathConfig{

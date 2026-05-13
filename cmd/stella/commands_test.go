@@ -31,10 +31,8 @@ func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, a
 	return nil, errors.New("not implemented")
 }
 
-func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
-	reg := providers.NewRegistry()
-	reg.Register(commandTestProvider{})
-	return reg, nil
+func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+	return providers.AdapterStreamFunc(commandTestProvider{}), nil
 }
 
 func TestIntentClassifierProviderGetterBuilderUsesProvidedProviderType(t *testing.T) {
@@ -162,8 +160,8 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	snap.Workspace = t.TempDir()
 
 	factory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                    snap,
-		ProviderRegistryBuilder: testProviderRegistryBuilder,
+		Snap:                  snap,
+		ProviderStreamBuilder: testProviderStreamBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
@@ -185,8 +183,8 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 	}
 
 	_, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                    snap,
-		ProviderRegistryBuilder: testProviderRegistryBuilder,
+		Snap:                  snap,
+		ProviderStreamBuilder: testProviderStreamBuilder,
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
@@ -282,8 +280,8 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	snap.Workspace = t.TempDir()
 
 	initialFactory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                    snap,
-		ProviderRegistryBuilder: testProviderRegistryBuilder,
+		Snap:                  snap,
+		ProviderStreamBuilder: testProviderStreamBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
@@ -299,7 +297,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		pool,
 		nil,
 		nil,
-		testProviderRegistryBuilder,
+		testProviderStreamBuilder,
 		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			promptToolsCalls++
 			return nil, nil

@@ -25,7 +25,7 @@ type reviewResult struct {
 
 // reviewerConfig holds the tools and context needed to construct a reviewer.
 type reviewerConfig struct {
-	Providers      providers.ProviderGetter
+	Stream         providers.StreamFunc
 	Model          ai.Model
 	SkillsTool     tools.Tool
 	MemoryTool     tools.Tool // nil if memory review is not available
@@ -51,7 +51,7 @@ func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 	system := fmt.Sprintf(combinedReviewPrompt, skillList)
 
 	r, err := agent.NewRunner(agent.RunnerConfig{
-		Providers:       cfg.Providers,
+		Stream:          cfg.Stream,
 		Model:           cfg.Model,
 		Tools:           agent.ToolSetFromRegistry(reg),
 		ToolDefinitions: reg.Definitions(),

@@ -30,7 +30,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 		attribute.String("gen_ai.provider.name", model.API),
 	)
 
-	reg, err := s.buildProviders(model.API, creds.APIKey, creds.BaseURL)
+	stream, err := s.buildStreamFunc(model.API, creds.APIKey, creds.BaseURL)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("build provider: %w", err)
@@ -47,7 +47,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 		return s.wm.set(ctx, c.session.ID, watermark)
 	}
 
-	reviewer, err := s.newConversationReviewer(snap, userID, model, reg)
+	reviewer, err := s.newConversationReviewer(snap, userID, model, stream)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("create reviewer: %w", err)
@@ -79,16 +79,24 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 	return nil
 }
 
-func (s *Service) buildProviders(api, apiKey, baseURL string) (*providers.Registry, error) {
+func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if s.providers == nil {
-		return nil, fmt.Errorf("provider registry builder is required")
+		return nil, fmt.Errorf("provider builder is required")
 	}
-	return s.providers(api, apiKey, baseURL)
+	reg, err := s.providers(api, apiKey, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	adapter, ok := reg.Get(api)
+	if !ok {
+		return nil, providers.ErrProviderNotFound
+	}
+	return providers.AdapterStreamFunc(adapter), nil
 }
 
-func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID int64, model ai.Model, reg *providers.Registry) (*reviewer, error) {
+func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID int64, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
 	return newReviewer(reviewerConfig{
-		Providers:      reg,
+		Stream:         stream,
 		Model:          model,
 		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
