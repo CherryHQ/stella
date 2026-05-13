@@ -39,10 +39,6 @@ func resolveToolsBinDir(_ runnerPaths, _ string) string {
 	return ""
 }
 
-func (p runnerPaths) stellaSkillsDir() string {
-	return filepath.Join(p.StellaHome, ".agents", "skills")
-}
-
 func (p runnerPaths) stellaAgentsDir() string {
 	return filepath.Join(p.StellaHome, ".agents", "agents")
 }

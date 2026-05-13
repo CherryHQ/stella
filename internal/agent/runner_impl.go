@@ -19,11 +19,9 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
-	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 	"github.com/CherryHQ/stella/resources"
-	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 // providerConfig groups LLM provider settings.
@@ -101,10 +99,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	system := cfg.System
 
 	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model}
-
-	if err := prepareSandbox(ctx, cfg); err != nil {
-		return nil, err
-	}
 
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
@@ -204,12 +198,7 @@ func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.Session) (*tools.Registry, error) {
-	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
-	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-
 	toolReg := tools.NewRegistry()
 
 	// Core tools (read, bash, edit, write) are always provided by the active
@@ -297,41 +286,6 @@ func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: paths.ProjectRoot,
 	}))
-}
-
-func prepareSandbox(ctx context.Context, cfg runnerConfig) error {
-	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
-	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-	if err := resources.EnsureBuiltinSkills(paths.stellaSkillsDir()); err != nil {
-		slog.Warn("failed to extract builtin skills", "error", err)
-	}
-
-	backend := config.SandboxBackendLocal
-	if cfg.Sandbox.SandboxBackendFn != nil {
-		if name := cfg.Sandbox.SandboxBackendFn(ctx); name != "" {
-			backend = name
-		}
-	}
-
-	if backend == config.SandboxBackendDocker {
-		dockerCfg, err := sandbox.ResolveDockerConfig()
-		if err != nil {
-			return fmt.Errorf("runner: %w", err)
-		}
-		sandbox.CleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
-		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-			StellaHome: paths.StellaHome,
-			Docker:     dockerCfg,
-		}); err != nil {
-			if config.SandboxDockerImageIsDev() {
-				return fmt.Errorf("runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
-			}
-			return fmt.Errorf("runner: docker not available; install and start Docker Desktop or the docker daemon: %w", err)
-		}
-	}
-	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

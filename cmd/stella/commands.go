@@ -106,6 +106,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := cli.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
 		return nil, fmt.Errorf("copy stella cli into sandbox path: %w", err)
 	}
+	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
+		return nil, fmt.Errorf("extract builtin skills: %w", err)
+	}
 
 	rawSkillStore := skills.New(db)
 	skillStore := skills.NewDiskSyncStore(rawSkillStore, func(scope, agentID string, userID int64) string {

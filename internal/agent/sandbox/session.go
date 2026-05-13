@@ -171,6 +171,19 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 		recordSandboxError(span, err)
 		return nil, err
 	}
+	CleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
+	if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
+		StellaHome: paths.StellaHome,
+		Docker:     dockerCfg,
+	}); err != nil {
+		if config.SandboxDockerImageIsDev() {
+			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+		} else {
+			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
+		}
+		recordSandboxError(span, err)
+		return nil, err
+	}
 	userTools, err := resolveDockerUserToolBinaries(paths.StellaHome)
 	if err != nil {
 		err = fmt.Errorf("resolve docker user tools: %w", err)

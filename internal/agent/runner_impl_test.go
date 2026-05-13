@@ -5,12 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -64,39 +62,6 @@ func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 	cfg.Sandbox.Paths.AgentRoot = workspace
 	cfg.Sandbox.Paths.UserRoot = userRoot
 	return cfg
-}
-
-func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
-	// Point the SDK at a unix socket path that cannot exist, so client.Ping
-	// via Version() fails during Preflight regardless of the host's real
-	// docker state.
-	t.Setenv("DOCKER_HOST", "unix:///nonexistent/stella-test-docker.sock")
-	t.Setenv("DOCKER_TLS_VERIFY", "")
-	t.Setenv("DOCKER_CERT_PATH", "")
-
-	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1")
-	if err := os.MkdirAll(userRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	cfg := runnerConfig{
-		Sandbox: sandbox.Config{
-			SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
-			Paths: sandbox.PathConfig{
-				StellaHome: t.TempDir(),
-				AgentRoot:  workspace,
-				UserRoot:   userRoot,
-			},
-		},
-	}
-	err := prepareSandbox(context.Background(), cfg)
-	if err == nil {
-		t.Fatal("expected error for docker backend with unreachable daemon")
-	}
-	if !strings.Contains(err.Error(), "docker") {
-		t.Fatalf("expected error to mention 'docker', got: %v", err)
-	}
 }
 
 func TestFilterRunnerTools(t *testing.T) {
