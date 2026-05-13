@@ -74,7 +74,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		return nil, err
 	}
 
-	system := cfg.System
+	systemPrompt := cfg.System
 
 	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model}
 
@@ -87,8 +87,8 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
 
-	if system == "" {
-		system = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+	if systemPrompt == "" {
+		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 			StellaHome:     paths.StellaHome,
 			AgentRoot:      paths.AgentRoot,
 			ProjectRoot:    paths.ProjectRoot,
@@ -115,7 +115,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		Model:          model,
 		APIKey:         cfg.Provider.APIKey,
 		BaseURL:        cfg.Provider.BaseURL,
-		System:         system,
+		System:         systemPrompt,
 		Presets:        presets,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
@@ -123,7 +123,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}))
 
 	streamOptions := ai.StreamOptions{APIKey: cfg.Provider.APIKey, BaseURL: cfg.Provider.BaseURL}
-	coreRunner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
+	coreRunner, err := newAgentRunner(reg, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -137,7 +137,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		tools:         toolReg,
 		model:         model,
 		streamOptions: streamOptions,
-		system:        system,
+		system:        systemPrompt,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
 		chatTimeout:   cfg.ChatTimeout,

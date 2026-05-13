@@ -123,3 +123,63 @@ func Complete(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.Com
 
 	return msg, nil
 }
+
+// CompleteWithFunc consumes a full stream from a StreamFunc and assembles an assistant message.
+func CompleteWithFunc(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.CompleteOptions, stream StreamFunc) (ai.AssistantMessage, error) {
+	eventStream, err := stream(goCtx, model, ctx, opts.StreamOptions)
+	if err != nil {
+		return ai.AssistantMessage{}, err
+	}
+
+	msg := ai.AssistantMessage{Content: make([]ai.ContentBlock, 0, 4)}
+	var text string
+	var thinking string
+	toolCalls := map[string]ai.ToolCall{}
+
+	for event := range eventStream.Events() {
+		switch e := event.(type) {
+		case ai.EventTextDelta:
+			text += e.Text
+		case ai.EventThinkingDelta:
+			thinking += e.Thinking
+		case ai.EventToolCallDelta:
+			call := toolCalls[e.ID]
+			call.ID = e.ID
+			if e.Name != "" {
+				call.Name = e.Name
+			}
+			if call.Arguments == nil {
+				call.Arguments = map[string]any{}
+			}
+			if e.Arguments != "" {
+				call.Arguments["raw"] = e.Arguments
+			}
+			toolCalls[e.ID] = call
+		case ai.EventUsage:
+			msg.Usage = e.Usage
+		case ai.EventStop:
+			msg.StopReason = e.Reason
+		case ai.EventError:
+			if e.Err != nil {
+				msg.ErrorMessage = e.Err.Error()
+				msg.StopReason = ai.StopReasonError
+			}
+		}
+	}
+
+	if waitErr := eventStream.Wait(); waitErr != nil {
+		return msg, waitErr
+	}
+
+	if text != "" {
+		msg.Content = append(msg.Content, ai.TextContent{Text: text})
+	}
+	if thinking != "" {
+		msg.Content = append(msg.Content, ai.ThinkingContent{Thinking: thinking})
+	}
+	for _, call := range toolCalls {
+		msg.Content = append(msg.Content, call)
+	}
+
+	return msg, nil
+}
