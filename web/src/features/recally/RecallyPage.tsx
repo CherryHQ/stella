@@ -46,13 +46,13 @@ const STATUS_LABEL_KEYS: Record<ArticleStatus, MessageKey> = {
   archived: "recally.status.archived",
 };
 
-function formatSavedAt(iso: string): string {
+function formatSavedAt(iso: string, t: (key: MessageKey) => string): string {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "today";
-  if (diffDays === 1) return "yesterday";
+  if (diffDays === 0) return t("recally.time.today");
+  if (diffDays === 1) return t("recally.time.yesterday");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -64,7 +64,7 @@ export function RecallyPage() {
   const [starredFilter, setStarredFilter] = useState<boolean | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [feedUrl, setFeedUrl] = useState("");
   const [feedPollResults, setFeedPollResults] = useState<
     Record<string, { newCount: number; error?: string }>
@@ -127,7 +127,7 @@ export function RecallyPage() {
       void queryClient.invalidateQueries({ queryKey: listArticlesQueryKey() });
       void queryClient.invalidateQueries({ queryKey: getDigestQueryKey() });
       setSelectedId(null);
-      setConfirmingDelete(false);
+      setConfirmingDeleteId(null);
       showToast(t("recally.article.deleted"));
     },
     onError: () => {
@@ -388,9 +388,11 @@ export function RecallyPage() {
           {digest && (
             <div className="mx-1 px-2.5 py-2 text-xs text-muted-foreground bg-muted/50 rounded-md border border-border">
               <span className="font-medium text-foreground">{t("recally.nav.digest")}: </span>
-              {digest.saved_yesterday_count} {t("recally.stat.savedYesterday").toLowerCase()}
+              {t("recally.digest.savedYesterday", { count: digest.saved_yesterday_count })}
               {digest.worth_revisiting_count > 0 && (
-                <>. {digest.worth_revisiting_count} worth revisiting.</>
+                <>
+                  . {t("recally.digest.worthRevisiting", { count: digest.worth_revisiting_count })}
+                </>
               )}
             </div>
           )}
@@ -469,7 +471,7 @@ export function RecallyPage() {
                 <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
                   <StatusBadge status={selectedArticle.status} t={t} />
                   <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
-                  <span>{formatSavedAt(selectedArticle.saved_at)}</span>
+                  <span>{formatSavedAt(selectedArticle.saved_at, t)}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   {selectedArticle.status !== "read" && (
@@ -534,7 +536,7 @@ export function RecallyPage() {
                       ? t("recally.action.unstar")
                       : t("recally.action.star")}
                   </button>
-                  {confirmingDelete ? (
+                  {confirmingDeleteId === selectedArticle.id ? (
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-destructive font-medium">
                         {t("recally.deleteConfirm")}
@@ -551,7 +553,7 @@ export function RecallyPage() {
                         {t("common.yes")}
                       </button>
                       <button
-                        onClick={() => setConfirmingDelete(false)}
+                        onClick={() => setConfirmingDeleteId(null)}
                         className="px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors"
                       >
                         {t("common.no")}
@@ -559,7 +561,7 @@ export function RecallyPage() {
                     </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmingDelete(true)}
+                      onClick={() => setConfirmingDeleteId(selectedArticle.id)}
                       disabled={deleteArticleMut.isPending}
                       className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
                     >
@@ -583,7 +585,9 @@ export function RecallyPage() {
                     {selectedArticle.content}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground italic">No content available.</p>
+                  <p className="text-sm text-muted-foreground italic">
+                    {t("recally.reader.noContent")}
+                  </p>
                 )}
               </article>
             </div>
@@ -689,7 +693,7 @@ function ArticleCard({
       <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs font-mono">
         <StatusBadge status={article.status} t={t} />
         <span className="text-muted-foreground">{t(SOURCE_LABEL_KEYS[article.source_type])}</span>
-        <span className="text-muted-foreground">{formatSavedAt(article.saved_at)}</span>
+        <span className="text-muted-foreground">{formatSavedAt(article.saved_at, t)}</span>
         {article.tags?.map((tag) => (
           <span key={tag} className="px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
             {tag}
