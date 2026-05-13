@@ -103,15 +103,17 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	sandboxCfg := sandbox.Config{
 		SandboxConfig:    cfg.Sandbox,
 		SandboxBackendFn: cfg.SandboxBackendFn,
-		StellaHome:       cfg.StellaHome,
-		AgentRoot:        cfg.AgentRoot,
-		UserRoot:         cfg.UserRoot,
-		ProjectRoot:      cfg.ProjectRoot,
-		UserID:           cfg.UserID,
-		SessionEnvSpecs:  cfg.SessionEnvSpecs,
-		VaultEnvLoader:   cfg.VaultEnvLoader,
-		TokenService:     cfg.TokenService,
-		TokenManager:     cfg.TokenManager,
+		Paths: sandbox.PathConfig{
+			StellaHome:  cfg.StellaHome,
+			AgentRoot:   cfg.AgentRoot,
+			UserRoot:    cfg.UserRoot,
+			ProjectRoot: cfg.ProjectRoot,
+		},
+		UserID:          cfg.UserID,
+		SessionEnvSpecs: cfg.SessionEnvSpecs,
+		VaultEnvLoader:  cfg.VaultEnvLoader,
+		TokenService:    cfg.TokenService,
+		TokenManager:    cfg.TokenManager,
 	}
 
 	if _, err := sandbox.ResolvePaths(sandboxCfg); err != nil {

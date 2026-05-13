@@ -20,15 +20,15 @@ type Paths struct {
 
 // ResolvePaths converts a Config into the minimal path set the sandbox needs.
 func ResolvePaths(cfg Config) (Paths, error) {
-	stellaHome := cfg.StellaHome
+	stellaHome := cfg.Paths.StellaHome
 	if stellaHome == "" {
 		stellaHome = config.StellaHome()
 	}
-	if cfg.UserRoot == "" {
+	if cfg.Paths.UserRoot == "" {
 		return Paths{}, fmt.Errorf("user_root is required")
 	}
 
-	userRoot, err := filepath.Abs(cfg.UserRoot)
+	userRoot, err := filepath.Abs(cfg.Paths.UserRoot)
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
@@ -36,8 +36,8 @@ func ResolvePaths(cfg Config) (Paths, error) {
 		StellaHome:  stellaHome,
 		UserRoot:    userRoot,
 		WorkDir:     userRoot,
-		AgentRoot:   cfg.AgentRoot,
-		ProjectRoot: cfg.ProjectRoot,
+		AgentRoot:   cfg.Paths.AgentRoot,
+		ProjectRoot: cfg.Paths.ProjectRoot,
 	}, nil
 }
 

@@ -20,8 +20,10 @@ type runnerPaths struct {
 // stored as extra fields.
 func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	paths, _ := sandbox.ResolvePaths(sandbox.Config{
-		StellaHome: cfg.StellaHome,
-		UserRoot:   cfg.UserRoot,
+		Paths: sandbox.PathConfig{
+			StellaHome: cfg.StellaHome,
+			UserRoot:   cfg.UserRoot,
+		},
 	})
 	return runnerPaths{
 		StellaHome:  paths.StellaHome,

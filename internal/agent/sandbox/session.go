@@ -125,9 +125,9 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
 			attribute.String("stella.sandbox.backend", config.SandboxBackendDocker),
-			attribute.String("stella.sandbox.agent_root", cfg.AgentRoot),
-			attribute.String("stella.sandbox.user_root", cfg.UserRoot),
-			attribute.String("stella.sandbox.project_root", cfg.ProjectRoot),
+			attribute.String("stella.sandbox.agent_root", cfg.Paths.AgentRoot),
+			attribute.String("stella.sandbox.user_root", cfg.Paths.UserRoot),
+			attribute.String("stella.sandbox.project_root", cfg.Paths.ProjectRoot),
 		),
 	)
 	defer span.End()

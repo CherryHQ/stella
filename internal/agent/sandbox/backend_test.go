@@ -59,8 +59,10 @@ func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID int64) (map[stri
 // TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.
 func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := ResolveSession(context.Background(), Config{
-		AgentRoot: "/workspace/agent",
-		// UserRoot intentionally omitted
+		Paths: PathConfig{
+			AgentRoot: "/workspace/agent",
+			// UserRoot intentionally omitted
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error when UserRoot is missing")
@@ -69,9 +71,11 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := Config{
-		StellaHome: "/stella",
-		AgentRoot:  "/workspace/agent",
-		UserRoot:   "/workspace/agent/users/1",
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/agent/users/1",
+		},
 	}
 
 	paths, err := ResolvePaths(cfg)
@@ -82,8 +86,8 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	if _, ok := env["HOME"]; ok {
 		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
-	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
-		t.Fatalf("STELLA_HOME = %q, want %q", got, cfg.StellaHome)
+	if got := env["STELLA_HOME"]; got != cfg.Paths.StellaHome {
+		t.Fatalf("STELLA_HOME = %q, want %q", got, cfg.Paths.StellaHome)
 	}
 }
 
@@ -165,8 +169,10 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	_, err := ResolveSession(context.Background(), Config{
-		AgentRoot:        workspace,
-		UserRoot:         userRoot,
+		Paths: PathConfig{
+			AgentRoot: workspace,
+			UserRoot:  userRoot,
+		},
 		SandboxConfig:    config.SandboxConfig{},
 		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
 	})
@@ -207,10 +213,12 @@ func TestRunnerSessionNilHandling(t *testing.T) {
 // any same-named vault entry.
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	cfg := Config{
-		StellaHome: "/stella",
-		AgentRoot:  "/workspace/agent",
-		UserRoot:   "/workspace/users/1",
-		UserID:     42,
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/users/1",
+		},
+		UserID: 42,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"MY_SECRET":   "s3cr3t",
@@ -235,8 +243,8 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	}
 
 	// Runner var (STELLA_HOME) must override any same-named vault entry.
-	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
-		t.Errorf("STELLA_HOME = %q, want %q (runner var must take precedence)", got, cfg.StellaHome)
+	if got := env["STELLA_HOME"]; got != cfg.Paths.StellaHome {
+		t.Errorf("STELLA_HOME = %q, want %q (runner var must take precedence)", got, cfg.Paths.StellaHome)
 	}
 }
 
@@ -244,9 +252,11 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 // correctly (returns runner env vars) when no vault loader is configured.
 func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 	cfg := Config{
-		StellaHome: "/stella",
-		AgentRoot:  "/workspace/agent",
-		UserRoot:   "/workspace/users/1",
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/users/1",
+		},
 	}
 
 	paths, err := ResolvePaths(cfg)
@@ -259,8 +269,8 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
 
-	if got := env["STELLA_HOME"]; got != cfg.StellaHome {
-		t.Errorf("STELLA_HOME = %q, want %q", got, cfg.StellaHome)
+	if got := env["STELLA_HOME"]; got != cfg.Paths.StellaHome {
+		t.Errorf("STELLA_HOME = %q, want %q", got, cfg.Paths.StellaHome)
 	}
 }
 
@@ -269,10 +279,12 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 // present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := Config{
-		StellaHome: "/stella",
-		AgentRoot:  "/workspace/agent",
-		UserRoot:   "/workspace/users/1",
-		UserID:     1,
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/users/1",
+		},
+		UserID: 1,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
@@ -344,9 +356,11 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	}
 
 	cfg := Config{
-		StellaHome:     "/stella",
-		AgentRoot:      "/workspace/agent",
-		UserRoot:       "/workspace/users/1",
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/users/1",
+		},
 		UserID:         userID,
 		VaultEnvLoader: store,
 		TokenManager:   tm,
@@ -409,9 +423,11 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	}
 
 	cfg := Config{
-		StellaHome:     "/stella",
-		AgentRoot:      "/workspace/agent",
-		UserRoot:       "/workspace/users/1",
+		Paths: PathConfig{
+			StellaHome: "/stella",
+			AgentRoot:  "/workspace/agent",
+			UserRoot:   "/workspace/users/1",
+		},
 		UserID:         userID,
 		VaultEnvLoader: store,
 		TokenManager:   tm,
