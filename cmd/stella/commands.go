@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -102,7 +103,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return nil, err
 	}
-	if err := agent.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
+	if err := cli.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
 		return nil, fmt.Errorf("copy stella cli into sandbox path: %w", err)
 	}
 
