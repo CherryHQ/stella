@@ -355,6 +355,8 @@ const en = {
   "recally.section.tags": "Tags",
   "recally.tags.less": "Less",
   "recally.tags.more": "+{{count}}",
+  "recally.toggleSidebar": "Toggle sidebar",
+  "recally.resizeList": "Resize list",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -714,6 +716,8 @@ const zh: Record<MessageKey, string> = {
   "recally.section.tags": "标签",
   "recally.tags.less": "收起",
   "recally.tags.more": "+{{count}}",
+  "recally.toggleSidebar": "切换侧边栏",
+  "recally.resizeList": "调整列表宽度",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };

@@ -665,7 +665,7 @@ export function RecallyPage() {
                 <button
                   onClick={() => setLeftOpen((v) => !v)}
                   className="hidden shrink-0 text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
-                  title="Toggle sidebar"
+                  title={t("recally.toggleSidebar")}
                 >
                   <PanelLeft className="size-4" />
                 </button>
@@ -756,7 +756,7 @@ export function RecallyPage() {
         <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
           <button
             type="button"
-            aria-label="Resize list"
+            aria-label={t("recally.resizeList")}
             onMouseDown={startResize}
             className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
           />
