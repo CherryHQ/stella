@@ -61,7 +61,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			if err != nil {
 				return nil, fmt.Errorf("setup workspace: %w", err)
 			}
-			userRoot := UserRoot(userDir)
+			userRoot := userDir
 
 			// Extract memory provider from params (typed as any to avoid circular imports).
 			var memProvider memory.Provider

@@ -373,7 +373,7 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	if err != nil {
 		return "", fmt.Errorf("setup user workspace: %w", err)
 	}
-	return agent.UserRoot(userDir), nil
+	return userDir, nil
 }
 
 // compile-time checks.
