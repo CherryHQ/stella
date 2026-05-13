@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -24,14 +25,20 @@ func integrationConfig(t *testing.T) runnerConfig {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	return runnerConfig{
-		API:        "anthropic",
-		Model:      model,
-		APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
-		StellaHome: stellaHome,
-		AgentRoot:  workspace,
-		UserRoot:   userRoot,
-		Providers:  integrationProviderRegistryBuilder,
+		Provider: providerConfig{
+			API:     "anthropic",
+			Model:   model,
+			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+			Builder: integrationProviderRegistryBuilder,
+		},
+		Sandbox: sandbox.Config{
+			Paths: sandbox.PathConfig{
+				StellaHome: stellaHome,
+				AgentRoot:  workspace,
+				UserRoot:   userRoot,
+			},
+		},
 	}
 }
 

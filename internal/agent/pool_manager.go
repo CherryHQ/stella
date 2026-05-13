@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -142,7 +143,7 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 }
 
 // WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
-func WithVaultEnvLoader(v VaultEnvLoader) PoolManagerOption {
+func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.vaultEnvLoader = v
 	}
@@ -184,7 +185,7 @@ type PoolManager struct {
 	providerRegistryBuilder  ProviderRegistryBuilder
 	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
-	vaultEnvLoader           VaultEnvLoader
+	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
@@ -222,7 +223,7 @@ func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
 // so existing pools pick up the loader. Must be called after StartAll.
 // If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
 // wired into the pool manager so runners can inject runtime OAuth tokens.
-func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v VaultEnvLoader) {
+func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
 	if vs, ok := v.(oauth.VaultStore); ok {

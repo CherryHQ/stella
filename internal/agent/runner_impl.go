@@ -11,9 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -28,40 +26,28 @@ import (
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-// VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
-// It is a subset of vault.Service and is defined here to avoid a circular
-// import between the runner and vault packages.
-type VaultEnvLoader interface {
-	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+// providerConfig groups LLM provider settings.
+type providerConfig struct {
+	API     string // provider key: "anthropic", "openai"
+	Model   string // e.g. "claude-sonnet-4-20250514"
+	APIKey  string
+	BaseURL string // optional provider base URL override
+	Builder ProviderRegistryBuilder
 }
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	API              string // provider key: "anthropic", "openai"
-	Model            string // e.g. "claude-sonnet-4-20250514"
-	APIKey           string
-	BaseURL          string // optional provider base URL override
-	AgentRoot        string // agent root directory
-	StellaHome       string // stella home directory (e.g. ~/.stella)
-	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
-	System           string // optional system prompt override (bypasses default prompt building)
-	PluginPrompts    []pkgplugins.SystemPromptSection
-	PromptSections   []pkgplugins.SystemPromptSection
-	ExtraTools       []tools.Tool // additional tools to register
-	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
-	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
-	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
-	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle    *coreagent.ToolLifecycle
-	Providers        ProviderRegistryBuilder
-	Sandbox          config.SandboxConfig
-	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
-	UserID           int64                            // auth user ID; used for vault secret injection
-	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
-	TokenService     *auth.TokenService               // optional; if set, ensures STELLA_TOKEN before vault env injection
-	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
-	SubagentTimeout  time.Duration                    // default wall-clock timeout per subagent (0 = 15m)
-	ChatTimeout      time.Duration                    // wall-clock timeout per main agent chat turn (0 = 30m)
+	Provider        providerConfig
+	Sandbox         sandbox.Config
+	System          string // optional system prompt override (bypasses default prompt building)
+	PluginPrompts   []pkgplugins.SystemPromptSection
+	PromptSections  []pkgplugins.SystemPromptSection
+	ExtraTools      []tools.Tool // additional tools to register
+	PluginTools     func(context.Context, plugintools.BuildContext) []tools.Tool
+	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle   *coreagent.ToolLifecycle
+	SubagentTimeout time.Duration // default wall-clock timeout per subagent (0 = 15m)
+	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -85,42 +71,27 @@ type runner struct {
 
 // newRunner creates a runner with built-in providers.
 func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
-	if cfg.API == "" {
+	if cfg.Provider.API == "" {
 		return nil, fmt.Errorf("runner: api is required")
 	}
-	if cfg.Model == "" {
+	if cfg.Provider.Model == "" {
 		return nil, fmt.Errorf("runner: model is required")
 	}
-	if cfg.APIKey == "" {
+	if cfg.Provider.APIKey == "" {
 		return nil, fmt.Errorf("runner: api_key is required")
 	}
-	if cfg.AgentRoot == "" {
+	if cfg.Sandbox.Paths.AgentRoot == "" {
 		return nil, fmt.Errorf("runner: agent_root is required")
 	}
-	if cfg.UserRoot == "" {
+	if cfg.Sandbox.Paths.UserRoot == "" {
 		return nil, fmt.Errorf("runner: user_root is required")
 	}
-	sandboxCfg := sandbox.Config{
-		SandboxConfig:    cfg.Sandbox,
-		SandboxBackendFn: cfg.SandboxBackendFn,
-		Paths: sandbox.PathConfig{
-			StellaHome:  cfg.StellaHome,
-			AgentRoot:   cfg.AgentRoot,
-			UserRoot:    cfg.UserRoot,
-			ProjectRoot: cfg.ProjectRoot,
-		},
-		UserID:          cfg.UserID,
-		SessionEnvSpecs: cfg.SessionEnvSpecs,
-		VaultEnvLoader:  cfg.VaultEnvLoader,
-		TokenService:    cfg.TokenService,
-		TokenManager:    cfg.TokenManager,
-	}
 
-	if _, err := sandbox.ResolvePaths(sandboxCfg); err != nil {
+	if _, err := sandbox.ResolvePaths(cfg.Sandbox); err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
 
-	paths := resolveRunnerPaths(cfg)
+	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
 
 	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
@@ -129,13 +100,13 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	system := cfg.System
 
-	model := ai.Model{API: cfg.API, Name: cfg.Model}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model}
 
 	if err := prepareSandbox(ctx, cfg); err != nil {
 		return nil, err
 	}
 
-	session, err := sandbox.ResolveSession(ctx, sandboxCfg)
+	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
@@ -165,8 +136,8 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		Providers:      reg,
 		Registry:       toolReg,
 		Model:          model,
-		APIKey:         cfg.APIKey,
-		BaseURL:        cfg.BaseURL,
+		APIKey:         cfg.Provider.APIKey,
+		BaseURL:        cfg.Provider.BaseURL,
 		System:         system,
 		Presets:        presets,
 		Hooks:          hookSet,
@@ -174,7 +145,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		DefaultTimeout: cfg.SubagentTimeout,
 	}))
 
-	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
+	streamOptions := ai.StreamOptions{APIKey: cfg.Provider.APIKey, BaseURL: cfg.Provider.BaseURL}
 	coreRunner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		if session != nil {
@@ -221,10 +192,10 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 
 // buildProviderRegistry creates the provider registry for the configured API.
 func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
-	if cfg.Providers == nil {
+	if cfg.Provider.Builder == nil {
 		return nil, fmt.Errorf("runner: provider registry builder is required")
 	}
-	reg, err := cfg.Providers(cfg.API, cfg.APIKey, cfg.BaseURL)
+	reg, err := cfg.Provider.Builder(cfg.Provider.API, cfg.Provider.APIKey, cfg.Provider.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
@@ -234,7 +205,7 @@ func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.Session) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	paths := resolveRunnerPaths(cfg)
+	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
 	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
@@ -316,7 +287,7 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 }
 
 func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
-	paths := resolveRunnerPaths(cfg)
+	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
 	if err := resources.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
@@ -329,7 +300,7 @@ func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
 }
 
 func prepareSandbox(ctx context.Context, cfg runnerConfig) error {
-	paths := resolveRunnerPaths(cfg)
+	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
 	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
@@ -338,8 +309,8 @@ func prepareSandbox(ctx context.Context, cfg runnerConfig) error {
 	}
 
 	backend := config.SandboxBackendLocal
-	if cfg.SandboxBackendFn != nil {
-		if name := cfg.SandboxBackendFn(ctx); name != "" {
+	if cfg.Sandbox.SandboxBackendFn != nil {
+		if name := cfg.Sandbox.SandboxBackendFn(ctx); name != "" {
 			backend = name
 		}
 	}

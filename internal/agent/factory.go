@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -31,7 +32,7 @@ type RunnerFactoryConfig struct {
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SkillStore               pkgplugins.SkillStore
 	SandboxBackendFn         func(ctx context.Context) string
-	VaultEnvLoader           VaultEnvLoader
+	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenService             *auth.TokenService
 	TokenManager             *oauth.TokenManager
 }
@@ -148,29 +149,35 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 			))
 
 			return newRunner(ctx, runnerConfig{
-				API:              apiName,
-				Model:            modelID,
-				APIKey:           creds.APIKey,
-				AgentRoot:        cfg.Snap.Workspace,
-				StellaHome:       config.StellaHome(),
-				BaseURL:          creds.BaseURL,
-				System:           system,
-				PluginPrompts:    pluginPrompts,
-				PromptSections:   promptSections,
-				ExtraTools:       runnerTools,
-				PluginTools:      cfg.PluginToolsBuilder,
-				SessionEnvSpecs:  append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
-				UserRoot:         userRoot,
-				Sandbox:          cfg.Snap.Sandbox,
-				SandboxBackendFn: cfg.SandboxBackendFn,
-				HookPlugins:      hookPlugins,
-				ToolLifecycle:    cfg.ToolLifecycle,
-				Providers:        cfg.ProviderRegistryBuilder,
-				UserID:           params.UserID,
-				VaultEnvLoader:   cfg.VaultEnvLoader,
-				TokenService:     cfg.TokenService,
-				TokenManager:     cfg.TokenManager,
-				SubagentTimeout:  cfg.Snap.Runner.SubagentTimeoutDuration(),
+				Provider: providerConfig{
+					API:     apiName,
+					Model:   modelID,
+					APIKey:  creds.APIKey,
+					BaseURL: creds.BaseURL,
+					Builder: cfg.ProviderRegistryBuilder,
+				},
+				Sandbox: sandbox.Config{
+					SandboxConfig:    cfg.Snap.Sandbox,
+					SandboxBackendFn: cfg.SandboxBackendFn,
+					Paths: sandbox.PathConfig{
+						StellaHome: config.StellaHome(),
+						AgentRoot:  cfg.Snap.Workspace,
+						UserRoot:   userRoot,
+					},
+					UserID:          params.UserID,
+					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
+					VaultEnvLoader:  cfg.VaultEnvLoader,
+					TokenService:    cfg.TokenService,
+					TokenManager:    cfg.TokenManager,
+				},
+				System:          system,
+				PluginPrompts:   pluginPrompts,
+				PromptSections:  promptSections,
+				ExtraTools:      runnerTools,
+				PluginTools:     cfg.PluginToolsBuilder,
+				HookPlugins:     hookPlugins,
+				ToolLifecycle:   cfg.ToolLifecycle,
+				SubagentTimeout: cfg.Snap.Runner.SubagentTimeoutDuration(),
 			})
 		}, nil
 	default:

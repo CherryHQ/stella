@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -59,9 +60,9 @@ func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
 func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 	t.Helper()
 	stellaHome, workspace, userRoot := testRunnerPaths(t)
-	cfg.StellaHome = stellaHome
-	cfg.AgentRoot = workspace
-	cfg.UserRoot = userRoot
+	cfg.Sandbox.Paths.StellaHome = stellaHome
+	cfg.Sandbox.Paths.AgentRoot = workspace
+	cfg.Sandbox.Paths.UserRoot = userRoot
 	return cfg
 }
 
@@ -80,11 +81,14 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 	}
 
 	cfg := runnerConfig{
-		StellaHome:       t.TempDir(),
-		AgentRoot:        workspace,
-		UserRoot:         userRoot,
-		Sandbox:          config.SandboxConfig{},
-		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
+		Sandbox: sandbox.Config{
+			SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
+			Paths: sandbox.PathConfig{
+				StellaHome: t.TempDir(),
+				AgentRoot:  workspace,
+				UserRoot:   userRoot,
+			},
+		},
 	}
 	err := prepareSandbox(context.Background(), cfg)
 	if err == nil {
@@ -132,11 +136,11 @@ func TestNewRunnerRequiresConfig(t *testing.T) {
 		name string
 		cfg  runnerConfig
 	}{
-		{"missing api", runnerConfig{Model: "m", APIKey: "k"}},
-		{"missing model", runnerConfig{API: "anthropic", APIKey: "k"}},
-		{"missing api_key", runnerConfig{API: "anthropic", Model: "m"}},
-		{"missing workspace", runnerConfig{API: "anthropic", Model: "m", APIKey: "k", UserRoot: "/tmp/user"}},
-		{"missing user_data_dir", runnerConfig{API: "anthropic", Model: "m", APIKey: "k", AgentRoot: "/tmp/workspace"}},
+		{"missing api", runnerConfig{Provider: providerConfig{Model: "m", APIKey: "k"}}},
+		{"missing model", runnerConfig{Provider: providerConfig{API: "anthropic", APIKey: "k"}}},
+		{"missing api_key", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m"}}},
+		{"missing workspace", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.PathConfig{UserRoot: "/tmp/user"}}}},
+		{"missing user_data_dir", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.PathConfig{AgentRoot: "/tmp/workspace"}}}},
 	}
 
 	for _, tt := range tests {
@@ -182,10 +186,12 @@ func (f *runnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ a
 func newTestRunner(t *testing.T, fp *runnerFakeProvider) *runner {
 	t.Helper()
 	r, err := newRunner(context.Background(), withTestRunnerPaths(t, runnerConfig{
-		API:       fp.api,
-		Model:     "test-model",
-		APIKey:    "test-key",
-		Providers: testProviderRegistryBuilder,
+		Provider: providerConfig{
+			API:     fp.api,
+			Model:   "test-model",
+			APIKey:  "test-key",
+			Builder: testProviderRegistryBuilder,
+		},
 	}))
 	if err != nil {
 		t.Skipf("newRunner: docker not available: %v", err)
@@ -246,10 +252,12 @@ func TestChatStreamError(t *testing.T) {
 
 func TestChatUnknownProvider(t *testing.T) {
 	_, err := newRunner(context.Background(), withTestRunnerPaths(t, runnerConfig{
-		API:       "nonexistent",
-		Model:     "test-model",
-		APIKey:    "test-key",
-		Providers: testProviderRegistryBuilder,
+		Provider: providerConfig{
+			API:     "nonexistent",
+			Model:   "test-model",
+			APIKey:  "test-key",
+			Builder: testProviderRegistryBuilder,
+		},
 	}))
 	if err == nil {
 		t.Fatal("expected error for unknown provider")

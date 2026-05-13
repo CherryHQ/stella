@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/providers"
 	anthropicprovider "github.com/CherryHQ/stella/plugins/providers/anthropic"
 )
@@ -19,7 +20,7 @@ func skipWithoutAnthropicKey(t *testing.T) {
 	}
 }
 
-func TestIntegrationPoolWithrunner(t *testing.T) {
+func TestIntegrationPoolWithRunner(t *testing.T) {
 	skipWithoutAnthropicKey(t)
 
 	model := os.Getenv("STELLA_GO_MODEL")
@@ -37,14 +38,20 @@ func TestIntegrationPoolWithrunner(t *testing.T) {
 
 	factory := func(ctx context.Context, _ RunnerParams) (Runner, error) {
 		return newRunner(ctx, runnerConfig{
-			API:        "anthropic",
-			Model:      model,
-			APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
-			StellaHome: stellaHome,
-			AgentRoot:  workspace,
-			UserRoot:   userRoot,
-			Providers:  integrationProviderRegistryBuilder,
+			Provider: providerConfig{
+				API:     "anthropic",
+				Model:   model,
+				APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+				BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+				Builder: integrationProviderRegistryBuilder,
+			},
+			Sandbox: sandbox.Config{
+				Paths: sandbox.PathConfig{
+					StellaHome: stellaHome,
+					AgentRoot:  workspace,
+					UserRoot:   userRoot,
+				},
+			},
 		})
 	}
 
