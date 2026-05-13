@@ -32,19 +32,13 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
-	workDir := resolveWorkingDir(cfg, userRoot)
-
 	return Paths{
 		StellaHome:  stellaHome,
 		UserRoot:    userRoot,
-		WorkDir:     workDir,
+		WorkDir:     userRoot,
 		AgentRoot:   cfg.AgentRoot,
 		ProjectRoot: cfg.ProjectRoot,
 	}, nil
-}
-
-func resolveWorkingDir(cfg Config, userRoot string) string {
-	return userRoot
 }
 
 // ProcessEnv builds the baseline process environment injected into
