@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
@@ -13,8 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
   DropdownMenuGroup,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
@@ -187,39 +185,42 @@ function ThemeSelector() {
       <DropdownMenuContent align="end" sideOffset={8} className="w-52">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={theme.appearance} onValueChange={setAppearance}>
-            <DropdownMenuRadioItem value="system">
-              <Monitor className="size-4" />
-              System
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="light">
-              <Sun className="size-4" />
-              Light
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">
-              <Moon className="size-4" />
-              Dark
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
+          {THEME_APPEARANCES.map((appearance) => (
+            <DropdownMenuItem
+              key={appearance}
+              onClick={() => setAppearance(appearance)}
+              className="gap-2"
+            >
+              <ThemeCheck checked={theme.appearance === appearance} />
+              {APPEARANCE_LABELS[appearance]}
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>Theme</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={theme.preset} onValueChange={setPreset}>
-            {THEME_PRESETS.map((preset) => (
-              <DropdownMenuRadioItem key={preset} value={preset}>
-                <span
-                  className={`size-3 rounded-full border border-border ${THEME_SWATCHES[preset]}`}
-                />
-                {THEME_LABELS[preset]}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
+          {THEME_PRESETS.map((preset) => (
+            <DropdownMenuItem key={preset} onClick={() => setPreset(preset)} className="gap-2">
+              <ThemeCheck checked={theme.preset === preset} />
+              <span
+                className={`size-3 rounded-full border border-border ${THEME_SWATCHES[preset]}`}
+              />
+              <span className="flex-1">{THEME_LABELS[preset]}</span>
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+const THEME_APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
+
+const APPEARANCE_LABELS: Record<ThemeAppearance, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
 
 const THEME_LABELS: Record<ThemePreset, string> = {
   default: "Default",
@@ -245,6 +246,14 @@ function isAppearance(value: string): value is ThemeAppearance {
 
 function isPreset(value: string): value is ThemePreset {
   return (THEME_PRESETS as string[]).includes(value);
+}
+
+function ThemeCheck({ checked }: { checked: boolean }) {
+  return (
+    <span className="flex size-4 items-center justify-center text-foreground">
+      {checked && <Check aria-hidden="true" className="size-4" />}
+    </span>
+  );
 }
 
 function LocaleSelector() {
