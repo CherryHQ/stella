@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSchedulerRouteImport } from './routes/_app/scheduler'
@@ -52,6 +53,11 @@ const DocsSplatRoute = DocsSplatRouteImport.update({
   id: '/docs/$',
   path: '/docs/$',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
@@ -132,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
   '/settings': typeof AppSettingsRouteWithChildren
+  '/tasks': typeof AppTasksRoute
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
+  '/tasks': typeof AppTasksRoute
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -173,6 +181,7 @@ export interface FileRoutesById {
   '/_app/scheduler': typeof AppSchedulerRoute
   '/_app/sessions': typeof AppSessionsRouteWithChildren
   '/_app/settings': typeof AppSettingsRouteWithChildren
+  '/_app/tasks': typeof AppTasksRoute
   '/docs/$': typeof DocsSplatRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
   '/_app/settings/about': typeof AppSettingsAboutRoute
@@ -195,6 +204,7 @@ export interface FileRouteTypes {
     | '/scheduler'
     | '/sessions'
     | '/settings'
+    | '/tasks'
     | '/docs/$'
     | '/sessions/$'
     | '/settings/about'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/recally'
     | '/scheduler'
     | '/sessions'
+    | '/tasks'
     | '/docs/$'
     | '/sessions/$'
     | '/settings/about'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/_app/scheduler'
     | '/_app/sessions'
     | '/_app/settings'
+    | '/_app/tasks'
     | '/docs/$'
     | '/_app/sessions/$'
     | '/_app/settings/about'
@@ -292,6 +304,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/docs/$'
       preLoaderRoute: typeof DocsSplatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/tasks': {
+      id: '/_app/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/settings': {
       id: '/_app/settings'
@@ -439,6 +458,7 @@ interface AppRouteChildren {
   AppSchedulerRoute: typeof AppSchedulerRoute
   AppSessionsRoute: typeof AppSessionsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppTasksRoute: typeof AppTasksRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -446,6 +466,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSchedulerRoute: AppSchedulerRoute,
   AppSessionsRoute: AppSessionsRouteWithChildren,
   AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppTasksRoute: AppTasksRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

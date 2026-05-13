@@ -8,6 +8,7 @@ const en = {
   // Navigation
   "nav.sessions": "Sessions",
   "nav.scheduler": "Scheduler",
+  "nav.tasks": "Tasks",
   "nav.settings": "Settings",
   "nav.recally": "Recally",
   "nav.docs": "Docs",
@@ -357,6 +358,22 @@ const en = {
   "recally.tags.more": "+{{count}}",
   "recally.toggleSidebar": "Toggle sidebar",
   "recally.resizeList": "Resize list",
+
+  // Tasks
+  "tasks.title": "Tasks",
+  "tasks.new": "New Task",
+  "tasks.noTasks": "No tasks",
+  "tasks.noTasksDesc": "Create a task to run asynchronous agent work.",
+  "tasks.created": "Task created",
+  "tasks.deleted": "Task deleted",
+  "tasks.cancelled": "Task cancelled",
+  "tasks.approved": "Review approved",
+  "tasks.rejected": "Review rejected",
+  "tasks.responded": "Response submitted",
+  "tasks.approve": "Approve",
+  "tasks.reject": "Reject",
+  "tasks.cancelTask": "Cancel Task",
+  "tasks.deleteConfirm": "Delete task?",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -369,6 +386,7 @@ const zh: Record<MessageKey, string> = {
   // Navigation
   "nav.sessions": "会话",
   "nav.scheduler": "调度器",
+  "nav.tasks": "任务",
   "nav.settings": "设置",
   "nav.recally": "忆读",
   "nav.docs": "文档",
@@ -718,6 +736,22 @@ const zh: Record<MessageKey, string> = {
   "recally.tags.more": "+{{count}}",
   "recally.toggleSidebar": "切换侧边栏",
   "recally.resizeList": "调整列表宽度",
+
+  // Tasks
+  "tasks.title": "任务",
+  "tasks.new": "新建任务",
+  "tasks.noTasks": "暂无任务",
+  "tasks.noTasksDesc": "创建任务以运行异步智能体工作。",
+  "tasks.created": "任务已创建",
+  "tasks.deleted": "任务已删除",
+  "tasks.cancelled": "任务已取消",
+  "tasks.approved": "审核已通过",
+  "tasks.rejected": "审核已拒绝",
+  "tasks.responded": "响应已提交",
+  "tasks.approve": "通过",
+  "tasks.reject": "拒绝",
+  "tasks.cancelTask": "取消任务",
+  "tasks.deleteConfirm": "删除任务？",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };
