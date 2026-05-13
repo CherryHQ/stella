@@ -1,4 +1,4 @@
-package agent
+package coretools
 
 import (
 	"context"
@@ -12,7 +12,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-func newCoreTools(host sandbox.Host, toolsBinDir, projectRoot string) []tools.Tool {
+// New returns the four standard sandbox-backed tools (bash, read, write, edit).
+func New(host sandbox.Host, toolsBinDir, projectRoot string) []tools.Tool {
 	if host == nil {
 		return nil
 	}

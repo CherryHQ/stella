@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/CherryHQ/stella/internal/agent/coretools"
 	"github.com/CherryHQ/stella/pkg/tools"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
@@ -10,5 +11,5 @@ func buildSandboxCoreTools(session *runnerSession, bc plugintools.BuildContext) 
 	if session == nil || session.Session() == nil {
 		return nil
 	}
-	return newCoreTools(session.Session(), bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
+	return coretools.New(session.Session(), bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
 }
