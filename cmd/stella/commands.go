@@ -27,9 +27,11 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/tasks"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -38,6 +40,7 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
+	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -74,6 +77,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	pool                     *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc             *scheduler.Service
+	tasksSvc                 *tasks.Service
 	builtinTools             []tools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
@@ -488,6 +492,46 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		})
 	}
 
+	// Build tasks service with default agent's model/stream/registry.
+	var tasksSvc *tasks.Service
+	{
+		taskModel := snap.ResolveModelTier(config.ModelTierFast)
+		taskCreds := snap.ResolveProviderCreds(taskModel.Provider)
+		apiName := taskCreds.Type
+		if apiName == "" {
+			apiName = taskModel.Provider
+		}
+		taskModel.API = apiName
+		taskModel.BaseURL = taskCreds.BaseURL
+
+		taskStream, err := providerStreamBuilder(apiName, taskCreds.APIKey, taskCreds.BaseURL)
+		if err != nil {
+			slog.Warn("tasks service: failed to build stream, task workers will be unavailable", "error", err)
+		} else {
+			taskRegistry := tools.NewRegistry()
+			for _, t := range builtinTools {
+				taskRegistry.Register(t)
+			}
+			hookSet := hooks.NewHookSet(poolMgr.HookPlugins())
+			tasksSvc = tasks.New(tasks.Config{
+				DB:            db,
+				Queries:       sqlc.New(db),
+				Notifier:      dispatcher,
+				Memory:        memProvider,
+				Stream:        taskStream,
+				Model:         taskModel,
+				System:        snap.SystemPrompt,
+				Registry:      taskRegistry,
+				Hooks:         hookSet,
+				ToolLifecycle: toolLifecycle,
+			})
+			tt := tasktool.New(tasktool.Config{Service: tasksSvc})
+			if err := poolMgr.AddBuiltinTool(ctx, tt); err != nil {
+				slog.Warn("failed to add task tool to pool manager", "error", err)
+			}
+		}
+	}
+
 	// CLI sessions don't use auth — userID stays 0.
 	var cliUserID int64
 
@@ -506,6 +550,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		pool:                     pool,
 		schedulerSvc:             schedulerSvc,
+		tasksSvc:                 tasksSvc,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,
