@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Menu as MenuIcon } from "lucide-react";
-import { useState } from "react";
+import { Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
+import { applyTheme, getStoredTheme, setStoredTheme, type ThemePreference } from "@/lib/theme";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -68,6 +69,7 @@ export function SiteHeader() {
           ))}
         </nav>
         <LocaleSelector />
+        <ThemeSelector />
         <GithubLink />
         {me ? (
           <UserMenu />
@@ -127,6 +129,40 @@ export function SiteHeader() {
         </Sheet>
       </div>
     </header>
+  );
+}
+
+function ThemeSelector() {
+  const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme());
+
+  useEffect(() => {
+    if (theme !== "system") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyTheme("system");
+    media.addEventListener("change", update);
+
+    return () => media.removeEventListener("change", update);
+  }, [theme]);
+
+  function toggle() {
+    const next = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+    setTheme(next);
+    setStoredTheme(next);
+  }
+
+  const Icon = theme === "system" ? Monitor : theme === "light" ? Sun : Moon;
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      aria-label={`Switch theme - current: ${theme}`}
+      title={`Theme: ${theme}`}
+    >
+      <Icon className="size-4" />
+    </button>
   );
 }
 

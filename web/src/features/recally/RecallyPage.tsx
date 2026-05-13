@@ -9,9 +9,10 @@ import {
   Archive,
   Trash2,
   RefreshCw,
-  Rss,
   AlertCircle,
   X,
+  BookOpen,
+  Plus,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -208,10 +209,15 @@ export function RecallyPage() {
   }
 
   const readerPanel = (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto bg-background">
       {!selectedId ? (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          {t("recally.reader.empty")}
+        <div className="flex h-full items-center justify-center px-8 text-center">
+          <div className="max-w-72">
+            <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+              <BookOpen className="size-5" />
+            </div>
+            <p className="text-sm font-medium text-foreground">{t("recally.reader.empty")}</p>
+          </div>
         </div>
       ) : articleQuery.isLoading ? (
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -222,12 +228,16 @@ export function RecallyPage() {
           {t("common.error")}
         </div>
       ) : selectedArticle ? (
-        <div className="p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mx-auto max-w-[760px] px-6 py-6">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
             <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
               <StatusBadge status={selectedArticle.status} t={t} />
-              <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
-              <span>{formatSavedAt(selectedArticle.saved_at, t)}</span>
+              <span className="rounded-full border border-border bg-card px-2 py-0.5">
+                {t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}
+              </span>
+              <span className="rounded-full border border-border bg-card px-2 py-0.5">
+                {formatSavedAt(selectedArticle.saved_at, t)}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               {selectedArticle.status !== "read" && (
@@ -239,7 +249,7 @@ export function RecallyPage() {
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <Check className="size-3" />
                   {t("recally.action.markRead")}
@@ -254,7 +264,7 @@ export function RecallyPage() {
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <EyeOff className="size-3" />
                   {t("recally.action.markUnread")}
@@ -269,7 +279,7 @@ export function RecallyPage() {
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <Archive className="size-3" />
                   {t("recally.action.archive")}
@@ -283,7 +293,7 @@ export function RecallyPage() {
                   })
                 }
                 disabled={updateArticleMut.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
               >
                 <Star
                   className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
@@ -308,7 +318,7 @@ export function RecallyPage() {
                   </button>
                   <button
                     onClick={() => setConfirmingDeleteId(null)}
-                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+                    className="rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent"
                   >
                     {t("common.no")}
                   </button>
@@ -326,14 +336,16 @@ export function RecallyPage() {
             </div>
           </div>
           <article className="w-full">
-            <h2 className="mb-1 text-xl font-semibold tracking-tight">{selectedArticle.title}</h2>
+            <h2 className="mb-2 text-2xl font-semibold leading-tight tracking-tight text-foreground">
+              {selectedArticle.title}
+            </h2>
             {selectedArticle.author && (
-              <p className="mb-4 font-mono text-xs text-muted-foreground">
+              <p className="mb-5 font-mono text-xs text-muted-foreground">
                 {selectedArticle.author}
               </p>
             )}
             {selectedArticle.content ? (
-              <div className="prose prose-sm max-w-none text-foreground">
+              <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary">
                 <Streamdown>{selectedArticle.content}</Streamdown>
               </div>
             ) : (
@@ -353,15 +365,31 @@ export function RecallyPage() {
 
   return (
     <div
-      className="h-[calc(100vh-3.5rem)] min-h-0 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_var(--recally-center-width)_1fr] overflow-hidden bg-background"
+      className="grid h-[calc(100vh-3.5rem)] min-h-0 grid-cols-1 overflow-hidden bg-background md:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[260px_var(--recally-center-width)_1fr]"
       style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
     >
       {/* Left sidebar */}
-      <aside className="hidden md:flex min-h-0 flex-col border-r border-border overflow-auto">
-        <div className="p-3 space-y-4">
+      <aside className="hidden min-h-0 flex-col overflow-auto border-r border-border bg-muted/30 md:flex">
+        <div className="space-y-5 p-3">
+          <div className="rounded-md border border-border bg-card p-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-md bg-foreground text-background">
+                <BookOpen className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold tracking-tight text-foreground">
+                  {t("recally.title")}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {t("recally.subtitle")}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Library */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.library")}
             </div>
             <nav className="space-y-0.5">
@@ -396,24 +424,24 @@ export function RecallyPage() {
 
           {/* Find */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.find")}
             </div>
             <div className="relative px-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={t("recally.searchPlaceholder")}
-                className="w-full h-8 pl-8 pr-3 text-sm bg-muted rounded-md border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
           </div>
 
           {/* Status */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.status")}
             </div>
             <div className="flex flex-wrap gap-1.5 px-1">
@@ -459,7 +487,7 @@ export function RecallyPage() {
 
           {/* Sources */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.sources")}
             </div>
             <div className="flex flex-wrap gap-1.5 px-1">
@@ -476,7 +504,7 @@ export function RecallyPage() {
 
           {/* Feeds */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.feeds")}
             </div>
             <div className="px-1 space-y-1.5">
@@ -491,7 +519,7 @@ export function RecallyPage() {
                       createFeedMut.mutate({ body: { url: feedUrl.trim() } });
                     }
                   }}
-                  className="flex-1 h-7 px-2 text-xs bg-muted rounded-md border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="h-7 flex-1 rounded-md border border-border bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 <button
                   onClick={() => {
@@ -500,13 +528,13 @@ export function RecallyPage() {
                     }
                   }}
                   disabled={createFeedMut.isPending || !feedUrl.trim()}
-                  className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors hover:bg-accent disabled:opacity-50"
                   title={t("recally.feeds.addFeed")}
                 >
                   {createFeedMut.isPending ? (
                     <RefreshCw className="size-3 animate-spin" />
                   ) : (
-                    <Rss className="size-3" />
+                    <Plus className="size-3" />
                   )}
                 </button>
               </div>
@@ -524,7 +552,7 @@ export function RecallyPage() {
               {feeds.map((feed: Feed) => (
                 <div key={feed.id} className="flex items-center justify-between gap-1.5 py-0.5">
                   <span
-                    className="text-xs truncate text-muted-foreground"
+                    className="truncate text-xs text-muted-foreground"
                     title={feed.title || feed.url}
                   >
                     {feed.title || feed.url}
@@ -532,7 +560,7 @@ export function RecallyPage() {
                   <button
                     onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
                     disabled={pollFeedMut.isPending}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border border-border hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+                    className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-accent disabled:opacity-50"
                     title={t("recally.feeds.poll")}
                   >
                     {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
@@ -543,7 +571,7 @@ export function RecallyPage() {
                         <span className="text-destructive">{t("recally.feeds.pollError")}</span>
                       </>
                     ) : feedPollResults[feed.id] ? (
-                      <span className="text-green-700">
+                      <span className="text-success-foreground">
                         {t("recally.feeds.pollNewEntries", {
                           count: feedPollResults[feed.id].newCount,
                         })}
@@ -562,7 +590,7 @@ export function RecallyPage() {
 
           {/* Digest note */}
           {digest && (
-            <div className="mx-1 px-2.5 py-2 text-xs text-muted-foreground bg-muted/50 rounded-md border border-border">
+            <div className="mx-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs text-muted-foreground shadow-sm">
               <span className="font-medium text-foreground">{t("recally.nav.digest")}: </span>
               {t("recally.digest.savedYesterday", { count: digest.saved_yesterday_count })}
               {digest.worth_revisiting_count > 0 && (
@@ -576,12 +604,19 @@ export function RecallyPage() {
       </aside>
 
       {/* Center article list */}
-      <section className="flex min-h-0 flex-col overflow-hidden">
+      <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
         {/* Header with stats */}
-        <div className="shrink-0 px-4 py-3 border-b border-border">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">{t("recally.title")}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">{t("recally.subtitle")}</p>
+        <div className="shrink-0 border-b border-border bg-background px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                {t("recally.title")}
+              </h1>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("recally.subtitle")}</p>
+            </div>
+            <div className="hidden rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground md:block">
+              {articles.length} / 50
+            </div>
           </div>
           <div className="mt-3 space-y-2 md:hidden">
             <div className="relative">
@@ -591,7 +626,7 @@ export function RecallyPage() {
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={t("recally.searchPlaceholder")}
-                className="h-9 w-full rounded-md border border-border bg-muted pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
             <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -627,7 +662,7 @@ export function RecallyPage() {
             </div>
           </div>
           {digest && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
+            <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
               <StatCard value={digest.total_articles} label={t("recally.stat.total")} />
               <StatCard value={digest.unread_count} label={t("recally.stat.unread")} />
               <StatCard value={digest.starred_count} label={t("recally.stat.starred")} />
@@ -640,7 +675,7 @@ export function RecallyPage() {
         </div>
 
         {/* Articles */}
-        <div className="flex-1 overflow-auto p-2 space-y-1.5">
+        <div className="flex-1 space-y-1 overflow-auto p-2">
           {articlesQuery.isLoading && (
             <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
               {t("common.loading")}
@@ -670,12 +705,12 @@ export function RecallyPage() {
       </section>
 
       {/* Right reader panel */}
-      <aside className="relative hidden min-h-0 flex-col border-l border-border bg-background xl:flex">
+      <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
         <button
           type="button"
           aria-label="Resize list"
           onMouseDown={startResize}
-          className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize transition-colors hover:bg-border/70"
+          className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
         />
         {readerPanel}
       </aside>
@@ -713,15 +748,15 @@ function SidebarNavItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center justify-between px-2 py-1.5 text-sm rounded-md transition-colors ${
+      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
         active
-          ? "bg-accent text-accent-foreground font-medium"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          ? "bg-accent font-medium text-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       }`}
     >
       <span>{label}</span>
       {count !== undefined && (
-        <span className="text-xs font-mono text-muted-foreground">{count}</span>
+        <span className="font-mono text-xs text-muted-foreground">{count}</span>
       )}
     </button>
   );
@@ -739,10 +774,10 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      className={`px-2 py-1 text-xs rounded-full border transition-colors ${
+      className={`rounded-full border px-2 py-1 text-xs transition-colors ${
         active
-          ? "border-amber-300 bg-amber-50 text-amber-800 font-medium"
-          : "border-border bg-background text-muted-foreground hover:text-foreground"
+          ? "border-input bg-accent font-medium text-foreground"
+          : "border-border bg-background text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       }`}
     >
       {label}
@@ -752,8 +787,8 @@ function FilterChip({
 
 function StatCard({ value, label }: { value: number; label: string }) {
   return (
-    <div className="border border-border rounded-lg px-3 py-2 bg-background">
-      <div className="text-lg font-semibold font-mono">{value}</div>
+    <div className="rounded-md border border-border bg-card px-3 py-2 shadow-sm">
+      <div className="font-mono text-lg font-semibold text-foreground">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
@@ -773,25 +808,29 @@ function ArticleCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left p-3 rounded-lg border transition-colors ${
-        selected ? "border-border bg-accent/40" : "border-border bg-background hover:bg-accent/20"
+      className={`w-full rounded-md border p-3 text-left transition-colors ${
+        selected
+          ? "border-input bg-accent/70 shadow-sm"
+          : "border-border bg-card hover:bg-accent/30"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium leading-snug">{article.title}</h3>
+        <h3 className="text-sm font-medium leading-snug text-foreground">{article.title}</h3>
         {article.starred && (
           <Star className="size-4 text-amber-500 fill-amber-500 shrink-0 mt-0.5" />
         )}
       </div>
       {article.summary && (
-        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{article.summary}</p>
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {article.summary}
+        </p>
       )}
-      <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs font-mono">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-xs">
         <StatusBadge status={article.status} t={t} />
         <span className="text-muted-foreground">{t(SOURCE_LABEL_KEYS[article.source_type])}</span>
         <span className="text-muted-foreground">{formatSavedAt(article.saved_at, t)}</span>
         {article.tags?.map((tag) => (
-          <span key={tag} className="px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+          <span key={tag} className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">
             {tag}
           </span>
         ))}
@@ -803,10 +842,10 @@ function ArticleCard({
 function StatusBadge({ status, t }: { status: ArticleStatus; t: (key: MessageKey) => string }) {
   const classes =
     status === "unread"
-      ? "border-blue-200 bg-blue-50 text-blue-700"
+      ? "border-info/20 bg-info/8 text-info-foreground"
       : status === "read"
-        ? "border-green-200 bg-green-50 text-green-700"
-        : "border-gray-200 bg-gray-50 text-gray-600";
+        ? "border-success/20 bg-success/8 text-success-foreground"
+        : "border-border bg-muted text-muted-foreground";
 
   return (
     <span className={`px-1.5 py-0.5 rounded-full border ${classes}`}>
@@ -822,7 +861,7 @@ function ToastAlert({ toast }: { toast: { message: string; type: "success" | "er
       className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 shadow-lg text-sm font-medium ${
         toast.type === "error"
           ? "border-destructive/30 bg-destructive/10 text-destructive-foreground"
-          : "border-green-200 bg-green-50 text-green-800"
+          : "border-success/20 bg-success/8 text-success-foreground"
       }`}
     >
       {toast.message}
