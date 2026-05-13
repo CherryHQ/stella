@@ -6,14 +6,17 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 )
 
-func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
-	pc := sandbox.PathConfig{
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1",
+func TestResolvePathsDefaultsWorkDirToUserRoot(t *testing.T) {
+	paths, err := sandbox.ResolvePaths(sandbox.Config{
+		Paths: sandbox.PathConfig{
+			AgentRoot: "/workspace/agent",
+			UserRoot:  "/workspace/agent/users/1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolvePaths: %v", err)
 	}
-
-	paths := resolveRunnerPaths(pc)
-	if paths.UserRoot != pc.UserRoot {
-		t.Fatalf("UserRoot = %q, want %q", paths.UserRoot, pc.UserRoot)
+	if paths.UserRoot != "/workspace/agent/users/1" {
+		t.Fatalf("UserRoot = %q, want %q", paths.UserRoot, "/workspace/agent/users/1")
 	}
 }

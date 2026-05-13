@@ -85,11 +85,10 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		return nil, fmt.Errorf("runner: user_root is required")
 	}
 
-	if _, err := sandbox.ResolvePaths(cfg.Sandbox); err != nil {
+	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
-
-	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
 
 	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
@@ -198,7 +197,7 @@ func buildProviderRegistry(cfg runnerConfig) (*providers.Registry, error) {
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.Session) (*tools.Registry, error) {
-	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
 
 	// Core tools (read, bash, edit, write) are always provided by the active
@@ -276,8 +275,8 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 }
 
 func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
-	paths := resolveRunnerPaths(cfg.Sandbox.Paths)
-	if err := resources.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
+	if err := resources.ExtractSubAgents(stellaAgentsDir(paths)); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
