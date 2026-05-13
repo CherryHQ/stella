@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Streamdown } from "streamdown";
 import {
@@ -153,6 +153,16 @@ export function RecallyPage() {
       showToast(t("recally.article.updateFailed"), "error");
     },
   });
+
+  // Auto-mark unread articles as read when opened
+  useEffect(() => {
+    if (selectedArticle?.status === "unread" && !updateArticleMut.isPending) {
+      updateArticleMut.mutate({
+        body: { status: "read" },
+        path: { id: selectedArticle.id },
+      });
+    }
+  }, [selectedArticle?.id, selectedArticle?.status, updateArticleMut.isPending]);
 
   const deleteArticleMut = useMutation({
     ...deleteArticleMutation(),
