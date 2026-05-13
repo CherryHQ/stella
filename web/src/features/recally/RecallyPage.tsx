@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Search, Star } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Search, Star, Check, EyeOff, Archive, Trash2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import {
   listArticlesOptions,
+  listArticlesQueryKey,
   getArticleOptions,
+  getArticleQueryKey,
   getDigestOptions,
+  getDigestQueryKey,
+  updateArticleMutation,
+  deleteArticleMutation,
 } from "@/lib/api-client/@tanstack/react-query.gen";
 import type { Article, ArticleStatus, SourceType } from "@/lib/api-client/types.gen";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -44,6 +49,15 @@ export function RecallyPage() {
   const [sourceTypeFilter, setSourceTypeFilter] = useState<SourceType | null>(null);
   const [starredFilter, setStarredFilter] = useState<boolean | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const queryClient = useQueryClient();
 
   const digestQuery = useQuery(getDigestOptions());
   const articlesQuery = useQuery(
@@ -68,6 +82,40 @@ export function RecallyPage() {
   const digest = digestQuery.data;
   const articles = articlesQuery.data?.items ?? [];
   const selectedArticle = articleQuery.data;
+
+  const updateArticleMut = useMutation({
+    ...updateArticleMutation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: listArticlesQueryKey() });
+      if (selectedId) {
+        void queryClient.invalidateQueries({
+          queryKey: getArticleQueryKey({
+            path: { id: selectedId },
+            query: { include: "content" },
+          }),
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: getDigestQueryKey() });
+      showToast(t("recally.article.updated"));
+    },
+    onError: () => {
+      showToast(t("recally.article.updateFailed"), "error");
+    },
+  });
+
+  const deleteArticleMut = useMutation({
+    ...deleteArticleMutation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: listArticlesQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getDigestQueryKey() });
+      setSelectedId(null);
+      setConfirmingDelete(false);
+      showToast(t("recally.article.deleted"));
+    },
+    onError: () => {
+      showToast(t("recally.article.deleteFailed"), "error");
+    },
+  });
 
   function clearFilters() {
     setStatusFilter(null);
@@ -286,10 +334,109 @@ export function RecallyPage() {
             </div>
           ) : selectedArticle ? (
             <div className="p-4">
-              <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground mb-3">
-                <StatusBadge status={selectedArticle.status} t={t} />
-                <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
-                <span>{formatSavedAt(selectedArticle.saved_at)}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
+                  <StatusBadge status={selectedArticle.status} t={t} />
+                  <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
+                  <span>{formatSavedAt(selectedArticle.saved_at)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {selectedArticle.status !== "read" && (
+                    <button
+                      onClick={() =>
+                        updateArticleMut.mutate({
+                          body: { status: "read" },
+                          path: { id: selectedArticle.id },
+                        })
+                      }
+                      disabled={updateArticleMut.isPending}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <Check className="size-3" />
+                      {t("recally.action.markRead")}
+                    </button>
+                  )}
+                  {selectedArticle.status !== "unread" && (
+                    <button
+                      onClick={() =>
+                        updateArticleMut.mutate({
+                          body: { status: "unread" },
+                          path: { id: selectedArticle.id },
+                        })
+                      }
+                      disabled={updateArticleMut.isPending}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <EyeOff className="size-3" />
+                      {t("recally.action.markUnread")}
+                    </button>
+                  )}
+                  {selectedArticle.status !== "archived" && (
+                    <button
+                      onClick={() =>
+                        updateArticleMut.mutate({
+                          body: { status: "archived" },
+                          path: { id: selectedArticle.id },
+                        })
+                      }
+                      disabled={updateArticleMut.isPending}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <Archive className="size-3" />
+                      {t("recally.action.archive")}
+                    </button>
+                  )}
+                  <button
+                    onClick={() =>
+                      updateArticleMut.mutate({
+                        body: { starred: !selectedArticle.starred },
+                        path: { id: selectedArticle.id },
+                      })
+                    }
+                    disabled={updateArticleMut.isPending}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    <Star
+                      className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
+                    />
+                    {selectedArticle.starred
+                      ? t("recally.action.unstar")
+                      : t("recally.action.star")}
+                  </button>
+                  {confirmingDelete ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-destructive font-medium">
+                        {t("recally.deleteConfirm")}
+                      </span>
+                      <button
+                        onClick={() =>
+                          deleteArticleMut.mutate({
+                            path: { id: selectedArticle.id },
+                          })
+                        }
+                        disabled={deleteArticleMut.isPending}
+                        className="px-2 py-1 text-xs rounded-md border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
+                      >
+                        {t("common.yes")}
+                      </button>
+                      <button
+                        onClick={() => setConfirmingDelete(false)}
+                        className="px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors"
+                      >
+                        {t("common.no")}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmingDelete(true)}
+                      disabled={deleteArticleMut.isPending}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="size-3" />
+                      {t("common.delete")}
+                    </button>
+                  )}
+                </div>
               </div>
               <article className="max-w-prose">
                 <h2 className="text-xl font-semibold tracking-tight mb-1">
@@ -316,6 +463,7 @@ export function RecallyPage() {
           )}
         </div>
       </aside>
+      <ToastAlert toast={toast} />
     </div>
   );
 }
@@ -433,5 +581,20 @@ function StatusBadge({ status, t }: { status: ArticleStatus; t: (key: MessageKey
     <span className={`px-1.5 py-0.5 rounded-full border ${classes}`}>
       {t(STATUS_LABEL_KEYS[status])}
     </span>
+  );
+}
+
+function ToastAlert({ toast }: { toast: { message: string; type: "success" | "error" } | null }) {
+  if (!toast) return null;
+  return (
+    <div
+      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 shadow-lg text-sm font-medium ${
+        toast.type === "error"
+          ? "border-destructive/30 bg-destructive/10 text-destructive-foreground"
+          : "border-green-200 bg-green-50 text-green-800"
+      }`}
+    >
+      {toast.message}
+    </div>
   );
 }

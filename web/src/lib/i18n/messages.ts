@@ -328,6 +328,17 @@ const en = {
   "recally.empty.noArticlesDesc": "No saved articles match your filters.",
   "recally.reader.empty": "Select an article to read",
   "recally.feeds.placeholder": "Feed management coming soon",
+  "recally.action.markUnread": "Mark unread",
+  "recally.action.markRead": "Mark read",
+  "recally.action.archive": "Archive",
+  "recally.action.star": "Star",
+  "recally.action.unstar": "Unstar",
+  "recally.deleteConfirm": "Delete article?",
+  "recally.deleteConfirmDesc": "This will permanently delete this article.",
+  "recally.article.updated": "Article updated",
+  "recally.article.updateFailed": "Failed to update article",
+  "recally.article.deleted": "Article deleted",
+  "recally.article.deleteFailed": "Failed to delete article",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -660,6 +671,17 @@ const zh: Record<MessageKey, string> = {
   "recally.empty.noArticlesDesc": "没有符合筛选条件的已保存文章。",
   "recally.reader.empty": "选择一篇文章以阅读",
   "recally.feeds.placeholder": "订阅源管理功能即将推出",
+  "recally.action.markUnread": "标记未读",
+  "recally.action.markRead": "标记已读",
+  "recally.action.archive": "归档",
+  "recally.action.star": "收藏",
+  "recally.action.unstar": "取消收藏",
+  "recally.deleteConfirm": "删除文章？",
+  "recally.deleteConfirmDesc": "这将永久删除该文章。",
+  "recally.article.updated": "文章已更新",
+  "recally.article.updateFailed": "更新文章失败",
+  "recally.article.deleted": "文章已删除",
+  "recally.article.deleteFailed": "删除文章失败",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };
