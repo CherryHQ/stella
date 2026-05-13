@@ -15,7 +15,9 @@ import {
   Plus,
   Sparkles,
   ChevronDown,
+  PanelLeft,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import {
   listArticlesOptions,
@@ -79,6 +81,9 @@ export function RecallyPage() {
   const [feedPollResults, setFeedPollResults] = useState<
     Record<string, { newCount: number; error?: string }>
   >({});
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [showAllTags, setShowAllTags] = useState(false);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -109,6 +114,24 @@ export function RecallyPage() {
 
   const digest = digestQuery.data;
   const articles = articlesQuery.data?.items ?? [];
+  const displayArticles = tagFilter
+    ? articles.filter((a) => a.tags?.includes(tagFilter))
+    : articles;
+
+  const allTags = articles.flatMap((a) => a.tags ?? []);
+  const tagCounts = allTags.reduce(
+    (acc, tag) => {
+      acc[tag] = (acc[tag] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+  const sortedTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag]) => tag);
+  const visibleTags = showAllTags ? sortedTags : sortedTags.slice(0, 10);
+  const hasMoreTags = sortedTags.length > 10;
+
   const selectedArticle = articleQuery.data;
 
   const updateArticleMut = useMutation({
@@ -186,6 +209,7 @@ export function RecallyPage() {
     setStatusFilter(null);
     setStarredFilter(null);
     setSourceTypeFilter(null);
+    setTagFilter(null);
   }
 
   function startResize(e: React.MouseEvent<HTMLButtonElement>) {
@@ -389,12 +413,16 @@ export function RecallyPage() {
   );
 
   return (
-    <div
-      className="grid h-[calc(100vh-3.5rem)] min-h-0 grid-cols-1 overflow-hidden bg-background md:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[260px_var(--recally-center-width)_1fr]"
-      style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
-    >
+    <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden bg-background">
       {/* Left sidebar */}
-      <aside className="hidden min-h-0 flex-col overflow-auto border-r border-border bg-muted/30 md:flex">
+      <aside
+        className={cn(
+          "hidden md:flex flex-shrink-0 flex-col overflow-auto border-r border-border bg-muted/30 transition-all duration-200 ease-out",
+          leftOpen
+            ? "w-[260px] min-w-[260px]"
+            : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
+        )}
+      >
         <div className="space-y-5 p-3">
           <div className="rounded-md border border-border bg-card p-3 shadow-sm">
             <div className="flex items-center gap-2">
@@ -412,7 +440,7 @@ export function RecallyPage() {
             </div>
           </div>
 
-          {/* Library */}
+          {/* Views */}
           <div>
             <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.library")}
@@ -421,34 +449,36 @@ export function RecallyPage() {
               <SidebarNavItem
                 label={t("recally.nav.inbox")}
                 count={digest?.total_articles}
-                active={statusFilter === null && starredFilter === null}
+                active={statusFilter === null && starredFilter === null && tagFilter === null}
                 onClick={clearFilters}
               />
               <SidebarNavItem
                 label={t("recally.nav.starred")}
                 count={digest?.starred_count}
-                active={starredFilter === true}
+                active={starredFilter === true && tagFilter === null}
                 onClick={() => {
                   setStarredFilter(true);
                   setStatusFilter(null);
                   setSourceTypeFilter(null);
+                  setTagFilter(null);
                 }}
               />
               <SidebarNavItem
                 label={t("recally.nav.archive")}
                 count={digest?.archived_count}
-                active={statusFilter === "archived"}
+                active={statusFilter === "archived" && tagFilter === null}
                 onClick={() => {
                   setStatusFilter("archived");
                   setStarredFilter(null);
                   setSourceTypeFilter(null);
+                  setTagFilter(null);
                 }}
               />
             </nav>
           </div>
 
-          {/* Find */}
-          <div>
+          {/* Refine */}
+          <div className="space-y-3">
             <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("recally.section.find")}
             </div>
@@ -462,69 +492,76 @@ export function RecallyPage() {
                 className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
-          </div>
 
-          {/* Status */}
-          <div>
-            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t("recally.section.status")}
-            </div>
-            <div className="flex flex-wrap gap-1.5 px-1">
-              <FilterChip
-                label={t("recally.status.all")}
-                active={statusFilter === null && starredFilter !== true}
-                onClick={() => {
-                  setStatusFilter(null);
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.status.unread")}
-                active={statusFilter === "unread"}
-                onClick={() => {
-                  setStatusFilter("unread");
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.status.read")}
-                active={statusFilter === "read"}
-                onClick={() => {
-                  setStatusFilter("read");
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.status.archived")}
-                active={statusFilter === "archived"}
-                onClick={() => {
-                  setStatusFilter("archived");
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.nav.starred")}
-                active={starredFilter === true}
-                onClick={() => setStarredFilter(starredFilter === true ? null : true)}
-              />
-            </div>
-          </div>
-
-          {/* Sources */}
-          <div>
-            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t("recally.section.sources")}
-            </div>
-            <div className="flex flex-wrap gap-1.5 px-1">
-              {SOURCE_TYPES.map((type) => (
+            <div>
+              <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t("recally.section.status")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 px-1">
                 <FilterChip
-                  key={type}
-                  label={t(SOURCE_LABEL_KEYS[type])}
-                  active={sourceTypeFilter === type}
-                  onClick={() => setSourceTypeFilter(sourceTypeFilter === type ? null : type)}
+                  label={t("recally.status.all")}
+                  active={statusFilter === null}
+                  onClick={() => setStatusFilter(null)}
                 />
-              ))}
+                <FilterChip
+                  label={t("recally.status.unread")}
+                  active={statusFilter === "unread"}
+                  onClick={() => setStatusFilter("unread")}
+                />
+                <FilterChip
+                  label={t("recally.status.read")}
+                  active={statusFilter === "read"}
+                  onClick={() => setStatusFilter("read")}
+                />
+              </div>
             </div>
+
+            <div>
+              <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t("recally.section.sources")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 px-1">
+                <FilterChip
+                  label={t("recally.status.all")}
+                  active={sourceTypeFilter === null}
+                  onClick={() => setSourceTypeFilter(null)}
+                />
+                {SOURCE_TYPES.map((type) => (
+                  <FilterChip
+                    key={type}
+                    label={t(SOURCE_LABEL_KEYS[type])}
+                    active={sourceTypeFilter === type}
+                    onClick={() => setSourceTypeFilter(sourceTypeFilter === type ? null : type)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {sortedTags.length > 0 && (
+              <div>
+                <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Tags
+                </div>
+                <div className="flex flex-wrap gap-1 px-1">
+                  {visibleTags.map((tag) => (
+                    <FilterChip
+                      key={tag}
+                      label={`${tag} ${tagCounts[tag]}`}
+                      active={tagFilter === tag}
+                      onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                    />
+                  ))}
+                  {hasMoreTags && (
+                    <button
+                      onClick={() => setShowAllTags(!showAllTags)}
+                      className="rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    >
+                      {showAllTags ? "Less" : `+${sortedTags.length - 10}`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Feeds */}
@@ -628,117 +665,118 @@ export function RecallyPage() {
         </div>
       </aside>
 
-      {/* Center article list */}
-      <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
-        {/* Header with stats */}
-        <div className="shrink-0 border-b border-border bg-background px-4 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                {t("recally.title")}
-              </h1>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("recally.subtitle")}</p>
+      {/* Main area */}
+      <div
+        className="flex-1 min-w-0 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
+        style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
+      >
+        {/* Center article list */}
+        <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
+          {/* Header with stats */}
+          <div className="shrink-0 border-b border-border bg-background px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setLeftOpen((v) => !v)}
+                  className="hidden shrink-0 text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+                  title="Toggle sidebar"
+                >
+                  <PanelLeft className="size-4" />
+                </button>
+                <div>
+                  <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                    {t("recally.title")}
+                  </h1>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t("recally.subtitle")}</p>
+                </div>
+              </div>
+              <div className="hidden rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground md:block">
+                {displayArticles.length} / 50
+              </div>
             </div>
-            <div className="hidden rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground md:block">
-              {articles.length} / 50
+            <div className="mt-3 space-y-2 md:hidden">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder={t("recally.searchPlaceholder")}
+                  className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                <FilterChip
+                  label={t("recally.status.all")}
+                  active={statusFilter === null}
+                  onClick={() => setStatusFilter(null)}
+                />
+                <FilterChip
+                  label={t("recally.status.unread")}
+                  active={statusFilter === "unread"}
+                  onClick={() => setStatusFilter("unread")}
+                />
+                <FilterChip
+                  label={t("recally.status.read")}
+                  active={statusFilter === "read"}
+                  onClick={() => setStatusFilter("read")}
+                />
+              </div>
             </div>
+            {digest && (
+              <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <StatCard value={digest.total_articles} label={t("recally.stat.total")} />
+                <StatCard value={digest.unread_count} label={t("recally.stat.unread")} />
+                <StatCard value={digest.starred_count} label={t("recally.stat.starred")} />
+                <StatCard
+                  value={digest.saved_yesterday_count}
+                  label={t("recally.stat.savedYesterday")}
+                />
+              </div>
+            )}
           </div>
-          <div className="mt-3 space-y-2 md:hidden">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder={t("recally.searchPlaceholder")}
-                className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+
+          {/* Articles */}
+          <div className="flex-1 space-y-1 overflow-auto p-2">
+            {articlesQuery.isLoading && (
+              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                {t("common.loading")}
+              </div>
+            )}
+            {articlesQuery.isError && (
+              <div className="flex items-center justify-center h-32 text-sm text-destructive">
+                {t("common.error")}
+              </div>
+            )}
+            {!articlesQuery.isLoading && !articlesQuery.isError && displayArticles.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-32 text-sm text-muted-foreground">
+                <p className="font-medium">{t("recally.empty.noArticles")}</p>
+                <p className="text-xs mt-1">{t("recally.empty.noArticlesDesc")}</p>
+              </div>
+            )}
+            {displayArticles.map((article) => (
+              <ArticleCard
+                key={article.id}
+                article={article}
+                selected={selectedId === article.id}
+                onClick={() => setSelectedId(article.id)}
+                t={t}
               />
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
-              <FilterChip
-                label={t("recally.status.all")}
-                active={statusFilter === null && starredFilter !== true}
-                onClick={() => {
-                  setStatusFilter(null);
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.status.unread")}
-                active={statusFilter === "unread"}
-                onClick={() => {
-                  setStatusFilter("unread");
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.status.read")}
-                active={statusFilter === "read"}
-                onClick={() => {
-                  setStatusFilter("read");
-                  setStarredFilter(null);
-                }}
-              />
-              <FilterChip
-                label={t("recally.nav.starred")}
-                active={starredFilter === true}
-                onClick={() => setStarredFilter(starredFilter === true ? null : true)}
-              />
-            </div>
+            ))}
           </div>
-          {digest && (
-            <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-              <StatCard value={digest.total_articles} label={t("recally.stat.total")} />
-              <StatCard value={digest.unread_count} label={t("recally.stat.unread")} />
-              <StatCard value={digest.starred_count} label={t("recally.stat.starred")} />
-              <StatCard
-                value={digest.saved_yesterday_count}
-                label={t("recally.stat.savedYesterday")}
-              />
-            </div>
-          )}
-        </div>
+        </section>
 
-        {/* Articles */}
-        <div className="flex-1 space-y-1 overflow-auto p-2">
-          {articlesQuery.isLoading && (
-            <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-              {t("common.loading")}
-            </div>
-          )}
-          {articlesQuery.isError && (
-            <div className="flex items-center justify-center h-32 text-sm text-destructive">
-              {t("common.error")}
-            </div>
-          )}
-          {!articlesQuery.isLoading && !articlesQuery.isError && articles.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-32 text-sm text-muted-foreground">
-              <p className="font-medium">{t("recally.empty.noArticles")}</p>
-              <p className="text-xs mt-1">{t("recally.empty.noArticlesDesc")}</p>
-            </div>
-          )}
-          {articles.map((article) => (
-            <ArticleCard
-              key={article.id}
-              article={article}
-              selected={selectedId === article.id}
-              onClick={() => setSelectedId(article.id)}
-              t={t}
-            />
-          ))}
-        </div>
-      </section>
-
-      {/* Right reader panel */}
-      <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
-        <button
-          type="button"
-          aria-label="Resize list"
-          onMouseDown={startResize}
-          className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
-        />
-        {readerPanel}
-      </aside>
+        {/* Right reader panel */}
+        <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
+          <button
+            type="button"
+            aria-label="Resize list"
+            onMouseDown={startResize}
+            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
+          />
+          {readerPanel}
+        </aside>
+      </div>
       {selectedId && (
         <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
