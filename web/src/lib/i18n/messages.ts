@@ -370,7 +370,7 @@ const zh: Record<MessageKey, string> = {
   "nav.sessions": "会话",
   "nav.scheduler": "调度器",
   "nav.settings": "设置",
-  "nav.recally": "稍后读",
+  "nav.recally": "忆读",
   "nav.docs": "文档",
 
   // Common actions
@@ -659,7 +659,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.transcript.retry": "重试",
 
   // Recally
-  "recally.title": "稍后读",
+  "recally.title": "忆读",
   "recally.subtitle": "已保存的阅读内容、订阅源和可回顾的上下文。",
   "recally.searchPlaceholder": "搜索文章…",
   "recally.section.library": "文库",
