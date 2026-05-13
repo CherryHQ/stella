@@ -49,6 +49,11 @@ type migrateLoadedSkill struct {
 func MigrateFilesystem(ctx context.Context, store Store, cfg MigrateFSConfig) (MigrateFSResult, error) {
 	loaded := loadFSSkills(cfg)
 
+	allSkills, err := store.ListAll(ctx)
+	if err != nil {
+		return MigrateFSResult{}, fmt.Errorf("migrate_fs: list all skills: %w", err)
+	}
+
 	var result MigrateFSResult
 
 	for _, cs := range loaded {
@@ -63,7 +68,7 @@ func MigrateFilesystem(ctx context.Context, store Store, cfg MigrateFSConfig) (M
 		}
 
 		// Check for existing row — skip if already imported.
-		exists, checkErr := skillExistsInDB(ctx, store, scope, cs.Name, cfg)
+		exists, checkErr := skillExistsInDB(allSkills, scope, cs.Name, cfg)
 		if checkErr != nil {
 			return result, fmt.Errorf("migrate_fs: check existing %q: %w", cs.Name, checkErr)
 		}
@@ -222,12 +227,8 @@ func sourceToScope(source string) (string, error) {
 }
 
 // skillExistsInDB checks whether a skill with the given (scope, name, owner) is already
-// present in the DB using the Store interface.
-func skillExistsInDB(ctx context.Context, store Store, scope, name string, cfg MigrateFSConfig) (bool, error) {
-	all, err := store.ListAll(ctx)
-	if err != nil {
-		return false, err
-	}
+// present in the pre-fetched skill list.
+func skillExistsInDB(all []Skill, scope, name string, cfg MigrateFSConfig) (bool, error) {
 	for _, sk := range all {
 		if sk.Scope != scope || sk.Name != name {
 			continue

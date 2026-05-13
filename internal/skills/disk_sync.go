@@ -3,8 +3,10 @@ package skills
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -50,7 +52,10 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 	if sk != nil {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base != "" {
-			diskPath := filepath.Join(base, sk.Name, filepath.FromSlash(path))
+			diskPath, err := safeDiskPath(base, sk.Name, filepath.FromSlash(path))
+			if err != nil {
+				return fmt.Errorf("disk_sync upsert file %q in skill %q: %w", path, sk.Name, err)
+			}
 			if err := writeFile(diskPath, content); err != nil {
 				return fmt.Errorf("disk_sync upsert file %q in skill %q: %w", path, sk.Name, err)
 			}
@@ -67,7 +72,10 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	if sk != nil {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base != "" {
-			diskPath := filepath.Join(base, sk.Name, filepath.FromSlash(path))
+			diskPath, err := safeDiskPath(base, sk.Name, filepath.FromSlash(path))
+			if err != nil {
+				return fmt.Errorf("disk_sync delete file %q in skill %q: %w", path, sk.Name, err)
+			}
 			if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("disk_sync delete file %q in skill %q: %w", path, sk.Name, err)
 			}
@@ -89,10 +97,12 @@ func (d *DiskSyncStore) Delete(ctx context.Context, id string) error {
 	if sk != nil {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base != "" {
-			skillDir := filepath.Join(base, sk.Name)
-			if err := os.RemoveAll(skillDir); err != nil {
-				// Log but don't fail — DB row is already gone; dir is orphaned but harmless.
-				_ = err
+			skillDir, pathErr := safeDiskPath(base, sk.Name)
+			if pathErr == nil {
+				if err := os.RemoveAll(skillDir); err != nil {
+					slog.WarnContext(ctx, "disk_sync: failed to remove skill dir after DB delete",
+						"skill", sk.Name, "dir", skillDir, "err", err)
+				}
 			}
 		}
 	}
@@ -112,13 +122,21 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 		if base == "" {
 			continue
 		}
-		skillDir := filepath.Join(base, sk.Name)
+		skillDir, pathErr := safeDiskPath(base, sk.Name)
+		if pathErr != nil {
+			slog.WarnContext(ctx, "disk_sync sync_all: skipping skill with unsafe name", "name", sk.Name, "err", pathErr)
+			continue
+		}
 		paths, err := d.ListFiles(ctx, sk.ID)
 		if err != nil {
 			return fmt.Errorf("disk_sync sync_all: list files for %q: %w", sk.Name, err)
 		}
 		for _, p := range paths {
-			diskPath := filepath.Join(skillDir, filepath.FromSlash(p))
+			diskPath, pathErr := safeDiskPath(skillDir, filepath.FromSlash(p))
+			if pathErr != nil {
+				slog.WarnContext(ctx, "disk_sync sync_all: skipping file with unsafe path", "skill", sk.Name, "path", p, "err", pathErr)
+				continue
+			}
 			if _, statErr := os.Stat(diskPath); statErr == nil {
 				continue // already on disk
 			}
@@ -132,10 +150,6 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (d *DiskSyncStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return d.Store.ExpireDrafts(ctx, before)
 }
 
 // ListKnowledge forwards to the inner store if it implements KnowledgeStore.
@@ -172,14 +186,31 @@ func (d *DiskSyncStore) findByID(ctx context.Context, id string) (*Skill, error)
 }
 
 func (d *DiskSyncStore) writeFilesToDisk(base, skillName string, files map[string]string) error {
-	skillDir := filepath.Join(base, skillName)
+	skillDir, err := safeDiskPath(base, skillName)
+	if err != nil {
+		return err
+	}
 	for p, content := range files {
-		diskPath := filepath.Join(skillDir, filepath.FromSlash(p))
+		diskPath, err := safeDiskPath(skillDir, filepath.FromSlash(p))
+		if err != nil {
+			return err
+		}
 		if err := writeFile(diskPath, content); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// safeDiskPath resolves a file path under base and ensures it doesn't escape
+// via directory traversal (e.g. "../" in skill name or file path).
+func safeDiskPath(base string, parts ...string) (string, error) {
+	joined := filepath.Join(append([]string{base}, parts...)...)
+	cleaned := filepath.Clean(joined)
+	if !strings.HasPrefix(cleaned, filepath.Clean(base)+string(filepath.Separator)) && cleaned != filepath.Clean(base) {
+		return "", fmt.Errorf("path %q escapes base %q", cleaned, base)
+	}
+	return cleaned, nil
 }
 
 func writeFile(path, content string) error {

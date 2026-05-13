@@ -135,11 +135,18 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 // path (same-path strategy) so that skill_dir values returned by the skills
 // tool are valid inside the sandbox without any translation.
 func skillMountsForSandbox(paths sandboxPaths) []string {
+	seen := map[string]bool{}
 	var dirs []string
 	for _, base := range []string{paths.StellaHome, paths.AgentRoot, paths.UserRoot, paths.ProjectRoot} {
-		if base != "" {
-			dirs = append(dirs, filepath.Join(base, ".agents", "skills"))
+		if base == "" {
+			continue
 		}
+		dir := filepath.Join(base, ".agents", "skills")
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
 	}
 	return dirs
 }

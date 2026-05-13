@@ -113,25 +113,26 @@ func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS) error {
 		return fmt.Errorf("sync_builtin: read root: %w", err)
 	}
 
+	allSkills, err := store.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("sync_builtin: list all skills: %w", err)
+	}
+
 	desired := make(map[string]struct{}, len(skillRoots))
 	for _, skillRoot := range skillRoots {
 		desired[path.Base(skillRoot)] = struct{}{}
-		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot); err != nil {
+		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot, allSkills); err != nil {
 			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "path", skillRoot, "err", err)
 			return fmt.Errorf("sync_builtin: skill %q: %w", skillRoot, err)
 		}
 	}
-	if err := deleteRemovedSystemSkills(ctx, store, desired); err != nil {
+	if err := deleteRemovedSystemSkills(ctx, store, allSkills, desired); err != nil {
 		return fmt.Errorf("sync_builtin: delete removed system skills: %w", err)
 	}
 	return nil
 }
 
-func deleteRemovedSystemSkills(ctx context.Context, store Store, desired map[string]struct{}) error {
-	rows, err := store.ListAll(ctx)
-	if err != nil {
-		return fmt.Errorf("list all skills: %w", err)
-	}
+func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, desired map[string]struct{}) error {
 	for _, row := range rows {
 		if row.Scope != "system" {
 			continue
@@ -148,7 +149,7 @@ func deleteRemovedSystemSkills(ctx context.Context, store Store, desired map[str
 }
 
 // syncBuiltinSkill upserts a single builtin skill directory into the DB.
-func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRoot string) error {
+func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRoot string, allSkills []Skill) error {
 	skillName := path.Base(skillRoot)
 	// 1. Read and parse SKILL.md.
 	skillMDPath := path.Join(skillRoot, MainFile)
@@ -200,16 +201,10 @@ func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRo
 
 	// 4. Check for existing system skill row.
 	var existing *Skill
-	{
-		all, err := store.ListAll(ctx)
-		if err != nil {
-			return fmt.Errorf("query existing: %w", err)
-		}
-		for i := range all {
-			if all[i].Scope == "system" && all[i].Name == fm.Name {
-				existing = &all[i]
-				break
-			}
+	for i := range allSkills {
+		if allSkills[i].Scope == "system" && allSkills[i].Name == fm.Name {
+			existing = &allSkills[i]
+			break
 		}
 	}
 	if existing == nil {
