@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Menu as MenuIcon } from "lucide-react";
-import { useState } from "react";
+import { Check, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,6 +16,15 @@ import {
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
+import {
+  applyTheme,
+  getStoredTheme,
+  setStoredTheme,
+  THEME_PRESETS,
+  type ThemeAppearance,
+  type ThemePreset,
+  type ThemeSettings,
+} from "@/lib/theme";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -27,6 +36,7 @@ export function SiteHeader() {
   const appNavItems = [
     { label: t("nav.sessions"), href: "/sessions" },
     { label: t("nav.scheduler"), href: "/scheduler" },
+    { label: t("nav.recally"), href: "/recally" },
     { label: t("nav.settings"), href: "/settings" },
   ];
 
@@ -67,6 +77,7 @@ export function SiteHeader() {
           ))}
         </nav>
         <LocaleSelector />
+        <ThemeSelector />
         <GithubLink />
         {me ? (
           <UserMenu />
@@ -126,6 +137,122 @@ export function SiteHeader() {
         </Sheet>
       </div>
     </header>
+  );
+}
+
+function ThemeSelector() {
+  const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
+
+  useEffect(() => {
+    if (theme.appearance !== "system") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyTheme(theme);
+    media.addEventListener("change", update);
+
+    return () => media.removeEventListener("change", update);
+  }, [theme]);
+
+  function updateTheme(next: ThemeSettings) {
+    setTheme(next);
+    setStoredTheme(next);
+  }
+
+  function setAppearance(appearance: string) {
+    if (!isAppearance(appearance)) return;
+    updateTheme({ ...theme, appearance });
+  }
+
+  function setPreset(preset: string) {
+    if (!isPreset(preset)) return;
+    updateTheme({ ...theme, preset });
+  }
+
+  const Icon = theme.appearance === "system" ? Monitor : theme.appearance === "light" ? Sun : Moon;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex items-center gap-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
+        title={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
+      >
+        <Icon className="size-4" />
+        <span
+          className={`hidden size-2.5 rounded-full border border-border sm:block ${THEME_SWATCHES[theme.preset]}`}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={8} className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+          {THEME_APPEARANCES.map((appearance) => (
+            <DropdownMenuItem
+              key={appearance}
+              onClick={() => setAppearance(appearance)}
+              className="gap-2"
+            >
+              <ThemeCheck checked={theme.appearance === appearance} />
+              {APPEARANCE_LABELS[appearance]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Theme</DropdownMenuLabel>
+          {THEME_PRESETS.map((preset) => (
+            <DropdownMenuItem key={preset} onClick={() => setPreset(preset)} className="gap-2">
+              <ThemeCheck checked={theme.preset === preset} />
+              <span
+                className={`size-3 rounded-full border border-border ${THEME_SWATCHES[preset]}`}
+              />
+              <span className="flex-1">{THEME_LABELS[preset]}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const THEME_APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
+
+const APPEARANCE_LABELS: Record<ThemeAppearance, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
+const THEME_LABELS: Record<ThemePreset, string> = {
+  default: "Default",
+  blue: "Blue",
+  green: "Green",
+  rose: "Rose",
+  orange: "Orange",
+  violet: "Violet",
+};
+
+const THEME_SWATCHES: Record<ThemePreset, string> = {
+  default: "bg-neutral-800 dark:bg-neutral-100",
+  blue: "bg-blue-600",
+  green: "bg-emerald-600",
+  rose: "bg-rose-600",
+  orange: "bg-orange-600",
+  violet: "bg-violet-600",
+};
+
+function isAppearance(value: string): value is ThemeAppearance {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function isPreset(value: string): value is ThemePreset {
+  return (THEME_PRESETS as string[]).includes(value);
+}
+
+function ThemeCheck({ checked }: { checked: boolean }) {
+  return (
+    <span className="flex size-4 items-center justify-center text-foreground">
+      {checked && <Check aria-hidden="true" className="size-4" />}
+    </span>
   );
 }
 

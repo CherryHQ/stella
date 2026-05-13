@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 
 export function AppLayout() {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground">
       <SiteHeader />
       <main className="flex-1 w-full overflow-hidden">
         <Outlet />
