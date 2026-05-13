@@ -553,31 +553,10 @@ func resolveDockerUserToolBinaries(stellaHome string) ([]dockerplugin.ToolBinary
 		}
 		for _, binary := range plugin.Binaries {
 			out = append(out, dockerplugin.ToolBinary{
-				Name:            binary.Name,
-				Tool:            binary.Tool,
-				URL:             binary.URL,
-				Version:         binary.Version,
-				StripComponents: binary.StripComponents,
-				BinPath:         binary.BinPath,
-				Bin:             binary.Bin,
-				RenameExe:       binary.RenameExe,
-				Checksum:        binary.Checksum,
-				AssetPattern:    binary.AssetPattern,
-				VersionPrefix:   binary.VersionPrefix,
-				NoApp:           binary.NoApp,
-				FilterBins:      binary.FilterBins,
-				Prerelease:      binary.Prerelease,
-				APIURL:          binary.APIURL,
-				Size:            binary.Size,
-				Format:          binary.Format,
-				VersionListURL:  binary.VersionListURL,
-				VersionRegex:    binary.VersionRegex,
-				VersionJSONPath: binary.VersionJSONPath,
-				VersionExpr:     binary.VersionExpr,
-				Extras:          binary.Extras,
-				PipxArgs:        binary.PipxArgs,
-				UVX:             binary.UVX,
-				UVXArgs:         binary.UVXArgs,
+				Name:    binary.Name,
+				Tool:    binary.Tool,
+				Version: binary.Version,
+				Options: binary.Options,
 			})
 		}
 	}

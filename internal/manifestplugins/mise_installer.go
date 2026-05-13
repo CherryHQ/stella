@@ -118,45 +118,16 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
-// resolvedBackend returns the backend prefix from the Tool key (e.g. "github").
-func (b ManifestBinary) resolvedBackend() string {
-	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
-		return b.Tool[:idx]
-	}
-	return ""
-}
-
 // miseToolKey returns the mise tool key used in mise.toml and CLI commands.
 func (b ManifestBinary) miseToolKey() string {
 	return b.Tool
 }
 
-// sharedOptions populates the options shared across github and http backends.
-func sharedOptions(b ManifestBinary, m map[string]any) {
-	if b.StripComponents > 0 {
-		m["strip_components"] = b.StripComponents
-	}
-	if b.BinPath != "" {
-		m["bin_path"] = b.BinPath
-	}
-	if b.Bin != "" {
-		m["bin"] = b.Bin
-	}
-	if b.RenameExe != "" {
-		m["rename_exe"] = b.RenameExe
-	}
-	if b.Checksum != "" {
-		m["checksum"] = b.Checksum
-	}
-}
-
-// generateMiseTOML returns a valid mise.toml for the binary's backend.
-// When Version is empty, "latest" is used for github/pipx/npm. For the http
-// backend with a templated URL, an explicit version is required.
+// generateMiseTOML returns a valid mise.toml for the binary.
 func generateMiseTOML(b ManifestBinary) (string, error) {
 	toolKey := b.miseToolKey()
 	if toolKey == "" {
-		return "", fmt.Errorf("cannot determine mise tool key: set backend or repo/url/package")
+		return "", fmt.Errorf("cannot determine mise tool key")
 	}
 
 	ver := b.Version
@@ -164,84 +135,17 @@ func generateMiseTOML(b ManifestBinary) (string, error) {
 		ver = "latest"
 	}
 
-	var toolValue any
-	switch b.resolvedBackend() {
-	case "github":
-		m := map[string]any{"version": ver}
-		if b.AssetPattern != "" {
-			m["asset_pattern"] = b.AssetPattern
-		}
-		if b.VersionPrefix != "" {
-			m["version_prefix"] = b.VersionPrefix
-		}
-		if b.NoApp {
-			m["no_app"] = true
-		}
-		if b.FilterBins != "" {
-			m["filter_bins"] = b.FilterBins
-		}
-		if b.Prerelease {
-			m["prerelease"] = true
-		}
-		if b.APIURL != "" {
-			m["api_url"] = b.APIURL
-		}
-		sharedOptions(b, m)
-		if len(m) == 1 {
-			toolValue = ver
-		} else {
-			toolValue = m
-		}
+	options := maps.Clone(b.Options)
+	if options == nil {
+		options = make(map[string]any)
+	}
 
-	case "http":
-		m := map[string]any{"version": ver, "url": b.URL}
-		if b.Size != "" {
-			m["size"] = b.Size
+	var toolValue any = ver
+	if len(options) > 0 {
+		if _, ok := options["version"]; !ok {
+			options["version"] = ver
 		}
-		if b.Format != "" {
-			m["format"] = b.Format
-		}
-		if b.VersionListURL != "" {
-			m["version_list_url"] = b.VersionListURL
-		}
-		if b.VersionRegex != "" {
-			m["version_regex"] = b.VersionRegex
-		}
-		if b.VersionJSONPath != "" {
-			m["version_json_path"] = b.VersionJSONPath
-		}
-		if b.VersionExpr != "" {
-			m["version_expr"] = b.VersionExpr
-		}
-		sharedOptions(b, m)
-		toolValue = m
-
-	case "pipx":
-		m := map[string]any{"version": ver}
-		if b.Extras != "" {
-			m["extras"] = b.Extras
-		}
-		if b.PipxArgs != "" {
-			m["pipx_args"] = b.PipxArgs
-		}
-		if b.UVX {
-			m["uvx"] = true
-		}
-		if b.UVXArgs != "" {
-			m["uvx_args"] = b.UVXArgs
-		}
-		if len(m) == 1 {
-			toolValue = ver
-		} else {
-			toolValue = m
-		}
-
-	case "npm":
-		// npm has no per-tool options beyond version
-		toolValue = ver
-
-	default:
-		return "", fmt.Errorf("unsupported backend %q", b.resolvedBackend())
+		toolValue = options
 	}
 
 	data, err := toml.Marshal(map[string]any{
@@ -253,8 +157,8 @@ func generateMiseTOML(b ManifestBinary) (string, error) {
 	return string(data), nil
 }
 
-// installBinaryWithMise installs a single binary via mise's github backend and
-// copies the resulting binary to $STELLA_HOME/bin/.
+// installBinaryWithMise installs a single binary via mise and copies the resulting
+// binary to $STELLA_HOME/bin/.
 func installBinaryWithMise(ctx context.Context, b ManifestBinary, stellaHome string) (string, error) {
 	miseBin, err := findMiseBin(stellaHome)
 	if err != nil {
@@ -307,10 +211,10 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, stellaHome str
 	// rename_exe takes precedence (archive extraction rename), then bin (single
 	// binary rename), then the tool name.
 	lookupName := b.Name
-	if b.RenameExe != "" {
-		lookupName = b.RenameExe
-	} else if b.Bin != "" {
-		lookupName = b.Bin
+	if renameExe, ok := stringOption(b.Options, "rename_exe"); ok {
+		lookupName = renameExe
+	} else if bin, ok := stringOption(b.Options, "bin"); ok {
+		lookupName = bin
 	}
 
 	// Resolve the binary path via mise which — it handles any archive layout.
@@ -356,6 +260,15 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, stellaHome str
 		return "", err
 	}
 	return version, nil
+}
+
+func stringOption(options map[string]any, key string) (string, bool) {
+	value, ok := options[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := value.(string)
+	return s, ok && s != ""
 }
 
 // atomicCopy copies src to dst using a temp file + rename.

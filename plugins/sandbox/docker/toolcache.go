@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -32,45 +33,9 @@ const (
 // Fields mirror manifestplugins.ManifestBinary 1:1; keep them in sync.
 type ToolBinary struct {
 	Name    string
-	Tool    string // mise tool key: github:owner/repo, pipx:pkg, npm:pkg, http:name
-	URL     string // required for http backend
+	Tool    string // mise tool key: uv, bun, github:owner/repo, pipx:pkg, npm:pkg, http:name
 	Version string
-
-	// Shared asset options (github + http)
-	StripComponents int
-	BinPath         string
-	Bin             string
-	RenameExe       string
-	Checksum        string
-
-	// GitHub-only
-	AssetPattern  string
-	VersionPrefix string
-	NoApp         bool
-	FilterBins    string
-	Prerelease    bool
-	APIURL        string
-
-	// HTTP-only
-	Size            string
-	Format          string
-	VersionListURL  string
-	VersionRegex    string
-	VersionJSONPath string
-	VersionExpr     string
-
-	// Pipx-only
-	Extras   string
-	PipxArgs string
-	UVX      bool
-	UVXArgs  string
-}
-
-func (b ToolBinary) resolvedBackend() string {
-	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
-		return b.Tool[:idx]
-	}
-	return ""
+	Options map[string]any // mise tool options, using the same names as mise.toml
 }
 
 func (b ToolBinary) miseToolKey() string {
@@ -196,35 +161,13 @@ func userToolCacheHash(image string, binaries []ToolBinary) string {
 	buf.WriteString(image)
 	buf.WriteByte('\n')
 	for _, b := range binaries {
-		// Include all identity and option fields so any change busts the cache.
-		fmt.Fprintf(&buf, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
-			b.Name, b.Tool, b.URL, b.Version,
-			b.Checksum, b.StripComponents, b.BinPath, b.Bin, b.RenameExe,
-			b.AssetPattern, b.VersionPrefix, b.FilterBins, b.NoApp, b.APIURL,
-			b.Size, b.Format, b.VersionListURL, b.VersionRegex, b.VersionJSONPath, b.VersionExpr,
-			b.UVX, b.Extras, b.PipxArgs, b.UVXArgs,
-		)
+		fmt.Fprintf(&buf, "%v\t%v\t%v\t", b.Name, b.Tool, b.Version)
+		options, _ := toml.Marshal(b.Options)
+		buf.Write(options)
+		buf.WriteByte('\n')
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(sum[:])
-}
-
-func toolBinarySharedOptions(b ToolBinary, m map[string]any) {
-	if b.StripComponents > 0 {
-		m["strip_components"] = b.StripComponents
-	}
-	if b.BinPath != "" {
-		m["bin_path"] = b.BinPath
-	}
-	if b.Bin != "" {
-		m["bin"] = b.Bin
-	}
-	if b.RenameExe != "" {
-		m["rename_exe"] = b.RenameExe
-	}
-	if b.Checksum != "" {
-		m["checksum"] = b.Checksum
-	}
 }
 
 func userToolsMiseTOML(binaries []ToolBinary) (string, error) {
@@ -239,85 +182,18 @@ func userToolsMiseTOML(binaries []ToolBinary) (string, error) {
 			ver = "latest"
 		}
 
-		var toolValue any
-		switch b.resolvedBackend() {
-		case "github":
-			m := map[string]any{"version": ver}
-			if b.AssetPattern != "" {
-				m["asset_pattern"] = b.AssetPattern
-			}
-			if b.VersionPrefix != "" {
-				m["version_prefix"] = b.VersionPrefix
-			}
-			if b.NoApp {
-				m["no_app"] = true
-			}
-			if b.FilterBins != "" {
-				m["filter_bins"] = b.FilterBins
-			}
-			if b.Prerelease {
-				m["prerelease"] = true
-			}
-			if b.APIURL != "" {
-				m["api_url"] = b.APIURL
-			}
-			toolBinarySharedOptions(b, m)
-			if len(m) == 1 {
-				toolValue = ver
-			} else {
-				toolValue = m
-			}
-
-		case "http":
-			m := map[string]any{"version": ver, "url": b.URL}
-			if b.Size != "" {
-				m["size"] = b.Size
-			}
-			if b.Format != "" {
-				m["format"] = b.Format
-			}
-			if b.VersionListURL != "" {
-				m["version_list_url"] = b.VersionListURL
-			}
-			if b.VersionRegex != "" {
-				m["version_regex"] = b.VersionRegex
-			}
-			if b.VersionJSONPath != "" {
-				m["version_json_path"] = b.VersionJSONPath
-			}
-			if b.VersionExpr != "" {
-				m["version_expr"] = b.VersionExpr
-			}
-			toolBinarySharedOptions(b, m)
-			toolValue = m
-
-		case "pipx":
-			m := map[string]any{"version": ver}
-			if b.Extras != "" {
-				m["extras"] = b.Extras
-			}
-			if b.PipxArgs != "" {
-				m["pipx_args"] = b.PipxArgs
-			}
-			if b.UVX {
-				m["uvx"] = true
-			}
-			if b.UVXArgs != "" {
-				m["uvx_args"] = b.UVXArgs
-			}
-			if len(m) == 1 {
-				toolValue = ver
-			} else {
-				toolValue = m
-			}
-
-		case "npm":
-			toolValue = ver
-
-		default:
-			return "", fmt.Errorf("binary %q: unsupported backend %q", b.Name, b.resolvedBackend())
+		options := maps.Clone(b.Options)
+		if options == nil {
+			options = make(map[string]any)
 		}
 
+		var toolValue any = ver
+		if len(options) > 0 {
+			if _, ok := options["version"]; !ok {
+				options["version"] = ver
+			}
+			toolValue = options
+		}
 		tools[key] = toolValue
 	}
 	data, err := toml.Marshal(map[string]any{"tools": tools})
@@ -353,10 +229,10 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	script.WriteString("MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise install\n")
 	for _, b := range binaries {
 		lookup := b.Name
-		if b.RenameExe != "" {
-			lookup = b.RenameExe
-		} else if b.Bin != "" {
-			lookup = b.Bin
+		if renameExe, ok := stringOption(b.Options, "rename_exe"); ok {
+			lookup = renameExe
+		} else if bin, ok := stringOption(b.Options, "bin"); ok {
+			lookup = bin
 		}
 		script.WriteString("install_dir=$(MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise where " + shellQuote(b.miseToolKey()) + ")\n")
 		script.WriteString("src=\"\"\n")
@@ -368,6 +244,15 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	}
 	script.WriteString("printf '%s' \"$HASH\" > \"$ROOT/.stella-tools-ready\"\n")
 	return script.String()
+}
+
+func stringOption(options map[string]any, key string) (string, bool) {
+	value, ok := options[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := value.(string)
+	return s, ok && s != ""
 }
 
 func shellQuote(s string) string {

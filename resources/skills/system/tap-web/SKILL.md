@@ -1,10 +1,14 @@
 ---
-description: Access websites, search the web, and extract clean content using the `tap` CLI. Supports structured site scripts, readable page extraction, and browser automation for tabs, screenshots, forms, cookies, JavaScript evaluation, and network capture. Use for web lookup, page reading, content extraction, browser interaction, authenticated sessions, request interception, or CDP-connected desktop apps.
+name: tap-web
 metadata:
   author: vaayne/tap
-  owner_plugin: tool/tap-web
-  version: v0.4.4
-name: tap-web
+  version: "v0.4.7"
+description: >
+  Access websites, search the web, and extract clean content using the `tap` CLI.
+  Supports structured site scripts, readable page extraction, and browser automation
+  for tabs, screenshots, forms, cookies, JavaScript evaluation, and network capture.
+  Use for web lookup, page reading, content extraction, browser interaction,
+  authenticated sessions, request interception, or CDP-connected desktop apps.
 ---
 
 # tap-web
