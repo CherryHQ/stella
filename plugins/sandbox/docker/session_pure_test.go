@@ -35,7 +35,7 @@ func TestMergeEnv(t *testing.T) {
 }
 
 func TestBuildMountTable(t *testing.T) {
-	table := buildMountTable("/host/ws", "/container/ws", "/host/.stella", "/home/stella/.stella")
+	table := buildMountTable("/host/ws", "/container/ws", "/host/.stella", "/home/stella/.stella", nil)
 	if len(table) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(table))
 	}
@@ -48,8 +48,15 @@ func TestBuildMountTable(t *testing.T) {
 	if table[1].HostPath != "/host/.stella" || table[1].ContainerPath != "/home/stella/.stella" || !table[1].ReadOnly {
 		t.Fatalf("unexpected stella home synthetic mount: %+v", table[1])
 	}
-	if table[2].HostPath != "/host/.stella/skills" || table[2].ContainerPath != "/home/stella/.stella/skills" || !table[2].ReadOnly {
+	if table[2].HostPath != "/host/.stella/.agents/skills" || table[2].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[2].ReadOnly {
 		t.Fatalf("unexpected stella skills mount: %+v", table[2])
+	}
+	tableExtra := buildMountTable("/host/ws", "/container/ws", "", "", []string{"/extra/path"})
+	if len(tableExtra) != 2 {
+		t.Fatalf("expected 2 entries with extra, got %d", len(tableExtra))
+	}
+	if tableExtra[1].HostPath != "/extra/path" || tableExtra[1].ContainerPath != "/extra/path" || !tableExtra[1].ReadOnly {
+		t.Fatalf("unexpected extra mount: %+v", tableExtra[1])
 	}
 }
 

@@ -132,11 +132,20 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	if stellaHome != "" {
 		opts.ReadOnlyMounts = []dockerclient.Mount{
 			{
-				HostPath:      filepath.Join(stellaHome, "skills"),
-				ContainerPath: filepath.Join(stellaHomeMount, "skills"),
+				HostPath:      filepath.Join(stellaHome, ".agents", "skills"),
+				ContainerPath: filepath.Join(stellaHomeMount, ".agents", "skills"),
 				ReadOnly:      true,
 			},
 		}
+	}
+	// Mount extra read-only paths (e.g. skill dirs) at their host path inside the
+	// container (same-path strategy). HostPath is translated for DooD scenarios.
+	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
+		opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+			HostPath:      f.cfg.TranslateToDaemonPath(hostPath),
+			ContainerPath: hostPath,
+			ReadOnly:      true,
+		})
 	}
 
 	var toolBinPaths []string
@@ -167,8 +176,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("stella.sandbox.container_id", containerID),
 	))
 
-	// Build mount table for the workspace plus mounted STELLA_HOME assets.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["STELLA_HOME"], stellaHomeMount)
+	// Build mount table for the workspace plus mounted STELLA_HOME assets and extra mounts.
+	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["STELLA_HOME"], stellaHomeMount, policy.Filesystem.ExtraReadOnlyMounts)
 
 	session := &dockerSession{
 		id:           sessionID,
@@ -199,7 +208,8 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 }
 
 // buildMountTable returns the bind mount set that toContainerPath should consult.
-func buildMountTable(workspaceHost, workspaceMount, stellaHomeHost, stellaHomeContainer string) []dockerclient.Mount {
+// extraHostPaths are same-path mounts: container path equals the original host path.
+func buildMountTable(workspaceHost, workspaceMount, stellaHomeHost, stellaHomeContainer string, extraHostPaths []string) []dockerclient.Mount {
 	mounts := []dockerclient.Mount{
 		{
 			HostPath:      workspaceHost,
@@ -215,11 +225,18 @@ func buildMountTable(workspaceHost, workspaceMount, stellaHomeHost, stellaHomeCo
 				ReadOnly:      true,
 			},
 			dockerclient.Mount{
-				HostPath:      filepath.Join(stellaHomeHost, "skills"),
-				ContainerPath: filepath.Join(stellaHomeContainer, "skills"),
+				HostPath:      filepath.Join(stellaHomeHost, ".agents", "skills"),
+				ContainerPath: filepath.Join(stellaHomeContainer, ".agents", "skills"),
 				ReadOnly:      true,
 			},
 		)
+	}
+	for _, hostPath := range extraHostPaths {
+		mounts = append(mounts, dockerclient.Mount{
+			HostPath:      hostPath,
+			ContainerPath: hostPath,
+			ReadOnly:      true,
+		})
 	}
 	return mounts
 }

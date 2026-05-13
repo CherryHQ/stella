@@ -3,9 +3,7 @@ package skills
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -96,7 +94,7 @@ func normalizeBuiltinStatus(status string) string {
 // TODO(orphan-cleanup): Skills that exist in the DB as scope='system' but are absent from
 // builtinFS are not deleted here. Phase 4+ should add an explicit tombstone pass once the
 // full lifecycle is understood.
-func SyncBuiltin(ctx context.Context, store *SQLiteStore, builtinFS fs.FS) error {
+func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS) error {
 	var skillRoots []string
 	err := fs.WalkDir(builtinFS, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -115,25 +113,26 @@ func SyncBuiltin(ctx context.Context, store *SQLiteStore, builtinFS fs.FS) error
 		return fmt.Errorf("sync_builtin: read root: %w", err)
 	}
 
+	allSkills, err := store.ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("sync_builtin: list all skills: %w", err)
+	}
+
 	desired := make(map[string]struct{}, len(skillRoots))
 	for _, skillRoot := range skillRoots {
 		desired[path.Base(skillRoot)] = struct{}{}
-		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot); err != nil {
+		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot, allSkills); err != nil {
 			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "path", skillRoot, "err", err)
 			return fmt.Errorf("sync_builtin: skill %q: %w", skillRoot, err)
 		}
 	}
-	if err := deleteRemovedSystemSkills(ctx, store, desired); err != nil {
+	if err := deleteRemovedSystemSkills(ctx, store, allSkills, desired); err != nil {
 		return fmt.Errorf("sync_builtin: delete removed system skills: %w", err)
 	}
 	return nil
 }
 
-func deleteRemovedSystemSkills(ctx context.Context, store *SQLiteStore, desired map[string]struct{}) error {
-	rows, err := store.q.ListAllSkills(ctx)
-	if err != nil {
-		return fmt.Errorf("list all skills: %w", err)
-	}
+func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, desired map[string]struct{}) error {
 	for _, row := range rows {
 		if row.Scope != "system" {
 			continue
@@ -150,7 +149,7 @@ func deleteRemovedSystemSkills(ctx context.Context, store *SQLiteStore, desired 
 }
 
 // syncBuiltinSkill upserts a single builtin skill directory into the DB.
-func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, skillRoot string) error {
+func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRoot string, allSkills []Skill) error {
 	skillName := path.Base(skillRoot)
 	// 1. Read and parse SKILL.md.
 	skillMDPath := path.Join(skillRoot, MainFile)
@@ -201,8 +200,14 @@ func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, 
 	}
 
 	// 4. Check for existing system skill row.
-	existing, err := store.q.GetSystemSkillByName(ctx, fm.Name)
-	if errors.Is(err, sql.ErrNoRows) {
+	var existing *Skill
+	for i := range allSkills {
+		if allSkills[i].Scope == "system" && allSkills[i].Name == fm.Name {
+			existing = &allSkills[i]
+			break
+		}
+	}
+	if existing == nil {
 		// New skill — insert.
 		sk := Skill{
 			Scope:                  "system",
@@ -218,21 +223,14 @@ func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, 
 		slog.InfoContext(ctx, "sync_builtin: created skill", "name", fm.Name)
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("query existing: %w", err)
-	}
 
 	skillID := existing.ID
 
 	// 5. Update metadata if frontmatter changed.
-	disabledInt := int64(0)
-	if fm.DisableModelInvocation {
-		disabledInt = 1
-	}
 	if existing.Description != fm.Description ||
 		existing.Status != normalizeBuiltinStatus(fm.Status) ||
-		existing.DisableModelInvocation != disabledInt ||
-		existing.Metadata != string(meta) {
+		existing.DisableModelInvocation != fm.DisableModelInvocation ||
+		string(existing.Metadata) != string(meta) {
 		if err := store.Update(ctx, skillID, UpdatePatch{
 			Description:            &fm.Description,
 			Status:                 strPtr(normalizeBuiltinStatus(fm.Status)),
@@ -244,13 +242,9 @@ func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, 
 	}
 
 	// 6. Sync file contents — upsert changed files.
-	existingFiles, err := store.q.ListSkillFiles(ctx, skillID)
+	existingByPath, err := store.ListFilesWithContent(ctx, skillID)
 	if err != nil {
 		return fmt.Errorf("list existing files: %w", err)
-	}
-	existingByPath := map[string]string{}
-	for _, f := range existingFiles {
-		existingByPath[f.Path] = f.Content
 	}
 
 	for path, content := range files {

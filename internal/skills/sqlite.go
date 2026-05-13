@@ -66,6 +66,19 @@ func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, 
 	return paths, nil
 }
 
+// ListFilesWithContent returns all files for a skill keyed by path.
+func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error) {
+	rows, err := s.q.ListSkillFiles(ctx, skillID)
+	if err != nil {
+		return nil, fmt.Errorf("skills: list files with content for %s: %w", skillID, err)
+	}
+	files := make(map[string]string, len(rows))
+	for _, r := range rows {
+		files[r.Path] = r.Content
+	}
+	return files, nil
+}
+
 // Resolve finds the highest-priority visible skill by name.
 func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{

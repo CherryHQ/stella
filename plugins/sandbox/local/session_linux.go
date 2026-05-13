@@ -144,7 +144,7 @@ func appendStellaHomeMounts(args []string, stellaHome string) []string {
 	if stellaHome == "" {
 		return args
 	}
-	for _, name := range []string{"bin", "skills"} {
+	for _, name := range []string{"bin", filepath.Join(".agents", "skills")} {
 		hostPath := filepath.Join(stellaHome, name)
 		args = appendRoBindIfExists(args, hostPath, hostPath)
 	}
@@ -220,6 +220,9 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, policy.Env["STELLA_HOME"])
+	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, extraPath)
+	}
 	bwrapArgs = append(bwrapArgs,
 		"--dir", "/workspace",
 		"--bind", realRoot, "/workspace",

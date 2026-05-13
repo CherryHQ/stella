@@ -43,6 +43,11 @@ type FilesystemPolicy struct {
 
 	// WorkingDir is the logical working directory inside the sandbox root.
 	WorkingDir string
+
+	// ExtraReadOnlyMounts is a list of host paths to mount read-only inside the
+	// sandbox at their exact host path (same-path strategy). Used for skill dirs
+	// that live outside the workspace root but must be accessible for script execution.
+	ExtraReadOnlyMounts []string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.
