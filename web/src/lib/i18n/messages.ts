@@ -9,6 +9,7 @@ const en = {
   "nav.sessions": "Sessions",
   "nav.scheduler": "Scheduler",
   "nav.settings": "Settings",
+  "nav.recally": "Recally",
   "nav.docs": "Docs",
 
   // Common actions
@@ -308,6 +309,7 @@ const zh: Record<MessageKey, string> = {
   "nav.sessions": "会话",
   "nav.scheduler": "调度器",
   "nav.settings": "设置",
+  "nav.recally": "Recally",
   "nav.docs": "文档",
 
   // Common actions

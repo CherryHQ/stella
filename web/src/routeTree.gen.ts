@@ -17,6 +17,7 @@ import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSchedulerRouteImport } from './routes/_app/scheduler'
+import { Route as AppRecallyRouteImport } from './routes/_app/recally'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
@@ -65,6 +66,11 @@ const AppSessionsRoute = AppSessionsRouteImport.update({
 const AppSchedulerRoute = AppSchedulerRouteImport.update({
   id: '/scheduler',
   path: '/scheduler',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecallyRoute = AppRecallyRouteImport.update({
+  id: '/recally',
+  path: '/recally',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
   '/settings': typeof AppSettingsRouteWithChildren
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/_app/recally': typeof AppRecallyRoute
   '/_app/scheduler': typeof AppSchedulerRoute
   '/_app/sessions': typeof AppSessionsRouteWithChildren
   '/_app/settings': typeof AppSettingsRouteWithChildren
@@ -182,6 +191,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/profile'
+    | '/recally'
     | '/scheduler'
     | '/sessions'
     | '/settings'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/profile'
+    | '/recally'
     | '/scheduler'
     | '/sessions'
     | '/docs/$'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/profile'
+    | '/_app/recally'
     | '/_app/scheduler'
     | '/_app/sessions'
     | '/_app/settings'
@@ -300,6 +312,13 @@ declare module '@tanstack/react-router' {
       path: '/scheduler'
       fullPath: '/scheduler'
       preLoaderRoute: typeof AppSchedulerRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recally': {
+      id: '/_app/recally'
+      path: '/recally'
+      fullPath: '/recally'
+      preLoaderRoute: typeof AppRecallyRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/': {
@@ -416,12 +435,14 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppRecallyRoute: typeof AppRecallyRoute
   AppSchedulerRoute: typeof AppSchedulerRoute
   AppSessionsRoute: typeof AppSessionsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppRecallyRoute: AppRecallyRoute,
   AppSchedulerRoute: AppSchedulerRoute,
   AppSessionsRoute: AppSessionsRouteWithChildren,
   AppSettingsRoute: AppSettingsRouteWithChildren,
