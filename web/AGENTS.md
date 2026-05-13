@@ -4,6 +4,8 @@ React SPA embedded by Go. Go serves built assets and falls back to `index.html`;
 
 **Stack:** React 19 · TanStack Router · TanStack Query · CossUI (`src/components/ui/`) · Tailwind v4 · Vite+ (`vp`)
 
+> **Agent note:** When building or editing UI, read `.agents/skills/coss/SKILL.md` for CossUI component patterns, imports, composition rules, and particle examples.
+
 ### Structure
 
 ```txt
