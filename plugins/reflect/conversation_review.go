@@ -83,15 +83,7 @@ func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.Stream
 	if s.providers == nil {
 		return nil, fmt.Errorf("provider builder is required")
 	}
-	reg, err := s.providers(api, apiKey, baseURL)
-	if err != nil {
-		return nil, err
-	}
-	adapter, ok := reg.Get(api)
-	if !ok {
-		return nil, providers.ErrProviderNotFound
-	}
-	return providers.AdapterStreamFunc(adapter), nil
+	return s.providers(api, apiKey, baseURL)
 }
 
 func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID int64, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {

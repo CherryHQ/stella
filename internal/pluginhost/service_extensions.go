@@ -179,26 +179,26 @@ func (s *ChannelPlatform) Notifications() pkgplugins.ChannelRegistry {
 
 // ReflectPlatform is a mutable host extension bag for the reflect managed runtime.
 type ReflectPlatform struct {
-	mu             sync.RWMutex
-	parent         context.Context
-	memory         memory.Provider
-	store          config.Store
-	workspace      string
-	buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)
+	mu              sync.RWMutex
+	parent          context.Context
+	memory          memory.Provider
+	store           config.Store
+	workspace       string
+	buildStreamFunc func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 }
 
 func NewReflectRuntimeServices() *ReflectPlatform {
 	return &ReflectPlatform{}
 }
 
-func (s *ReflectPlatform) Set(parent context.Context, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
+func (s *ReflectPlatform) Set(parent context.Context, mem memory.Provider, store config.Store, workspace string, buildStreamFunc func(api, apiKey, baseURL string) (providers.StreamFunc, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
 	s.memory = mem
 	s.store = store
 	s.workspace = workspace
-	s.buildProviders = buildProviders
+	s.buildStreamFunc = buildStreamFunc
 }
 
 func (s *ReflectPlatform) ParentContext() context.Context {
@@ -228,13 +228,13 @@ func (s *ReflectPlatform) Workspace() string {
 	return s.workspace
 }
 
-func (s *ReflectPlatform) BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error) {
+func (s *ReflectPlatform) BuildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.buildProviders == nil {
-		return nil, fmt.Errorf("reflect: provider builder unavailable")
+	if s.buildStreamFunc == nil {
+		return nil, fmt.Errorf("reflect: stream builder unavailable")
 	}
-	return s.buildProviders(api, apiKey, baseURL)
+	return s.buildStreamFunc(api, apiKey, baseURL)
 }
 
 type reflectConfigStore struct {

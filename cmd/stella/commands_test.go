@@ -35,7 +35,7 @@ func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFun
 	return providers.AdapterStreamFunc(commandTestProvider{}), nil
 }
 
-func TestIntentClassifierProviderGetterBuilderUsesProvidedProviderType(t *testing.T) {
+func TestIntentClassifierStreamFuncBuilderUsesProvidedProviderType(t *testing.T) {
 	ph := pluginhost.New(commandTestStore{})
 	ph.AddProvider(pkgplugins.ProviderSpec{
 		PluginID: "provider/openai",
@@ -51,15 +51,12 @@ func TestIntentClassifierProviderGetterBuilderUsesProvidedProviderType(t *testin
 		},
 	})
 
-	getter, err := intentClassifierProviderGetterBuilder(ph)(context.Background(), "openai", config.ProviderCreds{Type: "primary", APIKey: "k", BaseURL: "https://example.com"})
+	stream, err := intentClassifierStreamFuncBuilder(ph)(context.Background(), "openai", config.ProviderCreds{Type: "primary", APIKey: "k", BaseURL: "https://example.com"})
 	if err != nil {
-		t.Fatalf("intentClassifierProviderGetterBuilder: %v", err)
+		t.Fatalf("intentClassifierStreamFuncBuilder: %v", err)
 	}
-	if getter == nil {
-		t.Fatal("expected provider getter")
-	}
-	if _, ok := getter.Get("anthropic"); !ok {
-		t.Fatal("expected built provider registry to contain the adapter")
+	if stream == nil {
+		t.Fatal("expected non-nil stream func")
 	}
 }
 

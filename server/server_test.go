@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -77,8 +78,10 @@ func setupAdmin(t *testing.T) *testEnv {
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
-	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		return providers.NewRegistry(), nil
+	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		return func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			return nil, nil
+		}, nil
 	})
 	phost := pluginhost.New(store,
 		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),

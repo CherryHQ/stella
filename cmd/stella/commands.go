@@ -266,24 +266,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	builtinTools := []tools.Tool{}
 
-	// providerRegistryBuilder is still needed by reflectRuntimeServices (pluginhost).
-	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		return phost.BuildProviderRegistry(api, map[string]any{
+	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		return phost.BuildStreamFunc(api, map[string]any{
 			"api_key":  apiKey,
 			"base_url": baseURL,
 		})
-	}
-
-	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-		reg, err := providerRegistryBuilder(api, apiKey, baseURL)
-		if err != nil {
-			return nil, err
-		}
-		adapter, ok := reg.Get(api)
-		if !ok {
-			return nil, providers.ErrProviderNotFound
-		}
-		return providers.AdapterStreamFunc(adapter), nil
 	}
 
 	memorySummarizer := func(ctx context.Context, prompt string) (string, error) {
@@ -366,7 +353,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerRegistryBuilder)
+	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerStreamBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
@@ -616,18 +603,10 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 			if providerType == "" {
 				providerType = provider.ID
 			}
-			reg, err := s.pluginHost.BuildProviderRegistry(providerType, map[string]any{
+			return s.pluginHost.BuildStreamFunc(providerType, map[string]any{
 				"api_key":  apiKey,
 				"base_url": baseURL,
 			})
-			if err != nil {
-				return nil, err
-			}
-			adapter, ok := reg.Get(providerType)
-			if !ok {
-				return nil, providers.ErrProviderNotFound
-			}
-			return providers.AdapterStreamFunc(adapter), nil
 		},
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,

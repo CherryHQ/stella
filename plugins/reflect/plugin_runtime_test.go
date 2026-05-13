@@ -208,6 +208,6 @@ func (s fakeReflectRuntimeServices) ParentContext() context.Context { return s.p
 func (fakeReflectRuntimeServices) Memory() memory.Provider          { return nil }
 func (fakeReflectRuntimeServices) Store() pkgplugins.ReflectStore   { return nil }
 func (fakeReflectRuntimeServices) Workspace() string                { return "" }
-func (fakeReflectRuntimeServices) BuildProviders(string, string, string) (*providers.Registry, error) {
+func (fakeReflectRuntimeServices) BuildStreamFunc(string, string, string) (providers.StreamFunc, error) {
 	return nil, nil
 }

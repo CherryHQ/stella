@@ -99,6 +99,14 @@ func (h *Host) BuildProviderRegistry(name string, stateConfig map[string]any) (*
 	return reg, nil
 }
 
+func (h *Host) BuildStreamFunc(name string, stateConfig map[string]any) (providers.StreamFunc, error) {
+	adapter, err := h.BuildProvider(name, stateConfig)
+	if err != nil {
+		return nil, err
+	}
+	return providers.AdapterStreamFunc(adapter), nil
+}
+
 func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, stellaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
 	h.mu.RLock()
 	reg, ok := h.memoryRegs[name]

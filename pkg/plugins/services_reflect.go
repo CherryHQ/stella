@@ -94,7 +94,7 @@ type ReflectPlatform interface {
 	Memory() memory.Provider
 	Store() ReflectStore
 	Workspace() string
-	BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error)
+	BuildStreamFunc(api, apiKey, baseURL string) (providers.StreamFunc, error)
 }
 
 func parseReflectModelRef(ref string) (provider, model string) {

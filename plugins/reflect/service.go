@@ -27,7 +27,7 @@ type Config struct {
 	Interval   time.Duration
 	Batch      int
 	Log        *slog.Logger
-	Providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
+	Providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 }
 
 // watermarker abstracts watermark storage for testability.
@@ -47,7 +47,7 @@ type Service struct {
 	interval   time.Duration
 	batch      int
 	log        *slog.Logger
-	providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
+	providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 }
 
 // New creates a new reflect service.
