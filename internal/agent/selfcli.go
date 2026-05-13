@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	internaltools "github.com/CherryHQ/stella/internal/tools"
 )
 
 // EnsureStellaCLIInPath copies the currently running stella executable to
@@ -27,7 +25,7 @@ func EnsureStellaCLIInPath(stellaHome string) error {
 		return fmt.Errorf("resolve executable symlink: %w", err)
 	}
 
-	binDir := internaltools.BinDir(stellaHome)
+	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create stella bin dir: %w", err)
 	}

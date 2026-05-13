@@ -18,7 +18,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-	internaltools "github.com/CherryHQ/stella/internal/tools"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
@@ -293,7 +292,7 @@ func localSandboxHome(workDir string) string {
 }
 
 func localSandboxPath(stellaHome string) string {
-	stellaBin := internaltools.BinDir(stellaHome)
+	stellaBin := filepath.Join(stellaHome, "bin")
 	if runtime.GOOS != "linux" {
 		return prependPathEntry(stellaBin, os.Getenv("PATH"))
 	}
