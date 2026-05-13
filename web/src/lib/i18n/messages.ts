@@ -370,7 +370,7 @@ const zh: Record<MessageKey, string> = {
   "nav.sessions": "会话",
   "nav.scheduler": "调度器",
   "nav.settings": "设置",
-  "nav.recally": "Recally",
+  "nav.recally": "稍后读",
   "nav.docs": "文档",
 
   // Common actions
