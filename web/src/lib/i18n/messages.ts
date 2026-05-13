@@ -351,6 +351,7 @@ const en = {
   "recally.article.updateFailed": "Failed to update article",
   "recally.article.deleted": "Article deleted",
   "recally.article.deleteFailed": "Failed to delete article",
+  "recally.summary.label": "AI Summary",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -706,6 +707,7 @@ const zh: Record<MessageKey, string> = {
   "recally.article.updateFailed": "更新文章失败",
   "recally.article.deleted": "文章已删除",
   "recally.article.deleteFailed": "删除文章失败",
+  "recally.summary.label": "AI 摘要",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };

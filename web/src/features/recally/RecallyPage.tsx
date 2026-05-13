@@ -13,6 +13,8 @@ import {
   X,
   BookOpen,
   Plus,
+  Sparkles,
+  ChevronDown,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -73,6 +75,7 @@ export function RecallyPage() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [feedUrl, setFeedUrl] = useState("");
   const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
+  const [summaryExpanded, setSummaryExpanded] = useState(true);
   const [feedPollResults, setFeedPollResults] = useState<
     Record<string, { newCount: number; error?: string }>
   >({});
@@ -340,9 +343,31 @@ export function RecallyPage() {
               {selectedArticle.title}
             </h2>
             {selectedArticle.author && (
-              <p className="mb-5 font-mono text-xs text-muted-foreground">
+              <p className="mb-3 font-mono text-xs text-muted-foreground">
                 {selectedArticle.author}
               </p>
+            )}
+            {selectedArticle.summary && (
+              <div className="mb-4 rounded-md border border-border bg-accent/5 p-3">
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="flex w-full items-center gap-1.5"
+                >
+                  <Sparkles className="size-3.5 text-primary" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+                    {t("recally.summary.label")}
+                  </span>
+                  <ChevronDown
+                    className={`ml-auto size-3 text-muted-foreground transition-transform ${summaryExpanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {summaryExpanded && (
+                  <div className="prose prose-sm mt-1.5 max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary">
+                    <Streamdown>{selectedArticle.summary}</Streamdown>
+                  </div>
+                )}
+              </div>
             )}
             {selectedArticle.content ? (
               <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary">
@@ -821,9 +846,12 @@ function ArticleCard({
         )}
       </div>
       {article.summary && (
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {article.summary}
-        </p>
+        <div className="mt-1.5 flex items-start gap-1.5">
+          <Sparkles className="mt-0.5 size-3 shrink-0 text-primary" />
+          <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {article.summary}
+          </p>
+        </div>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-xs">
         <StatusBadge status={article.status} t={t} />
