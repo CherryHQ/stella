@@ -414,6 +414,11 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 	return s.q.GetAgentTask(ctx, id)
 }
 
+// ListTaskEvents returns all events for a task ordered by creation time.
+func (s *Service) ListTaskEvents(ctx context.Context, taskID string) ([]sqlc.AgentTaskEvent, error) {
+	return s.q.ListAgentTaskEvents(ctx, taskID)
+}
+
 // dispatch acquires a semaphore slot and launches a worker goroutine for task.
 // It returns immediately; the goroutine runs in the background.
 func (s *Service) dispatch(task sqlc.AgentTask) {
