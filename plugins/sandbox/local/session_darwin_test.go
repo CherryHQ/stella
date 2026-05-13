@@ -49,6 +49,7 @@ func TestBuildSeatbeltProfile_structure(t *testing.T) {
 		`(deny file-write* (subpath "/"))`,
 		`(allow file-write* (subpath "/private/tmp"))`,
 		`(allow file-write* (subpath "/private/var/folders"))`,
+		`(allow file-write* (subpath "/private/var/tmp"))`,
 		`(allow file-write* (subpath "/dev"))`,
 		`(allow file-write* (subpath "/tmp/ws"))`,
 		"(deny network*)",

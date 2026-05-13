@@ -84,9 +84,11 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	// the locations that the sandbox legitimately needs to write to.
 	sb.WriteString("(deny file-write* (subpath \"/\"))\n")
 
-	// Temp directories: process-local scratch space and macOS per-user temp.
+	// Temp directories: process-local scratch space, macOS per-user temp, and
+	// persistent scratch (mirrors Linux /var/tmp).
 	sb.WriteString("(allow file-write* (subpath \"/private/tmp\"))\n")
 	sb.WriteString("(allow file-write* (subpath \"/private/var/folders\"))\n")
+	sb.WriteString("(allow file-write* (subpath \"/private/var/tmp\"))\n")
 
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
