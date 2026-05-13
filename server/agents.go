@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
-	builtinres "github.com/CherryHQ/stella/internal/resources"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // createAgentRequest wraps config.Agent to accept an optional template_id
@@ -23,11 +23,11 @@ func applyTemplate(a *config.Agent, templateID string) error {
 	if templateID == "" {
 		return nil
 	}
-	reg, err := builtinres.Default()
+	reg, err := resources.Default()
 	if err != nil {
 		return fmt.Errorf("load builtin registry: %w", err)
 	}
-	tmpl, ok := reg.Get(builtinres.KindTemplate, templateID)
+	tmpl, ok := reg.Get(resources.KindTemplate, templateID)
 	if !ok {
 		return fmt.Errorf("template %q not found", templateID)
 	}
@@ -42,7 +42,7 @@ func applyTemplate(a *config.Agent, templateID string) error {
 	if a.Soul == "" {
 		soulID, _ := tmpl.Metadata["soul_id"].(string)
 		if soulID != "" {
-			if soul, ok := reg.Get(builtinres.KindSoul, soulID); ok {
+			if soul, ok := reg.Get(resources.KindSoul, soulID); ok {
 				a.Soul = soul.Content
 			}
 		}

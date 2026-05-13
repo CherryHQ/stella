@@ -168,7 +168,7 @@ type SessionEnvSpec struct {
 }
 
 // BundledSkillSyncContext is the build-time context for syncing a bundled skill
-// into internal/resources.
+// into resources.
 type BundledSkillSyncContext struct {
 	WorkDir string
 	GOOS    string

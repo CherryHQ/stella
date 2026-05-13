@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	builtinres "github.com/CherryHQ/stella/internal/resources"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // builtinResourceSummary is the list-row shape. Content is omitted to keep
@@ -24,7 +24,7 @@ type builtinResourceFull struct {
 	Content string `json:"content"`
 }
 
-func toSummary(r builtinres.Resource) builtinResourceSummary {
+func toSummary(r resources.Resource) builtinResourceSummary {
 	return builtinResourceSummary{
 		Kind:        string(r.Kind),
 		ID:          r.ID,
@@ -38,8 +38,8 @@ func toSummary(r builtinres.Resource) builtinResourceSummary {
 
 // parseBuiltinKind maps the URL-form kind string to a Kind. Returns false for
 // unknown kinds.
-func parseBuiltinKind(s string) (builtinres.Kind, bool) {
-	for _, k := range builtinres.AllKinds() {
+func parseBuiltinKind(s string) (resources.Kind, bool) {
+	for _, k := range resources.AllKinds() {
 		if string(k) == s {
 			return k, true
 		}
@@ -53,7 +53,7 @@ func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, ki
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
 	}
-	reg, err := builtinres.Default()
+	reg, err := resources.Default()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -72,7 +72,7 @@ func (s *Server) GetBuiltinResource(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
 	}
-	reg, err := builtinres.Default()
+	reg, err := resources.Default()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

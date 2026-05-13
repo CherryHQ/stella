@@ -10,7 +10,7 @@ handoff.md
 plan.md
 
 # Embedded tool binaries (downloaded via builddeps sync)
-internal/resources/binaries/binaries/*/*.gz
+resources/binaries/binaries/*/*.gz
 
 cmd/stella/.agents/
 internal/agent/runner/.agents/

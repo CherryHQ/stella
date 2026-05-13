@@ -2,6 +2,8 @@ package manifestplugins
 
 import (
 	"testing"
+
+	"github.com/CherryHQ/stella/resources"
 )
 
 func TestLoadBuiltin(t *testing.T) {
@@ -37,7 +39,7 @@ func TestLoadBuiltinLarkCLIOAuthProvider(t *testing.T) {
 }
 
 func TestMerge_UserDisablesBuiltin(t *testing.T) {
-	builtinRaw, err := parseRawYAML(builtinYAML)
+	builtinRaw, err := parseRawYAML(resources.BuiltinPluginsYAML())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func TestMerge_UserDisablesBuiltin(t *testing.T) {
 }
 
 func TestMerge_UserAddsNewPlugin(t *testing.T) {
-	builtinRaw, err := parseRawYAML(builtinYAML)
+	builtinRaw, err := parseRawYAML(resources.BuiltinPluginsYAML())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +102,7 @@ func TestMerge_EmptyUser(t *testing.T) {
 }
 
 func TestMerge_UserOmitsEnabled_InheritsBuiltin(t *testing.T) {
-	builtinRaw, err := parseRawYAML(builtinYAML)
+	builtinRaw, err := parseRawYAML(resources.BuiltinPluginsYAML())
 	if err != nil {
 		t.Fatal(err)
 	}

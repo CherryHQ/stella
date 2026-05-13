@@ -23,8 +23,6 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
-	builtinres "github.com/CherryHQ/stella/internal/resources"
-	"github.com/CherryHQ/stella/internal/resources/binaries"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -38,6 +36,8 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
+	"github.com/CherryHQ/stella/resources"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 func newApp() *ucli.App {
@@ -127,7 +127,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 	})
 
-	builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
+	builtinSkillsFS, ok := resources.SubFS(resources.KindSkill)
 	if !ok {
 		return nil, fmt.Errorf("builtin skills FS unavailable")
 	}

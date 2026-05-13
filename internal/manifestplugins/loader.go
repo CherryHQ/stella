@@ -1,18 +1,16 @@
 package manifestplugins
 
 import (
-	_ "embed"
 	"errors"
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/resources"
 )
 
-//go:embed builtin_plugins.yaml
-var builtinYAML []byte
-
 func LoadBuiltin() (*Manifest, error) {
-	rm, err := parseRawYAML(builtinYAML)
+	rm, err := parseRawYAML(resources.BuiltinPluginsYAML())
 	if err != nil {
 		return nil, err
 	}

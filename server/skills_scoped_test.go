@@ -214,7 +214,7 @@ func TestAgentSkills_InstallAdminOnly(t *testing.T) {
 
 	_, creatorSID := newNonAdmin(t, env, "creator-install")
 	agentID := createAgentAsUser(t, env, creatorSID, "install-agent")
-	source, err := filepath.Abs("../internal/resources/skills/system/stella")
+	source, err := filepath.Abs("../resources/skills/system/stella")
 	if err != nil {
 		t.Fatalf("abs path: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestProfileSkills_InstallSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	u, sid := newNonAdmin(t, env, "user-install")
-	source, err := filepath.Abs("../internal/resources/skills/system/stella")
+	source, err := filepath.Abs("../resources/skills/system/stella")
 	if err != nil {
 		t.Fatalf("abs path: %v", err)
 	}

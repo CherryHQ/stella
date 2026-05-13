@@ -12,8 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	builtinres "github.com/CherryHQ/stella/internal/resources"
-	"github.com/CherryHQ/stella/internal/resources/binaries"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -24,6 +22,8 @@ import (
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
+	"github.com/CherryHQ/stella/resources"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 // VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
@@ -299,7 +299,7 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
-	if err := builtinres.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
+	if err := resources.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
@@ -315,7 +315,7 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := builtinres.EnsureBuiltinSkills(paths.stellaSkillsDir()); err != nil {
+	if err := resources.EnsureBuiltinSkills(paths.stellaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 

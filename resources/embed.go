@@ -1,6 +1,6 @@
-// Package builtin bundles embedded resources (skills, souls, sub-agents, templates)
-// that Stella ships with its binary. Runtime code accesses them through Registry,
-// not by walking the filesystem directly.
+// Package resources bundles embedded resources (skills, souls, sub-agents, templates,
+// and builtin plugin manifest) that Stella ships with its binary.
+// Runtime code accesses them through Registry, not by walking the filesystem directly.
 package resources
 
 import (
@@ -10,6 +10,12 @@ import (
 
 //go:embed all:skills all:souls all:subagents all:templates
 var fsys embed.FS
+
+//go:embed plugins.yaml
+var builtinPluginsYAML []byte
+
+// BuiltinPluginsYAML returns the raw bytes of the builtin plugin manifest.
+func BuiltinPluginsYAML() []byte { return builtinPluginsYAML }
 
 // FS returns the full embedded filesystem rooted at the package directory.
 // Prefer SubFS for kind-scoped access.

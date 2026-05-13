@@ -11,9 +11,9 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	builtinres "github.com/CherryHQ/stella/internal/resources"
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // findSkillByID linear-scans ListAll. The store has no Get(ctx, id) yet —
@@ -78,7 +78,7 @@ func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID
 }
 
 func builtinSkillFiles(id string) (map[string]string, error) {
-	sub, ok := builtinres.SubFS(builtinres.KindSkill)
+	sub, ok := resources.SubFS(resources.KindSkill)
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
@@ -279,12 +279,12 @@ func (s *Server) DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	reg, err := builtinres.Default()
+	reg, err := resources.Default()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, ok := reg.Get(builtinres.KindSkill, skillID)
+	res, ok := reg.Get(resources.KindSkill, skillID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "builtin skill not found")
 		return

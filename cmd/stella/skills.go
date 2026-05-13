@@ -15,10 +15,10 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	builtinres "github.com/CherryHQ/stella/internal/resources"
 	internalskills "github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	"github.com/CherryHQ/stella/resources"
 )
 
 func skillsCommand() *ucli.Command {
@@ -319,7 +319,7 @@ func skillsMigrateCommand() *ucli.Command {
 			sqliteStore := internalskills.New(db)
 
 			// 1. Sync builtins.
-			builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
+			builtinSkillsFS, ok := resources.SubFS(resources.KindSkill)
 			if !ok {
 				return fmt.Errorf("builtin skills FS unavailable")
 			}

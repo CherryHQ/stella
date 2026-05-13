@@ -10,10 +10,10 @@ import (
 	"text/template"
 	"time"
 
-	builtinres "github.com/CherryHQ/stella/internal/resources"
 	"github.com/CherryHQ/stella/internal/sandbox"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -28,11 +28,11 @@ func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt
 // DefaultAgentSoul returns the first soul tagged "default" from the builtin
 // registry, used as the fallback persona when an agent has no override in memory.
 func DefaultAgentSoul() string {
-	reg, err := builtinres.Default()
+	reg, err := resources.Default()
 	if err != nil {
 		return ""
 	}
-	for _, res := range reg.List(builtinres.KindSoul) {
+	for _, res := range reg.List(resources.KindSoul) {
 		if slices.Contains(res.Tags, "default") {
 			return strings.TrimSpace(res.Content)
 		}

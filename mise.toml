@@ -47,7 +47,7 @@ run = "rm -rf ./dist"
 description = "Generate sqlc queries, OpenAPI clients, and embedded resources"
 depends = ["generate:api", "generate:ts-sdk"]
 run = """
-go generate ./internal/resources/binaries/
+go generate ./resources/binaries/
 sqlc generate
 """
 
