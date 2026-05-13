@@ -15,7 +15,9 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -75,9 +77,8 @@ type setupResult struct {
 	builtinTools             []tools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
-	promptToolsBuilder       func(context.Context) ([]pkgplugins.PromptToolInfo, error)
-	promptSectionsBuilder    func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	pluginPromptsBuilder     agent.PluginPromptsBuilder
+	promptToolsBuilder       prompt.ToolsBuilder
+	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
@@ -102,8 +103,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return nil, err
 	}
-	if err := agent.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
+	if err := cli.EnsureStellaCLIInPath(config.StellaHome()); err != nil {
 		return nil, fmt.Errorf("copy stella cli into sandbox path: %w", err)
+	}
+	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
+		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
 
 	rawSkillStore := skills.New(db)
@@ -262,8 +266,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	builtinTools := []tools.Tool{}
 
-	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		return phost.BuildProviderRegistry(api, map[string]any{
+	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		return phost.BuildStreamFunc(api, map[string]any{
 			"api_key":  apiKey,
 			"base_url": baseURL,
 		})
@@ -290,7 +294,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		model.API = apiName
 		model.BaseURL = creds.BaseURL
 
-		reg, err := providerRegistryBuilder(apiName, creds.APIKey, creds.BaseURL)
+		stream, err := providerStreamBuilder(apiName, creds.APIKey, creds.BaseURL)
 		if err != nil {
 			return "", fmt.Errorf("build summarizer provider: %w", err)
 		}
@@ -299,11 +303,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		msg, err := providers.Complete(ctx, model, ai.Context{
 			Messages: []ai.Message{ai.UserMessage{Content: prompt}},
 		}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{
-			APIKey:      creds.APIKey,
-			BaseURL:     creds.BaseURL,
 			MaxTokens:   &maxTokens,
 			Temperature: &temperature,
-		}}, reg)
+		}}, stream)
 		if err != nil {
 			return "", fmt.Errorf("summarize with model: %w", err)
 		}
@@ -351,7 +353,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerRegistryBuilder)
+	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerStreamBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
@@ -426,10 +428,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
-		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
+		agent.WithProviderStreamBuilder(providerStreamBuilder),
 		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
-		agent.WithPluginPromptsBuilder(phost.ManifestPluginPrompts),
 		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 			return phost.BeforeRun(ctx, build)
@@ -510,7 +511,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginToolsBuilder:       pluginToolsBuilder,
 		promptToolsBuilder:       promptToolsBuilder,
 		promptSectionsBuilder:    promptSectionsBuilder,
-		pluginPromptsBuilder:     phost.ManifestPluginPrompts,
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               pluginhost.NewSkillStoreAdapter(skillStore),
@@ -543,7 +543,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn agent.PluginPromptsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -558,7 +558,17 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, pluginPromptsFn, sessionPluginViewFn, toolLifecycle, skillStore, nil, nil, nil, nil)
+		factory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
+			Snap:                     &snap,
+			BuiltinTools:             builtinTools,
+			PluginToolsBuilder:       pluginToolsBuilder,
+			ProviderStreamBuilder:    providerStreamBuilder,
+			PromptToolsBuilder:       promptToolsFn,
+			PromptSectionsBuilder:    promptSectionsFn,
+			SessionPluginViewBuilder: sessionPluginViewFn,
+			ToolLifecycle:            toolLifecycle,
+			SkillStore:               skillStore,
+		})
 		if err != nil {
 			return err
 		}
@@ -581,7 +591,7 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		pool,
 		s.builtinTools,
 		s.pluginToolsBuilder,
-		func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			provider, err := s.store.GetProvider(s.ctx, api)
 			if err != nil {
 				return nil, err
@@ -590,14 +600,13 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 			if providerType == "" {
 				providerType = provider.ID
 			}
-			return s.pluginHost.BuildProviderRegistry(providerType, map[string]any{
+			return s.pluginHost.BuildStreamFunc(providerType, map[string]any{
 				"api_key":  apiKey,
 				"base_url": baseURL,
 			})
 		},
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,
-		s.pluginPromptsBuilder,
 		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
 		s.skillStore,

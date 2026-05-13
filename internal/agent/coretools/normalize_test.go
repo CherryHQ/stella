@@ -1,4 +1,4 @@
-package sandbox
+package coretools
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestFormatToolDuration(t *testing.T) {
@@ -31,7 +33,7 @@ func TestFormatToolDuration(t *testing.T) {
 func TestNormalizeExec_stdoutOnly(t *testing.T) {
 	n := newToolNormalizer()
 	n.IncludeTimestamps = false
-	r := n.NormalizeExec(ExecResult{Stdout: "hello", ExitCode: 0}, 0)
+	r := n.NormalizeExec(sandbox.ExecResult{Stdout: "hello", ExitCode: 0}, 0)
 	if r.Content != "hello" {
 		t.Errorf("unexpected content: %q", r.Content)
 	}
@@ -43,7 +45,7 @@ func TestNormalizeExec_stdoutOnly(t *testing.T) {
 func TestNormalizeExec_stderrAppended(t *testing.T) {
 	n := newToolNormalizer()
 	n.IncludeTimestamps = false
-	r := n.NormalizeExec(ExecResult{Stdout: "out", Stderr: "err", ExitCode: 1}, 0)
+	r := n.NormalizeExec(sandbox.ExecResult{Stdout: "out", Stderr: "err", ExitCode: 1}, 0)
 	if !strings.Contains(r.Content, "out") || !strings.Contains(r.Content, "err") {
 		t.Errorf("expected both stdout and stderr in content, got: %q", r.Content)
 	}
@@ -56,7 +58,7 @@ func TestNormalizeExec_truncation(t *testing.T) {
 	n := newToolNormalizer()
 	n.IncludeTimestamps = false
 	n.MaxOutputLen = 5
-	r := n.NormalizeExec(ExecResult{Stdout: "hello world", ExitCode: 0}, 0)
+	r := n.NormalizeExec(sandbox.ExecResult{Stdout: "hello world", ExitCode: 0}, 0)
 	if !strings.HasPrefix(r.Content, "hello") {
 		t.Errorf("expected truncated prefix, got: %q", r.Content)
 	}
@@ -68,7 +70,7 @@ func TestNormalizeExec_truncation(t *testing.T) {
 func TestNormalizeExec_includesTimestamp(t *testing.T) {
 	n := newToolNormalizer()
 	n.IncludeTimestamps = true
-	r := n.NormalizeExec(ExecResult{Stdout: "hi", ExitCode: 0}, time.Second)
+	r := n.NormalizeExec(sandbox.ExecResult{Stdout: "hi", ExitCode: 0}, time.Second)
 	if !strings.Contains(r.Content, "[exit:0") {
 		t.Errorf("expected exit code in content, got: %q", r.Content)
 	}

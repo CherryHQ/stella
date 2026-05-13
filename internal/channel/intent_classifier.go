@@ -62,9 +62,9 @@ Examples:
 "how do I cancel a job?" -> {"action":"none"}`
 
 type (
-	SnapshotLoader        func(context.Context, string) (*config.Snapshot, error)
-	ProviderGetterBuilder func(context.Context, string, config.ProviderCreds) (providers.ProviderGetter, error)
-	CompleteFunc          func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.ProviderGetter) (ai.AssistantMessage, error)
+	SnapshotLoader    func(context.Context, string) (*config.Snapshot, error)
+	StreamFuncBuilder func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error)
+	CompleteFunc      func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error)
 )
 
 type IntentClassifier interface {
@@ -73,16 +73,16 @@ type IntentClassifier interface {
 
 type LLMIntentClassifier struct {
 	loadSnapshot SnapshotLoader
-	buildGetter  ProviderGetterBuilder
+	buildStream  StreamFuncBuilder
 	complete     CompleteFunc
 	timeout      time.Duration
 	log          *slog.Logger
 }
 
-func NewLLMIntentClassifier(loadSnapshot SnapshotLoader, buildGetter ProviderGetterBuilder) *LLMIntentClassifier {
+func NewLLMIntentClassifier(loadSnapshot SnapshotLoader, buildStream StreamFuncBuilder) *LLMIntentClassifier {
 	return &LLMIntentClassifier{
 		loadSnapshot: loadSnapshot,
-		buildGetter:  buildGetter,
+		buildStream:  buildStream,
 		complete:     providers.Complete,
 		timeout:      1500 * time.Millisecond,
 		log:          slog.With("component", "intent_classifier"),
@@ -91,7 +91,7 @@ func NewLLMIntentClassifier(loadSnapshot SnapshotLoader, buildGetter ProviderGet
 
 func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, content []ai.ContentBlock) Intent {
 	text, ok := classifyCandidateText(content)
-	if !ok || agentID == "" || c == nil || c.loadSnapshot == nil || c.buildGetter == nil || c.complete == nil {
+	if !ok || agentID == "" || c == nil || c.loadSnapshot == nil || c.buildStream == nil || c.complete == nil {
 		return IntentNone
 	}
 
@@ -111,9 +111,9 @@ func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, cont
 	}
 	creds := snap.ResolveProviderCreds(model.Provider)
 	providerType := classifierProviderType(snap, model.Provider, creds)
-	getter, err := c.buildGetter(ctx, providerType, creds)
-	if err != nil || getter == nil {
-		c.debug("build provider getter failed", "agent_id", agentID, "provider", model.Provider, "provider_type", providerType, "error", err)
+	stream, err := c.buildStream(ctx, providerType, creds)
+	if err != nil || stream == nil {
+		c.debug("build stream func failed", "agent_id", agentID, "provider", model.Provider, "provider_type", providerType, "error", err)
 		return IntentNone
 	}
 
@@ -125,7 +125,7 @@ func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, cont
 		Messages: []ai.Message{
 			ai.UserMessage{Content: text},
 		},
-	}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: c.timeout}}, getter)
+	}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: c.timeout}}, stream)
 	if err != nil {
 		c.debug("intent classification failed", "agent_id", agentID, "error", err)
 		return IntentNone

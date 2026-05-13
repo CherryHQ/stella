@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"time"
 )
 
@@ -33,30 +32,19 @@ func (p *Pool) reap() {
 			continue
 		}
 
-		aliver, isAliver := sess.Runner.(Aliver)
-		tracker, isTracker := sess.Runner.(ActivityTracker)
-
-		if !isAliver {
-			continue
-		}
-
-		if !aliver.Alive() {
+		if !sess.Runner.Alive() {
 			p.log.Warn("removing dead runner", "session_id", id)
-			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
-				_ = closer.Close()
-			}
+			_ = sess.Runner.Close()
 			sess.Runner = nil
 			continue
 		}
 
-		if isTracker && now.Sub(tracker.LastActivity()) > p.idleTimeout {
-			if bt, ok := sess.Runner.(BusyTracker); ok && bt.Busy() {
+		if now.Sub(sess.Runner.LastActivity()) > p.idleTimeout {
+			if sess.Runner.Busy() {
 				continue
 			}
-			p.log.Info("reaping idle runner", "session_id", id, "idle_duration", now.Sub(tracker.LastActivity()).Round(time.Second))
-			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
-				_ = closer.Close()
-			}
+			p.log.Info("reaping idle runner", "session_id", id, "idle_duration", now.Sub(sess.Runner.LastActivity()).Round(time.Second))
+			_ = sess.Runner.Close()
 			sess.Runner = nil
 		}
 	}

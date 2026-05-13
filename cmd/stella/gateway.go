@@ -324,13 +324,13 @@ func newIntentClassifier(store config.Store, ph *pluginhost.Host) *channel.LLMIn
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
 			return store.Snapshot(ctx, agentID)
 		},
-		intentClassifierProviderGetterBuilder(ph),
+		intentClassifierStreamFuncBuilder(ph),
 	)
 }
 
-func intentClassifierProviderGetterBuilder(ph *pluginhost.Host) channel.ProviderGetterBuilder {
-	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.ProviderGetter, error) {
-		return ph.BuildProviderRegistry(providerType, map[string]any{
+func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBuilder {
+	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
+		return ph.BuildStreamFunc(providerType, map[string]any{
 			"api_key":  creds.APIKey,
 			"base_url": creds.BaseURL,
 		})

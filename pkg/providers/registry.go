@@ -2,71 +2,13 @@ package providers
 
 import (
 	"context"
-	"sync"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-// Registry stores providers by API name.
-type Registry struct {
-	mu        sync.RWMutex
-	providers map[string]ProviderAdapter
-}
-
-// NewRegistry creates an empty provider registry.
-func NewRegistry() *Registry {
-	return &Registry{providers: make(map[string]ProviderAdapter)}
-}
-
-var (
-	defaultRegistry *Registry
-	defaultOnce     sync.Once
-)
-
-// DefaultRegistry returns the process-wide provider registry singleton.
-func DefaultRegistry() *Registry {
-	defaultOnce.Do(func() {
-		defaultRegistry = NewRegistry()
-	})
-	return defaultRegistry
-}
-
-// Register stores a provider by API key.
-func (r *Registry) Register(provider ProviderAdapter) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.providers[provider.API()] = provider
-}
-
-// Get resolves a provider by API key.
-func (r *Registry) Get(api string) (ProviderAdapter, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	provider, ok := r.providers[api]
-	return provider, ok
-}
-
-// Stream dispatches request to the registered API provider.
-func Stream(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
-	provider, ok := providers.Get(model.API)
-	if !ok {
-		return nil, ErrProviderNotFound
-	}
-	return provider.Stream(goCtx, model, ctx, opts)
-}
-
-// StreamSimple dispatches simplified streaming to provider.
-func StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
-	provider, ok := providers.Get(model.API)
-	if !ok {
-		return nil, ErrProviderNotFound
-	}
-	return provider.StreamSimple(goCtx, model, ctx, opts)
-}
-
-// Complete consumes a full stream and assembles an assistant message.
-func Complete(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.CompleteOptions, providers ProviderGetter) (ai.AssistantMessage, error) {
-	eventStream, err := Stream(goCtx, model, ctx, opts.StreamOptions, providers)
+// Complete consumes a full stream from a StreamFunc and assembles an assistant message.
+func Complete(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.CompleteOptions, stream StreamFunc) (ai.AssistantMessage, error) {
+	eventStream, err := stream(goCtx, model, ctx, opts.StreamOptions)
 	if err != nil {
 		return ai.AssistantMessage{}, err
 	}

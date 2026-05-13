@@ -1,32 +1,10 @@
 package agent
 
 import (
-	"context"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
-
-func TestHandlerFunc(t *testing.T) {
-	fn := HandlerFunc(func(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
-		ch := make(chan Event, 1)
-		ch <- Event{Text: "hello from handler: " + MessageText(message)}
-		close(ch)
-		return ch
-	})
-
-	// Verify it satisfies the Runner interface.
-	var r Runner = fn
-	stream := r.Chat(context.Background(), nil, "test")
-
-	evt := <-stream
-	if evt.Err != nil {
-		t.Fatalf("unexpected error: %v", evt.Err)
-	}
-	if evt.Text != "hello from handler: test" {
-		t.Errorf("text = %q, want %q", evt.Text, "hello from handler: test")
-	}
-}
 
 func TestMessageTextString(t *testing.T) {
 	got := MessageText("hello world")

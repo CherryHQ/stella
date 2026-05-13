@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -116,10 +115,8 @@ func (p *Pool) ResetRunners() error {
 
 	var lastErr error
 	for _, r := range runners {
-		if closer, ok := r.(io.Closer); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
+		if err := r.Close(); err != nil {
+			lastErr = err
 		}
 	}
 	return lastErr
@@ -144,10 +141,8 @@ func (p *Pool) ResetRunnersForUser(userID int64) error {
 
 	var lastErr error
 	for _, r := range runners {
-		if closer, ok := r.(io.Closer); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
+		if err := r.Close(); err != nil {
+			lastErr = err
 		}
 	}
 	return lastErr
@@ -167,8 +162,8 @@ func (p *Pool) close(closeMemory bool) error {
 	var lastErr error
 	for id, sess := range sessions {
 		p.log.Info("closing session", "session_id", id)
-		if closer, ok := sess.Runner.(io.Closer); ok {
-			if err := closer.Close(); err != nil {
+		if sess.Runner != nil {
+			if err := sess.Runner.Close(); err != nil {
 				lastErr = err
 			}
 		}

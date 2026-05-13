@@ -167,12 +167,6 @@ var _ providers.ModelLister = (*Provider)(nil)
 
 func buildRequestOptions(opts ai.StreamOptions) []option.RequestOption {
 	var reqOpts []option.RequestOption
-	if opts.APIKey != "" {
-		reqOpts = append(reqOpts, option.WithAPIKey(opts.APIKey))
-	}
-	if opts.BaseURL != "" {
-		reqOpts = append(reqOpts, option.WithBaseURL(opts.BaseURL))
-	}
 	for k, v := range opts.Headers {
 		reqOpts = append(reqOpts, option.WithHeader(k, v))
 	}

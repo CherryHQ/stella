@@ -323,19 +323,19 @@ Agent 通过两步流程访问保存的内容：
 
 ## 实现细节
 
-| 组件             | 位置                                                       |
-| ---------------- | ---------------------------------------------------------- |
-| CLI 命令         | `cmd/stella/recally.go`                                    |
-| 存储层           | `internal/recally/store.go`                                |
-| 文件管理器       | `internal/recally/files.go`                                |
-| URL 规范化       | `internal/recally/urlnorm.go`                              |
-| 类型定义         | `internal/recally/types.go`                                |
-| 技能文件         | `internal/resources/skills/system/recally/SKILL.md`        |
-| 数据库架构       | `internal/db/schemas/tables/articles.sql`                  |
-| 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql`                 |
-| 数据库查询       | `internal/db/queries/articles.sql`                         |
-| 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql`                        |
-| 沙盒认证环境     | `internal/agent/sandbox_backend.go`（注入 `STELLA_TOKEN`） |
+| 组件             | 位置                                                   |
+| ---------------- | ------------------------------------------------------ |
+| CLI 命令         | `cmd/stella/recally.go`                                |
+| 存储层           | `internal/recally/store.go`                            |
+| 文件管理器       | `internal/recally/files.go`                            |
+| URL 规范化       | `internal/recally/urlnorm.go`                          |
+| 类型定义         | `internal/recally/types.go`                            |
+| 技能文件         | `internal/resources/skills/system/recally/SKILL.md`    |
+| 数据库架构       | `internal/db/schemas/tables/articles.sql`              |
+| 数据库架构 (RSS) | `internal/db/schemas/tables/rss_feeds.sql`             |
+| 数据库查询       | `internal/db/queries/articles.sql`                     |
+| 数据库查询 (RSS) | `internal/db/queries/rss_feeds.sql`                    |
+| 沙盒认证环境     | `internal/agent/sandbox/env.go`（注入 `STELLA_TOKEN`） |
 
 ## 未来改进
 

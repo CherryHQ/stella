@@ -10,35 +10,22 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-type fakeProvider struct {
-	streamFunc func(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error)
-}
-
-func (f fakeProvider) API() string { return "fake" }
-
-func (f fakeProvider) Stream(_ context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
-	if f.streamFunc != nil {
-		return f.streamFunc(model, ctx, opts)
+func defaultFakeStream() providers.StreamFunc {
+	return func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventTextDelta{Text: "response"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
 	}
-	out := providers.NewChannelEventStream(8)
-	go func() {
-		out.Emit(ai.EventTextDelta{Text: "response"})
-		out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-		out.Finish(nil)
-	}()
-	return out, nil
 }
 
-func (f fakeProvider) StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return f.Stream(goCtx, model, ctx, opts.StreamOptions)
-}
-
-func newTestRunner(p fakeProvider, opts ...Option) *Runner {
-	r := providers.NewRegistry()
-	r.Register(p)
+func newTestRunner(stream providers.StreamFunc, opts ...Option) *Runner {
 	runner, _ := NewRunner(RunnerConfig{
-		Providers: r,
-		Model:     ai.Model{API: "fake", Name: "stub"},
+		Stream: stream,
+		Model:  ai.Model{API: "fake", Name: "stub"},
 	}, opts...)
 	return runner
 }
@@ -62,7 +49,7 @@ func countEvents[T LoopEvent](events []LoopEvent) int {
 }
 
 func TestRunEmitsStreamingEvents(t *testing.T) {
-	runner := newTestRunner(fakeProvider{})
+	runner := newTestRunner(defaultFakeStream())
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "hello"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -111,20 +98,18 @@ func TestRunEmitsStreamingEvents(t *testing.T) {
 }
 
 func TestRunStreamingDeltasCarryPartial(t *testing.T) {
-	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			out := providers.NewChannelEventStream(8)
-			go func() {
-				out.Emit(ai.EventTextDelta{Text: "hello "})
-				out.Emit(ai.EventTextDelta{Text: "world"})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-				out.Finish(nil)
-			}()
-			return out, nil
-		},
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventTextDelta{Text: "hello "})
+			out.Emit(ai.EventTextDelta{Text: "world"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
 	}
 
-	runner := newTestRunner(provider)
+	runner := newTestRunner(stream)
 	_, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -159,25 +144,23 @@ func TestRunStreamingDeltasCarryPartial(t *testing.T) {
 func TestRunMultiTurnLoop(t *testing.T) {
 	var callCount atomic.Int32
 
-	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			out := providers.NewChannelEventStream(8)
-			n := callCount.Add(1)
-			go func() {
-				if n <= 2 {
-					out.Emit(ai.EventToolCallDelta{ID: fmt.Sprintf("call_%d", n), Name: "test_tool", Arguments: "{}"})
-					out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-				} else {
-					out.Emit(ai.EventTextDelta{Text: "done"})
-					out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-				}
-				out.Finish(nil)
-			}()
-			return out, nil
-		},
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		n := callCount.Add(1)
+		go func() {
+			if n <= 2 {
+				out.Emit(ai.EventToolCallDelta{ID: fmt.Sprintf("call_%d", n), Name: "test_tool", Arguments: "{}"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
 	}
 
-	runner := newTestRunner(provider)
+	runner := newTestRunner(stream)
 	// Override tools after construction — tests use the unexported run() path via Runner.
 	runner.tools = ToolSet{
 		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
@@ -210,19 +193,17 @@ func TestRunMultiTurnLoop(t *testing.T) {
 }
 
 func TestRunStopsOnErrorStopReason(t *testing.T) {
-	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			out := providers.NewChannelEventStream(8)
-			go func() {
-				out.Emit(ai.EventError{Err: nil})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonError})
-				out.Finish(nil)
-			}()
-			return out, nil
-		},
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventError{Err: nil})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonError})
+			out.Finish(nil)
+		}()
+		return out, nil
 	}
 
-	runner := newTestRunner(provider)
+	runner := newTestRunner(stream)
 	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -236,23 +217,21 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 	var callCount atomic.Int32
 	interrupt := make(chan struct{})
 
-	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			out := providers.NewChannelEventStream(8)
-			n := callCount.Add(1)
-			go func() {
-				out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-				out.Finish(nil)
-			}()
-			if n == 1 {
-				close(interrupt)
-			}
-			return out, nil
-		},
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		n := callCount.Add(1)
+		go func() {
+			out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			out.Finish(nil)
+		}()
+		if n == 1 {
+			close(interrupt)
+		}
+		return out, nil
 	}
 
-	runner := newTestRunner(provider, WithInterrupt(interrupt))
+	runner := newTestRunner(stream, WithInterrupt(interrupt))
 	runner.tools = ToolSet{
 		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
 			return ai.TextContent{Text: "ok"}, nil
@@ -269,9 +248,7 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 }
 
 func TestContinueRequiresValidTail(t *testing.T) {
-	r := providers.NewRegistry()
-	r.Register(fakeProvider{})
-	runner, _ := NewRunner(RunnerConfig{Providers: r})
+	runner, _ := NewRunner(RunnerConfig{Stream: defaultFakeStream()})
 	_, err := runner.Continue(context.Background(), []ai.Message{ai.AssistantMessage{}}, nil)
 	if err == nil {
 		t.Fatalf("expected tail validation error")

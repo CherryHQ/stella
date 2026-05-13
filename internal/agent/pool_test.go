@@ -33,7 +33,7 @@ func testMemoryProvider(t *testing.T) memory.Provider {
 	return p
 }
 
-// mockRunner implements Runner and io.Closer for pool tests.
+// mockRunner implements Runner for pool tests.
 type mockRunner struct {
 	mu           sync.Mutex
 	events       []Event
@@ -91,6 +91,8 @@ func (m *mockRunner) LastActivity() time.Time {
 	defer m.mu.Unlock()
 	return m.lastActivity
 }
+
+func (m *mockRunner) Busy() bool { return false }
 
 func (m *mockRunner) SystemPrompt() string {
 	m.mu.Lock()

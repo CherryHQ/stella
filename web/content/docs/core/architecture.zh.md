@@ -10,7 +10,7 @@ stella 的结构是一组松耦合的包，在 `main.go` 中组装在一起。�
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）
 3. **PoolManager** 通过代理 ID 查找（或创建）代理的 **Pool**
 4. **Pool** 管理会话并分发给 **Runner**
-5. **Go runner** 通过 `internal/ai/` 调用 LLM 提供商，在循环中执行工具
+5. **Runner** 通过 `internal/ai/` 调用 LLM 提供商，在循环中执行工具
 6. 响应通过通道流回给用户
 
 ```
@@ -40,7 +40,7 @@ internal/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   agent/               PoolManager、Pool、Session、工作区设置、runner 工厂
     engine/            代理循环引擎（多轮工具执行）
-    runner/            GoRunner、系统提示构建器、技能加载
+    runner/            Runner、系统提示构建器、技能加载
   channel/             Channel 接口、身份解析、斜杠命令、通知
     cli/               Bubble Tea TUI
     telegram/          Telegram 机器人
@@ -103,7 +103,7 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 
 ## 工具
 
-Go runner 将工具注入 LLM 调用。工具遵循定义在 `pkg/tools/` 中的通用接口。`tools.Definition` 类型是 `ai.ToolDefinition` 的类型别名，使领域包保持解耦：
+Runner 将工具注入 LLM 调用。工具遵循定义在 `pkg/tools/` 中的通用接口。`tools.Definition` 类型是 `ai.ToolDefinition` 的类型别名，使领域包保持解耦：
 
 ```go
 type Tool interface {

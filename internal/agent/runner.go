@@ -44,13 +44,6 @@ type Event struct {
 // It is either string (text-only) or []ai.ContentBlock (multimodal, e.g. text + images).
 type MessageContent = any
 
-// Runner runs prompts against an AI backend.
-// It is stateless — it receives full history each call and must
-// reconstruct context from it.
-type Runner interface {
-	Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event
-}
-
 // RunnerParams holds parameters for creating a new Runner instance.
 type RunnerParams struct {
 	Model   string                    // model ID (empty = use default)
@@ -60,49 +53,18 @@ type RunnerParams struct {
 	HooksFn func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
 }
 
+// Runner runs prompts against an AI backend and exposes lifecycle methods.
+type Runner interface {
+	Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event
+	Alive() bool
+	Busy() bool
+	LastActivity() time.Time
+	SystemPrompt() string
+	Close() error
+}
+
 // NewRunnerFunc creates a new Runner instance with the given params.
 type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
-
-// HandlerFunc is an adapter to allow the use of ordinary functions as Runners.
-// If f is a function with the appropriate signature, HandlerFunc(f) is a Runner
-// that calls f.
-type HandlerFunc func(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event
-
-// Chat calls f(ctx, history, message).
-func (f HandlerFunc) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
-	return f(ctx, history, message)
-}
-
-// Stateful is an optional interface for runners that maintain their own
-// context in-process (e.g., a long-running subprocess). When a runner is
-// Stateful, Pool will not kill it after compaction — the runner keeps its
-// live context and the compacted history is only persisted to disk for
-// crash recovery.
-type Stateful interface {
-	Stateful() bool
-}
-
-// Aliver is an optional interface for runners that can report liveness.
-type Aliver interface {
-	Alive() bool
-}
-
-// ActivityTracker is an optional interface for runners that track last activity.
-type ActivityTracker interface {
-	LastActivity() time.Time
-}
-
-// BusyTracker is an optional interface for runners that report whether a Chat
-// call is currently in flight. The reaper skips idle-timeout eviction for busy
-// runners so long-running agent loops are not torn down mid-execution.
-type BusyTracker interface {
-	Busy() bool
-}
-
-// SystemPrompter is an optional interface for runners that expose their base system prompt.
-type SystemPrompter interface {
-	SystemPrompt() string
-}
 
 // MessageText extracts and joins all text from a message.
 func MessageText(message MessageContent) string {

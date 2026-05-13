@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -35,14 +37,10 @@ type PluginToolsBuilder func(ctx context.Context, build plugintools.BuildContext
 // Called at startup and on hot-reload when a hook plugin is toggled.
 type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
-// PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type (
-	PromptToolsBuilder       func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-	PromptSectionsBuilder    func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	PluginPromptsBuilder     func() []pkgplugins.SystemPromptSection
 	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
 	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
-	ProviderRegistryBuilder  func(api, apiKey, baseURL string) (*providers.Registry, error)
+	ProviderStreamBuilder    func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 )
 
 // PoolManagerOption configures a PoolManager.
@@ -90,22 +88,15 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 	}
 }
 
-// WithPromptToolsBuilder sets the function that returns prompt inventory items.
-func WithPromptToolsBuilder(b PromptToolsBuilder) PoolManagerOption {
+func WithPromptToolsBuilder(b prompt.ToolsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.promptToolsBuilder = b
 	}
 }
 
-func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
+func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.promptSectionsBuilder = b
-	}
-}
-
-func WithPluginPromptsBuilder(b PluginPromptsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.pluginPromptsBuilder = b
 	}
 }
 
@@ -127,9 +118,9 @@ func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
 	}
 }
 
-func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
+func WithProviderStreamBuilder(b ProviderStreamBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
-		pm.providerRegistryBuilder = b
+		pm.providerStreamBuilder = b
 	}
 }
 
@@ -141,7 +132,7 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 }
 
 // WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
-func WithVaultEnvLoader(v VaultEnvLoader) PoolManagerOption {
+func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.vaultEnvLoader = v
 	}
@@ -174,16 +165,15 @@ type PoolManager struct {
 	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
 	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
-	promptToolsBuilder       PromptToolsBuilder // builds prompt inventory from plugin state
-	promptSectionsBuilder    PromptSectionsBuilder
-	pluginPromptsBuilder     PluginPromptsBuilder
+	promptToolsBuilder       prompt.ToolsBuilder
+	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
-	providerRegistryBuilder  ProviderRegistryBuilder
+	providerStreamBuilder    ProviderStreamBuilder
 	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
-	vaultEnvLoader           VaultEnvLoader
+	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
@@ -221,7 +211,7 @@ func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
 // so existing pools pick up the loader. Must be called after StartAll.
 // If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
 // wired into the pool manager so runners can inject runtime OAuth tokens.
-func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v VaultEnvLoader) {
+func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
 	if vs, ok := v.(oauth.VaultStore); ok {
@@ -503,15 +493,11 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			AgentID:             agentID,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		}
-		var promptSections []pkgplugins.SystemPromptSection
+		var sections []pkgplugins.SystemPromptSection
 		if pm.promptSectionsBuilder != nil {
-			promptSections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
 		}
-		var pluginPrompts []pkgplugins.SystemPromptSection
-		if pm.pluginPromptsBuilder != nil {
-			pluginPrompts = pm.pluginPromptsBuilder()
-		}
-		params := DBPromptParams{
+		params := prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
 			AgentSoul:         snap.Soul,
 			Memory:            pm.mem,
@@ -522,13 +508,12 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			SnapshotVersion:   memSnap.Version,
 			SnapshotUpdatedAt: memSnap.UpdatedAt,
 			PromptTools:       promptTools,
-			PluginPrompts:     pluginPrompts,
-			PromptSections:    promptSections,
+			Sections:          sections,
 		}
 		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
 			params.KnowledgeStore = ks
 		}
-		return BuildSystemPromptFromDB(ctx, params)
+		return prompt.BuildSystemPromptFromDB(ctx, params)
 	})
 }
 
@@ -562,7 +547,21 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.pluginPromptsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenService, pm.tokenManager)
+	return NewRunnerFactory(RunnerFactoryConfig{
+		Snap:                     snap,
+		BuiltinTools:             builtinTools,
+		PluginToolsBuilder:       pm.pluginToolsBuilder,
+		ProviderStreamBuilder:    pm.providerStreamBuilder,
+		PromptToolsBuilder:       pm.promptToolsBuilder,
+		PromptSectionsBuilder:    pm.promptSectionsBuilder,
+		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
+		ToolLifecycle:            pm.toolLifecycle,
+		SkillStore:               pm.skillStore,
+		SandboxBackendFn:         sandboxBackendFn,
+		VaultEnvLoader:           pm.vaultEnvLoader,
+		TokenService:             pm.tokenService,
+		TokenManager:             pm.tokenManager,
+	})
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

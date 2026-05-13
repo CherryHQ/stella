@@ -153,11 +153,3 @@ func TestUserSkillsDir(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
-
-func TestUserRoot(t *testing.T) {
-	got := UserRoot("/base/users/42")
-	want := "/base/users/42"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}

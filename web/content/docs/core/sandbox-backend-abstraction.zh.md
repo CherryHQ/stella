@@ -4,7 +4,7 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Stella 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Stella 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/agent/sandbox`。
 
 ## 目的
 
@@ -16,7 +16,7 @@ title: 沙箱后端抽象
 - `pkg/sandbox.Session` — 每次运行的执行边界和生命周期所有者；将生命周期和宿主机访问合并为单一接口
 - Runner 拥有的文件 I/O — runner 使用 `os.*` 配合 `Session.ResolvePath` 读写文件；`Session` 上没有 `ReadFile`/`WriteFile` 方法
 
-后端标识保留在 runner 和 sandbox 包内部。插件包不导入 `internal/sandbox`。
+后端标识保留在 runner 和面向 runner 的 sandbox 包内部。插件包不导入 `internal/agent/sandbox`。
 
 ## Session 接口
 
@@ -172,16 +172,15 @@ Stella 优先选择显式拒绝而非静默降级：
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
 
-| 步骤 | 文件                                | 操作                                                                                           |
-| ---- | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`        | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                    |
-| 2    | `internal/config/plugin.go`         | 将名称追加到 `builtinSandboxNames`，确保 DB 行被初始化                                         |
-| 3    | `plugins/sandbox/<name>/session.go` | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                    |
-| 4    | `plugins/sandbox/plugin.go`         | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据                       |
-| 5    | `internal/sandbox/factory.go`       | 在 `DefaultRegistry()` 中调用 `mustRegisterFactory(r, <name>plugin.NewFactory(), true)`        |
-| 6    | `internal/agent/sandbox_backend.go` | 在 `sessionRegistry` 中添加 `config.SandboxBackend<Name>: create<Name>Session`，并实现工厂函数 |
-| 7    | `web/static/js/pages/plugins.js`    | 将 `"sandbox/<name>"` 添加到 `validBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目     |
-| 8    | 文档                                | 更新本文件及 `sandbox-backend-abstraction.zh.md`                                               |
+| 步骤 | 文件                                                                                    | 操作                                                                                              |
+| ---- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 1    | `internal/config/sandbox.go`                                                            | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                       |
+| 2    | `internal/config/plugin.go`                                                             | 将名称追加到 `builtinSandboxNames`，确保 DB 行被初始化                                            |
+| 3    | `plugins/sandbox/<name>/session.go`                                                     | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                       |
+| 4    | `plugins/sandbox/plugin.go`                                                             | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据                          |
+| 5    | `internal/agent/sandbox/session.go`                                                     | 在 `sessionRegistry` 中添加 `config.SandboxBackend<Name>: create<Name>Session`，并实现工厂函数    |
+| 6    | `web/src/features/plugins/PluginsPage.tsx` 和 `web/src/features/plugins/pluginUtils.ts` | 将 `"sandbox/<name>"` 添加到 `validSandboxBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
+| 7    | 文档                                                                                    | 更新本文件及 `sandbox-backend-abstraction.zh.md`                                                  |
 
 ## 相关文档
 

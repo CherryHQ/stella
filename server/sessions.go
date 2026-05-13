@@ -13,6 +13,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -399,7 +400,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	root := agent.UserRoot(userDir)
+	root := userDir
 	showHidden := params.ShowHidden != nil && *params.ShowHidden
 	paths, err := collectWorkspacePaths(root, showHidden)
 	if err != nil {
@@ -488,7 +489,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return "", err
 	}
-	return agent.UserRoot(userDir), nil
+	return userDir, nil
 }
 
 // safePath resolves a caller-supplied relative path to an absolute path that
@@ -822,7 +823,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	var userRoot string
 	if info.UserID > 0 && info.AgentID != "" {
 		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID); err == nil {
-			userRoot = agent.UserRoot(userDir)
+			userRoot = userDir
 		}
 	}
 	homeDir, _ := os.UserHomeDir()
@@ -852,20 +853,19 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	prompt := agent.BuildSystemPromptFromDB(r.Context(), agent.DBPromptParams{
-		SystemPrompt:   agentCfg.SystemPrompt,
-		Memory:         s.mem,
-		UserID:         info.UserID,
-		AgentID:        info.AgentID,
-		StellaHome:     config.StellaHome(),
-		AgentRoot:      agentCfg.Workspace,
-		UserRoot:       userRoot,
-		PromptTools:    promptTools,
-		PluginPrompts:  s.pluginHost.ManifestPluginPrompts(),
-		PromptSections: promptSections,
+	systemPrompt := prompt.BuildSystemPromptFromDB(r.Context(), prompt.DBPromptParams{
+		SystemPrompt: agentCfg.SystemPrompt,
+		Memory:       s.mem,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
+		StellaHome:   config.StellaHome(),
+		AgentRoot:    agentCfg.Workspace,
+		UserRoot:     userRoot,
+		PromptTools:  promptTools,
+		Sections:     append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
 	})
 
-	writeData(w, http.StatusOK, map[string]string{"system_prompt": prompt})
+	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,

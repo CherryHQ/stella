@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-func integrationConfig(t *testing.T) GoRunnerConfig {
+func integrationConfig(t *testing.T) runnerConfig {
 	t.Helper()
 	skipWithoutAnthropicKey(t)
 	model := os.Getenv("STELLA_GO_MODEL")
@@ -23,23 +24,29 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	return GoRunnerConfig{
-		API:        "anthropic",
-		Model:      model,
-		APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
-		StellaHome: stellaHome,
-		AgentRoot:  workspace,
-		UserRoot:   userRoot,
-		Providers:  integrationProviderRegistryBuilder,
+	return runnerConfig{
+		Provider: providerConfig{
+			API:     "anthropic",
+			Model:   model,
+			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+			Builder: integrationProviderStreamBuilder,
+		},
+		Sandbox: sandbox.Config{
+			Paths: sandbox.PathConfig{
+				StellaHome: stellaHome,
+				AgentRoot:  workspace,
+				UserRoot:   userRoot,
+			},
+		},
 	}
 }
 
 func TestIntegrationSingleTurn(t *testing.T) {
 	cfg := integrationConfig(t)
-	r, err := NewGoRunner(context.Background(), cfg)
+	r, err := newRunner(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
+		t.Fatalf("newRunner: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
@@ -67,9 +74,9 @@ func TestIntegrationSingleTurn(t *testing.T) {
 
 func TestIntegrationMultiTurn(t *testing.T) {
 	cfg := integrationConfig(t)
-	r, err := NewGoRunner(context.Background(), cfg)
+	r, err := newRunner(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
+		t.Fatalf("newRunner: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
@@ -114,9 +121,9 @@ func TestIntegrationMultiTurn(t *testing.T) {
 func TestIntegrationSystemPrompt(t *testing.T) {
 	cfg := integrationConfig(t)
 	cfg.System = "You are a JSON API. Always respond with valid JSON objects only, no other text."
-	r, err := NewGoRunner(context.Background(), cfg)
+	r, err := newRunner(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
+		t.Fatalf("newRunner: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
@@ -147,9 +154,9 @@ func TestIntegrationCustomBaseURL(t *testing.T) {
 	}
 
 	cfg := integrationConfig(t)
-	r, err := NewGoRunner(context.Background(), cfg)
+	r, err := newRunner(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
+		t.Fatalf("newRunner: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 

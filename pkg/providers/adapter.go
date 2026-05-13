@@ -19,9 +19,12 @@ type ModelLister interface {
 	ListModels(ctx context.Context) ([]ai.Model, error)
 }
 
-// ProviderGetter provides provider lookup.
-type ProviderGetter interface {
-	Get(api string) (ProviderAdapter, bool)
+// StreamFunc streams an assistant response for the given model and context.
+type StreamFunc func(ctx context.Context, model ai.Model, aiCtx ai.Context, opts ai.StreamOptions) (AssistantEventStream, error)
+
+// AdapterStreamFunc wraps a ProviderAdapter's Stream method as a StreamFunc.
+func AdapterStreamFunc(adapter ProviderAdapter) StreamFunc {
+	return adapter.Stream
 }
 
 // ErrProviderNotFound indicates missing provider registration.

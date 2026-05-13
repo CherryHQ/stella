@@ -41,7 +41,7 @@ COPY . .
 COPY --from=web-builder /web/static/dist/ ./web/static/dist/
 
 # Download embedded mise binary for the target platform.
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go generate ./internal/resources/binaries/
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go generate ./resources/binaries/
 
 # Generate code, fetch embedded runtime tools for the target platform, then cross-compile.
 RUN sqlc generate

@@ -90,17 +90,17 @@ func TestLLMIntentClassifierClassify(t *testing.T) {
 				Providers: map[string]config.ProviderCreds{"demo": {Type: "openai", APIKey: "k", BaseURL: "https://example.com"}},
 			}, nil
 		},
-		func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.ProviderGetter, error) {
+		func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
 			if providerType != "openai" {
 				t.Fatalf("providerType = %q, want openai", providerType)
 			}
 			if creds.APIKey != "k" {
 				t.Fatalf("API key = %q, want k", creds.APIKey)
 			}
-			return stubProviderGetter{}, nil
+			return stubStreamFunc, nil
 		},
 	)
-	classifier.complete = func(_ context.Context, model ai.Model, ctx ai.Context, _ ai.CompleteOptions, _ providers.ProviderGetter) (ai.AssistantMessage, error) {
+	classifier.complete = func(_ context.Context, model ai.Model, ctx ai.Context, _ ai.CompleteOptions, _ providers.StreamFunc) (ai.AssistantMessage, error) {
 		if model.ID != "fast-model" || model.API != "openai" {
 			t.Fatalf("model = %#v", model)
 		}
@@ -127,17 +127,17 @@ func TestLLMIntentClassifierUsesProviderAliasCredsType(t *testing.T) {
 				},
 			}, nil
 		},
-		func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.ProviderGetter, error) {
+		func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
 			if providerType != "openai" {
 				t.Fatalf("providerType = %q, want openai alias", providerType)
 			}
 			if creds.Type != "primary" || creds.APIKey != "" {
 				t.Fatalf("creds = %#v", creds)
 			}
-			return stubProviderGetter{}, nil
+			return stubStreamFunc, nil
 		},
 	)
-	classifier.complete = func(_ context.Context, model ai.Model, _ ai.Context, _ ai.CompleteOptions, _ providers.ProviderGetter) (ai.AssistantMessage, error) {
+	classifier.complete = func(_ context.Context, model ai.Model, _ ai.Context, _ ai.CompleteOptions, _ providers.StreamFunc) (ai.AssistantMessage, error) {
 		if model.Provider != "openai" || model.API != "openai" {
 			t.Fatalf("model = %#v", model)
 		}
@@ -156,12 +156,12 @@ func TestLLMIntentClassifierSkipsWhenModelFastUnset(t *testing.T) {
 		func(context.Context, string) (*config.Snapshot, error) {
 			return &config.Snapshot{Provider: "demo", Model: "demo/strong-model", Providers: map[string]config.ProviderCreds{"demo": {Type: "openai", APIKey: "k"}}}, nil
 		},
-		func(context.Context, string, config.ProviderCreds) (providers.ProviderGetter, error) {
+		func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
 			called = true
-			return stubProviderGetter{}, nil
+			return stubStreamFunc, nil
 		},
 	)
-	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.ProviderGetter) (ai.AssistantMessage, error) {
+	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error) {
 		called = true
 		return ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: `{"action":"help"}`}}}, nil
 	}
@@ -180,11 +180,11 @@ func TestLLMIntentClassifierFallsBackToNone(t *testing.T) {
 		func(context.Context, string) (*config.Snapshot, error) {
 			return &config.Snapshot{Provider: "demo", ModelFast: "demo/fast-model", Providers: map[string]config.ProviderCreds{"demo": {Type: "openai", APIKey: "k"}}}, nil
 		},
-		func(context.Context, string, config.ProviderCreds) (providers.ProviderGetter, error) {
-			return stubProviderGetter{}, nil
+		func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
+			return stubStreamFunc, nil
 		},
 	)
-	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.ProviderGetter) (ai.AssistantMessage, error) {
+	classifier.complete = func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error) {
 		return ai.AssistantMessage{}, errors.New("boom")
 	}
 
@@ -199,12 +199,12 @@ func TestLLMIntentClassifierTimeoutFallsBackToNone(t *testing.T) {
 		func(context.Context, string) (*config.Snapshot, error) {
 			return &config.Snapshot{Provider: "demo", ModelFast: "demo/fast-model", Providers: map[string]config.ProviderCreds{"demo": {Type: "openai", APIKey: "k"}}}, nil
 		},
-		func(context.Context, string, config.ProviderCreds) (providers.ProviderGetter, error) {
-			return stubProviderGetter{}, nil
+		func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
+			return stubStreamFunc, nil
 		},
 	)
 	classifier.timeout = 20 * time.Millisecond
-	classifier.complete = func(ctx context.Context, _ ai.Model, _ ai.Context, _ ai.CompleteOptions, _ providers.ProviderGetter) (ai.AssistantMessage, error) {
+	classifier.complete = func(ctx context.Context, _ ai.Model, _ ai.Context, _ ai.CompleteOptions, _ providers.StreamFunc) (ai.AssistantMessage, error) {
 		<-ctx.Done()
 		return ai.AssistantMessage{}, ctx.Err()
 	}
@@ -253,9 +253,9 @@ func TestCoordinatorHandleResolvedIncomingAbortIntent(t *testing.T) {
 	}
 }
 
-type stubProviderGetter struct{}
-
-func (stubProviderGetter) Get(string) (providers.ProviderAdapter, bool) { return nil, false }
+var stubStreamFunc providers.StreamFunc = func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, nil
+}
 
 type stubIntentClassifier Intent
 

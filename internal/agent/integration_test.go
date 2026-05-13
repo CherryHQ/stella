@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/pkg/providers"
 	anthropicprovider "github.com/CherryHQ/stella/plugins/providers/anthropic"
 )
@@ -19,7 +20,7 @@ func skipWithoutAnthropicKey(t *testing.T) {
 	}
 }
 
-func TestIntegrationPoolWithGoRunner(t *testing.T) {
+func TestIntegrationPoolWithRunner(t *testing.T) {
 	skipWithoutAnthropicKey(t)
 
 	model := os.Getenv("STELLA_GO_MODEL")
@@ -36,15 +37,21 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 	}
 
 	factory := func(ctx context.Context, _ RunnerParams) (Runner, error) {
-		return NewGoRunner(ctx, GoRunnerConfig{
-			API:        "anthropic",
-			Model:      model,
-			APIKey:     os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL:    os.Getenv("ANTHROPIC_BASE_URL"),
-			StellaHome: stellaHome,
-			AgentRoot:  workspace,
-			UserRoot:   userRoot,
-			Providers:  integrationProviderRegistryBuilder,
+		return newRunner(ctx, runnerConfig{
+			Provider: providerConfig{
+				API:     "anthropic",
+				Model:   model,
+				APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+				BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+				Builder: integrationProviderStreamBuilder,
+			},
+			Sandbox: sandbox.Config{
+				Paths: sandbox.PathConfig{
+					StellaHome: stellaHome,
+					AgentRoot:  workspace,
+					UserRoot:   userRoot,
+				},
+			},
 		})
 	}
 
@@ -92,14 +99,13 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 	}
 }
 
-func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+func integrationProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if api != "anthropic" {
 		return nil, providers.ErrProviderNotFound
 	}
-	reg := providers.NewRegistry()
-	reg.Register(anthropicprovider.New(anthropicprovider.Config{
+	adapter := anthropicprovider.New(anthropicprovider.Config{
 		APIKey:  apiKey,
 		BaseURL: baseURL,
-	}))
-	return reg, nil
+	})
+	return providers.AdapterStreamFunc(adapter), nil
 }

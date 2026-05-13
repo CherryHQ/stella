@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -13,10 +15,26 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
+
+// RunnerFactoryConfig holds all dependencies needed to create a NewRunnerFunc.
+type RunnerFactoryConfig struct {
+	Snap                     *config.Snapshot
+	BuiltinTools             []tools.Tool
+	PluginToolsBuilder       PluginToolsBuilder
+	ProviderStreamBuilder    ProviderStreamBuilder
+	PromptToolsBuilder       prompt.ToolsBuilder
+	PromptSectionsBuilder    prompt.SectionsBuilder
+	SessionPluginViewBuilder SessionPluginViewBuilder
+	ToolLifecycle            *coreagent.ToolLifecycle
+	SkillStore               pkgplugins.SkillStore
+	SandboxBackendFn         func(ctx context.Context) string
+	VaultEnvLoader           sandbox.VaultEnvLoader
+	TokenService             *auth.TokenService
+	TokenManager             *oauth.TokenManager
+}
 
 // NewRunnerFactory creates a NewRunnerFunc for a given config snapshot.
 // The returned factory creates runners scoped to one agent's provider, model,
@@ -26,23 +44,21 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-//
-// TODO: consolidate the 14 positional parameters into a RunnerFactoryConfig struct.
-func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn func() []pkgplugins.SystemPromptSection, sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader VaultEnvLoader, tokenService *auth.TokenService, tokenManager *oauth.TokenManager) (NewRunnerFunc, error) {
-	switch snap.Runner.Type {
+func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
+	switch cfg.Snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params RunnerParams) (Runner, error) {
 			modelRef := params.Model
 			if modelRef == "" {
-				modelRef = snap.Model
+				modelRef = cfg.Snap.Model
 			}
 
 			// Parse provider/model from the ref string.
 			provID, modelID := config.ParseModelRef(modelRef)
 			if provID == "" {
-				provID = snap.Provider
+				provID = cfg.Snap.Provider
 			}
-			creds := snap.ResolveProviderCreds(provID)
+			creds := cfg.Snap.ResolveProviderCreds(provID)
 			apiName := creds.Type
 			if apiName == "" {
 				apiName = provID
@@ -53,14 +69,14 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				err     error
 			)
 			if params.UserID > 0 {
-				userDir, err = SetupUserWorkspace(snap.AgentID, config.StellaHome(), params.UserID)
+				userDir, err = SetupUserWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.UserID)
 			} else {
-				userDir, err = SetupSystemWorkspace(snap.AgentID, config.StellaHome())
+				userDir, err = SetupSystemWorkspace(cfg.Snap.AgentID, config.StellaHome())
 			}
 			if err != nil {
 				return nil, fmt.Errorf("setup workspace: %w", err)
 			}
-			userRoot := UserRoot(userDir)
+			userRoot := userDir
 
 			// Extract memory provider from params (typed as any to avoid circular imports).
 			var memProvider memory.Provider
@@ -69,18 +85,18 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			}
 
 			var promptTools []pkgplugins.PromptToolInfo
-			if promptToolsFn != nil {
-				promptTools, _ = promptToolsFn(ctx)
+			if cfg.PromptToolsBuilder != nil {
+				promptTools, _ = cfg.PromptToolsBuilder(ctx)
 			}
 			homeDir, _ := os.UserHomeDir()
 			pluginView := pkgplugins.SessionPluginView{}
-			if sessionPluginViewFn != nil {
-				pluginView, _ = sessionPluginViewFn(ctx)
+			if cfg.SessionPluginViewBuilder != nil {
+				pluginView, _ = cfg.SessionPluginViewBuilder(ctx)
 			}
 			promptBuild := pkgplugins.SystemPromptContext{
 				StellaHome:          config.StellaHome(),
 				HomeDir:             homeDir,
-				AgentRoot:           snap.Workspace,
+				AgentRoot:           cfg.Snap.Workspace,
 				ProjectRoot:         "",
 				UserID:              params.UserID,
 				AgentID:             params.AgentID,
@@ -88,32 +104,26 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 				EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			}
-			var promptSections []pkgplugins.SystemPromptSection
-			if promptSectionsFn != nil {
-				promptSections, _ = promptSectionsFn(ctx, promptBuild)
+			var sections []pkgplugins.SystemPromptSection
+			if cfg.PromptSectionsBuilder != nil {
+				sections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
 			}
 			if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
-				promptSections = append(promptSections, skillsSection)
-			}
-
-			var pluginPrompts []pkgplugins.SystemPromptSection
-			if pluginPromptsFn != nil {
-				pluginPrompts = pluginPromptsFn()
+				sections = append(sections, skillsSection)
 			}
 
 			// Build the full system prompt per-session with profile from memory provider.
-			system := BuildSystemPromptFromDB(ctx, DBPromptParams{
-				SystemPrompt:   snap.SystemPrompt,
-				AgentSoul:      snap.Soul,
-				Memory:         memProvider,
-				UserID:         params.UserID,
-				AgentID:        params.AgentID,
-				StellaHome:     config.StellaHome(),
-				AgentRoot:      snap.Workspace,
-				UserRoot:       userRoot,
-				PromptTools:    promptTools,
-				PluginPrompts:  pluginPrompts,
-				PromptSections: promptSections,
+			system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+				SystemPrompt: cfg.Snap.SystemPrompt,
+				AgentSoul:    cfg.Snap.Soul,
+				Memory:       memProvider,
+				UserID:       params.UserID,
+				AgentID:      params.AgentID,
+				StellaHome:   config.StellaHome(),
+				AgentRoot:    cfg.Snap.Workspace,
+				UserRoot:     userRoot,
+				PromptTools:  promptTools,
+				Sections:     sections,
 			})
 
 			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
@@ -122,42 +132,47 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				hookPlugins = params.HooksFn()
 			}
 
-			runnerTools := append([]tools.Tool{}, builtinTools...)
+			runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 			runnerTools = append(runnerTools, skillstool.NewTool(
-				skillStore,
+				cfg.SkillStore,
 				config.StellaHome(),
-				snap.Workspace,
+				cfg.Snap.Workspace,
 				"",
 				filepath.Join(userRoot, ".agents", "skills"),
 			))
 
-			return NewGoRunner(ctx, GoRunnerConfig{
-				API:              apiName,
-				Model:            modelID,
-				APIKey:           creds.APIKey,
-				AgentRoot:        snap.Workspace,
-				StellaHome:       config.StellaHome(),
-				BaseURL:          creds.BaseURL,
-				System:           system,
-				PluginPrompts:    pluginPrompts,
-				PromptSections:   promptSections,
-				ExtraTools:       runnerTools,
-				PluginTools:      pluginToolsBuilder,
-				SessionEnvSpecs:  append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
-				UserRoot:         userRoot,
-				Sandbox:          snap.Sandbox,
-				SandboxBackendFn: sandboxBackendFn,
-				HookPlugins:      hookPlugins,
-				ToolLifecycle:    toolLifecycle,
-				Providers:        providerRegistryBuilder,
-				UserID:           params.UserID,
-				VaultEnvLoader:   vaultEnvLoader,
-				TokenService:     tokenService,
-				TokenManager:     tokenManager,
-				SubagentTimeout:  snap.Runner.SubagentTimeoutDuration(),
+			return newRunner(ctx, runnerConfig{
+				Provider: providerConfig{
+					API:     apiName,
+					Model:   modelID,
+					APIKey:  creds.APIKey,
+					BaseURL: creds.BaseURL,
+					Builder: cfg.ProviderStreamBuilder,
+				},
+				Sandbox: sandbox.Config{
+					SandboxConfig:    cfg.Snap.Sandbox,
+					SandboxBackendFn: cfg.SandboxBackendFn,
+					Paths: sandbox.PathConfig{
+						StellaHome: config.StellaHome(),
+						AgentRoot:  cfg.Snap.Workspace,
+						UserRoot:   userRoot,
+					},
+					UserID:          params.UserID,
+					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
+					VaultEnvLoader:  cfg.VaultEnvLoader,
+					TokenService:    cfg.TokenService,
+					TokenManager:    cfg.TokenManager,
+				},
+				System:          system,
+				Sections:        sections,
+				ExtraTools:      runnerTools,
+				PluginTools:     cfg.PluginToolsBuilder,
+				HookPlugins:     hookPlugins,
+				ToolLifecycle:   cfg.ToolLifecycle,
+				SubagentTimeout: cfg.Snap.Runner.SubagentTimeoutDuration(),
 			})
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
+		return nil, fmt.Errorf("unknown runner type: %q", cfg.Snap.Runner.Type)
 	}
 }

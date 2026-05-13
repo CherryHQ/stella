@@ -110,12 +110,10 @@ func TestBuildRequestOptionsEmpty(t *testing.T) {
 
 func TestBuildRequestOptionsAll(t *testing.T) {
 	opts := ai.StreamOptions{
-		APIKey:  "key",
-		BaseURL: "https://example.com",
 		Headers: map[string]string{"X-Custom": "val"},
 	}
 	reqOpts := buildRequestOptions(opts)
-	if len(reqOpts) != 3 {
-		t.Errorf("expected 3 request options, got %d", len(reqOpts))
+	if len(reqOpts) != 1 {
+		t.Errorf("expected 1 request option, got %d", len(reqOpts))
 	}
 }

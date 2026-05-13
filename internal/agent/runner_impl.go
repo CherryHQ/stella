@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
-	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -19,53 +19,38 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
-	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 	"github.com/CherryHQ/stella/resources"
-	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-// VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
-// It is a subset of vault.Service and is defined here to avoid a circular
-// import between the runner and vault packages.
-type VaultEnvLoader interface {
-	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+// providerConfig groups LLM provider settings.
+type providerConfig struct {
+	API     string // provider key: "anthropic", "openai"
+	Model   string // e.g. "claude-sonnet-4-20250514"
+	APIKey  string
+	BaseURL string // optional provider base URL override
+	Builder ProviderStreamBuilder
 }
 
-// GoRunnerConfig configures the Go runner.
-type GoRunnerConfig struct {
-	API              string // provider key: "anthropic", "openai"
-	Model            string // e.g. "claude-sonnet-4-20250514"
-	APIKey           string
-	BaseURL          string // optional provider base URL override
-	AgentRoot        string // agent root directory
-	StellaHome       string // stella home directory (e.g. ~/.stella)
-	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
-	System           string // optional system prompt override (bypasses default prompt building)
-	PluginPrompts    []pkgplugins.SystemPromptSection
-	PromptSections   []pkgplugins.SystemPromptSection
-	ExtraTools       []tools.Tool // additional tools to register
-	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
-	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
-	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
-	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle    *coreagent.ToolLifecycle
-	Providers        ProviderRegistryBuilder
-	Sandbox          config.SandboxConfig
-	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
-	UserID           int64                            // auth user ID; used for vault secret injection
-	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
-	TokenService     *auth.TokenService               // optional; if set, ensures STELLA_TOKEN before vault env injection
-	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
-	SubagentTimeout  time.Duration                    // default wall-clock timeout per subagent (0 = 15m)
-	ChatTimeout      time.Duration                    // wall-clock timeout per main agent chat turn (0 = 30m)
+// runnerConfig configures the runner implementation.
+type runnerConfig struct {
+	Provider        providerConfig
+	Sandbox         sandbox.Config
+	System          string // optional system prompt override (bypasses default prompt building)
+	Sections        []pkgplugins.SystemPromptSection
+	ExtraTools      []tools.Tool // additional tools to register
+	PluginTools     func(context.Context, plugintools.BuildContext) []tools.Tool
+	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle   *coreagent.ToolLifecycle
+	SubagentTimeout time.Duration // default wall-clock timeout per subagent (0 = 15m)
+	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
 
-// GoRunner implements Runner by calling LLM providers directly via agent.Runner.
-type GoRunner struct {
+// runner implements Runner by calling LLM providers directly via agent.Runner.
+type runner struct {
 	runner        *coreagent.Runner
-	reg           *providers.Registry
+	stream        providers.StreamFunc
 	tools         *tools.Registry
 	model         ai.Model
 	streamOptions ai.StreamOptions
@@ -73,7 +58,7 @@ type GoRunner struct {
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
-	session       *runnerSession // runner-owned sandbox session lifecycle
+	session       *sandbox.Session // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -81,55 +66,34 @@ type GoRunner struct {
 	log          *slog.Logger
 }
 
-// NewGoRunner creates a Go runner with built-in providers.
-func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
-	if cfg.API == "" {
-		return nil, fmt.Errorf("go runner: api is required")
-	}
-	if cfg.Model == "" {
-		return nil, fmt.Errorf("go runner: model is required")
-	}
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("go runner: api_key is required")
-	}
-	if cfg.AgentRoot == "" {
-		return nil, fmt.Errorf("go runner: agent_root is required")
-	}
-	if cfg.UserRoot == "" {
-		return nil, fmt.Errorf("go runner: user_root is required")
-	}
-	if _, err := resolveSandboxPaths(cfg); err != nil {
-		return nil, fmt.Errorf("go runner: %w", err)
-	}
-
-	paths := resolveRunnerPaths(cfg)
-
-	reg, err := buildProviderRegistry(cfg)
+// newRunner creates a runner with built-in providers.
+func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
+	stream, err := buildStreamFunc(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	system := cfg.System
+	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.API, Name: cfg.Model}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, BaseURL: cfg.Provider.BaseURL}
 
-	if err := prepareSandbox(ctx, cfg); err != nil {
-		return nil, err
-	}
-
-	session, err := resolveSession(ctx, cfg)
+	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
-		return nil, fmt.Errorf("go runner: %w", err)
+		return nil, fmt.Errorf("runner: %w", err)
 	}
-	if system == "" {
-		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-			StellaHome:     paths.StellaHome,
-			AgentRoot:      paths.AgentRoot,
-			ProjectRoot:    paths.ProjectRoot,
-			UserRoot:       paths.UserRoot,
-			PluginPrompts:  cfg.PluginPrompts,
-			PromptSections: cfg.PromptSections,
-			Host:           session.Session(),
+	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
+	}
+
+	if systemPrompt == "" {
+		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+			StellaHome:  paths.StellaHome,
+			AgentRoot:   paths.AgentRoot,
+			ProjectRoot: paths.ProjectRoot,
+			UserRoot:    paths.UserRoot,
+			Sections:    cfg.Sections,
+			Host:        session.Session(),
 		})
 	}
 
@@ -144,34 +108,32 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers:      reg,
+		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
-		APIKey:         cfg.APIKey,
-		BaseURL:        cfg.BaseURL,
-		System:         system,
+		System:         systemPrompt,
 		Presets:        presets,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
 		DefaultTimeout: cfg.SubagentTimeout,
 	}))
 
-	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
-	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
+	streamOptions := ai.StreamOptions{}
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
 		}
-		return nil, fmt.Errorf("go runner: %w", err)
+		return nil, fmt.Errorf("runner: %w", err)
 	}
 
-	return &GoRunner{
-		runner:        runner,
-		reg:           reg,
+	return &runner{
+		runner:        coreRunner,
+		stream:        stream,
 		tools:         toolReg,
 		model:         model,
 		streamOptions: streamOptions,
-		system:        system,
+		system:        systemPrompt,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
 		chatTimeout:   cfg.ChatTimeout,
@@ -181,15 +143,15 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}, nil
 }
 
-func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(reg, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	return coreagent.NewRunner(coreagent.RunnerConfig{
-		Providers:       reg,
+		Stream:          stream,
 		Model:           model,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
@@ -201,26 +163,30 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 	)
 }
 
-// buildProviderRegistry creates the provider registry for the configured API.
-func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
-	if cfg.Providers == nil {
-		return nil, fmt.Errorf("go runner: provider registry builder is required")
+// buildStreamFunc creates the stream function for the configured API.
+func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
+	if cfg.Provider.API == "" {
+		return nil, fmt.Errorf("runner: api is required")
 	}
-	reg, err := cfg.Providers(cfg.API, cfg.APIKey, cfg.BaseURL)
+	if cfg.Provider.Model == "" {
+		return nil, fmt.Errorf("runner: model is required")
+	}
+	if cfg.Provider.APIKey == "" {
+		return nil, fmt.Errorf("runner: api_key is required")
+	}
+	if cfg.Provider.Builder == nil {
+		return nil, fmt.Errorf("runner: provider stream builder is required")
+	}
+	stream, err := cfg.Provider.Builder(cfg.Provider.API, cfg.Provider.APIKey, cfg.Provider.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("go runner: %w", err)
+		return nil, fmt.Errorf("runner: %w", err)
 	}
-	return reg, nil
+	return stream, nil
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
-	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	paths := resolveRunnerPaths(cfg)
-	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.Session) (*tools.Registry, error) {
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
 
 	// Core tools (read, bash, edit, write) are always provided by the active
@@ -242,7 +208,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 
 	coreTools := buildSandboxCoreTools(session, bc)
 	if len(coreTools) == 0 {
-		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
+		return nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
@@ -297,9 +263,9 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
 }
 
-func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
-	paths := resolveRunnerPaths(cfg)
-	if err := resources.ExtractSubAgents(paths.stellaAgentsDir()); err != nil {
+func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
+	if err := resources.ExtractSubAgents(stellaAgentsDir(paths)); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
@@ -310,43 +276,8 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	}))
 }
 
-func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
-	paths := resolveRunnerPaths(cfg)
-	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-	if err := resources.EnsureBuiltinSkills(paths.stellaSkillsDir()); err != nil {
-		slog.Warn("failed to extract builtin skills", "error", err)
-	}
-
-	backend := config.SandboxBackendLocal
-	if cfg.SandboxBackendFn != nil {
-		if name := cfg.SandboxBackendFn(ctx); name != "" {
-			backend = name
-		}
-	}
-
-	if backend == config.SandboxBackendDocker {
-		dockerCfg, err := resolveDockerConfig()
-		if err != nil {
-			return fmt.Errorf("go runner: %w", err)
-		}
-		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
-		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-			StellaHome: paths.StellaHome,
-			Docker:     dockerCfg,
-		}); err != nil {
-			if config.SandboxDockerImageIsDev() {
-				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
-			}
-			return fmt.Errorf("go runner: docker not available; install and start Docker Desktop or the docker daemon: %w", err)
-		}
-	}
-	return nil
-}
-
 // buildHookSet creates the hook set from configured hook plugins.
-func buildHookSet(cfg GoRunnerConfig) *hooks.HookSet {
+func buildHookSet(cfg runnerConfig) *hooks.HookSet {
 	if len(cfg.HookPlugins) > 0 {
 		return hooks.NewHookSet(cfg.HookPlugins)
 	}
@@ -359,7 +290,7 @@ const defaultChatTimeout = 30 * time.Minute
 var ErrChatTimeout = errors.New("chat timeout exceeded")
 
 // Chat runs the Engine agent loop with the provided history and forwards events.
-func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
+func (r *runner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
 
 	timeout := r.chatTimeout
@@ -395,15 +326,15 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			if len(excludedTools) > 0 {
 				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
 				if err != nil {
-					out <- Event{Err: fmt.Errorf("go runner: %w", err)}
+					out <- Event{Err: fmt.Errorf("runner: %w", err)}
 					return
 				}
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.reg, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
 			if err != nil {
-				out <- Event{Err: fmt.Errorf("go runner: %w", err)}
+				out <- Event{Err: fmt.Errorf("runner: %w", err)}
 				return
 			}
 			loopRunner = tempRunner
@@ -461,7 +392,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 		if r.session != nil {
 			if err := r.session.Sync(); err != nil {
-				slog.Warn("go runner: sync session after chat", "error", err)
+				slog.Warn("runner: sync session after chat", "error", err)
 			}
 		}
 	}()
@@ -471,7 +402,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 // Alive reports whether the runner is healthy.
 // Delegates to the session's lifecycle state.
-func (r *GoRunner) Alive() bool {
+func (r *runner) Alive() bool {
 	if r.session == nil {
 		return false
 	}
@@ -479,25 +410,25 @@ func (r *GoRunner) Alive() bool {
 }
 
 // LastActivity returns the time of the last Chat call.
-func (r *GoRunner) LastActivity() time.Time {
+func (r *runner) LastActivity() time.Time {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.lastActivity
 }
 
 // Busy reports whether a Chat call is currently in flight.
-func (r *GoRunner) Busy() bool {
+func (r *runner) Busy() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.activeCalls > 0
 }
 
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
-func (r *GoRunner) SystemPrompt() string { return r.system }
+func (r *runner) SystemPrompt() string { return r.system }
 
 // Close shuts down any subprocess-backed tools and the sandbox session.
 // Guarantees cleanup of session resources regardless of state.
-func (r *GoRunner) Close() error {
+func (r *runner) Close() error {
 	var errs []error
 
 	if r.tools != nil {

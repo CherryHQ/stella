@@ -9,21 +9,20 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // run executes the agent loop: repeatedly generating assistant responses
 // and executing tool calls until the model stops calling tools,
 // the turn limit is reached, or an interrupt/error occurs.
-func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	if pg == nil {
-		return nil, errors.New("agent: providers not configured")
+func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+	if cfg.Stream == nil {
+		return nil, errors.New("agent: stream not configured")
 	}
 	if emit != nil {
 		emit(AgentStarted{})
 	}
 
-	history, err := runLoop(ctx, cfg, pg, history, emit)
+	history, err := runLoop(ctx, cfg, history, emit)
 	if err != nil {
 		if emit != nil {
 			emit(AgentErrored{Err: err})
@@ -37,7 +36,7 @@ func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, histo
 	return history, nil
 }
 
-func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	loopStart := time.Now()
 	for turn := 1; ; turn++ {
 		if cfg.TurnNotify != nil {
@@ -67,7 +66,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 				MessageCount:    len(normalized),
 				API:             cfg.Model.API,
 				Provider:        cfg.Model.Provider,
-				BaseURL:         resolveBaseURL(cfg.Model, cfg.StreamOptions),
+				BaseURL:         cfg.Model.BaseURL,
 				MaxTokens:       cfg.StreamOptions.MaxTokens,
 				Temperature:     cfg.StreamOptions.Temperature,
 			}
@@ -96,7 +95,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 		turnCfg.Model = effectiveModel
 
 		start := time.Now()
-		result, err := streamAssistant(streamCtx, normalized, turnCfg, pg, emit)
+		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
 		duration := time.Since(start)
 		complete := result.Message
 
@@ -107,7 +106,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 				Model:            effectiveModel.Name,
 				Provider:         effectiveModel.Provider,
 				API:              effectiveModel.API,
-				BaseURL:          resolveBaseURL(effectiveModel, cfg.StreamOptions),
+				BaseURL:          effectiveModel.BaseURL,
 				Usage:            complete.Usage,
 				StopReason:       complete.StopReason,
 				Duration:         duration,
@@ -185,15 +184,14 @@ type streamResult struct {
 	TimeToFirstToken time.Duration // elapsed from stream open to first event
 }
 
-func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
+func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, emit func(LoopEvent)) (streamResult, error) {
 	streamStart := time.Now()
 	dumpLLMContextIfEnabled(cfg, messages)
-	eventStream, err := providers.Stream(
+	eventStream, err := cfg.Stream(
 		ctx,
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
 		cfg.StreamOptions,
-		pg,
 	)
 	if err != nil {
 		return streamResult{}, err
@@ -312,13 +310,4 @@ func extractToolCalls(msg ai.AssistantMessage) []ai.ToolCall {
 		}
 	}
 	return calls
-}
-
-// resolveBaseURL returns the effective endpoint URL, preferring the
-// per-request override over the model-level default.
-func resolveBaseURL(model ai.Model, opts ai.StreamOptions) string {
-	if opts.BaseURL != "" {
-		return opts.BaseURL
-	}
-	return model.BaseURL
 }

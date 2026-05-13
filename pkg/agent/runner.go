@@ -14,7 +14,7 @@ import (
 // Runner is a configured agent loop executor. It is safe for concurrent use.
 // All configuration is set at construction time via RunnerConfig + options.
 type Runner struct {
-	providers     providers.ProviderGetter
+	stream        providers.StreamFunc
 	model         ai.Model
 	streamOptions ai.StreamOptions
 	tools         ToolSet
@@ -29,7 +29,7 @@ type Runner struct {
 
 // RunnerConfig holds the required fields for constructing a Runner.
 type RunnerConfig struct {
-	Providers       providers.ProviderGetter
+	Stream          providers.StreamFunc
 	Model           ai.Model
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
@@ -38,7 +38,7 @@ type RunnerConfig struct {
 // Option configures optional Runner fields.
 type Option func(*Runner)
 
-// WithStreamOptions sets stream options (API key, base URL, etc.).
+// WithStreamOptions sets stream options (temperature, headers, etc.).
 func WithStreamOptions(opts ai.StreamOptions) Option {
 	return func(r *Runner) { r.streamOptions = opts }
 }
@@ -77,8 +77,8 @@ func WithTurnNotify(fn func(turn int, elapsed time.Duration) *string) Option {
 
 // NewRunner constructs a Runner with the given config and options.
 func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
-	if cfg.Providers == nil {
-		return nil, errors.New("agent: providers is required")
+	if cfg.Stream == nil {
+		return nil, errors.New("agent: stream is required")
 	}
 	// Defensive copies: callers must not mutate after construction.
 	toolsCopy := make(ToolSet, len(cfg.Tools))
@@ -87,10 +87,10 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	copy(defsCopy, cfg.ToolDefinitions)
 
 	r := &Runner{
-		providers: cfg.Providers,
-		model:     cfg.Model,
-		tools:     toolsCopy,
-		toolDefs:  defsCopy,
+		stream:   cfg.Stream,
+		model:    cfg.Model,
+		tools:    toolsCopy,
+		toolDefs: defsCopy,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -112,7 +112,7 @@ func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string)
 
 // Run executes the agent loop from scratch.
 func (r *Runner) Run(ctx context.Context, messages []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	return run(ctx, r.loopConfig(), r.providers, messages, emit)
+	return run(ctx, r.loopConfig(), messages, emit)
 }
 
 // Continue validates the history tail and resumes the agent loop.
@@ -130,6 +130,7 @@ func (r *Runner) Continue(ctx context.Context, messages []ai.Message, emit func(
 
 func (r *Runner) loopConfig() loopConfig {
 	return loopConfig{
+		Stream:          r.stream,
 		Model:           r.model,
 		StreamOptions:   r.streamOptions,
 		Tools:           r.tools,

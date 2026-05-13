@@ -1,4 +1,4 @@
-package sandbox
+package docker_test
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	dockerclient "github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+
+	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // dockerAvailable probes whether the docker daemon is reachable.
-// It constructs a client (requires binary on PATH) and calls Version with a short timeout.
 func dockerAvailable(ctx context.Context) bool {
 	client, err := dockerclient.New()
 	if err != nil {
@@ -23,20 +24,8 @@ func dockerAvailable(ctx context.Context) bool {
 	return err == nil
 }
 
-// dockerContractImage is the image the docker contract tests use. Alpine is
-// sufficient because the contract tests exercise the generic Session/Host
-// interface, not stella-sandbox-specific features, and alpine always pulls from
-// the public registry.
 const dockerContractImage = "alpine:3.20"
 
-// dockerPreflightForTest pulls the contract-test image when it is not already
-// present locally. CI hosts have a docker daemon but no pre-pulled image, so
-// the contract tests (which call CreateSession directly, bypassing the public
-// Preflight entry point) would otherwise fail with "No such image".
-//
-// A pull failure (no network, rate limit, …) is reported via t.Skip rather
-// than t.Fatal: the test's concern is contract conformance, not registry
-// availability. Daemon-reachability failures are already handled upstream.
 func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 	t.Helper()
 	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{Image: dockerContractImage}}
@@ -47,10 +36,6 @@ func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 	}
 }
 
-// Contract tests for Session interface.
-// These tests verify that the docker backend satisfies the shared contract.
-
-// TestSessionContract runs the full session contract against the docker factory.
 func TestSessionContract(t *testing.T) {
 	t.Run("DockerFactory", func(t *testing.T) {
 		ctx := context.Background()
@@ -62,16 +47,16 @@ func TestSessionContract(t *testing.T) {
 	})
 }
 
-func testSessionContract(t *testing.T, factory Factory) {
+func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandbox.Policy{
+		Filesystem: sandbox.FilesystemPolicy{
 			WorkingDir: tempDir,
 		},
-		Network: NetworkPolicy{
-			Mode: NetworkDisabled,
+		Network: sandbox.NetworkPolicy{
+			Mode: sandbox.NetworkDisabled,
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -82,22 +67,18 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Fatalf("CreateSession: %v", err)
 		}
 
-		// Session should be alive initially
 		if !session.Alive() {
 			t.Error("session should be alive after creation")
 		}
 
-		// Session should be non-nil and functional.
 		if session == nil {
 			t.Error("session should be non-nil")
 		}
 
-		// Close should succeed
 		if err := session.Close(); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 
-		// After close, session should not be alive
 		if session.Alive() {
 			t.Error("session should not be alive after Close()")
 		}
@@ -135,14 +116,11 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Fatalf("CreateSession: %v", err)
 		}
 
-		// First close
 		if err := session.Close(); err != nil {
 			t.Errorf("first Close: %v", err)
 		}
 
-		// Second close should be safe (may return error or nil)
 		if err := session.Close(); err != nil {
-			// Error on second close is acceptable
 			t.Logf("second Close returned error (acceptable): %v", err)
 		}
 	})
@@ -154,12 +132,10 @@ func testSessionContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		// WorkingDir should match policy
 		if got := session.WorkingDir(); got != policy.Filesystem.WorkingDir {
 			t.Errorf("WorkingDir() = %q, want %q", got, policy.Filesystem.WorkingDir)
 		}
 
-		// ResolvePath should work
 		resolved, err := session.ResolvePath("test.txt")
 		if err != nil {
 			t.Errorf("ResolvePath: %v", err)
@@ -172,12 +148,12 @@ func testSessionContract(t *testing.T, factory Factory) {
 	})
 
 	t.Run("Exec", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, Policy{
-			Filesystem: FilesystemPolicy{
+		session, err := factory.CreateSession(ctx, sandbox.Policy{
+			Filesystem: sandbox.FilesystemPolicy{
 				WorkingDir: tempDir,
 			},
-			Network: NetworkPolicy{
-				Mode:    NetworkAllowAll,
+			Network: sandbox.NetworkPolicy{
+				Mode:    sandbox.NetworkAllowAll,
 				Timeout: 10 * time.Second,
 			},
 			Timeout: 10 * time.Second,
@@ -187,8 +163,7 @@ func testSessionContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		// Simple echo command
-		execResult, err := session.Exec(ctx, "echo hello", ExecOptions{})
+		execResult, err := session.Exec(ctx, "echo hello", sandbox.ExecOptions{})
 		if err != nil {
 			t.Fatalf("Exec: %v", err)
 		}
@@ -197,13 +172,13 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Errorf("ExitCode = %d, want 0", execResult.ExitCode)
 		}
 
-		if !containsSubstring(execResult.Stdout, "hello") {
+		if !contractContainsSubstring(execResult.Stdout, "hello") {
 			t.Errorf("Stdout = %q, should contain %q", execResult.Stdout, "hello")
 		}
 	})
 }
 
-func containsSubstring(s, substr string) bool {
+func contractContainsSubstring(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true

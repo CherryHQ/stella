@@ -1,4 +1,4 @@
-package sandbox
+package coretools
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -25,7 +26,7 @@ func newToolNormalizer() *toolNormalizer {
 	}
 }
 
-func (n *toolNormalizer) NormalizeExec(result ExecResult, elapsed time.Duration) toolNormalizeResult {
+func (n *toolNormalizer) NormalizeExec(result sandbox.ExecResult, elapsed time.Duration) toolNormalizeResult {
 	output := result.Stdout
 	if result.Stderr != "" {
 		if output != "" {

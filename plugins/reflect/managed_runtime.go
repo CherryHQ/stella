@@ -117,7 +117,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 		Interval:   cfg.Interval,
 		Batch:      cfg.Batch,
 		Log:        r.deps.Log,
-		Providers:  r.deps.Services.BuildProviders,
+		Providers:  r.deps.Services.BuildStreamFunc,
 	})
 	parent := r.deps.Services.ParentContext()
 	if parent == nil {
@@ -206,7 +206,7 @@ func (r *managedRuntime) RunScheduledJob(ctx context.Context, key string, payloa
 		Interval:   cfg.Interval,
 		Batch:      cfg.Batch,
 		Log:        r.deps.Log,
-		Providers:  r.deps.Services.BuildProviders,
+		Providers:  r.deps.Services.BuildStreamFunc,
 	})
 	svc.RunOnce(ctx)
 	return nil

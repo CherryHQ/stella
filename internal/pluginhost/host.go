@@ -464,6 +464,7 @@ func (h *Host) ManifestPluginPrompts() []pkgplugins.SystemPromptSection {
 	h.mu.RLock()
 	out := make([]pkgplugins.SystemPromptSection, 0, len(h.manifestPrompts))
 	for _, s := range h.manifestPrompts {
+		s.Inline = true
 		out = append(out, s)
 	}
 	h.mu.RUnlock()
