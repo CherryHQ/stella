@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -74,7 +75,7 @@ type GoRunner struct {
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
-	session       *runnerSession // runner-owned sandbox session lifecycle
+	session       *sandbox.Session // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -99,7 +100,21 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.UserRoot == "" {
 		return nil, fmt.Errorf("go runner: user_root is required")
 	}
-	if _, err := resolveSandboxPaths(cfg); err != nil {
+	sandboxCfg := sandbox.Config{
+		SandboxConfig:    cfg.Sandbox,
+		SandboxBackendFn: cfg.SandboxBackendFn,
+		StellaHome:       cfg.StellaHome,
+		AgentRoot:        cfg.AgentRoot,
+		UserRoot:         cfg.UserRoot,
+		ProjectRoot:      cfg.ProjectRoot,
+		UserID:           cfg.UserID,
+		SessionEnvSpecs:  cfg.SessionEnvSpecs,
+		VaultEnvLoader:   cfg.VaultEnvLoader,
+		TokenService:     cfg.TokenService,
+		TokenManager:     cfg.TokenManager,
+	}
+
+	if _, err := sandbox.ResolvePaths(sandboxCfg); err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
@@ -118,7 +133,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, err
 	}
 
-	session, err := resolveSession(ctx, cfg)
+	session, err := sandbox.ResolveSession(ctx, sandboxCfg)
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
@@ -215,7 +230,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
+func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *sandbox.Session) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	paths := resolveRunnerPaths(cfg)
 	if err := binaries.EnsureTools(paths.StellaHome); err != nil {
@@ -328,11 +343,11 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	}
 
 	if backend == config.SandboxBackendDocker {
-		dockerCfg, err := resolveDockerConfig()
+		dockerCfg, err := sandbox.ResolveDockerConfig()
 		if err != nil {
 			return fmt.Errorf("go runner: %w", err)
 		}
-		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
+		sandbox.CleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
 		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
 			StellaHome: paths.StellaHome,
 			Docker:     dockerCfg,

@@ -1,4 +1,4 @@
-package agent
+package sandbox
 
 import (
 	"context"
@@ -56,9 +56,9 @@ func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID int64) (map[stri
 	return out, nil
 }
 
-// TestResolveSessionRequiresUserRoot tests that resolveSession fails without a UserRoot.
+// TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.
 func TestResolveSessionRequiresUserRoot(t *testing.T) {
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
+	_, err := ResolveSession(context.Background(), Config{
 		AgentRoot: "/workspace/agent",
 		// UserRoot intentionally omitted
 	})
@@ -67,33 +67,18 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	}
 }
 
-func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1",
-	}
-
-	paths := resolveRunnerPaths(cfg)
-	if got := resolveSandboxWorkingDir(cfg, cfg.UserRoot); got != cfg.UserRoot {
-		t.Fatalf("resolveSandboxWorkingDir() = %q, want %q", got, cfg.UserRoot)
-	}
-	if paths.UserRoot != cfg.UserRoot {
-		t.Fatalf("UserRoot = %q, want %q", paths.UserRoot, cfg.UserRoot)
-	}
-}
-
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome: "/stella",
 		AgentRoot:  "/workspace/agent",
 		UserRoot:   "/workspace/agent/users/1",
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
-	env := sandboxProcessEnv(paths)
+	env := ProcessEnv(paths)
 	if _, ok := env["HOME"]; ok {
 		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
@@ -143,10 +128,10 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 	}
 }
 
-// TestRunnerSessionLifecycle tests the runnerSession lifecycle using a nil session
+// TestRunnerSessionLifecycle tests the Session lifecycle using a nil session
 // (alwaysAlive=true path) to avoid requiring a live sandbox backend.
 func TestRunnerSessionLifecycle(t *testing.T) {
-	rs := &runnerSession{
+	rs := &Session{
 		alwaysAlive: true,
 	}
 
@@ -169,7 +154,7 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 	}
 }
 
-// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that resolveSession
+// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that ResolveSession
 // routes to createDockerSession and fails with a docker-related error when the daemon
 // is unreachable.
 func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
@@ -179,10 +164,10 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
+	_, err := ResolveSession(context.Background(), Config{
 		AgentRoot:        workspace,
 		UserRoot:         userRoot,
-		Sandbox:          config.SandboxConfig{},
+		SandboxConfig:    config.SandboxConfig{},
 		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
 	})
 	if err == nil {
@@ -195,7 +180,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 
 // TestRunnerSessionNilHandling tests nil session safety.
 func TestRunnerSessionNilHandling(t *testing.T) {
-	var rs *runnerSession
+	var rs *Session
 
 	// Should handle nil gracefully
 	if rs.Alive() {
@@ -221,7 +206,7 @@ func TestRunnerSessionNilHandling(t *testing.T) {
 // in the sandbox env and that runner-set vars (STELLA_HOME) take precedence over
 // any same-named vault entry.
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome: "/stella",
 		AgentRoot:  "/workspace/agent",
 		UserRoot:   "/workspace/users/1",
@@ -234,9 +219,9 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 		},
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
 
 	env, err := buildSandboxEnv(context.Background(), cfg, paths)
@@ -258,15 +243,15 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 // TestBuildSandboxEnv_noVaultLoader verifies that buildSandboxEnv behaves
 // correctly (returns runner env vars) when no vault loader is configured.
 func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome: "/stella",
 		AgentRoot:  "/workspace/agent",
 		UserRoot:   "/workspace/users/1",
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
 
 	env, err := buildSandboxEnv(context.Background(), cfg, paths)
@@ -283,7 +268,7 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 // OAuth bundle keys are not forwarded into the sandbox environment, even when
 // present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome: "/stella",
 		AgentRoot:  "/workspace/agent",
 		UserRoot:   "/workspace/users/1",
@@ -298,9 +283,9 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 		},
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
 
 	env, err := buildSandboxEnv(context.Background(), cfg, paths)
@@ -358,7 +343,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		t.Fatalf("Set OTHER_SECRET: %v", err)
 	}
 
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome:     "/stella",
 		AgentRoot:      "/workspace/agent",
 		UserRoot:       "/workspace/users/1",
@@ -373,9 +358,9 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		},
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
 
 	env, err := buildSandboxEnv(ctx, cfg, paths)
@@ -423,7 +408,7 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		t.Fatalf("Set LARK_CLI_OAUTH: %v", err)
 	}
 
-	cfg := GoRunnerConfig{
+	cfg := Config{
 		StellaHome:     "/stella",
 		AgentRoot:      "/workspace/agent",
 		UserRoot:       "/workspace/users/1",
@@ -436,9 +421,9 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		},
 	}
 
-	paths, err := resolveSandboxPaths(cfg)
+	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
+		t.Fatalf("ResolvePaths: %v", err)
 	}
 
 	env, err := buildSandboxEnv(ctx, cfg, paths)
