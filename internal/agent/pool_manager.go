@@ -37,11 +37,7 @@ type PluginToolsBuilder func(ctx context.Context, build plugintools.BuildContext
 // Called at startup and on hot-reload when a hook plugin is toggled.
 type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
-// PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type (
-	PromptToolsBuilder       func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-	PromptSectionsBuilder    func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	PluginPromptsBuilder     func() []pkgplugins.SystemPromptSection
 	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
 	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 	ProviderStreamBuilder    func(api, apiKey, baseURL string) (providers.StreamFunc, error)
@@ -92,20 +88,19 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 	}
 }
 
-// WithPromptToolsBuilder sets the function that returns prompt inventory items.
-func WithPromptToolsBuilder(b PromptToolsBuilder) PoolManagerOption {
+func WithPromptToolsBuilder(b prompt.ToolsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.promptToolsBuilder = b
 	}
 }
 
-func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
+func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.promptSectionsBuilder = b
 	}
 }
 
-func WithPluginPromptsBuilder(b PluginPromptsBuilder) PoolManagerOption {
+func WithPluginPromptsBuilder(b prompt.PluginsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.pluginPromptsBuilder = b
 	}
@@ -176,9 +171,9 @@ type PoolManager struct {
 	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
 	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
-	promptToolsBuilder       PromptToolsBuilder // builds prompt inventory from plugin state
-	promptSectionsBuilder    PromptSectionsBuilder
-	pluginPromptsBuilder     PluginPromptsBuilder
+	promptToolsBuilder       prompt.ToolsBuilder
+	promptSectionsBuilder    prompt.SectionsBuilder
+	pluginPromptsBuilder     prompt.PluginsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle

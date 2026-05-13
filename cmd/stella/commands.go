@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
@@ -76,9 +77,9 @@ type setupResult struct {
 	builtinTools             []tools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
-	promptToolsBuilder       func(context.Context) ([]pkgplugins.PromptToolInfo, error)
-	promptSectionsBuilder    func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	pluginPromptsBuilder     agent.PluginPromptsBuilder
+	promptToolsBuilder       prompt.ToolsBuilder
+	promptSectionsBuilder    prompt.SectionsBuilder
+	pluginPromptsBuilder     prompt.PluginsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
@@ -545,7 +546,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn agent.PluginPromptsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, pluginPromptsFn prompt.PluginsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base

@@ -25,9 +25,9 @@ type RunnerFactoryConfig struct {
 	BuiltinTools             []tools.Tool
 	PluginToolsBuilder       PluginToolsBuilder
 	ProviderStreamBuilder    ProviderStreamBuilder
-	PromptToolsBuilder       PromptToolsBuilder
-	PromptSectionsBuilder    PromptSectionsBuilder
-	PluginPromptsBuilder     PluginPromptsBuilder
+	PromptToolsBuilder       prompt.ToolsBuilder
+	PromptSectionsBuilder    prompt.SectionsBuilder
+	PluginPromptsBuilder     prompt.PluginsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SkillStore               pkgplugins.SkillStore

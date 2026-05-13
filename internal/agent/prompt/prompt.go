@@ -16,6 +16,12 @@ import (
 	"github.com/CherryHQ/stella/resources"
 )
 
+type (
+	ToolsBuilder    func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+	SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	PluginsBuilder  func() []pkgplugins.SystemPromptSection
+)
+
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
 
