@@ -424,22 +424,6 @@ export function RecallyPage() {
         )}
       >
         <div className="space-y-5 p-3">
-          <div className="rounded-md border border-border bg-card p-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-md bg-foreground text-background">
-                <BookOpen className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold tracking-tight text-foreground">
-                  {t("recally.title")}
-                </div>
-                <div className="truncate text-[11px] text-muted-foreground">
-                  {t("recally.subtitle")}
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Views */}
           <div>
             <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -540,7 +524,7 @@ export function RecallyPage() {
             {sortedTags.length > 0 && (
               <div>
                 <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Tags
+                  {t("recally.section.tags")}
                 </div>
                 <div className="flex flex-wrap gap-1 px-1">
                   {visibleTags.map((tag) => (
@@ -556,7 +540,9 @@ export function RecallyPage() {
                       onClick={() => setShowAllTags(!showAllTags)}
                       className="rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                     >
-                      {showAllTags ? "Less" : `+${sortedTags.length - 10}`}
+                      {showAllTags
+                        ? t("recally.tags.less")
+                        : t("recally.tags.more", { count: sortedTags.length - 10 })}
                     </button>
                   )}
                 </div>
