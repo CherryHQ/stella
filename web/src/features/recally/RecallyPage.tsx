@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Streamdown } from "streamdown";
 import {
   Search,
   Star,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   Rss,
   AlertCircle,
+  X,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -30,6 +32,9 @@ import type { Article, ArticleStatus, SourceType, Feed } from "@/lib/api-client/
 import type { MessageKey } from "@/lib/i18n/messages";
 
 const SOURCE_TYPES: SourceType[] = ["web", "rss", "github", "pdf", "youtube", "twitter"];
+const CENTER_WIDTH_DEFAULT = 420;
+const CENTER_WIDTH_MIN = 280;
+const CENTER_WIDTH_MAX = 640;
 
 const SOURCE_LABEL_KEYS: Record<SourceType, MessageKey> = {
   web: "recally.source.web",
@@ -66,6 +71,7 @@ export function RecallyPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [feedUrl, setFeedUrl] = useState("");
+  const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
   const [feedPollResults, setFeedPollResults] = useState<
     Record<string, { newCount: number; error?: string }>
   >({});
@@ -178,10 +184,180 @@ export function RecallyPage() {
     setSourceTypeFilter(null);
   }
 
+  function startResize(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = centerWidth;
+
+    function onMove(ev: MouseEvent) {
+      const nextWidth = startWidth + ev.clientX - startX;
+      setCenterWidth(Math.max(CENTER_WIDTH_MIN, Math.min(CENTER_WIDTH_MAX, nextWidth)));
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  const readerPanel = (
+    <div className="min-h-0 flex-1 overflow-auto">
+      {!selectedId ? (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          {t("recally.reader.empty")}
+        </div>
+      ) : articleQuery.isLoading ? (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          {t("common.loading")}
+        </div>
+      ) : articleQuery.isError ? (
+        <div className="flex h-full items-center justify-center text-sm text-destructive">
+          {t("common.error")}
+        </div>
+      ) : selectedArticle ? (
+        <div className="p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
+              <StatusBadge status={selectedArticle.status} t={t} />
+              <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
+              <span>{formatSavedAt(selectedArticle.saved_at, t)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              {selectedArticle.status !== "read" && (
+                <button
+                  onClick={() =>
+                    updateArticleMut.mutate({
+                      body: { status: "read" },
+                      path: { id: selectedArticle.id },
+                    })
+                  }
+                  disabled={updateArticleMut.isPending}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <Check className="size-3" />
+                  {t("recally.action.markRead")}
+                </button>
+              )}
+              {selectedArticle.status !== "unread" && (
+                <button
+                  onClick={() =>
+                    updateArticleMut.mutate({
+                      body: { status: "unread" },
+                      path: { id: selectedArticle.id },
+                    })
+                  }
+                  disabled={updateArticleMut.isPending}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <EyeOff className="size-3" />
+                  {t("recally.action.markUnread")}
+                </button>
+              )}
+              {selectedArticle.status !== "archived" && (
+                <button
+                  onClick={() =>
+                    updateArticleMut.mutate({
+                      body: { status: "archived" },
+                      path: { id: selectedArticle.id },
+                    })
+                  }
+                  disabled={updateArticleMut.isPending}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <Archive className="size-3" />
+                  {t("recally.action.archive")}
+                </button>
+              )}
+              <button
+                onClick={() =>
+                  updateArticleMut.mutate({
+                    body: { starred: !selectedArticle.starred },
+                    path: { id: selectedArticle.id },
+                  })
+                }
+                disabled={updateArticleMut.isPending}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                <Star
+                  className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
+                />
+                {selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")}
+              </button>
+              {confirmingDeleteId === selectedArticle.id ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-medium text-destructive">
+                    {t("recally.deleteConfirm")}
+                  </span>
+                  <button
+                    onClick={() =>
+                      deleteArticleMut.mutate({
+                        path: { id: selectedArticle.id },
+                      })
+                    }
+                    disabled={deleteArticleMut.isPending}
+                    className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                  >
+                    {t("common.yes")}
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDeleteId(null)}
+                    className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent"
+                  >
+                    {t("common.no")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDeleteId(selectedArticle.id)}
+                  disabled={deleteArticleMut.isPending}
+                  className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <Trash2 className="size-3" />
+                  {t("common.delete")}
+                </button>
+              )}
+            </div>
+          </div>
+          <article className="w-full">
+            <h2 className="mb-1 text-xl font-semibold tracking-tight">{selectedArticle.title}</h2>
+            {selectedArticle.author && (
+              <p className="mb-4 font-mono text-xs text-muted-foreground">
+                {selectedArticle.author}
+              </p>
+            )}
+            {selectedArticle.content ? (
+              <div className="prose prose-sm max-w-none text-foreground">
+                <Streamdown>{selectedArticle.content}</Streamdown>
+              </div>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">
+                {t("recally.reader.noContent")}
+              </p>
+            )}
+          </article>
+        </div>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          {t("recally.reader.empty")}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="h-full grid grid-cols-1 md:grid-cols-[220px_1fr] xl:grid-cols-[240px_1fr_420px] overflow-hidden bg-background">
+    <div
+      className="h-[calc(100vh-3.5rem)] min-h-0 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_var(--recally-center-width)_1fr] overflow-hidden bg-background"
+      style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
+    >
       {/* Left sidebar */}
-      <aside className="hidden md:flex flex-col border-r border-border overflow-auto">
+      <aside className="hidden md:flex min-h-0 flex-col border-r border-border overflow-auto">
         <div className="p-3 space-y-4">
           {/* Library */}
           <div>
@@ -400,12 +576,55 @@ export function RecallyPage() {
       </aside>
 
       {/* Center article list */}
-      <section className="flex flex-col min-h-0 overflow-hidden">
+      <section className="flex min-h-0 flex-col overflow-hidden">
         {/* Header with stats */}
         <div className="shrink-0 px-4 py-3 border-b border-border">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">{t("recally.title")}</h1>
             <p className="text-xs text-muted-foreground mt-0.5">{t("recally.subtitle")}</p>
+          </div>
+          <div className="mt-3 space-y-2 md:hidden">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder={t("recally.searchPlaceholder")}
+                className="h-9 w-full rounded-md border border-border bg-muted pl-8 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              <FilterChip
+                label={t("recally.status.all")}
+                active={statusFilter === null && starredFilter !== true}
+                onClick={() => {
+                  setStatusFilter(null);
+                  setStarredFilter(null);
+                }}
+              />
+              <FilterChip
+                label={t("recally.status.unread")}
+                active={statusFilter === "unread"}
+                onClick={() => {
+                  setStatusFilter("unread");
+                  setStarredFilter(null);
+                }}
+              />
+              <FilterChip
+                label={t("recally.status.read")}
+                active={statusFilter === "read"}
+                onClick={() => {
+                  setStatusFilter("read");
+                  setStarredFilter(null);
+                }}
+              />
+              <FilterChip
+                label={t("recally.nav.starred")}
+                active={starredFilter === true}
+                onClick={() => setStarredFilter(starredFilter === true ? null : true)}
+              />
+            </div>
           </div>
           {digest && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
@@ -451,153 +670,30 @@ export function RecallyPage() {
       </section>
 
       {/* Right reader panel */}
-      <aside className="hidden xl:flex flex-col border-l border-border overflow-hidden bg-background">
-        <div className="flex-1 overflow-auto">
-          {!selectedId ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              {t("recally.reader.empty")}
-            </div>
-          ) : articleQuery.isLoading ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              {t("common.loading")}
-            </div>
-          ) : articleQuery.isError ? (
-            <div className="flex items-center justify-center h-full text-sm text-destructive">
-              {t("common.error")}
-            </div>
-          ) : selectedArticle ? (
-            <div className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
-                  <StatusBadge status={selectedArticle.status} t={t} />
-                  <span>{t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}</span>
-                  <span>{formatSavedAt(selectedArticle.saved_at, t)}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {selectedArticle.status !== "read" && (
-                    <button
-                      onClick={() =>
-                        updateArticleMut.mutate({
-                          body: { status: "read" },
-                          path: { id: selectedArticle.id },
-                        })
-                      }
-                      disabled={updateArticleMut.isPending}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Check className="size-3" />
-                      {t("recally.action.markRead")}
-                    </button>
-                  )}
-                  {selectedArticle.status !== "unread" && (
-                    <button
-                      onClick={() =>
-                        updateArticleMut.mutate({
-                          body: { status: "unread" },
-                          path: { id: selectedArticle.id },
-                        })
-                      }
-                      disabled={updateArticleMut.isPending}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <EyeOff className="size-3" />
-                      {t("recally.action.markUnread")}
-                    </button>
-                  )}
-                  {selectedArticle.status !== "archived" && (
-                    <button
-                      onClick={() =>
-                        updateArticleMut.mutate({
-                          body: { status: "archived" },
-                          path: { id: selectedArticle.id },
-                        })
-                      }
-                      disabled={updateArticleMut.isPending}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Archive className="size-3" />
-                      {t("recally.action.archive")}
-                    </button>
-                  )}
-                  <button
-                    onClick={() =>
-                      updateArticleMut.mutate({
-                        body: { starred: !selectedArticle.starred },
-                        path: { id: selectedArticle.id },
-                      })
-                    }
-                    disabled={updateArticleMut.isPending}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <Star
-                      className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
-                    />
-                    {selectedArticle.starred
-                      ? t("recally.action.unstar")
-                      : t("recally.action.star")}
-                  </button>
-                  {confirmingDeleteId === selectedArticle.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-destructive font-medium">
-                        {t("recally.deleteConfirm")}
-                      </span>
-                      <button
-                        onClick={() =>
-                          deleteArticleMut.mutate({
-                            path: { id: selectedArticle.id },
-                          })
-                        }
-                        disabled={deleteArticleMut.isPending}
-                        className="px-2 py-1 text-xs rounded-md border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
-                      >
-                        {t("common.yes")}
-                      </button>
-                      <button
-                        onClick={() => setConfirmingDeleteId(null)}
-                        className="px-2 py-1 text-xs rounded-md border border-border hover:bg-accent transition-colors"
-                      >
-                        {t("common.no")}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmingDeleteId(selectedArticle.id)}
-                      disabled={deleteArticleMut.isPending}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                    >
-                      <Trash2 className="size-3" />
-                      {t("common.delete")}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <article className="max-w-prose">
-                <h2 className="text-xl font-semibold tracking-tight mb-1">
-                  {selectedArticle.title}
-                </h2>
-                {selectedArticle.author && (
-                  <p className="text-xs text-muted-foreground font-mono mb-4">
-                    {selectedArticle.author}
-                  </p>
-                )}
-                {selectedArticle.content ? (
-                  <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                    {selectedArticle.content}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">
-                    {t("recally.reader.noContent")}
-                  </p>
-                )}
-              </article>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              {t("recally.reader.empty")}
-            </div>
-          )}
-        </div>
+      <aside className="relative hidden min-h-0 flex-col border-l border-border bg-background xl:flex">
+        <button
+          type="button"
+          aria-label="Resize list"
+          onMouseDown={startResize}
+          className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize transition-colors hover:bg-border/70"
+        />
+        {readerPanel}
       </aside>
+      {selectedId && (
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+            <span className="text-sm font-medium">{t("recally.title")}</span>
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          {readerPanel}
+        </div>
+      )}
       <ToastAlert toast={toast} />
     </div>
   );
