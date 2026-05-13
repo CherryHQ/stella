@@ -1,4 +1,4 @@
-package sandbox
+package agent
 
 import (
 	"context"
@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewCoreTools returns the unified host-backed core tools.
-func NewCoreTools(host Host, toolsBinDir, projectRoot string) []tools.Tool {
+func newCoreTools(host sandbox.Host, toolsBinDir, projectRoot string) []tools.Tool {
 	if host == nil {
 		return nil
 	}
@@ -24,23 +24,23 @@ func NewCoreTools(host Host, toolsBinDir, projectRoot string) []tools.Tool {
 	}
 }
 
-func newBashTool(host Host, toolsBinDir, projectRoot string) tools.Tool {
+func newBashTool(host sandbox.Host, toolsBinDir, projectRoot string) tools.Tool {
 	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir, projectRoot: projectRoot}
 }
 
-func newReadTool(host Host, projectRoot string) tools.Tool {
+func newReadTool(host sandbox.Host, projectRoot string) tools.Tool {
 	return &hostReadTool{host: host, projectRoot: projectRoot}
 }
 
-func newWriteTool(host Host, projectRoot string) tools.Tool {
+func newWriteTool(host sandbox.Host, projectRoot string) tools.Tool {
 	return &hostWriteTool{host: host, projectRoot: projectRoot}
 }
 
-func newEditTool(host Host, projectRoot string) tools.Tool {
+func newEditTool(host sandbox.Host, projectRoot string) tools.Tool {
 	return &hostEditTool{host: host, projectRoot: projectRoot}
 }
 
-func resolveToolPath(host Host, projectRoot, path string) (string, error) {
+func resolveToolPath(host sandbox.Host, projectRoot, path string) (string, error) {
 	if projectRoot != "" {
 		return tools.ResolveProjectPath(projectRoot, path)
 	}
@@ -48,7 +48,7 @@ func resolveToolPath(host Host, projectRoot, path string) (string, error) {
 }
 
 type hostBashTool struct {
-	host        Host
+	host        sandbox.Host
 	normalizer  *toolNormalizer
 	toolsBinDir string
 	projectRoot string
@@ -81,7 +81,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if t.toolsBinDir != "" {
 		env["PATH"] = t.toolsBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	}
-	execOpts := ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
+	execOpts := sandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
 	if t.projectRoot != "" {
 		execOpts.Cwd = t.projectRoot
 	}
@@ -103,7 +103,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 }
 
 type hostReadTool struct {
-	host        Host
+	host        sandbox.Host
 	projectRoot string
 }
 
@@ -172,7 +172,7 @@ func (t *hostReadTool) Execute(_ context.Context, args map[string]any) (string, 
 }
 
 type hostWriteTool struct {
-	host        Host
+	host        sandbox.Host
 	projectRoot string
 }
 
@@ -214,7 +214,7 @@ func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string,
 }
 
 type hostEditTool struct {
-	host        Host
+	host        sandbox.Host
 	projectRoot string
 }
 

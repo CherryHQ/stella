@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/sandbox"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 

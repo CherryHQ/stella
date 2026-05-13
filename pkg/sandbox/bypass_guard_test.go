@@ -56,37 +56,3 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		})
 	}
 }
-
-func TestPluginPackagesDoNotImportInternalSandbox(t *testing.T) {
-	t.Parallel()
-
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller path")
-	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
-	for _, dir := range []string{"plugins", "pkg/plugins"} {
-		t.Run(dir, func(t *testing.T) {
-			t.Parallel()
-			err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
-					return nil
-				}
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				if strings.Contains(string(data), `"github.com/CherryHQ/stella/internal/sandbox"`) {
-					t.Fatalf("%s imports internal sandbox", path)
-				}
-				return nil
-			})
-			if err != nil {
-				t.Fatalf("walk %s: %v", dir, err)
-			}
-		})
-	}
-}
