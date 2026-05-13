@@ -1,7 +1,6 @@
-// WARNING: commands run directly on the host OS with limited hardening only.
 // Hardening layers applied: process-group isolation on Unix, rlimits on Linux,
-// bwrap filesystem/network isolation on Linux. macOS local execution currently runs
-// without additional OS sandboxing.
+// bwrap filesystem/network isolation on Linux, macOS Seatbelt (sandbox-exec)
+// filesystem and network isolation on macOS.
 // Use the docker backend when full container isolation is required.
 package local
 
