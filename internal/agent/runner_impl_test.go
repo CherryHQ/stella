@@ -56,7 +56,7 @@ func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
 	return stellaHome, workspace, userRoot
 }
 
-func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
+func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 	t.Helper()
 	stellaHome, workspace, userRoot := testRunnerPaths(t)
 	cfg.StellaHome = stellaHome
@@ -79,7 +79,7 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	cfg := GoRunnerConfig{
+	cfg := runnerConfig{
 		StellaHome:       t.TempDir(),
 		AgentRoot:        workspace,
 		UserRoot:         userRoot,
@@ -127,21 +127,21 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 }
 
-func TestNewGoRunnerRequiresConfig(t *testing.T) {
+func TestNewRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  GoRunnerConfig
+		cfg  runnerConfig
 	}{
-		{"missing api", GoRunnerConfig{Model: "m", APIKey: "k"}},
-		{"missing model", GoRunnerConfig{API: "anthropic", APIKey: "k"}},
-		{"missing api_key", GoRunnerConfig{API: "anthropic", Model: "m"}},
-		{"missing workspace", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", UserRoot: "/tmp/user"}},
-		{"missing user_data_dir", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", AgentRoot: "/tmp/workspace"}},
+		{"missing api", runnerConfig{Model: "m", APIKey: "k"}},
+		{"missing model", runnerConfig{API: "anthropic", APIKey: "k"}},
+		{"missing api_key", runnerConfig{API: "anthropic", Model: "m"}},
+		{"missing workspace", runnerConfig{API: "anthropic", Model: "m", APIKey: "k", UserRoot: "/tmp/user"}},
+		{"missing user_data_dir", runnerConfig{API: "anthropic", Model: "m", APIKey: "k", AgentRoot: "/tmp/workspace"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewGoRunner(context.Background(), tt.cfg)
+			_, err := newRunner(context.Background(), tt.cfg)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -149,16 +149,16 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	}
 }
 
-// goRunnerFakeProvider implements stream.Provider for testing Chat() without real API calls.
-type goRunnerFakeProvider struct {
+// runnerFakeProvider implements stream.Provider for testing Chat() without real API calls.
+type runnerFakeProvider struct {
 	api    string
 	events []ai.AssistantEvent
 	err    error
 }
 
-func (f *goRunnerFakeProvider) API() string { return f.api }
+func (f *runnerFakeProvider) API() string { return f.api }
 
-func (f *goRunnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (f *runnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -172,23 +172,23 @@ func (f *goRunnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Contex
 	return out, nil
 }
 
-func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+func (f *runnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return f.Stream(goCtx, ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
-// newTestGoRunner creates a GoRunner wired to a fake provider.
+// newTestRunner creates a runner wired to a fake provider.
 // Requires a reachable docker daemon since docker is now the only sandbox backend.
 // Skips the test if the docker daemon is not reachable or container creation fails.
-func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
+func newTestRunner(t *testing.T, fp *runnerFakeProvider) *runner {
 	t.Helper()
-	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
+	r, err := newRunner(context.Background(), withTestRunnerPaths(t, runnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
-		t.Skipf("NewGoRunner: docker not available: %v", err)
+		t.Skipf("newRunner: docker not available: %v", err)
 	}
 	t.Cleanup(func() { _ = r.Close() })
 	r.reg.Register(fp)
@@ -196,7 +196,7 @@ func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 }
 
 func TestChatStreamsTextDeltas(t *testing.T) {
-	fp := &goRunnerFakeProvider{
+	fp := &runnerFakeProvider{
 		api: "anthropic",
 		events: []ai.AssistantEvent{
 			ai.EventStart{},
@@ -205,7 +205,7 @@ func TestChatStreamsTextDeltas(t *testing.T) {
 			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
-	r := newTestGoRunner(t, fp)
+	r := newTestRunner(t, fp)
 
 	ch := r.Chat(context.Background(), nil, "hi")
 
@@ -223,11 +223,11 @@ func TestChatStreamsTextDeltas(t *testing.T) {
 }
 
 func TestChatStreamError(t *testing.T) {
-	fp := &goRunnerFakeProvider{
+	fp := &runnerFakeProvider{
 		api: "anthropic",
 		err: errors.New("provider boom"),
 	}
-	r := newTestGoRunner(t, fp)
+	r := newTestRunner(t, fp)
 
 	ch := r.Chat(context.Background(), nil, "hi")
 
@@ -245,7 +245,7 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatUnknownProvider(t *testing.T) {
-	_, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
+	_, err := newRunner(context.Background(), withTestRunnerPaths(t, runnerConfig{
 		API:       "nonexistent",
 		Model:     "test-model",
 		APIKey:    "test-key",
@@ -257,14 +257,14 @@ func TestChatUnknownProvider(t *testing.T) {
 }
 
 func TestChatContextCancellation(t *testing.T) {
-	fp := &goRunnerFakeProvider{
+	fp := &runnerFakeProvider{
 		api: "anthropic",
 		events: []ai.AssistantEvent{
 			ai.EventTextDelta{Text: "ok"},
 			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
-	r := newTestGoRunner(t, fp)
+	r := newTestRunner(t, fp)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -286,14 +286,14 @@ func TestChatContextCancellation(t *testing.T) {
 }
 
 func TestLastActivityUpdatesOnChat(t *testing.T) {
-	fp := &goRunnerFakeProvider{
+	fp := &runnerFakeProvider{
 		api: "anthropic",
 		events: []ai.AssistantEvent{
 			ai.EventTextDelta{Text: "ok"},
 			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
-	r := newTestGoRunner(t, fp)
+	r := newTestRunner(t, fp)
 
 	before := time.Now()
 	time.Sleep(1 * time.Millisecond)

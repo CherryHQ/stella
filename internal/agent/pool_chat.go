@@ -128,7 +128,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 
 	// Assemble context within budget via memory engine.
 	// NOTE: assemble BEFORE ingesting the current user message so the
-	// assembled history does not include it — GoRunner.Chat appends
+	// assembled history does not include it — runner.Chat appends
 	// the message itself, which would otherwise create a duplicate.
 	var history []ai.Message
 	assembled, err := p.mem.Assemble(ctx, memSession, p.compaction.MaxTokens, p.compaction.KeepTail)

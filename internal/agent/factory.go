@@ -147,7 +147,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				filepath.Join(userRoot, ".agents", "skills"),
 			))
 
-			return NewGoRunner(ctx, GoRunnerConfig{
+			return newRunner(ctx, runnerConfig{
 				API:              apiName,
 				Model:            modelID,
 				APIKey:           creds.APIKey,

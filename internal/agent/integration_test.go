@@ -19,7 +19,7 @@ func skipWithoutAnthropicKey(t *testing.T) {
 	}
 }
 
-func TestIntegrationPoolWithGoRunner(t *testing.T) {
+func TestIntegrationPoolWithrunner(t *testing.T) {
 	skipWithoutAnthropicKey(t)
 
 	model := os.Getenv("STELLA_GO_MODEL")
@@ -36,7 +36,7 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 	}
 
 	factory := func(ctx context.Context, _ RunnerParams) (Runner, error) {
-		return NewGoRunner(ctx, GoRunnerConfig{
+		return newRunner(ctx, runnerConfig{
 			API:        "anthropic",
 			Model:      model,
 			APIKey:     os.Getenv("ANTHROPIC_API_KEY"),

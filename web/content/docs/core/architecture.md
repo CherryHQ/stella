@@ -10,7 +10,7 @@ stella is structured as a set of loosely coupled packages wired together in `mai
 2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback)
 3. The **PoolManager** looks up (or creates) the agent's **Pool** by agent ID
 4. The **Pool** manages sessions and dispatches to a **Runner**
-5. The **Go runner** calls LLM providers via `internal/ai/`, executing tools in a loop
+5. The **Runner** calls LLM providers via `internal/ai/`, executing tools in a loop
 6. Responses stream back through the channel to the user
 
 ```
@@ -40,7 +40,7 @@ internal/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   agent/               PoolManager, Pool, Session, workspace setup, runner factory
     engine/            Agent loop engine (multi-turn tool execution)
-    runner/            GoRunner, system prompt builder, skill loading
+    runner/            Runner, system prompt builder, skill loading
   channel/             Channel interface, identity resolution, slash commands, notify
     cli/               Bubble Tea TUI
     telegram/          Telegram bot
@@ -106,7 +106,7 @@ Providers live in `plugins/providers/` and self-register via `init()`. Adding a 
 
 ## Tools
 
-The Go runner injects tools into LLM calls. Tools follow a common interface defined in `pkg/tools/`. The `tools.Definition` type is a type alias for `ai.ToolDefinition`, keeping domain packages decoupled:
+The Runner injects tools into LLM calls. Tools follow a common interface defined in `pkg/tools/`. The `tools.Definition` type is a type alias for `ai.ToolDefinition`, keeping domain packages decoupled:
 
 ```go
 type Tool interface {

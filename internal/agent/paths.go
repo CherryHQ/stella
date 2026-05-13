@@ -15,10 +15,10 @@ type runnerPaths struct {
 	ProjectRoot string
 }
 
-// resolveRunnerPaths converts GoRunnerConfig into the minimal path set the
+// resolveRunnerPaths converts runnerConfig into the minimal path set the
 // runner actually owns. Derived paths stay as methods/helpers instead of being
 // stored as extra fields.
-func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
+func resolveRunnerPaths(cfg runnerConfig) runnerPaths {
 	paths, _ := sandbox.ResolvePaths(sandbox.Config{
 		Paths: sandbox.PathConfig{
 			StellaHome: cfg.StellaHome,

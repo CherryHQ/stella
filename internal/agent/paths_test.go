@@ -3,7 +3,7 @@ package agent
 import "testing"
 
 func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
-	cfg := GoRunnerConfig{
+	cfg := runnerConfig{
 		AgentRoot: "/workspace/agent",
 		UserRoot:  "/workspace/agent/users/1",
 	}
