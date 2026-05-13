@@ -110,9 +110,9 @@ func (d *DiskSyncStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// SyncAllToDisk materializes every skill in the DB to disk, writing only files
-// that are absent on disk. Called once at startup to bring pre-DiskSyncStore
-// DB-only skills onto the filesystem.
+// SyncAllToDisk materializes every skill in the DB to disk. The DB is the
+// single source of truth: files absent on disk are created, stale files are
+// overwritten, and disk files not present in the DB are removed.
 func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 	all, err := d.ListAll(ctx)
 	if err != nil {
@@ -145,8 +145,28 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 				return fmt.Errorf("disk_sync sync_all: write %q in %q: %w", p, sk.Name, err)
 			}
 		}
+		removeOrphanDiskFiles(ctx, skillDir, files, sk.Name)
 	}
 	return nil
+}
+
+// removeOrphanDiskFiles deletes files under skillDir that are not in dbFiles.
+func removeOrphanDiskFiles(ctx context.Context, skillDir string, dbFiles map[string]string, skillName string) {
+	_ = filepath.WalkDir(skillDir, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() {
+			return walkErr
+		}
+		rel, relErr := filepath.Rel(skillDir, p)
+		if relErr != nil {
+			return relErr
+		}
+		if _, inDB := dbFiles[filepath.ToSlash(rel)]; !inDB {
+			if rmErr := os.Remove(p); rmErr == nil {
+				slog.InfoContext(ctx, "disk_sync sync_all: removed orphan file", "skill", skillName, "path", rel)
+			}
+		}
+		return nil
+	})
 }
 
 // ListKnowledge forwards to the inner store if it implements KnowledgeStore.
