@@ -559,7 +559,18 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, pluginPromptsFn, sessionPluginViewFn, toolLifecycle, skillStore, nil, nil, nil, nil)
+		factory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
+			Snap:                     &snap,
+			BuiltinTools:             builtinTools,
+			PluginToolsBuilder:       pluginToolsBuilder,
+			ProviderRegistryBuilder:  providerRegistryBuilder,
+			PromptToolsBuilder:       promptToolsFn,
+			PromptSectionsBuilder:    promptSectionsFn,
+			PluginPromptsBuilder:     pluginPromptsFn,
+			SessionPluginViewBuilder: sessionPluginViewFn,
+			ToolLifecycle:            toolLifecycle,
+			SkillStore:               skillStore,
+		})
 		if err != nil {
 			return err
 		}
