@@ -56,6 +56,9 @@ type Store interface {
 	// ListFiles returns all file paths for a skill (no content).
 	ListFiles(ctx context.Context, skillID string) ([]string, error)
 
+	// ListFilesWithContent returns all files for a skill keyed by path.
+	ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error)
+
 	// Create inserts the skill row and all its files (must include "SKILL.md").
 	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
 

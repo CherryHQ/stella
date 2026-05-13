@@ -242,17 +242,9 @@ func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRo
 	}
 
 	// 6. Sync file contents — upsert changed files.
-	existingFilePaths, err := store.ListFiles(ctx, skillID)
+	existingByPath, err := store.ListFilesWithContent(ctx, skillID)
 	if err != nil {
 		return fmt.Errorf("list existing files: %w", err)
-	}
-	existingByPath := map[string]string{}
-	for _, filePath := range existingFilePaths {
-		content, err := store.LoadFile(ctx, skillID, filePath)
-		if err != nil {
-			return fmt.Errorf("load existing file %q: %w", filePath, err)
-		}
-		existingByPath[filePath] = content
 	}
 
 	for path, content := range files {

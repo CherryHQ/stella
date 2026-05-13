@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -127,22 +128,18 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 			slog.WarnContext(ctx, "disk_sync sync_all: skipping skill with unsafe name", "name", sk.Name, "err", pathErr)
 			continue
 		}
-		paths, err := d.ListFiles(ctx, sk.ID)
+		files, err := d.ListFilesWithContent(ctx, sk.ID)
 		if err != nil {
 			return fmt.Errorf("disk_sync sync_all: list files for %q: %w", sk.Name, err)
 		}
-		for _, p := range paths {
+		for p, content := range files {
 			diskPath, pathErr := safeDiskPath(skillDir, filepath.FromSlash(p))
 			if pathErr != nil {
 				slog.WarnContext(ctx, "disk_sync sync_all: skipping file with unsafe path", "skill", sk.Name, "path", p, "err", pathErr)
 				continue
 			}
-			if _, statErr := os.Stat(diskPath); statErr == nil {
-				continue // already on disk
-			}
-			content, err := d.LoadFile(ctx, sk.ID, p)
-			if err != nil {
-				return fmt.Errorf("disk_sync sync_all: load %q in %q: %w", p, sk.Name, err)
+			if existing, readErr := os.ReadFile(diskPath); readErr == nil && bytes.Equal(existing, []byte(content)) {
+				continue
 			}
 			if err := writeFile(diskPath, content); err != nil {
 				return fmt.Errorf("disk_sync sync_all: write %q in %q: %w", p, sk.Name, err)
