@@ -659,7 +659,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.transcript.retry": "重试",
 
   // Recally
-  "recally.title": "Recally",
+  "recally.title": "稍后读",
   "recally.subtitle": "已保存的阅读内容、订阅源和可回顾的上下文。",
   "recally.searchPlaceholder": "搜索文章…",
   "recally.section.library": "文库",
