@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -16,23 +15,19 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
 	if ok && sess.Runner != nil {
-		// Check if the runner is still alive (for runners that support liveness).
-		if aliver, isAliver := sess.Runner.(Aliver); isAliver && !aliver.Alive() {
+		// Check if the runner is still alive.
+		if !sess.Runner.Alive() {
 			p.log.Warn("replacing dead runner", "session_id", sessionID)
-			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
-				_ = closer.Close()
-			}
+			_ = sess.Runner.Close()
 			sess.Runner = nil
 		}
 	}
 	if ok && sess.Runner != nil {
 		// If a specific model was requested and it differs from the session's
-		// current model, replace the
+		// current model, replace the runner.
 		if model != "" && sess.Model != model {
 			p.log.Info("switching model", "session_id", sessionID, "from", sess.Model, "to", model)
-			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
-				_ = closer.Close()
-			}
+			_ = sess.Runner.Close()
 			sess.Runner = nil
 		} else {
 			p.mu.Unlock()
@@ -92,9 +87,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	if sess.Runner != nil {
 		p.mu.Unlock()
 		// Close the runner we just created — the other goroutine's runner wins.
-		if closer, ok := r.(io.Closer); ok {
-			_ = closer.Close()
-		}
+		_ = r.Close()
 		return sess, sess.Runner, nil
 	}
 	sess.Runner = r

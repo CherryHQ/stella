@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -179,9 +178,7 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	}
 
 	if r != nil {
-		if closer, ok := r.(io.Closer); ok {
-			return closer.Close()
-		}
+		return r.Close()
 	}
 
 	p.log.Info("session archived", "session_id", sessionID)

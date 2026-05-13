@@ -155,9 +155,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	if p.beforeRunFn != nil {
 		baseSystem := snapshotPrompt
 		if baseSystem == "" {
-			if promter, ok := r.(SystemPrompter); ok {
-				baseSystem = promter.SystemPrompt()
-			}
+			baseSystem = r.SystemPrompt()
 		}
 		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
 			SessionID:    sessionID,
