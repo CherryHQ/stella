@@ -38,7 +38,7 @@ func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
 func TestBuildSystemPromptIncludesPromptSections(t *testing.T) {
 	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 		SystemPrompt: "You are Stella.",
-		PromptSections: []pkgplugins.SystemPromptSection{
+		Sections: []pkgplugins.SystemPromptSection{
 			{Title: "Skills", Content: "<available_skills>\n  <skill>demo</skill>\n</available_skills>"},
 		},
 	})

@@ -79,7 +79,6 @@ type setupResult struct {
 	pluginToolsBuilder       agent.PluginToolsBuilder
 	promptToolsBuilder       prompt.ToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
-	pluginPromptsBuilder     prompt.PluginsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
@@ -432,7 +431,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithProviderStreamBuilder(providerStreamBuilder),
 		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
-		agent.WithPluginPromptsBuilder(phost.ManifestPluginPrompts),
 		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 			return phost.BeforeRun(ctx, build)
@@ -513,7 +511,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginToolsBuilder:       pluginToolsBuilder,
 		promptToolsBuilder:       promptToolsBuilder,
 		promptSectionsBuilder:    promptSectionsBuilder,
-		pluginPromptsBuilder:     phost.ManifestPluginPrompts,
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               pluginhost.NewSkillStoreAdapter(skillStore),
@@ -546,7 +543,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, pluginPromptsFn prompt.PluginsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -568,7 +565,6 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			ProviderStreamBuilder:    providerStreamBuilder,
 			PromptToolsBuilder:       promptToolsFn,
 			PromptSectionsBuilder:    promptSectionsFn,
-			PluginPromptsBuilder:     pluginPromptsFn,
 			SessionPluginViewBuilder: sessionPluginViewFn,
 			ToolLifecycle:            toolLifecycle,
 			SkillStore:               skillStore,
@@ -611,7 +607,6 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		},
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,
-		s.pluginPromptsBuilder,
 		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
 		s.skillStore,

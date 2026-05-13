@@ -304,7 +304,6 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 			return nil, nil
 		},
 		nil,
-		nil,
 		&coreagent.ToolLifecycle{},
 		nil,
 	)

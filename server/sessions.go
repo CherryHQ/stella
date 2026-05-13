@@ -854,16 +854,15 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 
 	systemPrompt := prompt.BuildSystemPromptFromDB(r.Context(), prompt.DBPromptParams{
-		SystemPrompt:   agentCfg.SystemPrompt,
-		Memory:         s.mem,
-		UserID:         info.UserID,
-		AgentID:        info.AgentID,
-		StellaHome:     config.StellaHome(),
-		AgentRoot:      agentCfg.Workspace,
-		UserRoot:       userRoot,
-		PromptTools:    promptTools,
-		PluginPrompts:  s.pluginHost.ManifestPluginPrompts(),
-		PromptSections: promptSections,
+		SystemPrompt: agentCfg.SystemPrompt,
+		Memory:       s.mem,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
+		StellaHome:   config.StellaHome(),
+		AgentRoot:    agentCfg.Workspace,
+		UserRoot:     userRoot,
+		PromptTools:  promptTools,
+		Sections:     append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
 	})
 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})

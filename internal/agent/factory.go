@@ -27,7 +27,6 @@ type RunnerFactoryConfig struct {
 	ProviderStreamBuilder    ProviderStreamBuilder
 	PromptToolsBuilder       prompt.ToolsBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
-	PluginPromptsBuilder     prompt.PluginsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SkillStore               pkgplugins.SkillStore
@@ -105,32 +104,26 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 				EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			}
-			var promptSections []pkgplugins.SystemPromptSection
+			var sections []pkgplugins.SystemPromptSection
 			if cfg.PromptSectionsBuilder != nil {
-				promptSections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
+				sections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
 			}
 			if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
-				promptSections = append(promptSections, skillsSection)
-			}
-
-			var pluginPrompts []pkgplugins.SystemPromptSection
-			if cfg.PluginPromptsBuilder != nil {
-				pluginPrompts = cfg.PluginPromptsBuilder()
+				sections = append(sections, skillsSection)
 			}
 
 			// Build the full system prompt per-session with profile from memory provider.
 			system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-				SystemPrompt:   cfg.Snap.SystemPrompt,
-				AgentSoul:      cfg.Snap.Soul,
-				Memory:         memProvider,
-				UserID:         params.UserID,
-				AgentID:        params.AgentID,
-				StellaHome:     config.StellaHome(),
-				AgentRoot:      cfg.Snap.Workspace,
-				UserRoot:       userRoot,
-				PromptTools:    promptTools,
-				PluginPrompts:  pluginPrompts,
-				PromptSections: promptSections,
+				SystemPrompt: cfg.Snap.SystemPrompt,
+				AgentSoul:    cfg.Snap.Soul,
+				Memory:       memProvider,
+				UserID:       params.UserID,
+				AgentID:      params.AgentID,
+				StellaHome:   config.StellaHome(),
+				AgentRoot:    cfg.Snap.Workspace,
+				UserRoot:     userRoot,
+				PromptTools:  promptTools,
+				Sections:     sections,
 			})
 
 			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
@@ -171,8 +164,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 					TokenManager:    cfg.TokenManager,
 				},
 				System:          system,
-				PluginPrompts:   pluginPrompts,
-				PromptSections:  promptSections,
+				Sections:        sections,
 				ExtraTools:      runnerTools,
 				PluginTools:     cfg.PluginToolsBuilder,
 				HookPlugins:     hookPlugins,

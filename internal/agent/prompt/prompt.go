@@ -19,7 +19,6 @@ import (
 type (
 	ToolsBuilder    func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
 	SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	PluginsBuilder  func() []pkgplugins.SystemPromptSection
 )
 
 //go:embed template/system_prompt.tmpl
@@ -88,8 +87,7 @@ type DBPromptParams struct {
 	ProjectRoot       string // optional project root for local/project-attached runs
 	UserRoot          string // per-user writable root
 	PromptTools       []pkgplugins.PromptToolInfo
-	PluginPrompts     []pkgplugins.SystemPromptSection
-	PromptSections    []pkgplugins.SystemPromptSection
+	Sections          []pkgplugins.SystemPromptSection
 	Host              sandbox.Host
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
 	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
@@ -186,8 +184,13 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		data.MCPTools = append(data.MCPTools, entry)
 	}
 
-	data.PluginPrompts = append(data.PluginPrompts, p.PluginPrompts...)
-	data.PromptSections = append(data.PromptSections, p.PromptSections...)
+	for _, s := range p.Sections {
+		if s.Inline {
+			data.PluginPrompts = append(data.PluginPrompts, s)
+		} else {
+			data.PromptSections = append(data.PromptSections, s)
+		}
+	}
 
 	// Project context.
 	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)

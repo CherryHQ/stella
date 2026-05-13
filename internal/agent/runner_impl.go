@@ -38,8 +38,7 @@ type runnerConfig struct {
 	Provider        providerConfig
 	Sandbox         sandbox.Config
 	System          string // optional system prompt override (bypasses default prompt building)
-	PluginPrompts   []pkgplugins.SystemPromptSection
-	PromptSections  []pkgplugins.SystemPromptSection
+	Sections        []pkgplugins.SystemPromptSection
 	ExtraTools      []tools.Tool // additional tools to register
 	PluginTools     func(context.Context, plugintools.BuildContext) []tools.Tool
 	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
@@ -89,13 +88,12 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	if systemPrompt == "" {
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
-			StellaHome:     paths.StellaHome,
-			AgentRoot:      paths.AgentRoot,
-			ProjectRoot:    paths.ProjectRoot,
-			UserRoot:       paths.UserRoot,
-			PluginPrompts:  cfg.PluginPrompts,
-			PromptSections: cfg.PromptSections,
-			Host:           session.Session(),
+			StellaHome:  paths.StellaHome,
+			AgentRoot:   paths.AgentRoot,
+			ProjectRoot: paths.ProjectRoot,
+			UserRoot:    paths.UserRoot,
+			Sections:    cfg.Sections,
+			Host:        session.Session(),
 		})
 	}
 

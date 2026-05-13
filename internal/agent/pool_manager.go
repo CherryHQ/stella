@@ -100,12 +100,6 @@ func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
 	}
 }
 
-func WithPluginPromptsBuilder(b prompt.PluginsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.pluginPromptsBuilder = b
-	}
-}
-
 func WithSessionPluginViewBuilder(b SessionPluginViewBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.sessionPluginViewBuilder = b
@@ -173,7 +167,6 @@ type PoolManager struct {
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
 	promptToolsBuilder       prompt.ToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
-	pluginPromptsBuilder     prompt.PluginsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
@@ -500,13 +493,9 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			AgentID:             agentID,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		}
-		var promptSections []pkgplugins.SystemPromptSection
+		var sections []pkgplugins.SystemPromptSection
 		if pm.promptSectionsBuilder != nil {
-			promptSections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
-		}
-		var pluginPrompts []pkgplugins.SystemPromptSection
-		if pm.pluginPromptsBuilder != nil {
-			pluginPrompts = pm.pluginPromptsBuilder()
+			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
 		}
 		params := prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
@@ -519,8 +508,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			SnapshotVersion:   memSnap.Version,
 			SnapshotUpdatedAt: memSnap.UpdatedAt,
 			PromptTools:       promptTools,
-			PluginPrompts:     pluginPrompts,
-			PromptSections:    promptSections,
+			Sections:          sections,
 		}
 		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
 			params.KnowledgeStore = ks
@@ -566,7 +554,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		ProviderStreamBuilder:    pm.providerStreamBuilder,
 		PromptToolsBuilder:       pm.promptToolsBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
-		PluginPromptsBuilder:     pm.pluginPromptsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		ToolLifecycle:            pm.toolLifecycle,
 		SkillStore:               pm.skillStore,
