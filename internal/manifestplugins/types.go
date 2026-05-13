@@ -18,44 +18,15 @@ type ManifestBinary struct {
 	// Name is the binary name written to $STELLA_HOME/bin/.
 	Name string `json:"name" yaml:"name"`
 
-	// Tool is the mise tool key in "backend:identifier" format, e.g.:
-	//   github:cli/cli   pipx:mypy   npm:serve   http:sentinel
+	// Tool is the mise tool key, e.g.:
+	//   uv   bun   github:cli/cli   pipx:mypy   npm:serve   http:sentinel
 	Tool string `json:"tool" yaml:"tool"`
-
-	// URL is required for the http backend (the download URL template).
-	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 
 	// Version to install; defaults to "latest" when omitted.
 	Version string `json:"version,omitempty" yaml:"version,omitempty"`
 
-	// Shared asset options (github + http)
-	StripComponents int    `json:"strip_components,omitempty" yaml:"strip_components,omitempty"`
-	BinPath         string `json:"bin_path,omitempty" yaml:"bin_path,omitempty"`
-	Bin             string `json:"bin,omitempty" yaml:"bin,omitempty"`
-	RenameExe       string `json:"rename_exe,omitempty" yaml:"rename_exe,omitempty"`
-	Checksum        string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
-
-	// GitHub-only options
-	AssetPattern  string `json:"asset_pattern,omitempty" yaml:"asset_pattern,omitempty"`
-	VersionPrefix string `json:"version_prefix,omitempty" yaml:"version_prefix,omitempty"`
-	NoApp         bool   `json:"no_app,omitempty" yaml:"no_app,omitempty"`
-	FilterBins    string `json:"filter_bins,omitempty" yaml:"filter_bins,omitempty"`
-	Prerelease    bool   `json:"prerelease,omitempty" yaml:"prerelease,omitempty"`
-	APIURL        string `json:"api_url,omitempty" yaml:"api_url,omitempty"`
-
-	// HTTP-only options
-	Size            string `json:"size,omitempty" yaml:"size,omitempty"`
-	Format          string `json:"format,omitempty" yaml:"format,omitempty"`
-	VersionListURL  string `json:"version_list_url,omitempty" yaml:"version_list_url,omitempty"`
-	VersionRegex    string `json:"version_regex,omitempty" yaml:"version_regex,omitempty"`
-	VersionJSONPath string `json:"version_json_path,omitempty" yaml:"version_json_path,omitempty"`
-	VersionExpr     string `json:"version_expr,omitempty" yaml:"version_expr,omitempty"`
-
-	// Pipx-only options
-	Extras   string `json:"extras,omitempty" yaml:"extras,omitempty"`
-	PipxArgs string `json:"pipx_args,omitempty" yaml:"pipx_args,omitempty"`
-	UVX      bool   `json:"uvx,omitempty" yaml:"uvx,omitempty"`
-	UVXArgs  string `json:"uvx_args,omitempty" yaml:"uvx_args,omitempty"`
+	// Options are mise tool options, using the same names as mise.toml.
+	Options map[string]any `json:"options,omitempty" yaml:",inline"`
 }
 
 type ManifestSkill struct {

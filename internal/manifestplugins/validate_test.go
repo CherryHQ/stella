@@ -34,15 +34,27 @@ func TestValidate_BinaryNoTool(t *testing.T) {
 	}
 }
 
-func TestValidate_BinaryGithubNoSlash(t *testing.T) {
+func TestValidate_BinaryMiseRegistryTool(t *testing.T) {
+	m := &Manifest{Plugins: []ManifestPlugin{
+		{
+			ID:       "tool/uv",
+			Binaries: []ManifestBinary{{Name: "uv", Tool: "uv"}},
+		},
+	}}
+	if err := Validate(m); err != nil {
+		t.Errorf("expected no error for mise registry tool, got: %v", err)
+	}
+}
+
+func TestValidate_LeavesToolKeysToMise(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
 			ID:       "tool/x",
 			Binaries: []ManifestBinary{{Name: "x", Tool: "github:repo"}},
 		},
 	}}
-	if err := Validate(m); err == nil {
-		t.Error("expected error for github tool without owner/repo format")
+	if err := Validate(m); err != nil {
+		t.Errorf("expected no error for mise-owned tool key validation, got: %v", err)
 	}
 }
 

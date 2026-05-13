@@ -366,6 +366,7 @@ plugins:
     binaries:
       - name: tap
         tool: github:vaayne/tap
+        version: "0.4.7"
       - name: lightpanda
         tool: github:lightpanda-io/browser
         version: "nightly"
@@ -456,3 +457,23 @@ plugins:
         tool: github:kreuzberg-dev/kreuzberg
         version: 4.9.5
         asset_pattern: "kreuzberg-cli-*.tar.gz"
+
+  - id: tool/uv
+    kind: tool
+    name: uv
+    display_name: uv
+    description: "An extremely fast Python package manager and resolver written in Rust."
+    enabled: true
+    binaries:
+      - name: uv
+        tool: uv
+
+  - id: tool/bun
+    kind: tool
+    name: bun
+    display_name: Bun
+    description: "An incredibly fast JavaScript runtime, bundler, test runner, and package manager."
+    enabled: true
+    binaries:
+      - name: bun
+        tool: bun
