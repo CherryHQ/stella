@@ -8,7 +8,9 @@ import { I18nProvider } from "@/lib/i18n";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
 import "./globals.css";
 
-applyTheme(getStoredTheme());
+if (typeof window !== "undefined") {
+  applyTheme(getStoredTheme());
+}
 
 const router = createRouter({
   routeTree,

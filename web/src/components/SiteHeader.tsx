@@ -13,10 +13,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
   DropdownMenuGroup,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
-import { applyTheme, getStoredTheme, setStoredTheme, type ThemePreference } from "@/lib/theme";
+import {
+  applyTheme,
+  getStoredTheme,
+  setStoredTheme,
+  THEME_PRESETS,
+  type ThemeAppearance,
+  type ThemePreset,
+  type ThemeSettings,
+} from "@/lib/theme";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -133,37 +143,108 @@ export function SiteHeader() {
 }
 
 function ThemeSelector() {
-  const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme());
+  const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
   useEffect(() => {
-    if (theme !== "system") return;
+    if (theme.appearance !== "system") return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => applyTheme("system");
+    const update = () => applyTheme(theme);
     media.addEventListener("change", update);
 
     return () => media.removeEventListener("change", update);
   }, [theme]);
 
-  function toggle() {
-    const next = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  function updateTheme(next: ThemeSettings) {
     setTheme(next);
     setStoredTheme(next);
   }
 
-  const Icon = theme === "system" ? Monitor : theme === "light" ? Sun : Moon;
+  function setAppearance(appearance: string) {
+    if (!isAppearance(appearance)) return;
+    updateTheme({ ...theme, appearance });
+  }
+
+  function setPreset(preset: string) {
+    if (!isPreset(preset)) return;
+    updateTheme({ ...theme, preset });
+  }
+
+  const Icon = theme.appearance === "system" ? Monitor : theme.appearance === "light" ? Sun : Moon;
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      aria-label={`Switch theme - current: ${theme}`}
-      title={`Theme: ${theme}`}
-    >
-      <Icon className="size-4" />
-    </button>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex items-center gap-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
+        title={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
+      >
+        <Icon className="size-4" />
+        <span
+          className={`hidden size-2.5 rounded-full border border-border sm:block ${THEME_SWATCHES[theme.preset]}`}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={8} className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={theme.appearance} onValueChange={setAppearance}>
+            <DropdownMenuRadioItem value="system">
+              <Monitor className="size-4" />
+              System
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="light">
+              <Sun className="size-4" />
+              Light
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="dark">
+              <Moon className="size-4" />
+              Dark
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Theme</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={theme.preset} onValueChange={setPreset}>
+            {THEME_PRESETS.map((preset) => (
+              <DropdownMenuRadioItem key={preset} value={preset}>
+                <span
+                  className={`size-3 rounded-full border border-border ${THEME_SWATCHES[preset]}`}
+                />
+                {THEME_LABELS[preset]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+}
+
+const THEME_LABELS: Record<ThemePreset, string> = {
+  default: "Default",
+  blue: "Blue",
+  green: "Green",
+  rose: "Rose",
+  orange: "Orange",
+  violet: "Violet",
+};
+
+const THEME_SWATCHES: Record<ThemePreset, string> = {
+  default: "bg-neutral-800 dark:bg-neutral-100",
+  blue: "bg-blue-600",
+  green: "bg-emerald-600",
+  rose: "bg-rose-600",
+  orange: "bg-orange-600",
+  violet: "bg-violet-600",
+};
+
+function isAppearance(value: string): value is ThemeAppearance {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function isPreset(value: string): value is ThemePreset {
+  return (THEME_PRESETS as string[]).includes(value);
 }
 
 function LocaleSelector() {
