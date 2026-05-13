@@ -79,7 +79,7 @@ func (p runnerPaths) stellaSkillsDir() string {
 }
 
 func (p runnerPaths) stellaAgentsDir() string {
-	return filepath.Join(p.StellaHome, "agents")
+	return filepath.Join(p.StellaHome, ".agents", "agents")
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into
