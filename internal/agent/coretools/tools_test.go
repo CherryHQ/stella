@@ -21,6 +21,10 @@ func (s *stubHost) ResolvePath(path string) (string, error) {
 	return path, nil
 }
 
+func (s *stubHost) ResolveWritePath(path string) (string, error) {
+	return s.ResolvePath(path)
+}
+
 func TestToolIntArg(t *testing.T) {
 	tests := []struct {
 		args map[string]any

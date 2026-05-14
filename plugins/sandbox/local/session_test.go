@@ -245,6 +245,133 @@ func TestResolvePath_remapped(t *testing.T) {
 	}
 }
 
+// TestResolvePath_extraMountAllowed verifies that ResolvePath accepts paths
+// within an ExtraReadOnlyMount even when they are outside the workspace root.
+func TestResolvePath_extraMountAllowed(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	mountDir := t.TempDir()
+	mountDir, _ = filepath.EvalSymlinks(mountDir)
+
+	skillFile := filepath.Join(mountDir, "skill.py")
+	if err := os.WriteFile(skillFile, []byte("# skill"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:       root,
+			WorkingDir:          root,
+			ExtraReadOnlyMounts: []string{mountDir},
+		},
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: root,
+		done:        make(chan struct{}),
+	}
+
+	got, err := s.ResolvePath(skillFile)
+	if err != nil {
+		t.Fatalf("unexpected error for extra mount path: %v", err)
+	}
+	if got != skillFile {
+		t.Errorf("ResolvePath = %q, want %q", got, skillFile)
+	}
+}
+
+// TestResolvePath_rejectsAdjacentToExtraMount verifies that a path adjacent to
+// (but not within) an ExtraReadOnlyMount is still rejected.
+// TestResolveWritePath_rejectsExtraMount verifies that ResolveWritePath rejects
+// paths within ExtraReadOnlyMounts even though ResolvePath accepts them.
+func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	mountDir := t.TempDir()
+	mountDir, _ = filepath.EvalSymlinks(mountDir)
+
+	skillFile := filepath.Join(mountDir, "skill.py")
+	if err := os.WriteFile(skillFile, []byte("# skill"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:       root,
+			WorkingDir:          root,
+			ExtraReadOnlyMounts: []string{mountDir},
+		},
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: root,
+		done:        make(chan struct{}),
+	}
+
+	// ResolvePath should accept it.
+	if _, err := s.ResolvePath(skillFile); err != nil {
+		t.Fatalf("ResolvePath unexpectedly rejected extra mount path: %v", err)
+	}
+
+	// ResolveWritePath must reject it.
+	_, err := s.ResolveWritePath(skillFile)
+	if err == nil {
+		t.Fatal("expected ResolveWritePath to reject read-only mount path, got nil")
+	}
+}
+
+// TestResolveWritePath_acceptsWorkspace verifies that ResolveWritePath allows
+// paths within the writable workspace root.
+func TestResolveWritePath_acceptsWorkspace(t *testing.T) {
+	s, root := newTestSession(t)
+
+	f := filepath.Join(root, "output.txt")
+	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := s.ResolveWritePath(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != f {
+		t.Errorf("ResolveWritePath = %q, want %q", got, f)
+	}
+}
+
+func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	mountDir := t.TempDir()
+	mountDir, _ = filepath.EvalSymlinks(mountDir)
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:       root,
+			WorkingDir:          root,
+			ExtraReadOnlyMounts: []string{mountDir},
+		},
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: root,
+		done:        make(chan struct{}),
+	}
+
+	// A sibling directory of mountDir — not inside any mount.
+	adjacent := filepath.Join(filepath.Dir(mountDir), "adjacent")
+	_, err := s.ResolvePath(adjacent)
+	if err == nil {
+		t.Fatal("expected error for path adjacent to extra mount, got nil")
+	}
+}
+
 func TestResolvePath_rejectsSymlinkParentForMissingPath(t *testing.T) {
 	s, root := newTestSession(t)
 	outside := t.TempDir()

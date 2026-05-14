@@ -150,6 +150,19 @@ func (s *localSession) ResolvePath(agentPath string) (string, error) {
 	return resolved, err
 }
 
+// ResolveWritePath is like ResolvePath but additionally rejects paths that
+// fall within ExtraReadOnlyMounts.
+func (s *localSession) ResolveWritePath(agentPath string) (string, error) {
+	resolved, _, err := s.resolvePath(agentPath)
+	if err != nil {
+		return "", err
+	}
+	if matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved) != "" {
+		return "", fmt.Errorf("local: path %q is in a read-only mount", agentPath)
+	}
+	return resolved, nil
+}
+
 // resolveCwd validates a requested working directory, then returns both its
 // real host path and sandbox-space path. Linux bwrap needs the sandbox-space
 // path for --chdir; direct local execution uses the real path.
@@ -185,14 +198,35 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 	resolved = filepath.Clean(resolved)
 
 	cleanRoot := filepath.Clean(s.realRoot)
-	if !pathWithinRoot(cleanRoot, resolved) {
-		return "", "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
-	}
-	if err := rejectLocalSymlinkTraversal(cleanRoot, real); err != nil {
-		return "", "", fmt.Errorf("local: %w", err)
+	if pathWithinRoot(cleanRoot, resolved) {
+		if err := rejectLocalSymlinkTraversal(cleanRoot, real); err != nil {
+			return "", "", fmt.Errorf("local: %w", err)
+		}
+		return resolved, s.toSandboxPath(resolved), nil
 	}
 
-	return resolved, s.toSandboxPath(resolved), nil
+	// Also allow access to extra read-only mounts (e.g. agent-level skill dirs).
+	if mountRoot := matchingExtraMount(s.policy.Filesystem.ExtraReadOnlyMounts, resolved); mountRoot != "" {
+		if err := rejectLocalSymlinkTraversal(mountRoot, real); err != nil {
+			return "", "", fmt.Errorf("local: %w", err)
+		}
+		return resolved, s.toSandboxPath(resolved), nil
+	}
+
+	return "", "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
+}
+
+// matchingExtraMount returns the longest extra read-only mount that contains
+// resolved, or "" if none match.
+func matchingExtraMount(mounts []string, resolved string) string {
+	best := ""
+	for _, m := range mounts {
+		clean := filepath.Clean(m)
+		if pathWithinRoot(clean, resolved) && len(clean) > len(best) {
+			best = clean
+		}
+	}
+	return best
 }
 
 // pathWithinRoot reports whether path is the root itself or is contained under it.

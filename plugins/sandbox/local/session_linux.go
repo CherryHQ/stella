@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -228,6 +229,16 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 		"--bind", realRoot, "/workspace",
 		"--chdir", sandboxCwd,
 	)
+	// Re-mount workspace-contained extra paths read-only at their /workspace/...
+	// equivalent. This overrides the writable workspace bind for those subdirectories
+	// so bash cannot write to them via /workspace.
+	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
+		rel, relErr := filepath.Rel(realRoot, filepath.Clean(extraPath))
+		if relErr != nil || strings.HasPrefix(rel, "..") || rel == "." {
+			continue
+		}
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, filepath.Join("/workspace", rel))
+	}
 	if networkMode != sandboxpkg.NetworkAllowAll {
 		bwrapArgs = append(bwrapArgs, "--unshare-net")
 	}

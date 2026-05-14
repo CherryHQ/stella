@@ -48,6 +48,17 @@ func resolveToolPath(host sandbox.Host, projectRoot, path string) (string, error
 	return host.ResolvePath(path)
 }
 
+func resolveWritableToolPath(host sandbox.Host, projectRoot, path string) (string, error) {
+	if projectRoot != "" {
+		resolved, err := tools.ResolveProjectPath(projectRoot, path)
+		if err != nil {
+			return "", err
+		}
+		return host.ResolveWritePath(resolved)
+	}
+	return host.ResolveWritePath(path)
+}
+
 type hostBashTool struct {
 	host        sandbox.Host
 	normalizer  *toolNormalizer
@@ -199,7 +210,7 @@ func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string,
 		return "", fmt.Errorf("write: path is required")
 	}
 
-	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
 	if err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
@@ -246,7 +257,7 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 		return "", fmt.Errorf("edit: old_string is required")
 	}
 
-	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
 	if err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
