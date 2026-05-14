@@ -30,9 +30,9 @@ SELECT * FROM recally_digests WHERE user_id = ? AND date = ?;
 
 -- name: ListDigests :many
 SELECT * FROM recally_digests
-WHERE user_id = ?
+WHERE user_id = ?1
 ORDER BY date DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+LIMIT ?2 OFFSET ?3;
 
 -- name: CountDigests :one
 SELECT COUNT(*) FROM recally_digests WHERE user_id = ?;

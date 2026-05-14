@@ -205,9 +205,9 @@ func (q *Queries) ListDigestArticles(ctx context.Context, arg ListDigestArticles
 
 const listDigests = `-- name: ListDigests :many
 SELECT id, user_id, date, narrative, saved_yesterday_count, unread_count, read_count, archived_count, starred_count, worth_revisiting_count, total_articles, top_tags, created_at, updated_at FROM recally_digests
-WHERE user_id = ?
+WHERE user_id = ?1
 ORDER BY date DESC
-LIMIT ?3 OFFSET ?2
+LIMIT ?2 OFFSET ?3
 `
 
 type ListDigestsParams struct {
