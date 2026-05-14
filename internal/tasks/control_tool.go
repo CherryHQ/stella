@@ -148,6 +148,19 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		return "review requested", nil
 
 	case "done":
+		if message != "" {
+			outputJSON, err := json.Marshal(map[string]any{"output": message})
+			if err != nil {
+				return "", fmt.Errorf("task_control: marshal output: %w", err)
+			}
+			if err := t.q.UpdateAgentTaskContext(ctx, sqlc.UpdateAgentTaskContextParams{
+				Context:   string(outputJSON),
+				UpdatedAt: now,
+				ID:        t.taskID,
+			}); err != nil {
+				return "", fmt.Errorf("task_control: store output: %w", err)
+			}
+		}
 		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status:    "done",
 			UpdatedAt: now,
@@ -158,6 +171,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		if err := t.logEvent(ctx, "done", message); err != nil {
 			return "", err
 		}
+		t.cancel()
 		return "task marked done", nil
 
 	case "failed":
@@ -171,6 +185,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		if err := t.logEvent(ctx, "failed", message); err != nil {
 			return "", err
 		}
+		t.cancel()
 		return "task marked failed", nil
 
 	default:
