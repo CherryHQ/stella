@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   FileTree as FileTreeComponent,
@@ -53,6 +53,27 @@ interface Props {
 }
 
 type ViewMode = "tree" | "viewer";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && value >= 1024; i++) {
+    value /= 1024;
+    unit = units[i];
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}${unit}`;
+}
+
+function isDirectoryPath(path: string): boolean {
+  return path.endsWith("/");
+}
+
+function basename(path: string): string {
+  const trimmed = isDirectoryPath(path) ? path.slice(0, -1) : path;
+  return trimmed.split("/").pop() ?? trimmed;
+}
 
 interface ViewerState {
   path: string;
@@ -159,7 +180,10 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
     setSelectedPath(null);
   }, [sessionID]);
 
-  const fileCount = workspace?.paths?.length ?? 0;
+  const entryCount = workspace?.paths?.length ?? 0;
+  const fileCount = workspace?.total_files ?? 0;
+  const dirCount = workspace?.total_dirs ?? 0;
+  const workspaceStats = `${fileCount}F ${dirCount}D ${formatBytes(workspace?.total_bytes ?? 0)}`;
 
   if (!sessionID) {
     return (
@@ -249,7 +273,15 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
           ) : (
             <span className="text-[10px] font-mono text-muted-foreground/30 mx-1">
-              {fileCount >= 1000 ? "1000+" : fileCount}
+              <span
+                title={
+                  workspace?.root
+                    ? `${workspace.root}\n${fileCount} files, ${dirCount} dirs, ${formatBytes(workspace.total_bytes)}`
+                    : undefined
+                }
+              >
+                {workspaceStats}
+              </span>
             </span>
           )}
         </div>
@@ -295,14 +327,14 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
       )}
 
       {/* Empty state */}
-      {!workspaceLoading && workspace && fileCount === 0 && !newItemType && (
+      {!workspaceLoading && workspace && entryCount === 0 && !newItemType && (
         <div className="px-4 py-8 text-center">
           <p className="text-[11px] font-mono text-muted-foreground/40">Empty workspace</p>
         </div>
       )}
 
       {/* File tree */}
-      {!workspaceLoading && workspace && fileCount > 0 && (
+      {!workspaceLoading && workspace && entryCount > 0 && (
         <div className="flex-1 overflow-hidden">
           <TreeWithSearch
             sessionID={sessionID}
@@ -368,9 +400,12 @@ function TreeWithSearch({
   const enc = encodeURIComponent(sessionID);
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
+  const loadedPathSet = useRef(new Set(workspace.paths ?? []));
+  const loadedDirSet = useRef(new Set([""]));
+  const loadingDirSet = useRef(new Set<string>());
   const { model } = useFileTree({
     paths: workspace.paths ?? [],
-    initialExpansion: 1,
+    initialExpansion: "closed",
     search: true,
     icons: "standard",
     density: "compact",
@@ -400,8 +435,8 @@ function TreeWithSearch({
       onDropComplete: async ({ draggedPaths, target }) => {
         try {
           for (const src of draggedPaths) {
-            const filename = src.split("/").pop()!;
-            const destDir = target.directoryPath ?? "";
+            const filename = basename(src);
+            const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
             await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
               path: src,
@@ -417,6 +452,41 @@ function TreeWithSearch({
       onDropError: (message: string) => console.error("drop error:", message),
     },
   });
+
+  useEffect(() => {
+    const paths = workspace.paths ?? [];
+    loadedPathSet.current = new Set(paths);
+    loadedDirSet.current = new Set([""]);
+    loadingDirSet.current = new Set();
+    model.resetPaths(paths, { initialExpandedPaths: [] });
+  }, [model, workspace.paths]);
+
+  const loadDirectory = useCallback(
+    async (path: string) => {
+      const dir = path.replace(/\/$/, "");
+      if (loadedDirSet.current.has(dir) || loadingDirSet.current.has(dir)) return;
+      loadingDirSet.current.add(dir);
+      try {
+        const data = await api<Workspace>(
+          "GET",
+          `/api/sessions/${enc}/workspace?show_hidden=true&depth=2&path=${encodeURIComponent(dir)}`,
+        );
+        const added: string[] = [];
+        for (const nextPath of data.paths ?? []) {
+          if (loadedPathSet.current.has(nextPath)) continue;
+          loadedPathSet.current.add(nextPath);
+          added.push(nextPath);
+        }
+        for (const nextPath of added) model.add(nextPath);
+        loadedDirSet.current.add(dir);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        loadingDirSet.current.delete(dir);
+      }
+    },
+    [enc, model],
+  );
 
   const selectedPaths = useFileTreeSelection(model);
 
@@ -435,6 +505,7 @@ function TreeWithSearch({
             const MENU_W = 160;
             const MENU_H = 240;
             const { anchorRect } = context;
+            const isDir = isDirectoryPath(item.path);
             const left =
               anchorRect.right + MENU_W > window.innerWidth
                 ? Math.max(0, anchorRect.left - MENU_W)
@@ -471,7 +542,7 @@ function TreeWithSearch({
                   }}
                   onClick={() => {
                     context.close({ restoreFocus: false });
-                    onOpenFile(item.path);
+                    if (!isDir) onOpenFile(item.path);
                   }}
                 >
                   Open
@@ -487,6 +558,7 @@ function TreeWithSearch({
                   }}
                   onClick={() => {
                     context.close({ restoreFocus: false });
+                    if (isDir) return;
                     const url = `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`;
                     fetchBlobUrl(url, mimeTypeForPath(item.path))
                       .then((blobUrl) => {
@@ -499,8 +571,12 @@ function TreeWithSearch({
                   Open in browser
                 </button>
                 <a
-                  href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
-                  download={item.path.split("/").pop()}
+                  href={
+                    isDir
+                      ? undefined
+                      : `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`
+                  }
+                  download={basename(item.path)}
                   style={ctxItemStyle}
                   onMouseEnter={(e) => {
                     (e.currentTarget as HTMLElement).style.background = "var(--accent)";
@@ -592,7 +668,17 @@ function TreeWithSearch({
           }}
           onDoubleClick={() => {
             const path = model.getFocusedPath() ?? selectedPaths[0] ?? null;
-            if (path && workspace.paths?.includes(path)) {
+            if (!path) return;
+            if (isDirectoryPath(path)) {
+              loadDirectory(path)
+                .then(() => {
+                  const item = model.getItem(path);
+                  if (item?.isDirectory()) (item as { expand: () => void }).expand();
+                })
+                .catch(console.error);
+              return;
+            }
+            if (loadedPathSet.current.has(path)) {
               onOpenFile(path);
             }
           }}

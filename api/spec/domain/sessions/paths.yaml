@@ -134,13 +134,21 @@ paths:
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
-      summary: List files in the session workspace
+      summary: List workspace disk entries and usage
       operationId: getSessionWorkspace
       parameters:
         - name: show_hidden
           in: query
           schema: { type: boolean, default: false }
           description: Include dot-prefixed files and directories
+        - name: path
+          in: query
+          schema: { type: string, default: "" }
+          description: Directory path to list relative to the workspace root
+        - name: depth
+          in: query
+          schema: { type: integer, default: 2, minimum: 1 }
+          description: Maximum number of levels to return below path
       responses:
         "200":
           description: ok

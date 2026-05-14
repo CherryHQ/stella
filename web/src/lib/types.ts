@@ -145,7 +145,11 @@ export interface Tool {
 }
 
 export interface Workspace {
+  root: string;
   paths: string[];
+  total_files: number;
+  total_dirs: number;
+  total_bytes: number;
 }
 
 export interface SchedulerJob {

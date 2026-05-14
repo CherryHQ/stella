@@ -2848,7 +2848,7 @@ export const getSessionWorkspaceQueryKey = (
 ) => createQueryKey("getSessionWorkspace", options);
 
 /**
- * List files in the session workspace
+ * List workspace disk entries and usage
  */
 export const getSessionWorkspaceOptions = (
   options: Options<GetSessionWorkspaceData>,
