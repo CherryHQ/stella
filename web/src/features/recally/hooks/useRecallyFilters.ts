@@ -1,7 +1,12 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useI18n } from "@/lib/i18n";
-import { listArticlesOptions, getDigestOptions } from "@/lib/api-client/@tanstack/react-query.gen";
+import {
+  listArticlesOptions,
+  getDigestOptions,
+  listStoredDigestsOptions,
+  getStoredDigestOptions,
+} from "@/lib/api-client/@tanstack/react-query.gen";
 import type { ArticleStatus, SourceType } from "@/lib/api-client/types.gen";
 
 export function useRecallyFilters() {
@@ -14,8 +19,14 @@ export function useRecallyFilters() {
   const [showAllTags, setShowAllTags] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [digestView, setDigestView] = useState(false);
+  const [selectedDigestDate, setSelectedDigestDate] = useState<string | null>(null);
 
   const digestQuery = useQuery(getDigestOptions());
+  const storedDigestsQuery = useQuery(listStoredDigestsOptions({ query: { limit: 50 } }));
+  const selectedDigestQuery = useQuery({
+    ...getStoredDigestOptions({ path: { date: selectedDigestDate ?? "" } }),
+    enabled: !!selectedDigestDate,
+  });
   const articlesQuery = useQuery(
     listArticlesOptions({
       query: {
@@ -84,6 +95,13 @@ export function useRecallyFilters() {
     setDigestView,
     digestQuery,
     digest,
+    storedDigestsQuery,
+    storedDigests: storedDigestsQuery.data?.items ?? [],
+    storedDigestsTotal: storedDigestsQuery.data?.total ?? 0,
+    selectedDigestDate,
+    setSelectedDigestDate,
+    selectedDigestQuery,
+    selectedDigest: selectedDigestQuery.data,
     articlesQuery,
     articles,
     displayArticles,

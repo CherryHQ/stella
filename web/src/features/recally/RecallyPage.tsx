@@ -96,9 +96,12 @@ export function RecallyPage() {
         {filters.digestView ? (
           <RecallyDigestView
             t={t}
-            digest={filters.digest}
-            digestLoading={filters.digestQuery.isLoading}
-            digestError={filters.digestQuery.isError}
+            storedDigests={filters.storedDigests}
+            storedDigestsLoading={filters.storedDigestsQuery.isLoading}
+            selectedDigestDate={filters.selectedDigestDate}
+            setSelectedDigestDate={filters.setSelectedDigestDate}
+            selectedDigest={filters.selectedDigest}
+            selectedDigestLoading={filters.selectedDigestQuery.isLoading}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
           />

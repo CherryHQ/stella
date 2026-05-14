@@ -251,3 +251,85 @@ components:
           items: { $ref: "#/components/schemas/TagCount" },
         }
         total_articles: { type: integer, format: int64 }
+
+    SaveDigestRequest:
+      type: object
+      required: [narrative]
+      properties:
+        narrative: { type: string }
+        date:
+          type: string
+          description: "YYYY-MM-DD; defaults to today if omitted"
+
+    StoredDigestSummary:
+      type: object
+      required:
+        [
+          id,
+          date,
+          narrative,
+          saved_yesterday_count,
+          worth_revisiting_count,
+          total_articles,
+          created_at,
+        ]
+      properties:
+        id: { type: string }
+        date: { type: string }
+        narrative: { type: string }
+        saved_yesterday_count: { type: integer, format: int64 }
+        worth_revisiting_count: { type: integer, format: int64 }
+        total_articles: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+
+    StoredDigestSummaryList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/StoredDigestSummary" }
+        total: { type: integer, format: int64 }
+
+    StoredDigest:
+      type: object
+      required:
+        [
+          id,
+          date,
+          narrative,
+          saved_yesterday,
+          saved_yesterday_count,
+          unread_count,
+          read_count,
+          archived_count,
+          starred_count,
+          worth_revisiting,
+          worth_revisiting_count,
+          top_tags,
+          total_articles,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string }
+        date: { type: string }
+        narrative: { type: string }
+        saved_yesterday:
+          type: array
+          items: { $ref: "#/components/schemas/Article" }
+        saved_yesterday_count: { type: integer, format: int64 }
+        unread_count: { type: integer, format: int64 }
+        read_count: { type: integer, format: int64 }
+        archived_count: { type: integer, format: int64 }
+        starred_count: { type: integer, format: int64 }
+        worth_revisiting:
+          type: array
+          items: { $ref: "#/components/schemas/Article" }
+        worth_revisiting_count: { type: integer, format: int64 }
+        top_tags:
+          type: array
+          items: { $ref: "#/components/schemas/TagCount" }
+        total_articles: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }

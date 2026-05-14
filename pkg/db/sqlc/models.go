@@ -224,6 +224,30 @@ type PluginStateEntry struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type RecallyDigest struct {
+	ID                   string `json:"id"`
+	UserID               int64  `json:"user_id"`
+	Date                 string `json:"date"`
+	Narrative            string `json:"narrative"`
+	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
+	UnreadCount          int64  `json:"unread_count"`
+	ReadCount            int64  `json:"read_count"`
+	ArchivedCount        int64  `json:"archived_count"`
+	StarredCount         int64  `json:"starred_count"`
+	WorthRevisitingCount int64  `json:"worth_revisiting_count"`
+	TotalArticles        int64  `json:"total_articles"`
+	TopTags              string `json:"top_tags"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
+}
+
+type RecallyDigestArticle struct {
+	DigestID  string `json:"digest_id"`
+	ArticleID string `json:"article_id"`
+	Section   string `json:"section"`
+	Position  int64  `json:"position"`
+}
+
 type RssFeed struct {
 	ID            string         `json:"id"`
 	UserID        int64          `json:"user_id"`

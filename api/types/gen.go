@@ -673,6 +673,13 @@ type SaveArticleRequest struct {
 	Url         string             `json:"url"`
 }
 
+// SaveDigestRequest defines model for SaveDigestRequest.
+type SaveDigestRequest struct {
+	// Date YYYY-MM-DD; defaults to today if omitted
+	Date      *string `json:"date,omitempty"`
+	Narrative string  `json:"narrative"`
+}
+
 // SendMessageRequest defines model for SendMessageRequest.
 type SendMessageRequest struct {
 	// Content Message content (required)
@@ -819,6 +826,42 @@ type StatusRuntime struct {
 	Goroutines int          `json:"goroutines"`
 	Memory     StatusMemory `json:"memory"`
 	Os         string       `json:"os"`
+}
+
+// StoredDigest defines model for StoredDigest.
+type StoredDigest struct {
+	ArchivedCount        int64      `json:"archived_count"`
+	CreatedAt            time.Time  `json:"created_at"`
+	Date                 string     `json:"date"`
+	Id                   string     `json:"id"`
+	Narrative            string     `json:"narrative"`
+	ReadCount            int64      `json:"read_count"`
+	SavedYesterday       []Article  `json:"saved_yesterday"`
+	SavedYesterdayCount  int64      `json:"saved_yesterday_count"`
+	StarredCount         int64      `json:"starred_count"`
+	TopTags              []TagCount `json:"top_tags"`
+	TotalArticles        int64      `json:"total_articles"`
+	UnreadCount          int64      `json:"unread_count"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	WorthRevisiting      []Article  `json:"worth_revisiting"`
+	WorthRevisitingCount int64      `json:"worth_revisiting_count"`
+}
+
+// StoredDigestSummary defines model for StoredDigestSummary.
+type StoredDigestSummary struct {
+	CreatedAt            time.Time `json:"created_at"`
+	Date                 string    `json:"date"`
+	Id                   string    `json:"id"`
+	Narrative            string    `json:"narrative"`
+	SavedYesterdayCount  int64     `json:"saved_yesterday_count"`
+	TotalArticles        int64     `json:"total_articles"`
+	WorthRevisitingCount int64     `json:"worth_revisiting_count"`
+}
+
+// StoredDigestSummaryList defines model for StoredDigestSummaryList.
+type StoredDigestSummaryList struct {
+	Items []StoredDigestSummary `json:"items"`
+	Total int64                 `json:"total"`
 }
 
 // SystemPromptResponse defines model for SystemPromptResponse.

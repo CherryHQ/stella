@@ -67,6 +67,7 @@ import {
   getSkill,
   getSkillFile,
   getStatus,
+  getStoredDigest,
   getVaultEntry,
   getWorkspaceFileContent,
   installAgentSkill,
@@ -97,6 +98,7 @@ import {
   listSchedulerJobs,
   listSessions,
   listSkills,
+  listStoredDigests,
   listTools,
   listUserMemories,
   listVaultEntries,
@@ -111,6 +113,7 @@ import {
   register,
   removeAgentUser,
   saveArticle,
+  saveDigest,
   saveManifestPlugins,
   searchSkills,
   setOAuthProviderConfig,
@@ -316,6 +319,9 @@ import type {
   GetSkillResponse,
   GetStatusData,
   GetStatusResponse,
+  GetStoredDigestData,
+  GetStoredDigestError,
+  GetStoredDigestResponse,
   GetVaultEntryData,
   GetVaultEntryError,
   GetVaultEntryResponse,
@@ -406,6 +412,9 @@ import type {
   ListSkillsData,
   ListSkillsError,
   ListSkillsResponse,
+  ListStoredDigestsData,
+  ListStoredDigestsError,
+  ListStoredDigestsResponse,
   ListToolsData,
   ListToolsError,
   ListToolsResponse,
@@ -443,6 +452,9 @@ import type {
   SaveArticleData,
   SaveArticleError,
   SaveArticleResponse,
+  SaveDigestData,
+  SaveDigestError,
+  SaveDigestResponse,
   SaveManifestPluginsData,
   SaveManifestPluginsError,
   SaveManifestPluginsResponse,
@@ -1977,6 +1989,171 @@ export const getDigestOptions = (options?: Options<GetDigestData>) =>
     queryKey: getDigestQueryKey(options),
   });
 
+export const listStoredDigestsQueryKey = (
+  options?: Options<ListStoredDigestsData>,
+) => createQueryKey("listStoredDigests", options);
+
+/**
+ * List stored digests (most recent first)
+ */
+export const listStoredDigestsOptions = (
+  options?: Options<ListStoredDigestsData>,
+) =>
+  queryOptions<
+    ListStoredDigestsResponse,
+    ListStoredDigestsError,
+    ListStoredDigestsResponse,
+    ReturnType<typeof listStoredDigestsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listStoredDigests({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listStoredDigestsQueryKey(options),
+  });
+
+const createInfiniteParams = <
+  K extends Pick<QueryKey<Options>[0], "body" | "headers" | "path" | "query">,
+>(
+  queryKey: QueryKey<Options>,
+  page: K,
+) => {
+  const params = { ...queryKey[0] };
+  if (page.body) {
+    params.body = {
+      ...(queryKey[0].body as any),
+      ...(page.body as any),
+    };
+  }
+  if (page.headers) {
+    params.headers = {
+      ...queryKey[0].headers,
+      ...page.headers,
+    };
+  }
+  if (page.path) {
+    params.path = {
+      ...(queryKey[0].path as any),
+      ...(page.path as any),
+    };
+  }
+  if (page.query) {
+    params.query = {
+      ...(queryKey[0].query as any),
+      ...(page.query as any),
+    };
+  }
+  return params as unknown as typeof page;
+};
+
+export const listStoredDigestsInfiniteQueryKey = (
+  options?: Options<ListStoredDigestsData>,
+): QueryKey<Options<ListStoredDigestsData>> =>
+  createQueryKey("listStoredDigests", options, true);
+
+/**
+ * List stored digests (most recent first)
+ */
+export const listStoredDigestsInfiniteOptions = (
+  options?: Options<ListStoredDigestsData>,
+) =>
+  infiniteQueryOptions<
+    ListStoredDigestsResponse,
+    ListStoredDigestsError,
+    InfiniteData<ListStoredDigestsResponse>,
+    QueryKey<Options<ListStoredDigestsData>>,
+    | number
+    | Pick<
+        QueryKey<Options<ListStoredDigestsData>>[0],
+        "body" | "headers" | "path" | "query"
+      >
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<ListStoredDigestsData>>[0],
+          "body" | "headers" | "path" | "query"
+        > =
+          typeof pageParam === "object"
+            ? pageParam
+            : {
+                query: {
+                  offset: pageParam,
+                },
+              };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await listStoredDigests({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true,
+        });
+        return data;
+      },
+      queryKey: listStoredDigestsInfiniteQueryKey(options),
+    },
+  );
+
+/**
+ * Save a digest snapshot with narrative
+ */
+export const saveDigestMutation = (
+  options?: Partial<Options<SaveDigestData>>,
+): UseMutationOptions<
+  SaveDigestResponse,
+  SaveDigestError,
+  Options<SaveDigestData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SaveDigestResponse,
+    SaveDigestError,
+    Options<SaveDigestData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await saveDigest({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getStoredDigestQueryKey = (
+  options: Options<GetStoredDigestData>,
+) => createQueryKey("getStoredDigest", options);
+
+/**
+ * Get a stored digest by date (YYYY-MM-DD)
+ */
+export const getStoredDigestOptions = (options: Options<GetStoredDigestData>) =>
+  queryOptions<
+    GetStoredDigestResponse,
+    GetStoredDigestError,
+    GetStoredDigestResponse,
+    ReturnType<typeof getStoredDigestQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getStoredDigest({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getStoredDigestQueryKey(options),
+  });
+
 export const listModelsQueryKey = (options?: Options<ListModelsData>) =>
   createQueryKey("listModels", options);
 
@@ -2535,40 +2712,6 @@ export const listSessionsOptions = (options?: Options<ListSessionsData>) =>
     },
     queryKey: listSessionsQueryKey(options),
   });
-
-const createInfiniteParams = <
-  K extends Pick<QueryKey<Options>[0], "body" | "headers" | "path" | "query">,
->(
-  queryKey: QueryKey<Options>,
-  page: K,
-) => {
-  const params = { ...queryKey[0] };
-  if (page.body) {
-    params.body = {
-      ...(queryKey[0].body as any),
-      ...(page.body as any),
-    };
-  }
-  if (page.headers) {
-    params.headers = {
-      ...queryKey[0].headers,
-      ...page.headers,
-    };
-  }
-  if (page.path) {
-    params.path = {
-      ...(queryKey[0].path as any),
-      ...(page.path as any),
-    };
-  }
-  if (page.query) {
-    params.query = {
-      ...(queryKey[0].query as any),
-      ...(page.query as any),
-    };
-  }
-  return params as unknown as typeof page;
-};
 
 export const listSessionsInfiniteQueryKey = (
   options?: Options<ListSessionsData>,
