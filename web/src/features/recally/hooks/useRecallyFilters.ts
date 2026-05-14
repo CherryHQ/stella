@@ -13,6 +13,7 @@ export function useRecallyFilters() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
+  const [digestView, setDigestView] = useState(false);
 
   const digestQuery = useQuery(getDigestOptions());
   const articlesQuery = useQuery(
@@ -60,6 +61,7 @@ export function useRecallyFilters() {
     setStarredFilter(null);
     setSourceTypeFilter(null);
     setTagFilter(null);
+    setDigestView(false);
   }
 
   return {
@@ -78,6 +80,8 @@ export function useRecallyFilters() {
     setShowAllTags,
     leftOpen,
     setLeftOpen,
+    digestView,
+    setDigestView,
     digestQuery,
     digest,
     articlesQuery,

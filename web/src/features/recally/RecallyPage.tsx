@@ -8,6 +8,7 @@ import { useRecallyMutations } from "./hooks/useRecallyMutations";
 import { useRecallyFeeds } from "./hooks/useRecallyFeeds";
 import { RecallySidebar } from "./components/RecallySidebar";
 import { RecallyArticleList } from "./components/RecallyArticleList";
+import { RecallyDigestView } from "./components/RecallyDigestView";
 import { RecallyReader } from "./components/RecallyReader";
 import { ToastAlert } from "./components/ToastAlert";
 
@@ -69,6 +70,8 @@ export function RecallyPage() {
           showAllTags={filters.showAllTags}
           setShowAllTags={filters.setShowAllTags}
           digest={filters.digest}
+          digestView={filters.digestView}
+          setDigestView={filters.setDigestView}
           sortedTags={filters.sortedTags}
           visibleTags={filters.visibleTags}
           hasMoreTags={filters.hasMoreTags}
@@ -89,20 +92,31 @@ export function RecallyPage() {
         className="flex-1 min-w-0 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
         style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
       >
-        {/* Center article list */}
-        <RecallyArticleList
-          t={t}
-          displayArticles={filters.displayArticles}
-          articlesQuery={filters.articlesQuery}
-          selectedId={selectedId}
-          setSelectedId={setSelectedId}
-          digest={filters.digest}
-          searchText={filters.searchText}
-          setSearchText={filters.setSearchText}
-          statusFilter={filters.statusFilter}
-          setStatusFilter={filters.setStatusFilter}
-          setLeftOpen={filters.setLeftOpen}
-        />
+        {/* Center panel: digest view or article list */}
+        {filters.digestView ? (
+          <RecallyDigestView
+            t={t}
+            digest={filters.digest}
+            digestLoading={filters.digestQuery.isLoading}
+            digestError={filters.digestQuery.isError}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+          />
+        ) : (
+          <RecallyArticleList
+            t={t}
+            displayArticles={filters.displayArticles}
+            articlesQuery={filters.articlesQuery}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            digest={filters.digest}
+            searchText={filters.searchText}
+            setSearchText={filters.setSearchText}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={filters.setStatusFilter}
+            setLeftOpen={filters.setLeftOpen}
+          />
+        )}
 
         {/* Right reader panel */}
         <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
