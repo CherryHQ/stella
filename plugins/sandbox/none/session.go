@@ -99,6 +99,12 @@ func (s *noneSession) ResolvePath(path string) (string, error) {
 	return filepath.Join(s.WorkingDir(), path), nil
 }
 
+// ResolveWritePath is the same as ResolvePath for the none backend, which has
+// no mount-level isolation.
+func (s *noneSession) ResolveWritePath(path string) (string, error) {
+	return s.ResolvePath(path)
+}
+
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	s.mu.RLock()
 	closed := s.closed

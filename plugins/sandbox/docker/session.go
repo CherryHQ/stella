@@ -342,7 +342,10 @@ func (s *dockerSession) StartProcess(ctx context.Context, req sandboxpkg.Process
 	return s.host.StartProcess(ctx, req)
 }
 func (s *dockerSession) ResolvePath(path string) (string, error) { return s.host.ResolvePath(path) }
-func (s *dockerSession) WorkingDir() string                      { return s.host.WorkingDir() }
+func (s *dockerSession) ResolveWritePath(path string) (string, error) {
+	return s.host.ResolveWritePath(path)
+}
+func (s *dockerSession) WorkingDir() string { return s.host.WorkingDir() }
 
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()
@@ -552,6 +555,39 @@ func deepestMountRoot(mounts []dockerclient.Mount, path string) string {
 		}
 	}
 	return best
+}
+
+// deepestMount returns the mount with the longest HostPath prefix containing
+// path, or nil if no mount covers it.
+func deepestMount(mounts []dockerclient.Mount, path string) *dockerclient.Mount {
+	var best *dockerclient.Mount
+	for i := range mounts {
+		m := &mounts[i]
+		rel, err := filepath.Rel(m.HostPath, path)
+		if err != nil {
+			continue
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if best == nil || len(m.HostPath) > len(best.HostPath) {
+			best = m
+		}
+	}
+	return best
+}
+
+// ResolveWritePath is like ResolvePath but additionally rejects paths that
+// fall within a read-only mount.
+func (h *dockerHost) ResolveWritePath(path string) (string, error) {
+	resolved, err := h.ResolvePath(path)
+	if err != nil {
+		return "", err
+	}
+	if m := deepestMount(h.session.mountTable, resolved); m != nil && m.ReadOnly {
+		return "", fmt.Errorf("docker host: path %q is in a read-only mount", path)
+	}
+	return resolved, nil
 }
 
 func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {

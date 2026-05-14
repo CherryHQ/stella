@@ -35,8 +35,9 @@ func (f *fakeSession) Exec(_ context.Context, _ string, _ pkgsandbox.ExecOptions
 func (f *fakeSession) StartProcess(_ context.Context, _ pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
 	return nil, nil
 }
-func (f *fakeSession) ResolvePath(path string) (string, error) { return path, nil }
-func (f *fakeSession) WorkingDir() string                      { return "/tmp" }
+func (f *fakeSession) ResolvePath(path string) (string, error)      { return path, nil }
+func (f *fakeSession) ResolveWritePath(path string) (string, error) { return path, nil }
+func (f *fakeSession) WorkingDir() string                           { return "/tmp" }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 	tools := buildSandboxCoreTools(nil, plugintools.BuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}})

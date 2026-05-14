@@ -136,8 +136,9 @@ func (h *stdioHostStub) StartProcess(_ context.Context, req sandbox.ProcessReque
 	h.req = req
 	return stdioProcessStub{}, nil
 }
-func (h *stdioHostStub) ResolvePath(path string) (string, error) { return path, nil }
-func (h *stdioHostStub) WorkingDir() string                      { return "/" }
+func (h *stdioHostStub) ResolvePath(path string) (string, error)      { return path, nil }
+func (h *stdioHostStub) ResolveWritePath(path string) (string, error) { return path, nil }
+func (h *stdioHostStub) WorkingDir() string                           { return "/" }
 
 type stdioProcessStub struct{}
 
