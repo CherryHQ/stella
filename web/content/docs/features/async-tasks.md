@@ -158,6 +158,22 @@ The `task` tool is available to all agents (not just task sessions). It lets the
 | `get`    | Retrieve a task's current status and context by ID                           |
 | `list`   | List tasks, optionally filtered by status                                    |
 
+## Working with `agent` and `scheduler`
+
+Async tasks complement the existing execution tools:
+
+| Tool        | Use when                                                | Behavior                                        |
+| ----------- | ------------------------------------------------------- | ----------------------------------------------- |
+| `agent`     | A focused helper is needed and the answer is needed now | Runs synchronously and returns inline           |
+| `task`      | Work should continue in the background                  | Persists state, can pause/review, resumes later |
+| `scheduler` | Work should start later or repeat                       | Triggers an agent prompt on a clock             |
+
+Common combinations:
+
+- **Agent → task:** the main agent creates a task for long-running work, then returns the task ID to the user.
+- **Task → agent:** a task worker can use the synchronous `agent` tool for short focused subtasks, then aggregate the results and call `task_control`.
+- **Scheduler → task:** a scheduled job can create a task when recurring work may run long or need human review.
+
 ## Human-in-the-Loop Flows
 
 ### Blocked (agent needs information)

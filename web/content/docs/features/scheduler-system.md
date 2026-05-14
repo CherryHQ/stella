@@ -154,6 +154,8 @@ This gives plugins declarative enable/disable semantics:
 
 The `scheduler` builtin skill is loaded automatically. It documents `stella scheduler` CLI commands that the agent calls via Bash. Only user-owned jobs are exposed; plugin-owned jobs are hidden from `list`.
 
+Use the scheduler for time-based triggers. If the scheduled work may run for a long time, need review, or survive restarts, make the scheduled prompt create an async `task` instead of doing all work inline. That pattern keeps scheduler runs short while the task service owns persistence and human-in-the-loop state.
+
 ### `stella scheduler add` -- Create a job
 
 Flags:
