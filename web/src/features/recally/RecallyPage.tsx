@@ -147,9 +147,26 @@ export function RecallyPage() {
         </aside>
       </div>
 
+      {/* Mobile digest detail overlay */}
+      {showDigestDetail && (
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+            <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
+            <button
+              type="button"
+              onClick={() => filters.setSelectedDigestDate(null)}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
+        </div>
+      )}
+
       {/* Mobile reader overlay */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{t("recally.title")}</span>
             <button

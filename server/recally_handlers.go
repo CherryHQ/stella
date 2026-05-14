@@ -613,10 +613,18 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	}
 	limit := int64(20)
 	if params.Limit != nil {
+		if *params.Limit < 1 || *params.Limit > 100 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return
+		}
 		limit = int64(*params.Limit)
 	}
 	offset := int64(0)
 	if params.Offset != nil {
+		if *params.Offset < 0 {
+			writeError(w, http.StatusBadRequest, "offset must be greater than or equal to 0")
+			return
+		}
 		offset = int64(*params.Offset)
 	}
 	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)

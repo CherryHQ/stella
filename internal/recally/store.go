@@ -601,7 +601,14 @@ func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date st
 		return nil, fmt.Errorf("encode top_tags: %w", err)
 	}
 
-	row, err := s.q.UpsertDigest(ctx, sqlc.UpsertDigestParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin digest transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := s.q.WithTx(tx)
+	row, err := qtx.UpsertDigest(ctx, sqlc.UpsertDigestParams{
 		ID:                   generateID(),
 		UserID:               userID,
 		Date:                 date,
@@ -621,7 +628,7 @@ func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date st
 
 	// Replace article associations for both sections.
 	for _, section := range []DigestSection{DigestSectionSavedYesterday, DigestSectionWorthRevisiting} {
-		if err := s.q.DeleteDigestArticles(ctx, sqlc.DeleteDigestArticlesParams{
+		if err := qtx.DeleteDigestArticles(ctx, sqlc.DeleteDigestArticlesParams{
 			DigestID: row.ID,
 			Section:  section,
 		}); err != nil {
@@ -635,7 +642,7 @@ func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date st
 	}
 	for section, list := range articles {
 		for i, a := range list {
-			if err := s.q.AddDigestArticle(ctx, sqlc.AddDigestArticleParams{
+			if err := qtx.AddDigestArticle(ctx, sqlc.AddDigestArticleParams{
 				DigestID:  row.ID,
 				ArticleID: a.ID,
 				Section:   section,
@@ -646,7 +653,14 @@ func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date st
 		}
 	}
 
-	return s.hydrateDigest(ctx, row)
+	stored, err := s.hydrateDigest(ctx, qtx, row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit digest transaction: %w", err)
+	}
+	return stored, nil
 }
 
 // GetStoredDigestByDate returns a persisted digest with full article objects.
@@ -655,7 +669,7 @@ func (s *Store) GetStoredDigestByDate(ctx context.Context, userID int64, date st
 	if err != nil {
 		return nil, fmt.Errorf("get digest by date: %w", err)
 	}
-	return s.hydrateDigest(ctx, row)
+	return s.hydrateDigest(ctx, s.q, row)
 }
 
 // ListStoredDigests returns a paginated list of lightweight digest summaries.
@@ -687,12 +701,12 @@ func (s *Store) ListStoredDigests(ctx context.Context, userID int64, limit, offs
 	return summaries, total, nil
 }
 
-func (s *Store) hydrateDigest(ctx context.Context, row sqlc.RecallyDigest) (*StoredDigest, error) {
-	savedYesterday, err := s.loadDigestArticles(ctx, row.ID, DigestSectionSavedYesterday)
+func (s *Store) hydrateDigest(ctx context.Context, q *sqlc.Queries, row sqlc.RecallyDigest) (*StoredDigest, error) {
+	savedYesterday, err := s.loadDigestArticles(ctx, q, row.ID, DigestSectionSavedYesterday)
 	if err != nil {
 		return nil, err
 	}
-	worthRevisiting, err := s.loadDigestArticles(ctx, row.ID, DigestSectionWorthRevisiting)
+	worthRevisiting, err := s.loadDigestArticles(ctx, q, row.ID, DigestSectionWorthRevisiting)
 	if err != nil {
 		return nil, err
 	}
@@ -718,8 +732,8 @@ func (s *Store) hydrateDigest(ctx context.Context, row sqlc.RecallyDigest) (*Sto
 	}, nil
 }
 
-func (s *Store) loadDigestArticles(ctx context.Context, digestID, section string) ([]Article, error) {
-	rows, err := s.q.ListDigestArticles(ctx, sqlc.ListDigestArticlesParams{
+func (s *Store) loadDigestArticles(ctx context.Context, q *sqlc.Queries, digestID, section string) ([]Article, error) {
+	rows, err := q.ListDigestArticles(ctx, sqlc.ListDigestArticlesParams{
 		DigestID: digestID,
 		Section:  section,
 	})
