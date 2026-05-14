@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
@@ -92,7 +93,6 @@ interface NormalizedChannel extends Record<string, unknown> {
   agent_id: string;
   agent_name: string;
   enabled: boolean;
-  _collapsed: boolean;
 }
 
 function normalizeChannel(ch: Channel): NormalizedChannel {
@@ -101,7 +101,6 @@ function normalizeChannel(ch: Channel): NormalizedChannel {
     ...ch,
     type,
     agent_id: ch.agent_id || "",
-    _collapsed: true,
     ...platformConfigDefaults(type),
     ...parseConfig(ch.config),
   };
@@ -240,6 +239,457 @@ function InstanceFields({
   );
 }
 
+// ─── ChannelDetail ────────────────────────────────────────────────────────────
+
+interface ChannelDetailProps {
+  channel: NormalizedChannel;
+  identity: Identity | null;
+  generating: boolean;
+  linkPlatform: string;
+  linkCode: string;
+  wxQrUrl: string;
+  wxQrStatus: string;
+  wxQrPolling: boolean;
+  onUpdate: (key: string, value: unknown) => void;
+  onSave: (ch: NormalizedChannel) => void;
+  onDelete: (id: string) => void;
+  onGenerateCode: (platform: string) => void;
+  onStartWeixinQR: () => void;
+  onUnlink: (id: number | undefined) => void;
+  onCopyLinkCode: () => void;
+  wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
+  onRefreshWxQr: () => void;
+}
+
+function ChannelDetail({
+  channel: initialChannel,
+  identity,
+  generating,
+  linkPlatform,
+  linkCode,
+  wxQrUrl,
+  wxQrStatus,
+  wxQrPolling,
+  onUpdate,
+  onSave,
+  onDelete,
+  onGenerateCode,
+  onStartWeixinQR,
+  onUnlink,
+  onCopyLinkCode,
+  wxQrStatusVariant,
+  onRefreshWxQr,
+}: ChannelDetailProps) {
+  const { t } = useI18n();
+  const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  useEffect(() => {
+    setChannel(initialChannel);
+    setConfirmDeleteOpen(false);
+  }, [initialChannel]);
+
+  const updateField = (key: string, value: unknown) => {
+    setChannel((prev) => ({ ...prev, [key]: value }));
+    onUpdate(key, value);
+  };
+
+  const isDefaultInstance = channel.id === channel.type;
+  const platformLabel = platformMeta[channel.type]?.label || channel.type;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Panel header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-serif text-xl tracking-tight">{platformLabel}</h2>
+            <p className="text-xs font-mono text-muted-foreground mt-1">{channel.id}</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Switch
+              checked={Boolean(channel.enabled)}
+              onCheckedChange={(checked) => updateField("enabled", checked)}
+            />
+            <span className="text-sm">Enabled</span>
+          </div>
+        </div>
+
+        {/* Config section */}
+        {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
+          <div className="space-y-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Configuration
+            </p>
+            <InstanceFields ch={channel} onChange={(key, value) => updateField(key, value)} />
+            {hasConfig(channel.type, channel) && (
+              <p className="text-xs text-muted-foreground">
+                This page stores the channel config only. Agent selection belongs on the agent page.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Identity / account section */}
+        <div className="space-y-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            My account
+          </p>
+          {identity ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Linked identity</p>
+              <p className="font-mono text-sm">
+                {identity.name ? identity.name + " · " : ""}
+                {identity.external_id}
+              </p>
+              <Button
+                onClick={() => onUnlink(identity.id)}
+                variant="ghost"
+                size="sm"
+                className="text-destructive-foreground"
+              >
+                Unlink
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">No account linked yet.</p>
+              {channel.type !== "weixin" && (
+                <Button
+                  onClick={() => onGenerateCode(channel.type)}
+                  disabled={generating}
+                  loading={generating && linkPlatform === channel.type}
+                  size="sm"
+                >
+                  Link {platformLabel}
+                </Button>
+              )}
+              {channel.type === "weixin" && (
+                <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
+                  Link Weixin
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Link code */}
+          {linkCode && linkPlatform === channel.type && (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
+                  /link {linkCode}
+                </code>
+                <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
+                  copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
+            </div>
+          )}
+
+          {/* Weixin QR */}
+          {wxQrUrl && channel.type === "weixin" && (
+            <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
+              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+              <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+                {wxQrStatus}
+              </Badge>
+              {wxQrStatus === "expired" && (
+                <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
+                  Refresh
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky footer */}
+      <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-background">
+        <Button onClick={() => onSave(channel)} variant="default" size="sm">
+          {t("common.save")}
+        </Button>
+        {!isDefaultInstance && (
+          <Button
+            onClick={() => setConfirmDeleteOpen(true)}
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            {t("common.delete")}
+          </Button>
+        )}
+      </div>
+
+      {/* Confirm delete dialog */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogPopup showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete channel</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <p className="text-sm">Delete channel {channel.id}?</p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setConfirmDeleteOpen(false)} variant="ghost" size="sm">
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmDeleteOpen(false);
+                onDelete(channel.id);
+              }}
+              variant="destructive"
+              size="sm"
+            >
+              {t("common.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── NewChannelForm ───────────────────────────────────────────────────────────
+
+interface NewChannelFormProps {
+  enabledChannelTypeIDs: string[];
+  fallbackChannelType: string;
+  onAdd: (channel: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+  creating: boolean;
+}
+
+function NewChannelForm({
+  enabledChannelTypeIDs,
+  fallbackChannelType,
+  onAdd,
+  onCancel,
+  creating,
+}: NewChannelFormProps) {
+  const { t } = useI18n();
+  const availableTypes = channelTypes.filter((ct) => enabledChannelTypeIDs.includes(ct.id));
+  const [draft, setDraft] = useState<Record<string, unknown>>(
+    newInstanceDraft(fallbackChannelType, ""),
+  );
+
+  const updateField = (key: string, value: unknown) => {
+    if (key === "type") {
+      setDraft(newInstanceDraft(value as string, draft.id as string));
+    } else {
+      setDraft((prev) => ({ ...prev, [key]: value }));
+    }
+  };
+
+  const canSubmit = !creating && !!draft.id && !!draft.type;
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div>
+          <h2 className="font-serif text-xl tracking-tight">New Channel</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Connect Stella to a messaging platform.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="w-full space-y-1.5">
+            <label className="text-sm font-medium">Platform</label>
+            <select
+              value={(draft.type as string) || ""}
+              onChange={(e) => updateField("type", e.target.value)}
+              className={selectClassName}
+            >
+              <option value="" disabled>
+                Select platform…
+              </option>
+              {availableTypes.map((ct) => (
+                <option key={ct.id} value={ct.id}>
+                  {ct.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="w-full space-y-1.5">
+            <label className="text-sm font-medium font-mono">Channel ID</label>
+            <Input
+              nativeInput
+              type="text"
+              value={(draft.id as string) || ""}
+              onChange={(e) => updateField("id", e.target.value)}
+              placeholder="e.g. feishu-coder"
+              className="w-full text-sm font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Must not match the platform ID (e.g. not "telegram" for a Telegram channel).
+            </p>
+          </div>
+
+          {!!draft.type && (
+            <div className="space-y-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Configuration
+              </p>
+              <InstanceFields ch={draft} onChange={updateField} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-background">
+        <Button onClick={() => onAdd(draft)} disabled={!canSubmit} loading={creating} size="sm">
+          Add Channel
+        </Button>
+        <Button onClick={onCancel} variant="ghost" size="sm">
+          {t("common.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PublicChannelDetail ──────────────────────────────────────────────────────
+
+interface PublicChannelDetailProps {
+  channel: Channel;
+  identity: Identity | null;
+  linked: boolean;
+  generating: boolean;
+  linkPlatform: string;
+  linkCode: string;
+  wxQrUrl: string;
+  wxQrStatus: string;
+  wxQrPolling: boolean;
+  onGenerateCode: (platform: string) => void;
+  onStartWeixinQR: () => void;
+  onUnlink: (id: number | undefined) => void;
+  onCopyLinkCode: () => void;
+  wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
+  onRefreshWxQr: () => void;
+}
+
+function PublicChannelDetail({
+  channel,
+  identity,
+  linked,
+  generating,
+  linkPlatform,
+  linkCode,
+  wxQrUrl,
+  wxQrStatus,
+  wxQrPolling,
+  onGenerateCode,
+  onStartWeixinQR,
+  onUnlink,
+  onCopyLinkCode,
+  wxQrStatusVariant,
+  onRefreshWxQr,
+}: PublicChannelDetailProps) {
+  const platformLabel = platformMeta[channel.type]?.label || channel.label || channel.type;
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-serif text-xl tracking-tight">{platformLabel}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge size="sm" variant={linked ? "success" : "secondary"}>
+                {linked ? "linked" : "not linked"}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        {/* My account */}
+        <div className="space-y-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            My account
+          </p>
+          {identity ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Linked identity</p>
+              <p className="font-mono text-sm">
+                {identity.name ? identity.name + " · " : ""}
+                {identity.external_id}
+              </p>
+              <Button
+                onClick={() => onUnlink(identity.id)}
+                variant="ghost"
+                size="sm"
+                className="text-destructive-foreground"
+              >
+                Unlink
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {channel.type === "weixin"
+                  ? "Link your Weixin account by scanning a QR code."
+                  : `Link your ${platformLabel} account once to chat with Stella on this platform.`}
+              </p>
+              {channel.type !== "weixin" && (
+                <Button
+                  onClick={() => onGenerateCode(channel.type)}
+                  disabled={generating}
+                  loading={generating && linkPlatform === channel.type}
+                  size="sm"
+                >
+                  Link {platformLabel}
+                </Button>
+              )}
+              {channel.type === "weixin" && (
+                <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
+                  Link Weixin
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Link code */}
+          {linkCode && linkPlatform === channel.type && (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
+                  /link {linkCode}
+                </code>
+                <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
+                  copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
+            </div>
+          )}
+
+          {/* Weixin QR */}
+          {wxQrUrl && channel.type === "weixin" && (
+            <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
+              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+              <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+                {wxQrStatus}
+              </Badge>
+              {wxQrStatus === "expired" && (
+                <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
+                  Refresh
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export function ChannelsPage() {
@@ -254,6 +704,12 @@ export function ChannelsPage() {
   const [loadingPlatforms, setLoadingPlatforms] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
+  // Selection state
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+  // For non-admin: selected public channel type
+  const [selectedPublicType, setSelectedPublicType] = useState<string | null>(null);
+
   const [linkCode, setLinkCode] = useState("");
   const [linkPlatform, setLinkPlatform] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -264,12 +720,7 @@ export function ChannelsPage() {
   const [wxQrPolling, setWxQrPolling] = useState(false);
   const wxQrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [showNewInstanceForm, setShowNewInstanceForm] = useState(false);
-  const [newChannel, setNewChannel] = useState<Record<string, unknown>>(newInstanceDraft());
   const [creatingInstance, setCreatingInstance] = useState(false);
-
-  const [confirmMsg, setConfirmMsg] = useState("");
-  const confirmActionRef = useRef<() => void>(() => {});
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -285,14 +736,6 @@ export function ChannelsPage() {
   const fallbackChannelType =
     channelTypes.find((t) => enabledChannelTypeIDs.includes(t.id))?.id || defaultChannelType;
 
-  const resetNewChannel = useCallback(
-    (type = fallbackChannelType, id = "") => {
-      const nextType = enabledChannelTypeIDs.includes(type) ? type : fallbackChannelType;
-      setNewChannel(newInstanceDraft(nextType, id));
-    },
-    [enabledChannelTypeIDs, fallbackChannelType],
-  );
-
   const identityFor = useCallback(
     (platform: string): Identity | null =>
       linkedIdentities.find((i) => i.platform === platform) || null,
@@ -300,47 +743,6 @@ export function ChannelsPage() {
   );
 
   const isLinked = useCallback((platform: string) => Boolean(identityFor(platform)), [identityFor]);
-
-  const configForPlatform = useCallback(
-    (type: string): NormalizedChannel | null =>
-      instances.find((ch) => ch.type === type && ch.id === type) || null,
-    [instances],
-  );
-
-  const dedicatedInstancesFor = useCallback(
-    (type: string): NormalizedChannel[] =>
-      instances.filter((ch) => ch.type === type && ch.id !== type),
-    [instances],
-  );
-
-  const isDefaultPlatformInstance = (ch: NormalizedChannel) => ch.id === ch.type;
-
-  const instanceStatus = (ch: NormalizedChannel) =>
-    hasConfig(ch.type, ch) ? "Configured" : "Needs config";
-
-  const instanceStatusVariant = (ch: NormalizedChannel): "success" | "secondary" =>
-    hasConfig(ch.type, ch) ? "success" : "secondary";
-
-  const identityLabel = (identity: Identity | null) => {
-    if (!identity) return "";
-    const name = identity.name ? identity.name + " · " : "";
-    return name + identity.external_id;
-  };
-
-  const platformDescription = (channel: Channel) => {
-    if (!channel) return "";
-    if (isLinked(channel.type))
-      return `Your ${channel.label} account is linked and ready to use with Stella.`;
-    if (channel.type === "weixin") return "Link your Weixin account by scanning a QR code.";
-    return `Link your ${channel.label} account once to chat with Stella on this platform.`;
-  };
-
-  const linkedAgentLabel = (channel: Channel) => {
-    if (!channel?.agent_id) return "";
-    return channel.agent_name ? `${channel.agent_name} (${channel.agent_id})` : channel.agent_id;
-  };
-
-  const platformLabel = (type: string) => platformMeta[type]?.label || type;
 
   // ── data loading ──
 
@@ -384,7 +786,7 @@ export function ChannelsPage() {
         const channels = await api<Channel[]>("GET", "/api/channels");
         const normalized = (channels || [])
           .map(normalizeChannel)
-          .filter((ch) => currentEnabledIDs.includes(ch.type) && ch.enabled)
+          .filter((ch) => currentEnabledIDs.includes(ch.type))
           .sort((a, b) => {
             const aDefault = a.id === a.type;
             const bDefault = b.id === b.type;
@@ -447,6 +849,13 @@ export function ChannelsPage() {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear selection if selected instance is removed
+  useEffect(() => {
+    if (selectedId && !instances.find((ch) => ch.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [instances, selectedId]);
 
   // ── link code ──
 
@@ -550,8 +959,8 @@ export function ChannelsPage() {
 
   // ── instance management ──
 
-  const updateInstance = (id: string, updates: Record<string, unknown>) => {
-    setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, ...updates } : ch)));
+  const updateInstance = (id: string, key: string, value: unknown) => {
+    setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, [key]: value } : ch)));
   };
 
   const saveInstance = async (ch: NormalizedChannel) => {
@@ -561,7 +970,8 @@ export function ChannelsPage() {
         agent_id: ch.agent_id || "",
         config: channelConfig(ch),
       });
-      updateInstance(ch.id, { ...normalizeChannel(saved), _collapsed: false });
+      const normalized = normalizeChannel(saved);
+      setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -570,12 +980,13 @@ export function ChannelsPage() {
 
   const doDeleteChannel = async (id: string) => {
     const ch = instances.find((c) => c.id === id);
-    if (ch && isDefaultPlatformInstance(ch)) {
+    if (ch && ch.id === ch.type) {
       showToast("Default platform channels cannot be deleted", "error");
       return;
     }
     try {
       await api("DELETE", "/api/channels/" + encodeURIComponent(id));
+      setSelectedId(null);
       await loadInstances(enabledChannelTypeIDs);
       showToast(id + " deleted");
     } catch (e) {
@@ -583,13 +994,13 @@ export function ChannelsPage() {
     }
   };
 
-  const createChannel = async () => {
-    const id = ((newChannel.id as string) || "").trim();
-    if (!id || !newChannel.type) {
+  const createChannel = async (draft: Record<string, unknown>) => {
+    const id = ((draft.id as string) || "").trim();
+    if (!id || !draft.type) {
       showToast("ID and platform are required", "error");
       return;
     }
-    if (id === newChannel.type) {
+    if (id === draft.type) {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
@@ -597,28 +1008,18 @@ export function ChannelsPage() {
     try {
       const saved = await api<Channel>("POST", "/api/channels", {
         id,
-        type: newChannel.type,
+        type: draft.type,
         agent_id: "",
-        config: channelConfig(newChannel),
+        config: channelConfig(draft),
       });
-      setShowNewInstanceForm(false);
-      resetNewChannel((saved.type as string) || fallbackChannelType);
+      setCreatingNew(false);
       await loadInstances(enabledChannelTypeIDs);
+      setSelectedId(saved.id);
       showToast(saved.id + " created");
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
       setCreatingInstance(false);
-    }
-  };
-
-  const toggleNewInstanceForm = (type: string) => {
-    if (showNewInstanceForm && newChannel.type === type) {
-      setShowNewInstanceForm(false);
-      resetNewChannel(newChannel.type as string, "");
-    } else {
-      resetNewChannel(type);
-      setShowNewInstanceForm(true);
     }
   };
 
@@ -636,8 +1037,222 @@ export function ChannelsPage() {
     return "secondary";
   };
 
-  return (
+  // ── admin view ──
+
+  if (isAdmin) {
+    const selectedChannel = selectedId ? instances.find((ch) => ch.id === selectedId) : null;
+
+    const listHeader = (
+      <div className="flex items-center justify-between px-3 py-3 border-b border-border">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Channels
+        </span>
+        <Button
+          onClick={() => {
+            setCreatingNew(true);
+            setSelectedId(null);
+          }}
+          variant="ghost"
+          size="xs"
+        >
+          New Channel
+        </Button>
+      </div>
+    );
+
+    const list = isLoading ? (
+      <div className="flex justify-center py-8">
+        <Spinner className="size-4" />
+      </div>
+    ) : (
+      <div>
+        {instances.map((ch) => {
+          const isSelected = !creatingNew && selectedId === ch.id;
+          const platformLabel = platformMeta[ch.type]?.label || ch.type;
+          return (
+            <button
+              key={ch.id}
+              onClick={() => {
+                setSelectedId(ch.id);
+                setCreatingNew(false);
+              }}
+              className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors ${
+                isSelected ? "bg-primary/8" : ""
+              }`}
+            >
+              {/* Status dot */}
+              <span
+                className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                  ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
+                <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.id}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+
+    let detail: React.ReactNode = undefined;
+    if (creatingNew) {
+      detail = (
+        <NewChannelForm
+          enabledChannelTypeIDs={enabledChannelTypeIDs}
+          fallbackChannelType={fallbackChannelType}
+          onAdd={createChannel}
+          onCancel={() => setCreatingNew(false)}
+          creating={creatingInstance}
+        />
+      );
+    } else if (selectedChannel) {
+      detail = (
+        <ChannelDetail
+          key={selectedChannel.id}
+          channel={selectedChannel}
+          identity={identityFor(selectedChannel.type)}
+          generating={generating}
+          linkPlatform={linkPlatform}
+          linkCode={linkCode}
+          wxQrUrl={wxQrUrl}
+          wxQrStatus={wxQrStatus}
+          wxQrPolling={wxQrPolling}
+          onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
+          onSave={saveInstance}
+          onDelete={doDeleteChannel}
+          onGenerateCode={generateCode}
+          onStartWeixinQR={startWeixinQR}
+          onUnlink={unlinkIdentity}
+          onCopyLinkCode={copyLinkCode}
+          wxQrStatusVariant={wxQrStatusVariant}
+          onRefreshWxQr={startWeixinQR}
+        />
+      );
+    }
+
+    const emptyState = (
+      <p className="text-sm text-muted-foreground">
+        No channels configured. Add one to connect a messaging platform.
+      </p>
+    );
+
+    return (
+      <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+        <SettingsDetailLayout
+          listHeader={listHeader}
+          list={list}
+          detail={detail}
+          emptyState={instances.length === 0 && !creatingNew ? emptyState : undefined}
+        />
+        {/* Toast */}
+        {toast && (
+          <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50">
+            <div
+              className={`rounded-lg border px-4 py-2 text-sm font-mono shadow-lg ${
+                toast.kind === "error"
+                  ? "border-destructive/50 bg-destructive/10 text-destructive-foreground"
+                  : "border-success/50 bg-success/10 text-success-foreground"
+              }`}
+            >
+              {toast.message}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── non-admin view ──
+
+  const selectedPublicChannel = selectedPublicType
+    ? publicChannels.find((ch) => ch.type === selectedPublicType)
+    : null;
+
+  const listHeader = (
+    <div className="flex items-center justify-between px-3 py-3 border-b border-border">
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        Channels
+      </span>
+    </div>
+  );
+
+  const list = isLoading ? (
+    <div className="flex justify-center py-8">
+      <Spinner className="size-4" />
+    </div>
+  ) : (
     <div>
+      {publicChannels.map((ch) => {
+        const isSelected = selectedPublicType === ch.type;
+        const linked = isLinked(ch.type);
+        const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+        return (
+          <button
+            key={ch.type}
+            onClick={() => setSelectedPublicType(ch.type)}
+            className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors ${
+              isSelected ? "bg-primary/8" : ""
+            }`}
+          >
+            <span
+              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                linked ? "bg-green-500" : "bg-muted-foreground/40"
+              }`}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
+              {linked && (
+                <p className="text-[11px] font-mono text-muted-foreground truncate">linked</p>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  let detail: React.ReactNode = undefined;
+  if (selectedPublicChannel) {
+    detail = (
+      <PublicChannelDetail
+        key={selectedPublicChannel.type}
+        channel={selectedPublicChannel}
+        identity={identityFor(selectedPublicChannel.type)}
+        linked={isLinked(selectedPublicChannel.type)}
+        generating={generating}
+        linkPlatform={linkPlatform}
+        linkCode={linkCode}
+        wxQrUrl={wxQrUrl}
+        wxQrStatus={wxQrStatus}
+        wxQrPolling={wxQrPolling}
+        onGenerateCode={generateCode}
+        onStartWeixinQR={startWeixinQR}
+        onUnlink={unlinkIdentity}
+        onCopyLinkCode={copyLinkCode}
+        wxQrStatusVariant={wxQrStatusVariant}
+        onRefreshWxQr={startWeixinQR}
+      />
+    );
+  }
+
+  const emptyState = (
+    <p className="text-sm text-muted-foreground">
+      {publicChannels.length === 0
+        ? "No channels available. An admin needs to enable channel plugins."
+        : t("channels.title")}
+    </p>
+  );
+
+  return (
+    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+      <SettingsDetailLayout
+        listHeader={listHeader}
+        list={list}
+        detail={detail}
+        emptyState={!selectedPublicChannel ? emptyState : undefined}
+      />
       {/* Toast */}
       {toast && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50">
@@ -649,497 +1264,6 @@ export function ChannelsPage() {
             }`}
           >
             {toast.message}
-          </div>
-        </div>
-      )}
-
-      {/* Page header */}
-      <div className="mb-8">
-        <h1 className="font-serif text-3xl md:text-4xl tracking-tight mb-2">
-          {t("channels.title")}
-        </h1>
-        <p className="text-muted-foreground text-sm max-w-lg">
-          Link the platforms you use. The Plugins page controls which platforms appear here.
-        </p>
-      </div>
-
-      <section className="border-t border-border pt-8">
-        <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
-          <div>
-            <h2 className="text-lg font-medium">Platforms</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Link your own account here. Admins can also configure the platform default and any
-              dedicated instances in the same card.
-            </p>
-          </div>
-          <span className="text-xs font-mono text-muted-foreground">
-            {linkedIdentities.length} linked
-          </span>
-        </div>
-
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Spinner className="size-4" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {publicChannels.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-muted xl:col-span-2 p-6">
-                <div className="text-sm text-muted-foreground">
-                  <p>No platform channels are available right now.</p>
-                  {isAdmin && (
-                    <p>
-                      Enable one or more channel plugins on the{" "}
-                      <a
-                        href="/settings/plugins"
-                        className="text-primary underline underline-offset-4 hover:text-primary/80"
-                      >
-                        Plugins
-                      </a>{" "}
-                      page.
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              publicChannels.map((channel) => (
-                <PlatformCard
-                  key={channel.id}
-                  channel={channel}
-                  isAdmin={isAdmin}
-                  identity={identityFor(channel.type)}
-                  linked={isLinked(channel.type)}
-                  platformDescription={platformDescription(channel)}
-                  linkedAgentLabel={linkedAgentLabel(channel)}
-                  identityLabel={identityLabel}
-                  generating={generating}
-                  linkPlatform={linkPlatform}
-                  wxQrPolling={wxQrPolling}
-                  configInstance={configForPlatform(channel.type)}
-                  dedicatedInstances={dedicatedInstancesFor(channel.type)}
-                  showNewInstanceForm={showNewInstanceForm && newChannel.type === channel.type}
-                  newChannel={newChannel}
-                  creatingInstance={creatingInstance}
-                  instanceStatus={instanceStatus}
-                  instanceStatusVariant={instanceStatusVariant}
-                  onGenerateCode={generateCode}
-                  onStartWeixinQR={startWeixinQR}
-                  onUnlink={(id) => unlinkIdentity(id)}
-                  onToggleNewInstanceForm={() => toggleNewInstanceForm(channel.type)}
-                  onNewChannelChange={(key, value) =>
-                    setNewChannel((prev) => {
-                      if (key === "type")
-                        return newInstanceDraft(value as string, prev.id as string);
-                      return { ...prev, [key]: value };
-                    })
-                  }
-                  onCreateChannel={createChannel}
-                  onCancelNewInstance={() => {
-                    setShowNewInstanceForm(false);
-                    resetNewChannel(newChannel.type as string, "");
-                  }}
-                  onSaveInstance={saveInstance}
-                  onDeleteInstance={(id) => {
-                    confirmActionRef.current = () => doDeleteChannel(id);
-                    setConfirmMsg(`Delete dedicated instance ${id}?`);
-                  }}
-                  onUpdateInstance={updateInstance}
-                  onToggleInstanceCollapse={(id, collapsed) =>
-                    updateInstance(id, { _collapsed: collapsed })
-                  }
-                  onToggleConfigCollapse={(type) => {
-                    const cfg = configForPlatform(type);
-                    if (cfg) updateInstance(cfg.id, { _collapsed: !cfg._collapsed });
-                  }}
-                />
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Link code alert */}
-        {linkCode && (
-          <div className="rounded-lg border border-border bg-card shadow-md mt-4 p-4">
-            <div>
-              <p className="font-medium">
-                Send this command to Stella on {platformLabel(linkPlatform)}:
-              </p>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
-                  /link {linkCode}
-                </code>
-                <Button onClick={copyLinkCode} variant="ghost" size="xs">
-                  copy
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">Expires in 5 minutes.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Weixin QR */}
-        {wxQrUrl && (
-          <div className="rounded-xl border border-border bg-muted mt-4 p-6 flex flex-col items-center">
-            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
-              {wxQrStatus}
-            </Badge>
-            {wxQrStatus === "expired" && (
-              <Button onClick={startWeixinQR} variant="outline" size="xs" className="mt-1">
-                Refresh
-              </Button>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Confirm dialog */}
-      <Dialog
-        open={!!confirmMsg}
-        onOpenChange={(open) => {
-          if (!open) setConfirmMsg("");
-        }}
-      >
-        <DialogPopup showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>{t("common.confirm")}</DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-2">
-            <p className="text-sm">{confirmMsg}</p>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setConfirmMsg("")} variant="ghost" size="sm">
-              {t("common.cancel")}
-            </Button>
-            <Button
-              onClick={() => {
-                confirmActionRef.current();
-                setConfirmMsg("");
-              }}
-              variant="destructive"
-              size="sm"
-            >
-              {t("common.delete")}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-    </div>
-  );
-}
-
-// ─── PlatformCard ─────────────────────────────────────────────────────────────
-
-interface PlatformCardProps {
-  channel: Channel;
-  isAdmin: boolean;
-  identity: Identity | null;
-  linked: boolean;
-  platformDescription: string;
-  linkedAgentLabel: string;
-  identityLabel: (i: Identity | null) => string;
-  generating: boolean;
-  linkPlatform: string;
-  wxQrPolling: boolean;
-  configInstance: NormalizedChannel | null;
-  dedicatedInstances: NormalizedChannel[];
-  showNewInstanceForm: boolean;
-  newChannel: Record<string, unknown>;
-  creatingInstance: boolean;
-  instanceStatus: (ch: NormalizedChannel) => string;
-  instanceStatusVariant: (ch: NormalizedChannel) => "success" | "secondary";
-  onGenerateCode: (platform: string) => void;
-  onStartWeixinQR: () => void;
-  onUnlink: (id: number | undefined) => void;
-  onToggleNewInstanceForm: () => void;
-  onNewChannelChange: (key: string, value: unknown) => void;
-  onCreateChannel: () => void;
-  onCancelNewInstance: () => void;
-  onSaveInstance: (ch: NormalizedChannel) => void;
-  onDeleteInstance: (id: string) => void;
-  onUpdateInstance: (id: string, updates: Record<string, unknown>) => void;
-  onToggleInstanceCollapse: (id: string, collapsed: boolean) => void;
-  onToggleConfigCollapse: (type: string) => void;
-}
-
-function PlatformCard({
-  channel,
-  isAdmin,
-  identity,
-  linked,
-  platformDescription,
-  linkedAgentLabel,
-  identityLabel,
-  generating,
-  linkPlatform,
-  wxQrPolling,
-  configInstance,
-  dedicatedInstances,
-  showNewInstanceForm,
-  newChannel,
-  creatingInstance,
-  instanceStatus,
-  instanceStatusVariant,
-  onGenerateCode,
-  onStartWeixinQR,
-  onUnlink,
-  onToggleNewInstanceForm,
-  onNewChannelChange,
-  onCreateChannel,
-  onCancelNewInstance,
-  onSaveInstance,
-  onDeleteInstance,
-  onUpdateInstance,
-  onToggleInstanceCollapse,
-  onToggleConfigCollapse,
-}: PlatformCardProps) {
-  const { t } = useI18n();
-  return (
-    <div className="rounded-xl border border-border bg-muted flex flex-col gap-6 p-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-medium text-base">{channel.label}</h3>
-            <Badge variant="secondary" size="sm">
-              platform
-            </Badge>
-            <Badge size="sm" variant={linked ? "success" : "secondary"}>
-              {linked ? "linked" : "not linked"}
-            </Badge>
-            {isAdmin && configInstance && (
-              <Badge size="sm" variant={instanceStatusVariant(configInstance)}>
-                {instanceStatus(configInstance)}
-              </Badge>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground mt-2">{platformDescription}</p>
-        </div>
-        {channel.agent_id && (
-          <Badge variant="default" size="sm">
-            agent: {linkedAgentLabel}
-          </Badge>
-        )}
-      </div>
-
-      {/* My account */}
-      <div className="space-y-2 text-sm">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-          My account
-        </p>
-        {identity ? (
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Linked identity</p>
-            <p className="font-mono text-sm">{identityLabel(identity)}</p>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No account linked yet.</p>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="flex gap-2">
-        {!linked && channel.type !== "weixin" && (
-          <Button
-            onClick={() => onGenerateCode(channel.type)}
-            disabled={generating}
-            loading={generating && linkPlatform === channel.type}
-            size="sm"
-          >
-            Link {channel.label}
-          </Button>
-        )}
-        {!linked && channel.type === "weixin" && (
-          <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
-            Link Weixin
-          </Button>
-        )}
-        {linked && (
-          <Button
-            onClick={() => onUnlink(identity?.id)}
-            variant="ghost"
-            size="sm"
-            className="text-destructive-foreground"
-          >
-            Unlink
-          </Button>
-        )}
-      </div>
-
-      {/* Admin: default config */}
-      {isAdmin && configInstance && (
-        <div className="border-t border-border pt-5 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-                Default channel config
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Shared bot or app credentials for this platform's default channel.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {configInstance.agent_id && (
-                <Badge variant="outline" size="sm">
-                  agent: {configInstance.agent_id as string}
-                </Badge>
-              )}
-              <Button
-                onClick={() => onToggleConfigCollapse(channel.type)}
-                variant="ghost"
-                size="sm"
-              >
-                {configInstance._collapsed ? "Configure" : "Collapse"}
-              </Button>
-            </div>
-          </div>
-          {!configInstance._collapsed && (
-            <div className="space-y-4">
-              <InstanceFields
-                ch={configInstance}
-                onChange={(key, value) => onUpdateInstance(configInstance.id, { [key]: value })}
-              />
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <p className="text-xs text-muted-foreground">
-                  This config controls the platform default. Agent selection belongs on the agent
-                  page.
-                </p>
-                <Button onClick={() => onSaveInstance(configInstance)} size="sm">
-                  Save default config
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Admin: dedicated instances */}
-      {isAdmin && (
-        <div className="border-t border-border pt-5 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-                Dedicated instances
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Reusable per-platform instances with separate credentials.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-mono text-muted-foreground">
-                {dedicatedInstances.length} instances
-              </span>
-              <Button onClick={onToggleNewInstanceForm} size="xs">
-                Add dedicated instance
-              </Button>
-            </div>
-          </div>
-
-          {/* New instance form */}
-          {showNewInstanceForm && (
-            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-              <div className="w-full space-y-1.5">
-                <label className="text-sm font-medium font-mono">Instance ID</label>
-                <Input
-                  nativeInput
-                  type="text"
-                  value={(newChannel.id as string) || ""}
-                  onChange={(e) => onNewChannelChange("id", e.target.value)}
-                  placeholder="feishu-coder"
-                  className="w-full text-sm font-mono"
-                />
-              </div>
-              <InstanceFields ch={newChannel} onChange={onNewChannelChange} />
-              <div className="flex justify-end gap-2">
-                <Button onClick={onCancelNewInstance} variant="ghost" size="sm">
-                  Cancel
-                </Button>
-                <Button
-                  onClick={onCreateChannel}
-                  disabled={creatingInstance || !newChannel.id || !newChannel.type}
-                  loading={creatingInstance}
-                  size="sm"
-                >
-                  Create instance
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Dedicated instance list */}
-          <div className="space-y-3">
-            {dedicatedInstances.map((ch) => (
-              <div
-                key={ch.id}
-                className="rounded-xl border border-border bg-card flex flex-col gap-4 p-6"
-              >
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="font-medium text-sm font-mono">{ch.id}</h4>
-                      <Badge variant="secondary" size="sm">
-                        dedicated
-                      </Badge>
-                      <Badge size="sm" variant={instanceStatusVariant(ch)}>
-                        {instanceStatus(ch)}
-                      </Badge>
-                      {ch.agent_id && (
-                        <Badge variant="outline" size="sm">
-                          agent: {ch.agent_id as string}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Dedicated instance. Configure it here, then attach it from the agent page.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={() => onToggleInstanceCollapse(ch.id, !ch._collapsed)}
-                      variant="ghost"
-                      size="sm"
-                    >
-                      {ch._collapsed ? "Configure" : "Collapse"}
-                    </Button>
-                    <Button
-                      onClick={() => onDeleteInstance(ch.id)}
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive-foreground"
-                    >
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                </div>
-                {!ch._collapsed && (
-                  <div className="space-y-4">
-                    <InstanceFields
-                      ch={ch}
-                      onChange={(key, value) => onUpdateInstance(ch.id, { [key]: value })}
-                    />
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <p className="text-xs text-muted-foreground">
-                        This page stores the instance config only. Agent selection belongs on the
-                        agent page.
-                      </p>
-                      <Button onClick={() => onSaveInstance(ch)} size="sm">
-                        Save config
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {dedicatedInstances.length === 0 && !showNewInstanceForm && (
-              <div className="rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
-                <p>No dedicated instances yet.</p>
-                <p className="mt-1">
-                  Create one when you need separate credentials for a specific workflow or agent.
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}
