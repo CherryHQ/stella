@@ -15,6 +15,7 @@ package local
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -48,6 +49,28 @@ func seatbeltFunctional() bool {
 func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
 	real := policy.WorkspaceRootOrDefault()
 	return real, real
+}
+
+// createSessionTmpMounts returns tmpMount pairs for macOS temp paths.
+// On macOS, /tmp and /var/tmp are symlinks into /private; both bash (via
+// sandbox-exec, which allows writes to /private/tmp and /private/var/tmp)
+// and file tools share the same host filesystem, so no bind is needed —
+// only the path-guard needs to know the real paths.
+//
+// To add support for a new sandbox temp path:
+//  1. Resolve its symlink target and append a tmpMount{sandboxPath, realPath}.
+//  2. Add a corresponding allow rule in buildSeatbeltProfile if writes are needed.
+func createSessionTmpMounts() ([]tmpMount, bool, error) {
+	resolve := func(p, fallback string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return fallback
+	}
+	return []tmpMount{
+		{sandboxPath: "/tmp", realPath: resolve("/tmp", "/private/tmp")},
+		{sandboxPath: "/var/tmp", realPath: resolve("/var/tmp", "/private/var/tmp")},
+	}, false, nil
 }
 
 // checkSandboxRequirements verifies that sandbox-exec is available and functional.
@@ -105,7 +128,9 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 }
 
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+// tmpMounts is accepted for signature compatibility with the Linux backend but
+// is not used here — macOS bash and file tools share the same host filesystem.
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
 	if !seatbeltFunctional() {
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",

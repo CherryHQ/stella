@@ -470,3 +470,134 @@ func TestExec_success(t *testing.T) {
 		t.Fatalf("unexpected stdout: %q", result.Stdout)
 	}
 }
+
+// TestResolvePath_tmpMountAllowed verifies that ResolvePath accepts paths within
+// a tmpMount (e.g. /tmp) and translates them to the real host path.
+func TestResolvePath_tmpMountAllowed(t *testing.T) {
+	realTmpDir := t.TempDir()
+	realTmpDir, _ = filepath.EvalSymlinks(realTmpDir)
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+
+	f := filepath.Join(realTmpDir, "work", "out.json")
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(f, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:          "test",
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
+		done:        make(chan struct{}),
+	}
+
+	// Agent path in sandbox space.
+	got, err := s.ResolvePath("/tmp/work/out.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != f {
+		t.Errorf("ResolvePath = %q, want %q", got, f)
+	}
+}
+
+// TestResolvePath_varTmpMountAllowed verifies that /var/tmp paths are accepted
+// when a tmpMount covers /var/tmp.
+func TestResolvePath_varTmpMountAllowed(t *testing.T) {
+	realVarTmp := t.TempDir()
+	realVarTmp, _ = filepath.EvalSymlinks(realVarTmp)
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+
+	f := filepath.Join(realVarTmp, "cache.bin")
+	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:          "test",
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		tmpMounts:   []tmpMount{{sandboxPath: "/var/tmp", realPath: realVarTmp}},
+		done:        make(chan struct{}),
+	}
+
+	got, err := s.ResolvePath("/var/tmp/cache.bin")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != f {
+		t.Errorf("ResolvePath = %q, want %q", got, f)
+	}
+}
+
+// TestToRealPath_tmpMapping verifies that /tmp and /var/tmp sandbox paths are
+// translated to their real host paths via tmpMounts, while workspace paths
+// still go through the sandboxRoot→realRoot mapping.
+func TestToRealPath_tmpMapping(t *testing.T) {
+	realTmp := t.TempDir()
+	realVarTmp := t.TempDir()
+	root := t.TempDir()
+
+	s := &localSession{
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		tmpMounts: []tmpMount{
+			{sandboxPath: "/tmp", realPath: realTmp},
+			{sandboxPath: "/var/tmp", realPath: realVarTmp},
+		},
+	}
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"/tmp/foo.txt", filepath.Join(realTmp, "foo.txt")},
+		{"/tmp", realTmp},
+		{"/var/tmp/bar", filepath.Join(realVarTmp, "bar")},
+		{"/workspace/src/main.go", filepath.Join(root, "src/main.go")},
+	}
+	for _, tc := range tests {
+		got := s.toRealPath(tc.in)
+		if got != tc.want {
+			t.Errorf("toRealPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestResolveWritePath_allowsTmp verifies that ResolveWritePath permits paths
+// inside tmpMounts (they are writable, not read-only).
+func TestResolveWritePath_allowsTmp(t *testing.T) {
+	realTmpDir := t.TempDir()
+	realTmpDir, _ = filepath.EvalSymlinks(realTmpDir)
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+
+	f := filepath.Join(realTmpDir, "out.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := &localSession{
+		id:          "test",
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
+		done:        make(chan struct{}),
+	}
+
+	got, err := s.ResolveWritePath("/tmp/out.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != f {
+		t.Errorf("ResolveWritePath = %q, want %q", got, f)
+	}
+}
