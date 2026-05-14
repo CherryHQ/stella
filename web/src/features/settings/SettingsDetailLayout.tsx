@@ -14,15 +14,12 @@ export function SettingsDetailLayout({
   detail,
   emptyState,
 }: SettingsDetailLayoutProps) {
-  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const hasDetail = detail !== undefined;
+  const [mobileView, setMobileView] = useState<"list" | "detail">(hasDetail ? "detail" : "list");
 
   useEffect(() => {
-    if (detail !== undefined) {
-      setMobileView("detail");
-    } else {
-      setMobileView("list");
-    }
-  }, [detail]);
+    setMobileView(hasDetail ? "detail" : "list");
+  }, [hasDetail]);
 
   return (
     <div className="flex h-full overflow-hidden">

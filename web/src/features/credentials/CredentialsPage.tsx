@@ -17,7 +17,7 @@ export function CredentialsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const [activeSection, setActiveSection] = useState<Section>("vault");
+  const [activeSection, setActiveSection] = useState<Section>("oauth");
 
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
@@ -296,8 +296,8 @@ export function CredentialsPage() {
   );
 
   const sections: { id: Section; label: string; subtitle: string }[] = [
-    { id: "vault", label: "Vault", subtitle: "Secret key-value store" },
     { id: "oauth", label: "OAuth", subtitle: "Provider connections" },
+    { id: "vault", label: "Vault", subtitle: "Secret key-value store" },
   ];
 
   const listHeader = (
