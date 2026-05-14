@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   FileTree as FileTreeComponent,
   useFileTree,
@@ -430,146 +431,165 @@ function TreeWithSearch({
         <FileTreeComponent
           model={model}
           style={{ ...themeStyles, width: "100%", height: "100%" }}
-          renderContextMenu={(item, context) => (
-            <div
-              style={{
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--popover)",
-                color: "var(--popover-foreground)",
-                padding: "4px 0",
-                minWidth: 140,
-                boxShadow: "0 4px 12px rgba(0,0,0,.08)",
-              }}
-            >
-              <button
-                type="button"
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  onOpenFile(item.path);
-                }}
-              >
-                Open
-              </button>
-              <button
-                type="button"
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  const url = `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`;
-                  fetchBlobUrl(url, mimeTypeForPath(item.path))
-                    .then((blobUrl) => {
-                      window.open(blobUrl, "_blank");
-                      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
-                    })
-                    .catch(() => window.open(url, "_blank"));
-                }}
-              >
-                Open in browser
-              </button>
-              <a
-                href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
-                download={item.path.split("/").pop()}
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "none";
-                }}
-                onClick={() => context.close({ restoreFocus: false })}
-              >
-                Download
-              </a>
-              <button
-                type="button"
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  model.startRenaming(item.path);
-                }}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                style={{
-                  ...ctxItemStyle,
-                  color: "var(--destructive)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  onDelete(item.path).catch(console.error);
-                }}
-              >
-                {t("common.delete")}
-              </button>
+          renderContextMenu={(item, context) => {
+            const MENU_W = 160;
+            const MENU_H = 240;
+            const { anchorRect } = context;
+            const left =
+              anchorRect.right + MENU_W > window.innerWidth
+                ? Math.max(0, anchorRect.left - MENU_W)
+                : anchorRect.right;
+            const top =
+              anchorRect.top + MENU_H > window.innerHeight
+                ? Math.max(0, anchorRect.bottom - MENU_H)
+                : anchorRect.top;
+            return createPortal(
               <div
+                data-file-tree-context-menu-root="true"
                 style={{
-                  height: 1,
-                  background: "var(--border)",
-                  margin: "4px 8px",
-                }}
-              />
-              <button
-                type="button"
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  onNewFile();
+                  position: "fixed",
+                  top,
+                  left,
+                  zIndex: 9999,
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--popover)",
+                  color: "var(--popover-foreground)",
+                  padding: "4px 0",
+                  minWidth: MENU_W,
+                  boxShadow: "0 4px 12px rgba(0,0,0,.15)",
                 }}
               >
-                New file
-              </button>
-              <button
-                type="button"
-                style={ctxItemStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                }}
-                onClick={() => {
-                  context.close({ restoreFocus: false });
-                  onNewFolder();
-                }}
-              >
-                New folder
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    onOpenFile(item.path);
+                  }}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    const url = `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`;
+                    fetchBlobUrl(url, mimeTypeForPath(item.path))
+                      .then((blobUrl) => {
+                        window.open(blobUrl, "_blank");
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+                      })
+                      .catch(() => window.open(url, "_blank"));
+                  }}
+                >
+                  Open in browser
+                </button>
+                <a
+                  href={`/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(item.path)}&raw=true`}
+                  download={item.path.split("/").pop()}
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.background = "none";
+                  }}
+                  onClick={() => context.close({ restoreFocus: false })}
+                >
+                  Download
+                </a>
+                <button
+                  type="button"
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    model.startRenaming(item.path);
+                  }}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...ctxItemStyle,
+                    color: "var(--destructive)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    onDelete(item.path).catch(console.error);
+                  }}
+                >
+                  {t("common.delete")}
+                </button>
+                <div
+                  style={{
+                    height: 1,
+                    background: "var(--border)",
+                    margin: "4px 8px",
+                  }}
+                />
+                <button
+                  type="button"
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    onNewFile();
+                  }}
+                >
+                  New file
+                </button>
+                <button
+                  type="button"
+                  style={ctxItemStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                  }}
+                  onClick={() => {
+                    context.close({ restoreFocus: false });
+                    onNewFolder();
+                  }}
+                >
+                  New folder
+                </button>
+              </div>,
+              document.body,
+            );
+          }}
           onDoubleClick={() => {
             const path = model.getFocusedPath() ?? selectedPaths[0] ?? null;
             if (path && workspace.paths?.includes(path)) {
