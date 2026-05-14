@@ -57,11 +57,15 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 		}
 	}
 
-	// File-only message (no images, no text) — download and forward.
+	// Media-only message (file or voice with CDN, no images, no text) — download and forward.
 	if len(images) == 0 && combinedText == "" {
 		for _, item := range msg.ItemList {
 			if item.Type == ItemTypeFile && item.FileItem != nil {
 				b.handleFile(msg, item.FileItem)
+				return
+			}
+			if item.Type == ItemTypeVoice && item.VoiceItem != nil && item.VoiceItem.Media != nil {
+				b.handleVoice(msg, item.VoiceItem)
 				return
 			}
 		}
@@ -198,6 +202,80 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 	b.handleIncoming(msg, incoming, "", "")
 }
 
+// resolveAssetsDir returns the user assets directory for msg, or "" if unavailable.
+func (b *Bot) resolveAssetsDir(msg WeixinMessage) string {
+	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+		probeMsg := b.incomingMsg(msg, nil)
+		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
+			return agent.UserAssetsDir(userRoot)
+		} else {
+			logger().Warn("resolve user root failed", "user_id", msg.FromUserID, "error", err)
+		}
+	}
+	return ""
+}
+
+// handleVoice handles a voice message item.
+// Preference order:
+//  1. Transcription text present: route as text message.
+//  2. CDN media present: download, transcode (SILK→WAV stub), save to assets, route as file.
+//  3. Neither: silently skip.
+func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
+	if voiceItem.Text != "" {
+		b.handleText(msg, voiceItem.Text)
+		return
+	}
+
+	if voiceItem.Media == nil || voiceItem.Media.EncryptQueryParam == "" {
+		logger().Debug("voice item has no transcription and no CDN reference", "user_id", msg.FromUserID)
+		return
+	}
+
+	assetsDir := b.resolveAssetsDir(msg)
+	if assetsDir == "" {
+		b.sendReply(msg, "[Voice message] (storage unavailable)")
+		return
+	}
+
+	encrypted, err := DownloadFromCDN("", voiceItem.Media.EncryptQueryParam)
+	if err != nil {
+		logger().Error("voice cdn download failed", "user_id", msg.FromUserID, "error", err)
+		b.sendReply(msg, "[Voice message] (download failed)")
+		return
+	}
+
+	data := encrypted
+	if voiceItem.Media.AESKey != "" {
+		if key, keyErr := DecodeAESKey(voiceItem.Media.AESKey); keyErr == nil {
+			if dec, decErr := DecryptAESECB(encrypted, key); decErr == nil {
+				data = dec
+			} else {
+				logger().Warn("voice aes decrypt failed, using raw bytes", "user_id", msg.FromUserID, "error", decErr)
+			}
+		} else {
+			logger().Warn("voice aes key decode failed", "user_id", msg.FromUserID, "error", keyErr)
+		}
+	}
+
+	fileName := "voice.silk"
+	fileData := data
+	if wav := silkToWav(data); wav != nil {
+		fileName = "voice.wav"
+		fileData = wav
+	}
+
+	savedPath, err := agent.SaveAsset(assetsDir, fileName, fileData)
+	if err != nil {
+		logger().Error("save voice asset failed", "user_id", msg.FromUserID, "error", err)
+		b.sendReply(msg, "[Voice message] (save failed)")
+		return
+	}
+
+	logger().Debug("voice file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(fileData))
+	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
+	b.handleIncoming(msg, incoming, "", "")
+}
+
 // handleFile downloads a file from CDN, saves it to the user's assets directory,
 // and forwards a kreuzberg extraction hint to the agent.
 func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
@@ -206,16 +284,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 		fileName = "file"
 	}
 
-	// Resolve per-user assets directory.
-	var assetsDir string
-	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
-		probeMsg := b.incomingMsg(msg, nil)
-		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
-			assetsDir = agent.UserAssetsDir(userRoot)
-		} else {
-			logger().Warn("resolve user root failed for file", "error", err)
-		}
-	}
+	assetsDir := b.resolveAssetsDir(msg)
 	if assetsDir == "" {
 		b.sendReply(msg, fmt.Sprintf("[File: %s] (storage unavailable)", fileName))
 		return

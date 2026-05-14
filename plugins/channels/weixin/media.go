@@ -181,6 +181,16 @@ func RandomClientID(prefix string) string {
 	return prefix + ":" + strconv.FormatInt(ts, 10) + "-" + suffix
 }
 
+// silkToWav transcodes a SILK-encoded audio buffer to a WAV container.
+// Returns nil if transcoding is unavailable or fails; callers should fall back
+// to raw SILK or transcription text.
+//
+// SILK is a Tencent proprietary format. A native Go decoder is not yet available
+// without CGO; this is a stub for a future implementation.
+func silkToWav(_ []byte) []byte {
+	return nil
+}
+
 // --- internal helpers ---
 
 // pkcs7Pad pads data to a multiple of blockSize using PKCS7.
