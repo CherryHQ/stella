@@ -358,6 +358,10 @@ func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(stri
 
 // sendReply sends a text reply to the message sender using the cached context_token.
 func (b *Bot) sendReply(msg WeixinMessage, text string) {
+	if err := b.guard.AssertActive(); err != nil {
+		logger().Warn("sendReply skipped: session paused", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	// Load context_token for this user.
 	contextToken := ""
 	if v, ok := b.contextTokens.Load(msg.FromUserID); ok {

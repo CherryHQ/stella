@@ -12,6 +12,10 @@ import (
 // sendFinalResponse splits text at 2000 chars and sends each chunk,
 // then sends any collected images.
 func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
+	if err := b.guard.AssertActive(); err != nil {
+		logger().Warn("sendFinalResponse skipped: session paused", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
 
 	contextToken := ""
@@ -45,6 +49,10 @@ func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []cha
 
 // sendImage encrypts and uploads an image to CDN, then sends it as a message.
 func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
+	if err := b.guard.AssertActive(); err != nil {
+		logger().Warn("sendImage skipped: session paused", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	data, err := decodeBase64(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
@@ -130,6 +138,10 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 //
 //nolint:unused // kept for future agent media sending
 func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
+	if err := b.guard.AssertActive(); err != nil {
+		logger().Warn("sendFile skipped: session paused", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
 	if err != nil {
@@ -203,6 +215,10 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 //
 //nolint:unused // kept for future agent media sending
 func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
+	if err := b.guard.AssertActive(); err != nil {
+		logger().Warn("sendVideo skipped: session paused", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
 	if err != nil {

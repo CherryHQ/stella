@@ -56,6 +56,9 @@ func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (stri
 // keepTyping sends typing indicators every 5 seconds until the context is cancelled.
 // On cancel, it sends a stop-typing signal (status=2).
 func (b *Bot) keepTyping(ctx context.Context, msg WeixinMessage) {
+	if b.guard.IsPaused() {
+		return
+	}
 	ticket := b.getTypingTicket(msg.FromUserID)
 	if ticket == "" {
 		return

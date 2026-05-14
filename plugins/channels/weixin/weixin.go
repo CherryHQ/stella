@@ -25,6 +25,7 @@ type Config struct {
 type Bot struct {
 	client  *Client
 	handler channel.Handler
+	guard   SessionGuard
 
 	contextTokens sync.Map // key: userID string, value: contextToken string
 	typingTickets sync.Map // key: userID string, value: typingTicket string
@@ -104,9 +105,15 @@ func (b *Bot) Start(ctx context.Context) error {
 		resp, err := b.client.GetUpdates(b.cursor, timeout)
 		if err != nil {
 			if errors.Is(err, ErrSessionExpired) {
-				logger().Error("session expired, clearing all state")
-				b.clearState()
-				return fmt.Errorf("weixin: session expired (ret=-14)")
+				b.guard.Pause(time.Hour)
+				logger().Warn("session expired (ret=-14), pausing sends for 1h")
+				select {
+				case <-b.ctx.Done():
+					return b.ctx.Err()
+				case <-time.After(time.Hour):
+					logger().Info("session pause expired, resuming polling")
+				}
+				continue
 			}
 
 			// Local timeout — treat as empty response, continue.
@@ -156,6 +163,9 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	if b.client == nil {
 		return fmt.Errorf("weixin: bot not started")
 	}
+	if err := b.guard.AssertActive(); err != nil {
+		return err
+	}
 
 	targetUser := n.ChatID
 	if targetUser == "" {
@@ -187,13 +197,6 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 		return fmt.Errorf("weixin: send notification: %w", err)
 	}
 	return nil
-}
-
-// clearState clears in-memory caches on session expiry.
-func (b *Bot) clearState() {
-	b.contextTokens = sync.Map{}
-	b.typingTickets = sync.Map{}
-	b.cursor = ""
 }
 
 // isTimeoutError checks if an error is a network timeout.
