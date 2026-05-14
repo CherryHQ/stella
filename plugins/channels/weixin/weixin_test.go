@@ -1192,3 +1192,135 @@ func TestCommonHeaders(t *testing.T) {
 		t.Errorf("SKRouteTag = %q, want %q", h2["SKRouteTag"], "my-tag")
 	}
 }
+
+// --- Streaming (Phase 3) ---
+
+func TestStreamMakePiece(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{}
+	sender := newWeixinStreamSender(bot, "dev", "stream-1", "ticket-abc")
+
+	p1 := sender.makePiece("hello")
+	if p1.PieceSeq != 1 {
+		t.Errorf("first piece seq = %d, want 1", p1.PieceSeq)
+	}
+	if p1.PieceData == "" {
+		t.Error("piece_data must not be empty")
+	}
+
+	// piece_data must be valid base64 wrapping a JSON object with "type" and "text".
+	raw, err := base64.StdEncoding.DecodeString(p1.PieceData)
+	if err != nil {
+		t.Fatalf("piece_data is not valid base64: %v", err)
+	}
+	var content map[string]string
+	if err := json.Unmarshal(raw, &content); err != nil {
+		t.Fatalf("decoded piece_data is not valid JSON: %v\nraw: %s", err, raw)
+	}
+	if content["type"] != "text" {
+		t.Errorf("piece content type = %q, want %q", content["type"], "text")
+	}
+	if content["text"] != "hello" {
+		t.Errorf("piece content text = %q, want %q", content["text"], "hello")
+	}
+
+	// Second piece must auto-increment seq.
+	p2 := sender.makePiece("world")
+	if p2.PieceSeq != 2 {
+		t.Errorf("second piece seq = %d, want 2", p2.PieceSeq)
+	}
+}
+
+func TestStreamSenderPendingPiecesRollback(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.URL.Path == "/ilink/bot/stream/init_stream" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"stream_ticket":"ticket-xyz","base_response":{"ret":0}}`)
+			return
+		}
+		if r.URL.Path == "/ilink/bot/stream/sync_stream" {
+			w.Header().Set("Content-Type", "application/json")
+			if callCount == 1 { // first sync_stream call fails
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// subsequent calls succeed
+			_, _ = fmt.Fprintf(w, `{"base_response":{"ret":0}}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "tok", "")
+	bot := &Bot{client: client}
+	sender := newWeixinStreamSender(bot, "dev", "stream-1", "ticket-xyz")
+
+	pieces := []SyncStreamPiece{sender.makePiece("chunk1"), sender.makePiece("chunk2")}
+	origSeq := sender.pieceSeq // should be 2 after makePiece x2
+
+	// First sendPieces call — server returns 500.
+	err := sender.sendPieces(pieces, true)
+	if err == nil {
+		t.Fatal("expected error on first sendPieces (server 500)")
+	}
+
+	// After failure: pending pieces should be set and pieceSeq rolled back.
+	if len(sender.pendingPieces) != 2 {
+		t.Errorf("pendingPieces len = %d, want 2", len(sender.pendingPieces))
+	}
+	if sender.pieceSeq != 0 {
+		t.Errorf("pieceSeq after rollback = %d, want 0 (seqBefore first batch)", sender.pieceSeq)
+	}
+	_ = origSeq
+
+	// Second sendPieces with no new pieces drains the pending ones — server now succeeds.
+	err = sender.sendPieces(nil, true)
+	if err != nil {
+		t.Fatalf("second sendPieces failed unexpectedly: %v", err)
+	}
+	if len(sender.pendingPieces) != 0 {
+		t.Errorf("pendingPieces should be empty after success, got %d", len(sender.pendingPieces))
+	}
+}
+
+func TestSendViaStreamFallsBackOnInitFailure(t *testing.T) {
+	t.Parallel()
+
+	var sendMessageCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/stream/init_stream":
+			// Simulate init_stream failure.
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/ilink/bot/sendmessage":
+			sendMessageCalled = true
+			_, _ = fmt.Fprintf(w, `{"ret":0}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "tok", "")
+	bot := &Bot{client: client}
+	bot.contextTokens.Store("user1", "ctx-token")
+
+	msg := WeixinMessage{FromUserID: "user1"}
+	ok := bot.sendViaStream(msg, "hello world")
+	if ok {
+		t.Fatal("sendViaStream should return false when init_stream fails")
+	}
+
+	// Caller (sendFinalResponse) should use sendmessage fallback.
+	bot.sendViaMessages(msg, "hello world")
+	if !sendMessageCalled {
+		t.Error("sendmessage should be called in fallback path")
+	}
+}

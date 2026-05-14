@@ -2,11 +2,138 @@ package weixin
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 )
+
+const (
+	streamChunkSize  = 500
+	streamMaxRetries = 3
+)
+
+// streamPieceContent is the JSON payload encoded inside SyncStreamPiece.PieceData.
+type streamPieceContent struct {
+	Type       string `json:"type"`
+	Text       string `json:"text"`
+	StreamType string `json:"stream_type,omitempty"`
+}
+
+// WeixinStreamSender manages a single iLink uplink stream session.
+// It replicates the pendingPieces retry pattern from the official stream.js.
+type WeixinStreamSender struct {
+	bot              *Bot
+	deviceID         string
+	clientStreamID   string
+	streamTicket     string
+	pieceSeq         int
+	pendingPieces    []SyncStreamPiece
+	seqBeforePending int
+}
+
+func newWeixinStreamSender(bot *Bot, deviceID, clientStreamID, streamTicket string) *WeixinStreamSender {
+	return &WeixinStreamSender{
+		bot:            bot,
+		deviceID:       deviceID,
+		clientStreamID: clientStreamID,
+		streamTicket:   streamTicket,
+	}
+}
+
+// makePiece encodes text as a stream piece and increments pieceSeq.
+func (s *WeixinStreamSender) makePiece(text string) SyncStreamPiece {
+	s.pieceSeq++
+	content, _ := json.Marshal(streamPieceContent{Type: "text", Text: text, StreamType: "text"})
+	return SyncStreamPiece{
+		PieceSeq:  s.pieceSeq,
+		PieceData: base64.StdEncoding.EncodeToString(content),
+	}
+}
+
+// sendPieces sends newPieces via SyncStream, prepending any retained pendingPieces.
+// isEnd = true sets end_up_piece_seq to the last piece's seq.
+// On failure: all pieces are saved to pendingPieces and pieceSeq is rolled back.
+func (s *WeixinStreamSender) sendPieces(newPieces []SyncStreamPiece, isEnd bool) error {
+	var seqBefore int
+	if len(s.pendingPieces) > 0 {
+		seqBefore = s.seqBeforePending
+	} else {
+		seqBefore = s.pieceSeq - len(newPieces)
+	}
+
+	toSend := append(s.pendingPieces, newPieces...) //nolint:gocritic
+	s.pendingPieces = nil
+
+	if len(toSend) == 0 {
+		return nil
+	}
+
+	endSeq := 0
+	if isEnd {
+		endSeq = toSend[len(toSend)-1].PieceSeq
+	}
+
+	err := s.bot.client.SyncStream(SyncStreamRequest{
+		DeviceID:       s.deviceID,
+		ClientStreamID: s.clientStreamID,
+		UpPieceList:    toSend,
+		EndUpPieceSeq:  endSeq,
+		StreamTicket:   s.streamTicket,
+	})
+	if err != nil {
+		s.pendingPieces = toSend
+		s.seqBeforePending = seqBefore
+		s.pieceSeq = seqBefore
+		return err
+	}
+	return nil
+}
+
+// sendViaStream delivers response text using the iLink streaming API.
+// Returns true on success; returns false (caller should fall back to sendmessage) if
+// InitStream fails or all SyncStream retries are exhausted.
+func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
+	if b.guard.IsPaused() {
+		return false
+	}
+
+	deviceID := b.cfg.BotID
+	if deviceID == "" {
+		deviceID = "stella"
+	}
+	clientStreamID := RandomClientID("stream")
+
+	initResp, err := b.client.InitStream(deviceID, clientStreamID)
+	if err != nil {
+		logger().Debug("init_stream failed, falling back to sendmessage",
+			"user_id", msg.FromUserID, "error", err)
+		return false
+	}
+
+	sender := newWeixinStreamSender(b, deviceID, clientStreamID, initResp.StreamTicket)
+
+	chunks := channel.SplitMessage(text, streamChunkSize)
+	pieces := make([]SyncStreamPiece, 0, len(chunks))
+	for _, chunk := range chunks {
+		pieces = append(pieces, sender.makePiece(chunk))
+	}
+
+	var lastErr error
+	for range streamMaxRetries {
+		lastErr = sender.sendPieces(pieces, true)
+		if lastErr == nil {
+			return true
+		}
+		pieces = nil // pending pieces are already saved; drain on next iteration
+	}
+
+	logger().Warn("sync_stream failed after retries, falling back to sendmessage",
+		"user_id", msg.FromUserID, "retries", streamMaxRetries, "error", lastErr)
+	return false
+}
 
 const (
 	// weixinMaxMessageLen is the maximum text message length for WeChat iLink.

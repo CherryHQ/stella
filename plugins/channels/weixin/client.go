@@ -381,6 +381,67 @@ func (c *Client) NotifyStop() error {
 	return nil
 }
 
+// InitStream initialises a new uplink stream and returns the stream_ticket.
+// device_id identifies the bot device; client_stream_id is a unique session ID.
+func (c *Client) InitStream(deviceID, clientStreamID string) (*InitStreamResponse, error) {
+	body := InitStreamRequest{
+		DeviceID:       deviceID,
+		ClientStreamID: clientStreamID,
+		BusinessType:   streamBusinessType,
+		BaseInfo:       c.buildBaseInfo(),
+	}
+
+	var result InitStreamResponse
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		ForceContentType("application/json").
+		Post(c.baseURL + "/ilink/bot/stream/init_stream")
+	if err != nil {
+		return nil, fmt.Errorf("weixin: init_stream: %w", err)
+	}
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: init_stream: HTTP %d", resp.StatusCode())
+	}
+	if result.BaseResponse != nil && result.BaseResponse.Ret != 0 {
+		return nil, fmt.Errorf("weixin: init_stream: ret=%d: %s", result.BaseResponse.Ret, result.BaseResponse.ErrMsg)
+	}
+	if result.StreamTicket == "" {
+		return nil, fmt.Errorf("weixin: init_stream: no stream_ticket in response")
+	}
+	return &result, nil
+}
+
+// SyncStream sends one batch of pieces on an active stream.
+// Set EndUpPieceSeq to the last piece's PieceSeq to signal end-of-stream; 0 for intermediate.
+func (c *Client) SyncStream(req SyncStreamRequest) error {
+	req.BaseInfo = c.buildBaseInfo()
+	req.BusinessType = streamBusinessType
+
+	var result SyncStreamResponse
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(req).
+		SetResult(&result).
+		ForceContentType("application/json").
+		Post(c.baseURL + "/ilink/bot/stream/sync_stream")
+	if err != nil {
+		return fmt.Errorf("weixin: sync_stream: %w", err)
+	}
+	if resp.IsError() {
+		return fmt.Errorf("weixin: sync_stream: HTTP %d", resp.StatusCode())
+	}
+	if result.AbortInfo != nil && result.AbortInfo.AbortType != 0 {
+		return fmt.Errorf("weixin: sync_stream: server abort type=%d code=%d: %s",
+			result.AbortInfo.AbortType, result.AbortInfo.AbortDetailErrorCode, result.AbortInfo.AbortDetailErrorMsg)
+	}
+	if result.BaseResponse != nil && result.BaseResponse.Ret != 0 {
+		return fmt.Errorf("weixin: sync_stream: ret=%d: %s", result.BaseResponse.Ret, result.BaseResponse.ErrMsg)
+	}
+	return nil
+}
+
 // checkError returns ErrSessionExpired for ret=-14 or errcode=-14,
 // a generic error for other non-zero codes, or nil on success.
 func checkError(ret, errcode int, errmsg string) error {

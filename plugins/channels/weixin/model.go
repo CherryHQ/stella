@@ -235,6 +235,61 @@ type NotifyResponse struct {
 	ErrMsg string `json:"errmsg,omitempty"`
 }
 
+// --- Streaming API types ---
+
+const streamBusinessType = 10
+
+// InitStreamRequest is the request body for init_stream.
+type InitStreamRequest struct {
+	DeviceID       string   `json:"device_id"`
+	ClientStreamID string   `json:"client_stream_id"`
+	BusinessType   int      `json:"business_type"`
+	BaseInfo       BaseInfo `json:"base_info"`
+}
+
+// BaseResponse is the error envelope used by the streaming API responses.
+type BaseResponse struct {
+	Ret    int    `json:"ret"`
+	ErrMsg string `json:"errmsg,omitempty"`
+}
+
+// InitStreamResponse is the response body for init_stream.
+type InitStreamResponse struct {
+	BaseResponse *BaseResponse `json:"base_response,omitempty"`
+	StreamTicket string        `json:"stream_ticket,omitempty"`
+}
+
+// SyncStreamPiece is a single piece in a SyncStream request.
+// PieceData is a base64-encoded JSON object: {"type":"text","text":"...","stream_type":"text"}.
+type SyncStreamPiece struct {
+	PieceSeq  int    `json:"piece_seq"`
+	PieceData string `json:"piece_data"`
+}
+
+// SyncStreamRequest is the request body for sync_stream.
+type SyncStreamRequest struct {
+	DeviceID       string            `json:"device_id"`
+	ClientStreamID string            `json:"client_stream_id"`
+	BusinessType   int               `json:"business_type"`
+	UpPieceList    []SyncStreamPiece `json:"up_piece_list"`
+	EndUpPieceSeq  int               `json:"end_up_piece_seq"`
+	StreamTicket   string            `json:"stream_ticket"`
+	BaseInfo       BaseInfo          `json:"base_info"`
+}
+
+// SyncStreamAbortInfo carries server-side abort details.
+type SyncStreamAbortInfo struct {
+	AbortType            int    `json:"abort_type"`
+	AbortDetailErrorCode int    `json:"abort_detail_error_code"`
+	AbortDetailErrorMsg  string `json:"abort_detail_error_msg,omitempty"`
+}
+
+// SyncStreamResponse is the response body for sync_stream.
+type SyncStreamResponse struct {
+	BaseResponse *BaseResponse        `json:"base_response,omitempty"`
+	AbortInfo    *SyncStreamAbortInfo `json:"abort_info,omitempty"`
+}
+
 // QRCodeResponse is the response from get_bot_qrcode.
 type QRCodeResponse struct {
 	QRCode           string `json:"qrcode,omitempty"`

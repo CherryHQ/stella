@@ -9,13 +9,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-// sendFinalResponse splits text at 2000 chars and sends each chunk,
-// then sends any collected images.
+// sendFinalResponse delivers response text (via streaming when possible, otherwise
+// chunked sendmessage), then sends any collected images.
 func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
 	if err := b.guard.AssertActive(); err != nil {
 		logger().Warn("sendFinalResponse skipped: session paused", "user_id", msg.FromUserID, "error", err)
 		return
 	}
+
+	if !b.sendViaStream(msg, response) {
+		b.sendViaMessages(msg, response)
+	}
+
+	for _, img := range images {
+		b.sendImage(msg, img)
+	}
+}
+
+// sendViaMessages splits text into 2000-char chunks and sends each via sendmessage.
+func (b *Bot) sendViaMessages(msg WeixinMessage, response string) {
 	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
 
 	contextToken := ""
@@ -40,10 +52,6 @@ func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []cha
 		if err := b.client.SendMessage(reply); err != nil {
 			logger().Error("send response chunk failed", "user_id", msg.FromUserID, "error", err)
 		}
-	}
-
-	for _, img := range images {
-		b.sendImage(msg, img)
 	}
 }
 
