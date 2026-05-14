@@ -423,6 +423,37 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
+	// Build tasks service before NewPoolManager so the task tool is in builtinTools
+	// from the start. The RunnerFactory closure captures poolMgr by reference —
+	// it is nil here but populated before any task is dispatched.
+	var tasksSvc *tasks.Service
+	{
+		runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
+			if poolMgr == nil {
+				return nil, false
+			}
+			if agentID == "" {
+				agentID = defaultAgentID
+			}
+			p := poolMgr.Get(agentID)
+			if p == nil {
+				p = poolMgr.DefaultPool()
+			}
+			if p == nil {
+				return nil, false
+			}
+			return p.Factory(), true
+		})
+		tasksSvc = tasks.New(tasks.Config{
+			Queries:       sqlc.New(db),
+			Notifier:      dispatcher,
+			Memory:        memProvider,
+			RunnerFactory: runnerFactory,
+		})
+		tt := tasktool.New(tasktool.Config{Service: tasksSvc})
+		builtinTools = append(builtinTools, tt)
+	}
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -490,45 +521,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}
 			return runErr
 		})
-	}
-
-	// Build tasks service with default agent's model/stream/registry.
-	var tasksSvc *tasks.Service
-	{
-		taskModel := snap.ResolveModelTier(config.ModelTierFast)
-		taskCreds := snap.ResolveProviderCreds(taskModel.Provider)
-		apiName := taskCreds.Type
-		if apiName == "" {
-			apiName = taskModel.Provider
-		}
-		taskModel.API = apiName
-		taskModel.BaseURL = taskCreds.BaseURL
-
-		taskStream, err := providerStreamBuilder(apiName, taskCreds.APIKey, taskCreds.BaseURL)
-		if err != nil {
-			slog.Warn("tasks service: failed to build stream, task workers will be unavailable", "error", err)
-		} else {
-			taskRegistry := tools.NewRegistry()
-			for _, t := range builtinTools {
-				taskRegistry.Register(t)
-			}
-			hookSet := hooks.NewHookSet(poolMgr.HookPlugins())
-			tasksSvc = tasks.New(tasks.Config{
-				Queries:       sqlc.New(db),
-				Notifier:      dispatcher,
-				Memory:        memProvider,
-				Stream:        taskStream,
-				Model:         taskModel,
-				System:        snap.SystemPrompt,
-				Registry:      taskRegistry,
-				Hooks:         hookSet,
-				ToolLifecycle: toolLifecycle,
-			})
-			tt := tasktool.New(tasktool.Config{Service: tasksSvc})
-			if err := poolMgr.AddBuiltinTool(ctx, tt); err != nil {
-				slog.Warn("failed to add task tool to pool manager", "error", err)
-			}
-		}
 	}
 
 	// CLI sessions don't use auth — userID stays 0.

@@ -6,12 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	pkgagent "github.com/CherryHQ/stella/pkg/agent"
-	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
-	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -19,12 +16,7 @@ import (
 type workerConfig struct {
 	q             *sqlc.Queries
 	mem           memory.Provider
-	stream        providers.StreamFunc
-	model         ai.Model
-	system        string
-	registry      *tools.Registry
-	hooks         *hooks.HookSet
-	toolLifecycle *pkgagent.ToolLifecycle
+	runnerFactory RunnerFactoryFn
 }
 
 // runWorker executes a single task session. It claims the task (pending→running),
@@ -65,50 +57,46 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		UpdatedAt: startedAt,
 	})
 
+	// Resolve factory for this task's agent.
+	agentID := task.AgentID.String
+	factory, ok := cfg.runnerFactory(agentID)
+	if !ok {
+		log.Error("no runner factory for agent", "agent_id", agentID)
+		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("no runner available for agent %q", agentID))
+		return
+	}
+
 	// Build the control tool with the worker's cancel func.
 	controlTool := newTaskControlTool(cfg.q, task.ID, cancel)
 
-	// Build ToolSet from parent registry + control tool.
-	toolSet := pkgagent.ToolSetFromRegistry(cfg.registry)
-	toolSet[controlToolName] = pkgagent.WrapTool(controlTool)
-	toolDefs := append(cfg.registry.Definitions(), controlTool.Definition())
+	// Create a full runner (with sandbox tools) via the agent factory,
+	// injecting task_control as an extra tool.
+	runner, err := factory(ctx, agent.RunnerParams{
+		UserID:     task.UserID,
+		AgentID:    agentID,
+		Memory:     cfg.mem,
+		ExtraTools: []tools.Tool{controlTool},
+	})
+	if err != nil {
+		log.Error("create runner failed", "error", err)
+		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("create runner: %v", err))
+		return
+	}
+	defer func() { _ = runner.Close() }()
 
 	// Set up memory session.
 	session := memory.Session{
 		ID:      "task:" + task.ID,
 		UserID:  task.UserID,
-		AgentID: task.AgentID.String,
+		AgentID: agentID,
 	}
-
 	memCtx := memory.WithSessionID(ctx, session.ID)
 	memCtx = memory.WithUserID(memCtx, task.UserID)
-	memCtx = memory.WithAgentID(memCtx, task.AgentID.String)
+	memCtx = memory.WithAgentID(memCtx, agentID)
 
 	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
 		log.Error("memory bootstrap failed", "error", err)
 		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("memory bootstrap failed: %v", err))
-		return
-	}
-
-	hookMeta := hooks.HookMeta{
-		SessionID: session.ID,
-		UserID:    task.UserID,
-		AgentID:   task.AgentID.String,
-	}
-
-	runner, err := pkgagent.NewRunner(pkgagent.RunnerConfig{
-		Stream:          cfg.stream,
-		Model:           cfg.model,
-		Tools:           toolSet,
-		ToolDefinitions: toolDefs,
-	},
-		pkgagent.WithSystem(taskSystemPrompt(cfg.system)),
-		pkgagent.WithHooks(cfg.hooks, hookMeta),
-		pkgagent.WithToolLifecycle(cfg.toolLifecycle),
-	)
-	if err != nil {
-		log.Error("create runner failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("create runner: %v", err))
 		return
 	}
 
@@ -120,34 +108,41 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		return
 	}
 
-	var messages []ai.Message
+	// Override the runner's system prompt to include async-task instructions.
+	taskCtx := agent.WithSystemOverride(memCtx, taskSystemPrompt(runner.SystemPrompt()))
 
+	// Build the initial or resume message.
+	var message string
 	if len(history) == 0 {
-		// First run: system is set on runner via WithSystem; inject task description as first user message.
-		messages = []ai.Message{
-			ai.UserMessage{Content: taskStartMessage(task)},
-		}
+		message = taskStartMessage(task)
 	} else {
-		// Resume: include history plus a resume prompt.
-		resumeMsg := ai.UserMessage{Content: taskResumeMessage(task)}
-		messages = make([]ai.Message, len(history)+1)
-		copy(messages, history)
-		messages[len(history)] = resumeMsg
+		message = taskResumeMessage(task)
 	}
 
 	log.Info("worker starting agent loop")
-	newHistory, runErr := runner.Run(memCtx, messages, nil)
+	eventCh := runner.Chat(taskCtx, history, message)
 
-	// Persist the new messages from this run.
-	if len(newHistory) > len(history) {
-		appended := newHistory[len(history):]
-		if appendErr := cfg.mem.Append(memCtx, session, appended...); appendErr != nil {
-			log.Warn("failed to persist messages", "error", appendErr)
+	// Drain events. Use a fresh context for cleanup so cancellation by
+	// task_control doesn't break persistence.
+	cleanupCtx := context.Background()
+	cleanupCtx = memory.WithSessionID(cleanupCtx, session.ID)
+	cleanupCtx = memory.WithUserID(cleanupCtx, task.UserID)
+	cleanupCtx = memory.WithAgentID(cleanupCtx, agentID)
+
+	var runErr error
+	for evt := range eventCh {
+		if evt.Err != nil {
+			runErr = evt.Err
+		}
+		if evt.Store != nil {
+			if appendErr := cfg.mem.Append(cleanupCtx, session, evt.Store); appendErr != nil {
+				log.Warn("failed to persist message", "error", appendErr)
+			}
 		}
 	}
 
 	// If the task is still running (agent exited without calling task_control), finalize it.
-	final, err := cfg.q.GetAgentTask(ctx, task.ID)
+	final, err := cfg.q.GetAgentTask(cleanupCtx, task.ID)
 	if err != nil {
 		log.Error("failed to read final task status", "error", err)
 		return
@@ -156,10 +151,10 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	if final.Status == "running" {
 		if runErr != nil {
 			log.Error("agent loop failed", "error", runErr)
-			markFailed(ctx, cfg.q, task.ID, runErr.Error())
+			markFailed(cleanupCtx, cfg.q, task.ID, runErr.Error())
 		} else {
 			log.Info("agent loop finished without explicit task_control done call, marking done")
-			markDone(ctx, cfg.q, task.ID)
+			markDone(cleanupCtx, cfg.q, task.ID)
 		}
 	}
 }

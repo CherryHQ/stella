@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ToolUseEvent describes a tool invocation in progress or completed.
@@ -46,11 +47,12 @@ type MessageContent = any
 
 // RunnerParams holds parameters for creating a new Runner instance.
 type RunnerParams struct {
-	Model   string                    // model ID (empty = use default)
-	Memory  any                       // memory.Provider — typed as any to avoid circular imports
-	UserID  int64                     // auth user ID for user-scoped runner creation
-	AgentID string                    // agent ID for profile loading
-	HooksFn func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
+	Model      string                    // model ID (empty = use default)
+	Memory     any                       // memory.Provider — typed as any to avoid circular imports
+	UserID     int64                     // auth user ID for user-scoped runner creation
+	AgentID    string                    // agent ID for profile loading
+	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
+	ExtraTools []tools.Tool              // additional tools appended to the runner's registry
 }
 
 // Runner runs prompts against an AI backend and exposes lifecycle methods.

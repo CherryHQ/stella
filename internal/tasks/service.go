@@ -11,31 +11,26 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/notify"
-	pkgagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
-	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const defaultMaxConcurrency = 5
 
+// RunnerFactoryFn resolves a runner factory for a given agent ID.
+// Returns false if the agent has no pool (task will be skipped).
+type RunnerFactoryFn func(agentID string) (agent.NewRunnerFunc, bool)
+
 // Service manages task lifecycle: creation, dispatching workers, and actions.
 type Service struct {
-	q        *sqlc.Queries
-	notifier notify.Notifier
-	mem      memory.Provider
-
-	stream        providers.StreamFunc
-	model         ai.Model
-	system        string
-	registry      *tools.Registry
-	hooks         *hooks.HookSet
-	toolLifecycle *pkgagent.ToolLifecycle
+	q             *sqlc.Queries
+	notifier      notify.Notifier
+	mem           memory.Provider
+	runnerFactory RunnerFactoryFn
 
 	maxConcurrency int
 	wg             sync.WaitGroup
@@ -53,12 +48,7 @@ type Config struct {
 	Queries        *sqlc.Queries
 	Notifier       notify.Notifier
 	Memory         memory.Provider
-	Stream         providers.StreamFunc
-	Model          ai.Model
-	System         string
-	Registry       *tools.Registry
-	Hooks          *hooks.HookSet
-	ToolLifecycle  *pkgagent.ToolLifecycle
+	RunnerFactory  RunnerFactoryFn
 	MaxConcurrency int // 0 = default 5
 }
 
@@ -96,12 +86,7 @@ func New(cfg Config) *Service {
 		q:              cfg.Queries,
 		notifier:       cfg.Notifier,
 		mem:            cfg.Memory,
-		stream:         cfg.Stream,
-		model:          cfg.Model,
-		system:         cfg.System,
-		registry:       cfg.Registry,
-		hooks:          cfg.Hooks,
-		toolLifecycle:  cfg.ToolLifecycle,
+		runnerFactory:  cfg.RunnerFactory,
 		maxConcurrency: concurrency,
 		workers:        make(map[string]context.CancelFunc),
 		log:            slog.With("component", "tasks.service"),
@@ -583,32 +568,10 @@ func (s *Service) dispatch(task sqlc.AgentTask) {
 			workerCancel()
 		}()
 
-		model := s.model
-		system := s.system
-		if task.AgentID.Valid && task.AgentID.String != "" {
-			if ag, err := s.q.GetAgent(workerCtx, task.AgentID.String); err == nil {
-				if ag.Model != "" {
-					override := s.model
-					override.ID = ag.Model
-					model = override
-				}
-				if ag.SystemPrompt != "" {
-					system = ag.SystemPrompt
-				}
-			} else {
-				s.log.Warn("dispatch: agent not found, using defaults", "agent_id", task.AgentID.String, "task_id", task.ID)
-			}
-		}
-
 		cfg := workerConfig{
 			q:             s.q,
 			mem:           s.mem,
-			stream:        s.stream,
-			model:         model,
-			system:        system,
-			registry:      s.registry,
-			hooks:         s.hooks,
-			toolLifecycle: s.toolLifecycle,
+			runnerFactory: s.runnerFactory,
 		}
 		runWorker(workerCtx, workerCancel, cfg, task)
 	})

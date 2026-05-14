@@ -15,6 +15,11 @@ type TaskTool struct {
 	svc *tasks.Service
 }
 
+// TaskDefinition returns the task tool schema without requiring a live service.
+func TaskDefinition() tools.Definition {
+	return (&TaskTool{}).Definition()
+}
+
 // Definition returns the tool schema.
 func (t *TaskTool) Definition() tools.Definition {
 	return tools.Definition{

@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/plugins/tools/edit"
 	"github.com/CherryHQ/stella/plugins/tools/read"
 	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
@@ -72,6 +73,7 @@ func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 		skillstool.SkillsDefinition(),
 		credentials.OAuthDefinition(),
 		credentials.VaultDefinition(),
+		tasktool.TaskDefinition(),
 	}
 	if s.mem != nil {
 		defs = append(defs, memory.BuildTool(s.mem).Definition())

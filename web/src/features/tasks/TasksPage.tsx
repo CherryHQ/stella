@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
@@ -59,11 +60,18 @@ const STATUS_TABS: TaskStatus[] = [
   "cancelled",
 ];
 
-export function TasksPage() {
+interface TasksPageProps {
+  taskId?: string;
+}
+
+export function TasksPage({ taskId }: TasksPageProps) {
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const routeParams = useParams({ strict: false }) as { taskId?: string };
+  const routeTaskId = taskId ?? routeParams.taskId;
   const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus>("all");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [detailTask, setDetailTask] = useState<ComponentsAgentTask | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [taskForm, setTaskForm] = useState<TaskForm>(emptyForm());
   const [toast, setToast] = useState<Toast | null>(null);
@@ -97,33 +105,59 @@ export function TasksPage() {
       });
       setCreatingNew(false);
       setTaskForm(emptyForm());
-      setSelectedTaskId(created.id);
+      setDetailTask(created);
+      await navigate({ to: "/tasks/$taskId", params: { taskId: created.id } });
       await loadTasks(statusFilter);
       showToast(t("tasks.created"));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Request failed", "error");
     }
-  }, [taskForm, statusFilter, loadTasks, showToast, t]);
+  }, [taskForm, statusFilter, navigate, loadTasks, showToast, t]);
 
   const doDeleteTask = useCallback(
     async (id: string) => {
       try {
         await api("DELETE", "/api/tasks/" + id);
-        if (selectedTaskId === id) setSelectedTaskId(null);
+        if (routeTaskId === id) {
+          setDetailTask(null);
+          await navigate({ to: "/tasks" });
+        }
         await loadTasks(statusFilter);
         showToast(t("tasks.deleted"));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Request failed", "error");
       }
     },
-    [selectedTaskId, statusFilter, loadTasks, showToast, t],
+    [routeTaskId, statusFilter, navigate, loadTasks, showToast, t],
   );
 
   const handleTaskAction = useCallback((updated: ComponentsAgentTask) => {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    setDetailTask((prev) => (prev?.id === updated.id ? updated : prev));
   }, []);
 
-  const selectedTask = selectedTaskId ? (tasks.find((t) => t.id === selectedTaskId) ?? null) : null;
+  const selectedTask = routeTaskId
+    ? (tasks.find((t) => t.id === routeTaskId) ??
+      (detailTask?.id === routeTaskId ? detailTask : null))
+    : null;
+
+  useEffect(() => {
+    if (routeTaskId) setCreatingNew(false);
+  }, [routeTaskId]);
+
+  useEffect(() => {
+    if (
+      !routeTaskId ||
+      detailTask?.id === routeTaskId ||
+      tasks.some((task) => task.id === routeTaskId)
+    ) {
+      return;
+    }
+
+    api<ComponentsAgentTask>("GET", "/api/tasks/" + encodeURIComponent(routeTaskId))
+      .then(setDetailTask)
+      .catch((e) => console.error(e));
+  }, [routeTaskId, detailTask?.id, tasks]);
 
   return (
     <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
@@ -137,8 +171,9 @@ export function TasksPage() {
             size="xs"
             onClick={() => {
               setCreatingNew(true);
-              setSelectedTaskId(null);
+              setDetailTask(null);
               setTaskForm(emptyForm());
+              void navigate({ to: "/tasks" });
             }}
           >
             + {t("tasks.new")}
@@ -168,11 +203,11 @@ export function TasksPage() {
             <div
               key={task.id}
               onClick={() => {
-                setSelectedTaskId(task.id);
                 setCreatingNew(false);
+                void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } });
               }}
               className={`px-4 py-3 border-b border-border/50 cursor-pointer transition-colors border-l-2 ${
-                selectedTaskId === task.id
+                routeTaskId === task.id
                   ? "border-l-primary bg-primary/[0.03]"
                   : "border-l-transparent hover:bg-muted/50"
               }`}

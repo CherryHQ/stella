@@ -223,8 +223,10 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
                   {formatTime(ev.created_at)}
                 </span>
                 {ev.detail && Object.keys(ev.detail).length > 0 && (
-                  <span className="text-muted-foreground truncate max-w-xs">
-                    {JSON.stringify(ev.detail)}
+                  <span className="text-muted-foreground break-words min-w-0">
+                    {typeof ev.detail.message === "string"
+                      ? ev.detail.message
+                      : JSON.stringify(ev.detail)}
                   </span>
                 )}
               </div>
