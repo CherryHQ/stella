@@ -211,10 +211,34 @@ func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, 
 		return false
 	}
 	tokens, err := p.q.GetContextTokenCount(ctx, conv.ID)
+	if err != nil || float64(tokens) <= threshold {
+		return false
+	}
+	items, err := p.q.GetContextItems(ctx, conv.ID)
 	if err != nil {
 		return false
 	}
-	return float64(tokens) > threshold
+	return p.hasCompactableRun(ctx, items)
+}
+
+func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) bool {
+	_, older := splitFreshTail(items, p.freshTail)
+	if len(findMessageRuns(older, defaultLeafChunkSize)) > 0 {
+		return true
+	}
+
+	depthOf := make(map[string]int64)
+	for _, item := range items {
+		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
+			continue
+		}
+		sum, err := p.q.GetSummary(ctx, item.SummaryID.String)
+		if err != nil {
+			return false
+		}
+		depthOf[item.SummaryID.String] = sum.Depth
+	}
+	return len(findSummaryRuns(items, 2, depthOf)) > 0
 }
 
 // Compact implements memory.Compactor.

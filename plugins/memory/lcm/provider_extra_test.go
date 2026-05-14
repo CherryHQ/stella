@@ -103,6 +103,41 @@ func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 	}
 }
 
+func TestLCMProvider_NeedsCompactionWaitsForCompactableMessages(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, func(context.Context, string) (string, error) {
+		return "summary", nil
+	}, map[string]any{"fresh_tail": 1})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	sess := newLCMTestSession("compact-needs")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 12 {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("message %02d with enough content", i)}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	var compactor memory.Compactor = p
+	if !compactor.NeedsCompaction(ctx, sess, 0) {
+		t.Fatal("expected initial compactable session")
+	}
+	if _, err := compactor.Compact(ctx, sess, memory.CompactionIncremental); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if compactor.NeedsCompaction(ctx, sess, 0) {
+		t.Fatal("expected no compaction until enough new messages accumulate")
+	}
+}
+
 func TestLCMProvider_AppendAssistantMessage(t *testing.T) {
 	p, cleanup := newLCMTestProvider(t)
 	defer cleanup()
