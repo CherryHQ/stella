@@ -22,6 +22,12 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
         <string>STELLA_BIN</string>
     </array>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>STELLA_HOME</key>
+        <string>HOME_DIR/.stella</string>
+    </dict>
+
     <key>RunAtLoad</key>
     <true/>
 

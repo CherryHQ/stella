@@ -28,6 +28,8 @@ func parseLogLevel() slog.Level {
 }
 
 func main() {
+	loadDotEnv()
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLogLevel(),
 	})))
