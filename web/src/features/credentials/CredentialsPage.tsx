@@ -8,13 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 
 type Toast = { message: string; type: "success" | "error" } | null;
+type Section = "vault" | "oauth";
 
 export function CredentialsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
+  const [activeSection, setActiveSection] = useState<Section>("vault");
+
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
@@ -291,260 +295,287 @@ export function CredentialsPage() {
     [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
   );
 
-  return (
-    <div>
-      <div className="mb-6">
-        <h1 className="font-serif text-3xl tracking-tight">{t("credentials.title")}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage OAuth connections and vault secrets.
-        </p>
-      </div>
+  const sections: { id: Section; label: string; subtitle: string }[] = [
+    { id: "vault", label: "Vault", subtitle: "Secret key-value store" },
+    { id: "oauth", label: "OAuth", subtitle: "Provider connections" },
+  ];
 
-      {toast && (
-        <div
-          className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
-            toast.type === "error"
-              ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-              : "border-success/36 bg-success/8 text-success-foreground"
+  const listHeader = (
+    <div className="px-3 py-3 border-b border-border">
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        {t("credentials.title")}
+      </span>
+    </div>
+  );
+
+  const list = (
+    <div>
+      {sections.map((s) => (
+        <button
+          key={s.id}
+          onClick={() => setActiveSection(s.id)}
+          className={`w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors ${
+            activeSection === s.id ? "bg-primary/8" : ""
           }`}
         >
-          {toast.message}
+          <p className="text-sm font-medium leading-tight">{s.label}</p>
+          <p className="text-[11px] font-mono text-muted-foreground">{s.subtitle}</p>
+        </button>
+      ))}
+    </div>
+  );
+
+  const toastBanner = toast ? (
+    <div
+      className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+        toast.type === "error"
+          ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
+          : "border-success/36 bg-success/8 text-success-foreground"
+      }`}
+    >
+      {toast.message}
+    </div>
+  ) : null;
+
+  const vaultDetail = (
+    <div className="p-6">
+      {toastBanner}
+      <h2 className="font-serif text-xl mb-1">Vault</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Encrypted secrets injected as environment variables in sandbox sessions.
+      </p>
+
+      {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+
+      {vaultEntries.length > 0 && (
+        <div className="overflow-x-auto mb-6">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Name</th>
+                <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Created</th>
+                <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Updated</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vaultEntries.map((entry) => (
+                <tr key={entry.name} className="border-b border-border/50">
+                  <td className="py-2 font-mono">{entry.name}</td>
+                  <td className="py-2 text-xs text-muted-foreground">
+                    {formatTime(entry.created_at)}
+                  </td>
+                  <td className="py-2 text-xs text-muted-foreground">
+                    {formatTime(entry.updated_at)}
+                  </td>
+                  <td className="py-2 text-right">
+                    <Button
+                      size="xs"
+                      variant="destructive-outline"
+                      onClick={() => deleteVaultEntry(entry.name)}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">OAuth CLI Credentials</h2>
-        <div className="rounded-xl border border-border bg-card p-6">
-          <p className="text-sm text-muted-foreground">
-            Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools
-            and runners.
-          </p>
-          <div className="mt-4 flex flex-col gap-4">
-            {oauthProviders.map((p) => (
-              <div key={p.provider}>
-                <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium text-sm">{p.provider}</span>
-                    {oauthStatus[p.provider] === "connected" && (
-                      <Badge variant="success">Connected</Badge>
-                    )}
-                    {oauthStatus[p.provider] === "disconnected" && (
-                      <Badge variant="outline">Not connected</Badge>
-                    )}
-                    {oauthStatus[p.provider] === "checking" && (
-                      <span className="text-xs text-muted-foreground">Checking…</span>
-                    )}
-                    {p.configured && <Badge variant="secondary">Configured</Badge>}
+      {vaultEntries.length === 0 && !vaultLoading && (
+        <p className="text-sm text-muted-foreground mb-6">No secrets stored yet.</p>
+      )}
+
+      <div className="border-t border-border pt-4">
+        <h3 className="text-sm font-medium mb-3">Add Secret</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Name</label>
+            <Input
+              type="text"
+              value={newSecretName}
+              onChange={(e) => setNewSecretName(e.target.value)}
+              placeholder="e.g. MY_API_KEY"
+              autoComplete="off"
+              nativeInput
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Value</label>
+            <Input
+              type="password"
+              value={newSecretValue}
+              onChange={(e) => setNewSecretValue(e.target.value)}
+              placeholder="secret value"
+              autoComplete="new-password"
+              nativeInput
+            />
+          </div>
+        </div>
+        <div className="mt-4">
+          <Button size="sm" loading={vaultSaving} onClick={addVaultEntry}>
+            Save Secret
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const oauthDetail = (
+    <div className="p-6">
+      {toastBanner}
+      <h2 className="font-serif text-xl mb-1">OAuth Providers</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools and
+        runners.
+      </p>
+
+      <div className="flex flex-col gap-4">
+        {oauthProviders.map((p) => (
+          <div key={p.provider}>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
+              <div className="flex items-center gap-3">
+                <span className="font-medium text-sm">{p.provider}</span>
+                {oauthStatus[p.provider] === "connected" && (
+                  <Badge variant="success">Connected</Badge>
+                )}
+                {oauthStatus[p.provider] === "disconnected" && (
+                  <Badge variant="outline">Not connected</Badge>
+                )}
+                {oauthStatus[p.provider] === "checking" && (
+                  <span className="text-xs text-muted-foreground">Checking…</span>
+                )}
+                {p.configured && <Badge variant="secondary">Configured</Badge>}
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
+                    }
+                  >
+                    {configOpen[p.provider] ? "Hide" : "Configure"}
+                  </Button>
+                )}
+                {p.available && oauthStatus[p.provider] !== "connected" ? (
+                  <Button
+                    size="sm"
+                    loading={oauthFlowActive[p.provider]}
+                    onClick={() => connectOAuth(p.provider)}
+                  >
+                    Connect
+                  </Button>
+                ) : oauthStatus[p.provider] === "connected" ? (
+                  <Button
+                    size="sm"
+                    variant="destructive-outline"
+                    onClick={() => disconnectOAuth(p.provider)}
+                  >
+                    Disconnect
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {configOpen[p.provider] && (
+              <div className="mt-2 rounded-lg border border-border p-4">
+                <h3 className="text-sm font-medium mb-3">Configure {p.provider} OAuth App</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Client ID</label>
+                    <Input
+                      type="text"
+                      value={configValues[p.provider]?.clientId ?? ""}
+                      onChange={(e) =>
+                        setConfigValues((prev) => ({
+                          ...prev,
+                          [p.provider]: { ...prev[p.provider], clientId: e.target.value },
+                        }))
+                      }
+                      placeholder="OAuth app client ID"
+                      autoComplete="off"
+                      nativeInput
+                    />
                   </div>
-                  <div className="flex items-center gap-2">
-                    {isAdmin && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
-                        }
-                      >
-                        {configOpen[p.provider] ? "Hide" : "Configure"}
-                      </Button>
-                    )}
-                    {p.available && oauthStatus[p.provider] !== "connected" ? (
-                      <Button
-                        size="sm"
-                        loading={oauthFlowActive[p.provider]}
-                        onClick={() => connectOAuth(p.provider)}
-                      >
-                        Connect
-                      </Button>
-                    ) : oauthStatus[p.provider] === "connected" ? (
-                      <Button
-                        size="sm"
-                        variant="destructive-outline"
-                        onClick={() => disconnectOAuth(p.provider)}
-                      >
-                        Disconnect
-                      </Button>
-                    ) : null}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Client Secret</label>
+                    <Input
+                      type="password"
+                      value={configValues[p.provider]?.clientSecret ?? ""}
+                      onChange={(e) =>
+                        setConfigValues((prev) => ({
+                          ...prev,
+                          [p.provider]: {
+                            ...prev[p.provider],
+                            clientSecret: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={
+                        hasExistingSecret[p.provider]
+                          ? "Leave empty to keep existing"
+                          : "OAuth app client secret"
+                      }
+                      autoComplete="new-password"
+                      nativeInput
+                    />
                   </div>
                 </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    loading={configSaving[p.provider]}
+                    onClick={() => saveProviderConfig(p.provider)}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive-outline"
+                    onClick={() => deleteProviderConfig(p.provider)}
+                  >
+                    Reset to defaults
+                  </Button>
+                </div>
+              </div>
+            )}
 
-                {configOpen[p.provider] && (
-                  <div className="mt-2 rounded-lg border border-border p-4">
-                    <h3 className="text-sm font-medium mb-3">Configure {p.provider} OAuth App</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Client ID</label>
-                        <Input
-                          type="text"
-                          value={configValues[p.provider]?.clientId ?? ""}
-                          onChange={(e) =>
-                            setConfigValues((prev) => ({
-                              ...prev,
-                              [p.provider]: { ...prev[p.provider], clientId: e.target.value },
-                            }))
-                          }
-                          placeholder="OAuth app client ID"
-                          autoComplete="off"
-                          nativeInput
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Client Secret</label>
-                        <Input
-                          type="password"
-                          value={configValues[p.provider]?.clientSecret ?? ""}
-                          onChange={(e) =>
-                            setConfigValues((prev) => ({
-                              ...prev,
-                              [p.provider]: {
-                                ...prev[p.provider],
-                                clientSecret: e.target.value,
-                              },
-                            }))
-                          }
-                          placeholder={
-                            hasExistingSecret[p.provider]
-                              ? "Leave empty to keep existing"
-                              : "OAuth app client secret"
-                          }
-                          autoComplete="new-password"
-                          nativeInput
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-4 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        loading={configSaving[p.provider]}
-                        onClick={() => saveProviderConfig(p.provider)}
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive-outline"
-                        onClick={() => deleteProviderConfig(p.provider)}
-                      >
-                        Reset to defaults
-                      </Button>
-                    </div>
-                  </div>
+            {oauthFlow[p.provider] && (
+              <div className="mt-2 rounded-lg border border-info/36 bg-info/8 p-4 text-sm">
+                <p className="font-medium">Authorize stella:</p>
+                <a
+                  href={oauthFlow[p.provider]!.verification_uri}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-xs break-all text-primary underline"
+                >
+                  {oauthFlow[p.provider]!.verification_uri}
+                </a>
+                {oauthFlow[p.provider]!.user_code && (
+                  <p className="mt-1">
+                    Code:{" "}
+                    <span className="font-mono font-bold">{oauthFlow[p.provider]!.user_code}</span>
+                  </p>
                 )}
-
-                {oauthFlow[p.provider] && (
-                  <div className="mt-2 rounded-lg border border-info/36 bg-info/8 p-4 text-sm">
-                    <p className="font-medium">Authorize stella:</p>
-                    <a
-                      href={oauthFlow[p.provider]!.verification_uri}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono text-xs break-all text-primary underline"
-                    >
-                      {oauthFlow[p.provider]!.verification_uri}
-                    </a>
-                    {oauthFlow[p.provider]!.user_code && (
-                      <p className="mt-1">
-                        Code:{" "}
-                        <span className="font-mono font-bold">
-                          {oauthFlow[p.provider]!.user_code}
-                        </span>
-                      </p>
-                    )}
-                    <p className="mt-1 text-xs text-muted-foreground">Waiting for authorization…</p>
-                  </div>
-                )}
+                <p className="mt-1 text-xs text-muted-foreground">Waiting for authorization…</p>
               </div>
-            ))}
+            )}
           </div>
-        </div>
+        ))}
       </div>
+    </div>
+  );
 
-      <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">Secret Vault</h2>
-        <div className="rounded-xl border border-border bg-card p-6">
-          <p className="text-sm text-muted-foreground">
-            Encrypted secrets injected as environment variables in sandbox sessions.
-          </p>
+  const detail = activeSection === "vault" ? vaultDetail : oauthDetail;
 
-          {vaultEntries.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">Name</th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">
-                      Created
-                    </th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground">
-                      Updated
-                    </th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vaultEntries.map((entry) => (
-                    <tr key={entry.name} className="border-b border-border/50">
-                      <td className="py-2 font-mono">{entry.name}</td>
-                      <td className="py-2 text-xs text-muted-foreground">
-                        {formatTime(entry.created_at)}
-                      </td>
-                      <td className="py-2 text-xs text-muted-foreground">
-                        {formatTime(entry.updated_at)}
-                      </td>
-                      <td className="py-2 text-right">
-                        <Button
-                          size="xs"
-                          variant="destructive-outline"
-                          onClick={() => deleteVaultEntry(entry.name)}
-                        >
-                          {t("common.delete")}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {vaultEntries.length === 0 && !vaultLoading && (
-            <p className="mt-4 text-sm text-muted-foreground">No secrets stored yet.</p>
-          )}
-
-          <div className="mt-4 border-t border-border pt-4">
-            <h3 className="text-sm font-medium mb-3">Add Secret</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Name</label>
-                <Input
-                  type="text"
-                  value={newSecretName}
-                  onChange={(e) => setNewSecretName(e.target.value)}
-                  placeholder="e.g. MY_API_KEY"
-                  autoComplete="off"
-                  nativeInput
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Value</label>
-                <Input
-                  type="password"
-                  value={newSecretValue}
-                  onChange={(e) => setNewSecretValue(e.target.value)}
-                  placeholder="secret value"
-                  autoComplete="new-password"
-                  nativeInput
-                />
-              </div>
-            </div>
-            <div className="mt-4">
-              <Button size="sm" loading={vaultSaving} onClick={addVaultEntry}>
-                Save Secret
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+  return (
+    // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
+    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+      <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
     </div>
   );
 }
