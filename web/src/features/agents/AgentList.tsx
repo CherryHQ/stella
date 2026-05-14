@@ -6,51 +6,35 @@ import { Badge } from "@/components/ui/badge";
 interface Props {
   state: AgentsPageState;
   onEdit: (a: AgentDetail) => void;
-  onStartCreate: () => void;
   onConfirmDelete: (msg: string, action: () => void) => void;
   onDeleteAgent: (id: string) => void;
 }
 
-export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDeleteAgent }: Props) {
-  const { agents, editingId, showForm, isAdmin, currentUserId } = state;
+export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Props) {
+  const { agents, editingId, isAdmin, currentUserId } = state;
 
   const canEditAgent = (a: AgentDetail) =>
     isAdmin || (a.creator_id !== 0 && a.creator_id === currentUserId);
 
   return (
-    <aside
-      className={`lg:border-r border-border px-3 py-4 lg:min-h-screen ${showForm ? "hidden lg:block" : "block"}`}
-    >
-      <div className="flex items-center justify-between mb-3 px-1">
-        <span className="text-xs font-mono text-muted-foreground">{agents.length} agents</span>
-        <Button
-          onClick={onStartCreate}
-          variant="ghost"
-          size="xs"
-          className="text-primary font-medium"
-        >
-          + New
-        </Button>
-      </div>
+    <div className="py-1">
       {agents.length === 0 && (
-        <div className="py-8 text-center">
+        <div className="py-8 text-center px-3">
           <p className="text-sm text-muted-foreground">No agents configured yet.</p>
         </div>
       )}
-      <div className="space-y-0.5">
+      <div className="space-y-0.5 px-2">
         {agents.map((a) => (
           <div
             key={a.id}
             onClick={() => onEdit(a)}
-            className={`group rounded-lg px-3 py-2.5 cursor-pointer transition-colors border ${
-              editingId === a.id
-                ? "border-primary/50 bg-primary/5"
-                : "border-transparent hover:bg-muted"
+            className={`group rounded-md px-2 py-2 cursor-pointer transition-colors ${
+              editingId === a.id ? "bg-primary/8" : "hover:bg-muted"
             }`}
           >
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start justify-between gap-1">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1 flex-wrap">
                   <span className="font-medium text-sm truncate">{a.name}</span>
                   <Badge variant={a.enabled ? "success" : "outline"} size="sm">
                     {a.enabled ? "on" : "off"}
@@ -83,6 +67,6 @@ export function AgentList({ state, onEdit, onStartCreate, onConfirmDelete, onDel
           </div>
         ))}
       </div>
-    </aside>
+    </div>
   );
 }

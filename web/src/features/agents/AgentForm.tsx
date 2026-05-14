@@ -52,19 +52,7 @@ export function AgentForm({
   onOpenSkillInstallModal,
 }: Props) {
   const { t } = useI18n();
-  const { showForm, editingId, activeTab, isAdmin, form } = state;
-
-  if (!showForm) {
-    return (
-      <main className="px-6 py-6 min-w-0 hidden lg:block">
-        <div className="flex flex-col items-center justify-center min-h-64 text-center gap-4 min-w-0">
-          <p className="text-muted-foreground text-sm">
-            Select an agent to edit, or create a new one.
-          </p>
-        </div>
-      </main>
-    );
-  }
+  const { editingId, activeTab, isAdmin, form } = state;
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),

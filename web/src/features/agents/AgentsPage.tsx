@@ -9,11 +9,13 @@ import type {
   Skill,
   User,
 } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -1007,49 +1009,74 @@ export function AgentsPage() {
     [showToast],
   );
 
+  const listHeader = (
+    <div className="px-3 py-3 flex items-center justify-between border-b border-border">
+      <span className="text-sm font-medium">Agents</span>
+      <Button onClick={startCreate} variant="ghost" size="xs" className="text-primary font-medium">
+        + New Agent
+      </Button>
+    </div>
+  );
+
+  const list = (
+    <AgentList
+      state={state}
+      onEdit={editAgent}
+      onConfirmDelete={confirmDelete}
+      onDeleteAgent={doDeleteAgent}
+    />
+  );
+
+  const detail = state.showForm ? (
+    <AgentForm
+      state={state}
+      onSetState={set}
+      onSave={() => saveAgent(state)}
+      onCancel={resetForm}
+      onLoadAssignedUsers={loadAssignedUsers}
+      onAddUser={() => addUser(state)}
+      onRemoveUser={(userId) => removeUser(userId, state.editingId ?? "")}
+      onApplySoul={applySoul}
+      onSelectSkill={(sk) => selectSkill(sk, state)}
+      onToggleSkillStatus={(sk) => toggleSkillStatus(sk, state)}
+      onSaveSelectedSkill={() => saveSelectedSkill(state)}
+      onDeleteSkill={(sk) => deleteSkill(sk, state)}
+      onDuplicateBuiltinToAgent={() => duplicateBuiltinToAgent(state)}
+      onSelectSkillFile={(path, skipDirtyCheck) =>
+        selectSkillFile(
+          path,
+          state.selectedSkill!,
+          state.selectedSkillFileCache,
+          state.editingId,
+          skipDirtyCheck,
+          state.selectedSkillDirty,
+        )
+      }
+      onDeleteSkillFile={() => deleteSelectedSkillFile(state)}
+      onSavePersonalisationSoul={() => savePersonalisationSoul(state)}
+      onSavePersonalisationProfile={() => savePersonalisationProfile(state)}
+      onOpenSkillInstallModal={(scope) =>
+        setState((prev) => ({
+          ...prev,
+          skillInstallModalOpen: true,
+          skillInstallScope: scope ?? (prev.isAdmin && prev.editingId ? "agent" : "user"),
+        }))
+      }
+    />
+  ) : undefined;
+
+  const emptyState = (
+    <p className="text-sm text-muted-foreground">Select an agent to edit or create a new one.</p>
+  );
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] -mx-6 -mt-6 border-t border-border">
-      <AgentList
-        state={state}
-        onEdit={editAgent}
-        onStartCreate={startCreate}
-        onConfirmDelete={confirmDelete}
-        onDeleteAgent={doDeleteAgent}
-      />
-      <AgentForm
-        state={state}
-        onSetState={set}
-        onSave={() => saveAgent(state)}
-        onCancel={resetForm}
-        onLoadAssignedUsers={loadAssignedUsers}
-        onAddUser={() => addUser(state)}
-        onRemoveUser={(userId) => removeUser(userId, state.editingId ?? "")}
-        onApplySoul={applySoul}
-        onSelectSkill={(sk) => selectSkill(sk, state)}
-        onToggleSkillStatus={(sk) => toggleSkillStatus(sk, state)}
-        onSaveSelectedSkill={() => saveSelectedSkill(state)}
-        onDeleteSkill={(sk) => deleteSkill(sk, state)}
-        onDuplicateBuiltinToAgent={() => duplicateBuiltinToAgent(state)}
-        onSelectSkillFile={(path, skipDirtyCheck) =>
-          selectSkillFile(
-            path,
-            state.selectedSkill!,
-            state.selectedSkillFileCache,
-            state.editingId,
-            skipDirtyCheck,
-            state.selectedSkillDirty,
-          )
-        }
-        onDeleteSkillFile={() => deleteSelectedSkillFile(state)}
-        onSavePersonalisationSoul={() => savePersonalisationSoul(state)}
-        onSavePersonalisationProfile={() => savePersonalisationProfile(state)}
-        onOpenSkillInstallModal={(scope) =>
-          setState((prev) => ({
-            ...prev,
-            skillInstallModalOpen: true,
-            skillInstallScope: scope ?? (prev.isAdmin && prev.editingId ? "agent" : "user"),
-          }))
-        }
+    // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
+    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+      <SettingsDetailLayout
+        listHeader={listHeader}
+        list={list}
+        detail={detail}
+        emptyState={emptyState}
       />
       {state.showTemplateModal && (
         <TemplateModal
