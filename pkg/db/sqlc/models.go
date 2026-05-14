@@ -17,6 +17,8 @@ type AgentTask struct {
 	SessionID     sql.NullString `json:"session_id"`
 	Context       string         `json:"context"`
 	ReviewRequest string         `json:"review_request"`
+	Deps          string         `json:"deps"`
+	NotifyAt      sql.NullString `json:"notify_at"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        int64          `json:"user_id"`
 	CreatedAt     string         `json:"created_at"`

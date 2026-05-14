@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/notify"
 	pkgagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -19,7 +18,6 @@ import (
 // workerConfig holds dependencies needed to run a task worker goroutine.
 type workerConfig struct {
 	q             *sqlc.Queries
-	notifier      notify.Notifier
 	mem           memory.Provider
 	stream        providers.StreamFunc
 	model         ai.Model
@@ -68,7 +66,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	})
 
 	// Build the control tool with the worker's cancel func.
-	controlTool := newTaskControlTool(cfg.q, cfg.notifier, task.ID, cancel)
+	controlTool := newTaskControlTool(cfg.q, task.ID, cancel)
 
 	// Build ToolSet from parent registry + control tool.
 	toolSet := pkgagent.ToolSetFromRegistry(cfg.registry)

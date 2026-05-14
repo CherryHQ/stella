@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	pkgagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -36,9 +38,9 @@ type Service struct {
 	hooks         *hooks.HookSet
 	toolLifecycle *pkgagent.ToolLifecycle
 
-	sem chan struct{}
-	wg  sync.WaitGroup
-	mu  sync.Mutex
+	maxConcurrency int
+	wg             sync.WaitGroup
+	mu             sync.Mutex
 	// workers maps taskID → cancel func for running workers.
 	workers map[string]context.CancelFunc
 
@@ -69,6 +71,7 @@ type CreateTaskParams struct {
 	Priority    string
 	AgentID     string
 	UserID      int64
+	Deps        []string
 }
 
 // UpdateTaskParams holds parameters for updating task metadata.
@@ -92,28 +95,28 @@ func New(cfg Config) *Service {
 		concurrency = defaultMaxConcurrency
 	}
 	return &Service{
-		q:             cfg.Queries,
-		db:            cfg.DB,
-		notifier:      cfg.Notifier,
-		mem:           cfg.Memory,
-		stream:        cfg.Stream,
-		model:         cfg.Model,
-		system:        cfg.System,
-		registry:      cfg.Registry,
-		hooks:         cfg.Hooks,
-		toolLifecycle: cfg.ToolLifecycle,
-		sem:           make(chan struct{}, concurrency),
-		workers:       make(map[string]context.CancelFunc),
-		log:           slog.With("component", "tasks.service"),
+		q:              cfg.Queries,
+		db:             cfg.DB,
+		notifier:       cfg.Notifier,
+		mem:            cfg.Memory,
+		stream:         cfg.Stream,
+		model:          cfg.Model,
+		system:         cfg.System,
+		registry:       cfg.Registry,
+		hooks:          cfg.Hooks,
+		toolLifecycle:  cfg.ToolLifecycle,
+		maxConcurrency: concurrency,
+		workers:        make(map[string]context.CancelFunc),
+		log:            slog.With("component", "tasks.service"),
 	}
 }
 
-// Start initialises the service lifecycle: re-dispatches stale running tasks,
-// then polls for pending tasks every 30s.
+// Start initialises the service: resets stale running tasks to pending on startup.
+// The caller is responsible for scheduling Tick on a recurring interval.
 func (s *Service) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
-	// Reset any tasks that were "running" when the process died, so they can retry.
+	// Reset tasks that were "running" when the process died so they can retry.
 	running, err := s.q.ListRunningAgentTasks(s.ctx)
 	if err != nil {
 		return fmt.Errorf("tasks: list running: %w", err)
@@ -129,29 +132,6 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	// Dispatch any currently pending tasks.
-	pending, err := s.q.ListPendingAgentTasks(s.ctx)
-	if err != nil {
-		return fmt.Errorf("tasks: list pending: %w", err)
-	}
-	for _, t := range pending {
-		s.dispatch(t)
-	}
-
-	// Poll loop.
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-ticker.C:
-				s.pollPending()
-			}
-		}
-	}()
-
 	return nil
 }
 
@@ -163,12 +143,161 @@ func (s *Service) Stop() {
 	s.wg.Wait()
 }
 
-// CreateTask inserts a new task and dispatches it immediately.
+// Tick is called by the external scheduler on a recurring interval.
+// It performs three sweeps in order: notify, dep-failure check, dispatch.
+func (s *Service) Tick() {
+	ctx := s.ctx
+	if ctx == nil {
+		return
+	}
+	now := time.Now()
+	nowStr := now.Format(time.RFC3339)
+
+	s.sweepNotifications(ctx, nowStr)
+	s.sweepDepFailures(ctx, nowStr)
+	s.sweepDispatch(ctx)
+}
+
+// sweepNotifications sends pending notifications and clears notify_at.
+func (s *Service) sweepNotifications(ctx context.Context, now string) {
+	tasks, err := s.q.ListPendingNotifyTasks(ctx, sql.NullString{String: now, Valid: true})
+	if err != nil {
+		s.log.Warn("notify sweep: list failed", "error", err)
+		return
+	}
+	for _, t := range tasks {
+		msg := s.notifyMessage(ctx, t)
+		if s.notifier != nil {
+			_ = s.notifier.Notify(ctx, pkgchannel.Notification{Text: msg})
+		}
+		_ = s.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+			NotifyAt:  sql.NullString{Valid: false},
+			UpdatedAt: now,
+			ID:        t.ID,
+		})
+	}
+}
+
+// notifyMessage builds a notification string from task status and latest event.
+func (s *Service) notifyMessage(ctx context.Context, t sqlc.AgentTask) string {
+	events, err := s.q.ListAgentTaskEvents(ctx, t.ID)
+	detail := ""
+	if err == nil && len(events) > 0 {
+		detail = events[len(events)-1].Detail
+	}
+	switch t.Status {
+	case "blocked":
+		return fmt.Sprintf("Task %q is blocked: %s", t.Title, detail)
+	case "review_requested":
+		return fmt.Sprintf("Task %q requests review: %s", t.Title, detail)
+	default:
+		return fmt.Sprintf("Task %q (%s): %s", t.Title, t.Status, detail)
+	}
+}
+
+// sweepDepFailures transitions pending tasks to blocked when any dep has failed/cancelled.
+func (s *Service) sweepDepFailures(ctx context.Context, now string) {
+	pending, err := s.q.ListPendingAgentTasks(ctx)
+	if err != nil {
+		s.log.Warn("dep failure sweep: list failed", "error", err)
+		return
+	}
+	for _, t := range pending {
+		deps := parseDeps(t.Deps)
+		if len(deps) == 0 {
+			continue
+		}
+		for _, depID := range deps {
+			dep, err := s.q.GetAgentTask(ctx, depID)
+			if err != nil {
+				continue
+			}
+			if dep.Status == "failed" || dep.Status == "cancelled" {
+				_ = s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+					Status:    "blocked",
+					UpdatedAt: now,
+					ID:        t.ID,
+				})
+				_ = s.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+					NotifyAt:  sql.NullString{String: now, Valid: true},
+					UpdatedAt: now,
+					ID:        t.ID,
+				})
+				_, _ = s.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
+					ID:        newID(),
+					TaskID:    t.ID,
+					EventType: "blocked",
+					Detail:    fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status),
+					CreatedAt: now,
+					UpdatedAt: now,
+				})
+				break
+			}
+		}
+	}
+}
+
+// sweepDispatch dispatches eligible pending tasks.
+func (s *Service) sweepDispatch(ctx context.Context) {
+	pending, err := s.q.ListPendingAgentTasks(ctx)
+	if err != nil {
+		s.log.Warn("dispatch sweep: list failed", "error", err)
+		return
+	}
+
+	s.mu.Lock()
+	alreadyRunning := make(map[string]bool, len(s.workers))
+	for id := range s.workers {
+		alreadyRunning[id] = true
+	}
+	s.mu.Unlock()
+
+	for _, t := range pending {
+		if alreadyRunning[t.ID] {
+			continue
+		}
+		// Per-user concurrency check from DB.
+		count, err := s.q.CountRunningAgentTasksByUser(ctx, t.UserID)
+		if err != nil || count >= int64(s.maxConcurrency) {
+			continue
+		}
+		// Deps must all be done.
+		if !s.depsAllDone(ctx, t) {
+			continue
+		}
+		s.dispatch(t)
+		alreadyRunning[t.ID] = true
+	}
+}
+
+// depsAllDone returns true if all dep tasks are in "done" status.
+func (s *Service) depsAllDone(ctx context.Context, t sqlc.AgentTask) bool {
+	for _, depID := range parseDeps(t.Deps) {
+		dep, err := s.q.GetAgentTask(ctx, depID)
+		if err != nil || dep.Status != "done" {
+			return false
+		}
+	}
+	return true
+}
+
+// CreateTask inserts a new task. The scheduler Tick dispatches it.
 func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc.AgentTask, error) {
 	priority := params.Priority
 	if priority == "" {
 		priority = "normal"
 	}
+
+	// Validate deps exist.
+	if err := s.validateDeps(ctx, params.Deps); err != nil {
+		return sqlc.AgentTask{}, err
+	}
+
+	depsJSON, err := json.Marshal(params.Deps)
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: marshal deps: %w", err)
+	}
+
 	id := newID()
 	now := time.Now().Format(time.RFC3339)
 	task, err := s.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
@@ -180,6 +309,7 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 		SessionID:     sql.NullString{String: "task:" + id, Valid: true},
 		Context:       "{}",
 		ReviewRequest: "{}",
+		Deps:          string(depsJSON),
 		AgentID:       sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
 		UserID:        params.UserID,
 		CreatedAt:     now,
@@ -188,8 +318,17 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: create: %w", err)
 	}
-	s.dispatch(task)
 	return task, nil
+}
+
+// validateDeps checks that all dep IDs exist in the DB.
+func (s *Service) validateDeps(ctx context.Context, deps []string) error {
+	for _, id := range deps {
+		if _, err := s.q.GetAgentTask(ctx, id); err != nil {
+			return fmt.Errorf("tasks: dep %q not found: %w", id, err)
+		}
+	}
+	return nil
 }
 
 // GetTask returns a single task by ID.
@@ -264,7 +403,7 @@ func (s *Service) UpdateTask(ctx context.Context, id string, userID int64, isAdm
 	return s.q.GetAgentTask(ctx, id)
 }
 
-// DeleteTask deletes a task (must be non-running or admin).
+// DeleteTask deletes a task (cancels running worker if present).
 func (s *Service) DeleteTask(ctx context.Context, id string, userID int64, isAdmin bool) error {
 	task, err := s.q.GetAgentTask(ctx, id)
 	if err != nil {
@@ -273,7 +412,6 @@ func (s *Service) DeleteTask(ctx context.Context, id string, userID int64, isAdm
 	if !isAdmin && task.UserID != userID {
 		return fmt.Errorf("tasks: forbidden")
 	}
-	// Cancel a running worker if present.
 	s.mu.Lock()
 	cancel, running := s.workers[id]
 	s.mu.Unlock()
@@ -313,7 +451,6 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 			if ok {
 				cancel()
 			}
-			// Worker cleanup sets status=cancelled when context is cancelled.
 			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 				Status:    "cancelled",
 				UpdatedAt: now,
@@ -343,11 +480,6 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set pending: %w", err)
 		}
-		updated, err := s.q.GetAgentTask(ctx, id)
-		if err != nil {
-			return sqlc.AgentTask{}, err
-		}
-		s.dispatch(updated)
 
 	case "reject":
 		if task.Status != "review_requested" {
@@ -373,7 +505,6 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		if task.Status != "blocked" {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond requires blocked status, got %q", task.Status)
 		}
-		// Store the response in memory so the resumed worker sees it.
 		session := memory.Session{
 			ID:      "task:" + id,
 			UserID:  task.UserID,
@@ -402,11 +533,6 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond set pending: %w", err)
 		}
-		updated, err := s.q.GetAgentTask(ctx, id)
-		if err != nil {
-			return sqlc.AgentTask{}, err
-		}
-		s.dispatch(updated)
 
 	default:
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: unknown action %q", action.Action)
@@ -420,8 +546,7 @@ func (s *Service) ListTaskEvents(ctx context.Context, taskID string) ([]sqlc.Age
 	return s.q.ListAgentTaskEvents(ctx, taskID)
 }
 
-// dispatch acquires a semaphore slot and launches a worker goroutine for task.
-// It returns immediately; the goroutine runs in the background.
+// dispatch launches a worker goroutine for task. It returns immediately.
 func (s *Service) dispatch(task sqlc.AgentTask) {
 	workerCtx, workerCancel := context.WithCancel(s.ctx)
 
@@ -437,17 +562,8 @@ func (s *Service) dispatch(task sqlc.AgentTask) {
 			workerCancel()
 		}()
 
-		// Acquire semaphore.
-		select {
-		case s.sem <- struct{}{}:
-		case <-s.ctx.Done():
-			return
-		}
-		defer func() { <-s.sem }()
-
 		cfg := workerConfig{
 			q:             s.q,
-			notifier:      s.notifier,
 			mem:           s.mem,
 			stream:        s.stream,
 			model:         s.model,
@@ -460,25 +576,16 @@ func (s *Service) dispatch(task sqlc.AgentTask) {
 	})
 }
 
-// pollPending dispatches any newly pending tasks that aren't already running.
-func (s *Service) pollPending() {
-	pending, err := s.q.ListPendingAgentTasks(s.ctx)
-	if err != nil {
-		s.log.Warn("poll pending failed", "error", err)
-		return
+// parseDeps unmarshals the deps JSON array. Returns nil on error.
+func parseDeps(raw string) []string {
+	if raw == "" || raw == "[]" {
+		return nil
 	}
-	s.mu.Lock()
-	alreadyRunning := make(map[string]bool, len(s.workers))
-	for id := range s.workers {
-		alreadyRunning[id] = true
+	var deps []string
+	if err := json.Unmarshal([]byte(raw), &deps); err != nil {
+		return nil
 	}
-	s.mu.Unlock()
-
-	for _, t := range pending {
-		if !alreadyRunning[t.ID] {
-			s.dispatch(t)
-		}
-	}
+	return deps
 }
 
 // newID generates a new UUID string.

@@ -222,6 +222,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			return fmt.Errorf("start tasks service: %w", err)
 		}
 		defer s.tasksSvc.Stop()
+		if s.schedulerSvc != nil {
+			if err := s.schedulerSvc.ScheduleEvery(ctx, "30s", func(ctx context.Context) {
+				s.tasksSvc.Tick()
+			}); err != nil {
+				return fmt.Errorf("schedule tasks tick: %w", err)
+			}
+		}
 	}
 
 	if s.schedulerSvc != nil {

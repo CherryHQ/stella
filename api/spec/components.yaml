@@ -1487,6 +1487,15 @@ components:
           description: "Task-level metadata checkpoint (phase, decisions, blockers)"
         review_request:
           $ref: "#/components/schemas/AgentTaskReviewRequest"
+        deps:
+          type: array
+          items:
+            type: string
+          description: "IDs of tasks that must be done before this task can run"
+        notify_at:
+          type: string
+          format: date-time
+          description: "When to next notify the user; null means no pending notification"
         agent_id:
           type: string
         user_id:
@@ -1520,6 +1529,11 @@ components:
           enum: [routine, urgent]
         agent_id:
           type: string
+        deps:
+          type: array
+          items:
+            type: string
+          description: "IDs of tasks that must be done before this task can run"
     AgentTaskUpdate:
       type: object
       description: "Fields for updating an agent task (all optional)"

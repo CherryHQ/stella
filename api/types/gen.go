@@ -273,11 +273,17 @@ type AgentTask struct {
 	AgentId *string `json:"agent_id,omitempty"`
 
 	// Context Task-level metadata checkpoint (phase, decisions, blockers)
-	Context     *map[string]interface{} `json:"context,omitempty"`
-	CreatedAt   time.Time               `json:"created_at"`
-	Description *string                 `json:"description,omitempty"`
-	Id          string                  `json:"id"`
-	Priority    AgentTaskPriority       `json:"priority"`
+	Context   *map[string]interface{} `json:"context,omitempty"`
+	CreatedAt time.Time               `json:"created_at"`
+
+	// Deps IDs of tasks that must be done before this task can run
+	Deps        *[]string `json:"deps,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Id          string    `json:"id"`
+
+	// NotifyAt When to next notify the user; null means no pending notification
+	NotifyAt *time.Time        `json:"notify_at,omitempty"`
+	Priority AgentTaskPriority `json:"priority"`
 
 	// ReviewRequest Structured review request set by the task agent
 	ReviewRequest *AgentTaskReviewRequest `json:"review_request,omitempty"`
@@ -323,7 +329,10 @@ type AgentTaskEventList struct {
 
 // AgentTaskInput Fields for creating an agent task
 type AgentTaskInput struct {
-	AgentId     *string                 `json:"agent_id,omitempty"`
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Deps IDs of tasks that must be done before this task can run
+	Deps        *[]string               `json:"deps,omitempty"`
 	Description *string                 `json:"description,omitempty"`
 	Priority    *AgentTaskInputPriority `json:"priority,omitempty"`
 	Title       string                  `json:"title"`

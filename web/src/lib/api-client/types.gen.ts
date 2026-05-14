@@ -262,6 +262,14 @@ export type ComponentsAgentTask = {
     [key: string]: unknown;
   };
   review_request?: ComponentsAgentTaskReviewRequest;
+  /**
+   * IDs of tasks that must be done before this task can run
+   */
+  deps?: Array<string>;
+  /**
+   * When to next notify the user; null means no pending notification
+   */
+  notify_at?: string;
   agent_id?: string;
   user_id?: number;
   created_at: string;
@@ -308,6 +316,10 @@ export type ComponentsAgentTaskInput = {
   description?: string;
   priority?: "routine" | "urgent";
   agent_id?: string;
+  /**
+   * IDs of tasks that must be done before this task can run
+   */
+  deps?: Array<string>;
 };
 
 export type ComponentsAgentTaskList = {

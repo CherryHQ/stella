@@ -83,12 +83,17 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 		priority = string(*body.Priority)
 	}
 
+	var deps []string
+	if body.Deps != nil {
+		deps = *body.Deps
+	}
 	task, err := s.tasksSvc.CreateTask(r.Context(), tasks.CreateTaskParams{
 		Title:       body.Title,
 		Description: description,
 		Priority:    priority,
 		AgentID:     agentID,
 		UserID:      userID,
+		Deps:        deps,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -285,6 +290,16 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 		if err := json.Unmarshal([]byte(t.ReviewRequest), &rr); err == nil {
 			at.ReviewRequest = &rr
 		}
+	}
+	if t.Deps != "" && t.Deps != "[]" {
+		var deps []string
+		if err := json.Unmarshal([]byte(t.Deps), &deps); err == nil && len(deps) > 0 {
+			at.Deps = &deps
+		}
+	}
+	if t.NotifyAt.Valid && t.NotifyAt.String != "" {
+		notifyAt := parseTaskTime(t.NotifyAt.String)
+		at.NotifyAt = &notifyAt
 	}
 	return at
 }

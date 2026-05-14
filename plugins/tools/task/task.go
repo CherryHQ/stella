@@ -50,6 +50,11 @@ func (t *TaskTool) Definition() tools.Definition {
 					"type":        "string",
 					"description": "Status filter for list",
 				},
+				"deps": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Task IDs that must be done before this task runs (optional, for create)",
+				},
 			},
 			"required": []string{"action"},
 		},
@@ -81,6 +86,15 @@ func (t *TaskTool) create(ctx context.Context, args map[string]any) (string, err
 	priority, _ := args["priority"].(string)
 	agentID, _ := args["agent_id"].(string)
 
+	var deps []string
+	if raw, ok := args["deps"].([]any); ok {
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				deps = append(deps, s)
+			}
+		}
+	}
+
 	userID := memory.UserIDFromContext(ctx)
 	if agentID == "" {
 		agentID = memory.AgentIDFromContext(ctx)
@@ -92,6 +106,7 @@ func (t *TaskTool) create(ctx context.Context, args map[string]any) (string, err
 		Priority:    priority,
 		AgentID:     agentID,
 		UserID:      userID,
+		Deps:        deps,
 	})
 	if err != nil {
 		return "", fmt.Errorf("task: create: %w", err)

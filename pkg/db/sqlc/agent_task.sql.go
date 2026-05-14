@@ -10,13 +10,24 @@ import (
 	"database/sql"
 )
 
+const countRunningAgentTasksByUser = `-- name: CountRunningAgentTasksByUser :one
+SELECT count(*) FROM agent_task WHERE status = 'running' AND user_id = ?
+`
+
+func (q *Queries) CountRunningAgentTasksByUser(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningAgentTasksByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAgentTask = `-- name: CreateAgentTask :one
 INSERT INTO agent_task (
     id, title, description, status, priority, session_id, context,
-    review_request, agent_id, user_id, created_at, updated_at
+    review_request, deps, agent_id, user_id, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateAgentTaskParams struct {
@@ -28,6 +39,7 @@ type CreateAgentTaskParams struct {
 	SessionID     sql.NullString `json:"session_id"`
 	Context       string         `json:"context"`
 	ReviewRequest string         `json:"review_request"`
+	Deps          string         `json:"deps"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        int64          `json:"user_id"`
 	CreatedAt     string         `json:"created_at"`
@@ -44,6 +56,7 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.SessionID,
 		arg.Context,
 		arg.ReviewRequest,
+		arg.Deps,
 		arg.AgentID,
 		arg.UserID,
 		arg.CreatedAt,
@@ -59,6 +72,8 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.SessionID,
 		&i.Context,
 		&i.ReviewRequest,
+		&i.Deps,
+		&i.NotifyAt,
 		&i.AgentID,
 		&i.UserID,
 		&i.CreatedAt,
@@ -77,7 +92,7 @@ func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ?
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ?
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -92,6 +107,8 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 		&i.SessionID,
 		&i.Context,
 		&i.ReviewRequest,
+		&i.Deps,
+		&i.NotifyAt,
 		&i.AgentID,
 		&i.UserID,
 		&i.CreatedAt,
@@ -101,7 +118,7 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task ORDER BY created_at DESC
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTasks(ctx context.Context) ([]AgentTask, error) {
@@ -122,6 +139,8 @@ func (q *Queries) ListAgentTasks(ctx context.Context) ([]AgentTask, error) {
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
 			&i.AgentID,
 			&i.UserID,
 			&i.CreatedAt,
@@ -141,7 +160,7 @@ func (q *Queries) ListAgentTasks(ctx context.Context) ([]AgentTask, error) {
 }
 
 const listAgentTasksByStatus = `-- name: ListAgentTasksByStatus :many
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = ? ORDER BY created_at DESC
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTasksByStatus(ctx context.Context, status string) ([]AgentTask, error) {
@@ -162,6 +181,8 @@ func (q *Queries) ListAgentTasksByStatus(ctx context.Context, status string) ([]
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
 			&i.AgentID,
 			&i.UserID,
 			&i.CreatedAt,
@@ -181,7 +202,7 @@ func (q *Queries) ListAgentTasksByStatus(ctx context.Context, status string) ([]
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID int64) ([]AgentTask, error) {
@@ -202,6 +223,8 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID int64) ([]Age
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
 			&i.AgentID,
 			&i.UserID,
 			&i.CreatedAt,
@@ -221,7 +244,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID int64) ([]Age
 }
 
 const listPendingAgentTasks = `-- name: ListPendingAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC
 `
 
 func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error) {
@@ -242,6 +265,52 @@ func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingNotifyTasks = `-- name: ListPendingNotifyTasks :many
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task
+WHERE notify_at IS NOT NULL AND notify_at <= ?
+ORDER BY notify_at ASC
+`
+
+func (q *Queries) ListPendingNotifyTasks(ctx context.Context, notifyAt sql.NullString) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingNotifyTasks, notifyAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.SessionID,
+			&i.Context,
+			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
 			&i.AgentID,
 			&i.UserID,
 			&i.CreatedAt,
@@ -261,7 +330,7 @@ func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error
 }
 
 const listRunningAgentTasks = `-- name: ListRunningAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'running' ORDER BY created_at ASC
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'running' ORDER BY created_at ASC
 `
 
 func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error) {
@@ -282,6 +351,8 @@ func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
 			&i.AgentID,
 			&i.UserID,
 			&i.CreatedAt,
@@ -341,6 +412,23 @@ type UpdateAgentTaskContextParams struct {
 
 func (q *Queries) UpdateAgentTaskContext(ctx context.Context, arg UpdateAgentTaskContextParams) error {
 	_, err := q.db.ExecContext(ctx, updateAgentTaskContext, arg.Context, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const updateAgentTaskNotifyAt = `-- name: UpdateAgentTaskNotifyAt :exec
+UPDATE agent_task
+SET notify_at = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateAgentTaskNotifyAtParams struct {
+	NotifyAt  sql.NullString `json:"notify_at"`
+	UpdatedAt string         `json:"updated_at"`
+	ID        string         `json:"id"`
+}
+
+func (q *Queries) UpdateAgentTaskNotifyAt(ctx context.Context, arg UpdateAgentTaskNotifyAtParams) error {
+	_, err := q.db.ExecContext(ctx, updateAgentTaskNotifyAt, arg.NotifyAt, arg.UpdatedAt, arg.ID)
 	return err
 }
 

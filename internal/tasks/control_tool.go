@@ -2,17 +2,15 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 
 	"github.com/google/uuid"
-
-	"github.com/CherryHQ/stella/internal/notify"
 )
 
 const controlToolName = "task_control"
@@ -20,18 +18,16 @@ const controlToolName = "task_control"
 // TaskControlTool is injected into task sessions.
 // Its Execute method performs DB transitions directly.
 type TaskControlTool struct {
-	q        *sqlc.Queries
-	notifier notify.Notifier
-	taskID   string
-	cancel   context.CancelFunc
+	q      *sqlc.Queries
+	taskID string
+	cancel context.CancelFunc
 }
 
-func newTaskControlTool(q *sqlc.Queries, notifier notify.Notifier, taskID string, cancel context.CancelFunc) *TaskControlTool {
+func newTaskControlTool(q *sqlc.Queries, taskID string, cancel context.CancelFunc) *TaskControlTool {
 	return &TaskControlTool{
-		q:        q,
-		notifier: notifier,
-		taskID:   taskID,
-		cancel:   cancel,
+		q:      q,
+		taskID: taskID,
+		cancel: cancel,
 	}
 }
 
@@ -58,6 +54,10 @@ func (t *TaskControlTool) Definition() tools.Definition {
 				"review_request": map[string]any{
 					"type":        "object",
 					"description": "Optional. For request_review: structured review request payload.",
+				},
+				"notify_after": map[string]any{
+					"type":        "string",
+					"description": "Optional. For progress: a Go duration (e.g. '2h') after which the user is notified.",
 				},
 			},
 			"required": []string{"action"},
@@ -88,6 +88,18 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		}); err != nil {
 			return "", fmt.Errorf("task_control: update context: %w", err)
 		}
+		// Optional deferred notification.
+		if notifyAfter, _ := args["notify_after"].(string); notifyAfter != "" {
+			d, err := time.ParseDuration(notifyAfter)
+			if err == nil {
+				notifyAt := time.Now().Add(d).Format(time.RFC3339)
+				_ = t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+					NotifyAt:  sql.NullString{String: notifyAt, Valid: true},
+					UpdatedAt: now,
+					ID:        t.taskID,
+				})
+			}
+		}
 		if err := t.logEvent(ctx, "progress", message); err != nil {
 			return "", err
 		}
@@ -101,13 +113,15 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set blocked: %w", err)
 		}
+		if err := t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+			NotifyAt:  sql.NullString{String: now, Valid: true},
+			UpdatedAt: now,
+			ID:        t.taskID,
+		}); err != nil {
+			return "", fmt.Errorf("task_control: set notify_at: %w", err)
+		}
 		if err := t.logEvent(ctx, "blocked", message); err != nil {
 			return "", err
-		}
-		if t.notifier != nil {
-			_ = t.notifier.Notify(ctx, pkgchannel.Notification{
-				Text: fmt.Sprintf("Task blocked: %s", message),
-			})
 		}
 		t.cancel()
 		return "task blocked", nil
@@ -136,13 +150,15 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		}); err != nil {
 			return "", fmt.Errorf("task_control: update review_request: %w", err)
 		}
+		if err := t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+			NotifyAt:  sql.NullString{String: now, Valid: true},
+			UpdatedAt: now,
+			ID:        t.taskID,
+		}); err != nil {
+			return "", fmt.Errorf("task_control: set notify_at: %w", err)
+		}
 		if err := t.logEvent(ctx, "review_requested", message); err != nil {
 			return "", err
-		}
-		if t.notifier != nil {
-			_ = t.notifier.Notify(ctx, pkgchannel.Notification{
-				Text: fmt.Sprintf("Task review requested: %s", message),
-			})
 		}
 		t.cancel()
 		return "review requested", nil
