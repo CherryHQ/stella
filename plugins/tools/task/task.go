@@ -117,7 +117,11 @@ func (t *TaskTool) create(ctx context.Context, args map[string]any) (string, err
 		return "", fmt.Errorf("task: create: %w", err)
 	}
 
-	out, err := json.Marshal(task)
+	result := map[string]any{
+		"task": task,
+		"url":  "/tasks/" + task.ID,
+	}
+	out, err := json.Marshal(result)
 	if err != nil {
 		return "", fmt.Errorf("task: marshal result: %w", err)
 	}
