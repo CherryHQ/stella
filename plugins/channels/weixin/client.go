@@ -106,12 +106,17 @@ func buildClientVersion(v string) uint32 {
 // buildBaseInfo returns a populated BaseInfo for all POST request bodies.
 func (c *Client) buildBaseInfo() BaseInfo {
 	v := version.Version
-	if v == "" {
+	// When stella is built without ldflags version injection (dev builds), use the
+	// official plugin's DEFAULT_BOT_AGENT so backend attribution is meaningful.
+	botAgent := "OpenClaw"
+	if v != "" {
+		botAgent = "Stella/" + v
+	} else {
 		v = "dev"
 	}
 	return BaseInfo{
 		ChannelVersion: v,
-		BotAgent:       "Stella/" + v,
+		BotAgent:       botAgent,
 	}
 }
 

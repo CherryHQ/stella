@@ -1162,8 +1162,10 @@ func TestBuildBaseInfo(t *testing.T) {
 	if info.BotAgent == "" {
 		t.Error("BotAgent must not be empty")
 	}
-	if !strings.HasPrefix(info.BotAgent, "Stella/") {
-		t.Errorf("BotAgent %q must start with 'Stella/'", info.BotAgent)
+	// In test/dev builds version.Version is empty, so BotAgent falls back to "OpenClaw".
+	// Production builds inject a version via ldflags → BotAgent = "Stella/<version>".
+	if info.BotAgent != "OpenClaw" && !strings.HasPrefix(info.BotAgent, "Stella/") {
+		t.Errorf("BotAgent %q must be 'OpenClaw' or start with 'Stella/'", info.BotAgent)
 	}
 }
 

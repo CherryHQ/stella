@@ -237,7 +237,7 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 		return
 	}
 
-	encrypted, err := DownloadFromCDN("", voiceItem.Media.EncryptQueryParam)
+	encrypted, err := DownloadFromCDN("", voiceItem.Media.FullURL, voiceItem.Media.EncryptQueryParam)
 	if err != nil {
 		logger().Error("voice cdn download failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, "[Voice message] (download failed)")
@@ -295,7 +295,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 		b.sendReply(msg, fmt.Sprintf("[File: %s] (no CDN reference)", fileName))
 		return
 	}
-	encrypted, err := DownloadFromCDN("", fileItem.Media.EncryptQueryParam)
+	encrypted, err := DownloadFromCDN("", fileItem.Media.FullURL, fileItem.Media.EncryptQueryParam)
 	if err != nil {
 		logger().Error("cdn download failed for file", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, fmt.Sprintf("[File: %s] (download failed)", fileName))
@@ -336,7 +336,7 @@ func (b *Bot) downloadImage(userID string, imageItem *ImageItem) ([]byte, error)
 		return nil, fmt.Errorf("missing CDN media reference")
 	}
 
-	encrypted, err := DownloadFromCDN("", imageItem.Media.EncryptQueryParam)
+	encrypted, err := DownloadFromCDN("", imageItem.Media.FullURL, imageItem.Media.EncryptQueryParam)
 	if err != nil {
 		return nil, fmt.Errorf("cdn download: %w", err)
 	}

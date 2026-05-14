@@ -104,7 +104,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	}
 
 	// Upload to CDN.
-	encryptedParam, err := UploadToCDN("", uploadResp.UploadParam, fileKey, encrypted)
+	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
 		logger().Error("cdn upload image failed", "error", err)
 		return
@@ -182,7 +182,7 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 		return
 	}
 
-	encryptedParam, err := UploadToCDN("", uploadResp.UploadParam, fileKey, encrypted)
+	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
 		logger().Error("cdn upload file failed", "error", err)
 		return
@@ -259,7 +259,7 @@ func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
 		return
 	}
 
-	encryptedParam, err := UploadToCDN("", uploadResp.UploadParam, fileKey, encrypted)
+	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
 		logger().Error("cdn upload video failed", "error", err)
 		return
