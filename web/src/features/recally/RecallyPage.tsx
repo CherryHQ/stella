@@ -89,7 +89,10 @@ export function RecallyPage() {
 
       {/* Main area */}
       <div
-        className="flex-1 min-w-0 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
+        className={cn(
+          "flex-1 min-w-0 grid grid-cols-1 overflow-hidden",
+          !filters.digestView && "xl:grid-cols-[var(--recally-center-width)_1fr]",
+        )}
         style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
       >
         {/* Center panel: digest view or article list */}
@@ -121,26 +124,33 @@ export function RecallyPage() {
           />
         )}
 
-        {/* Right reader panel */}
-        <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
-          <button
-            type="button"
-            aria-label={t("recally.resizeList")}
-            onMouseDown={startResize}
-            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
-          />
-          <RecallyReader
-            t={t}
-            selectedId={selectedId}
-            updateArticleMut={mutations.updateArticleMut}
-            deleteArticleMut={mutations.deleteArticleMut}
-          />
-        </aside>
+        {/* Right reader panel — article list mode only */}
+        {!filters.digestView && (
+          <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
+            <button
+              type="button"
+              aria-label={t("recally.resizeList")}
+              onMouseDown={startResize}
+              className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
+            />
+            <RecallyReader
+              t={t}
+              selectedId={selectedId}
+              updateArticleMut={mutations.updateArticleMut}
+              deleteArticleMut={mutations.deleteArticleMut}
+            />
+          </aside>
+        )}
       </div>
 
-      {/* Mobile reader overlay */}
+      {/* Reader overlay — mobile always; xl only when in digest view */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+        <div
+          className={cn(
+            "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg",
+            !filters.digestView && "xl:hidden",
+          )}
+        >
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{t("recally.title")}</span>
             <button
