@@ -383,6 +383,7 @@ const en = {
   "tasks.approve": "Approve",
   "tasks.reject": "Reject",
   "tasks.cancelTask": "Cancel Task",
+  "tasks.openSession": "Continue in session",
   "tasks.deleteConfirm": "Delete task?",
 } as const;
 
@@ -771,6 +772,7 @@ const zh: Record<MessageKey, string> = {
   "tasks.approve": "通过",
   "tasks.reject": "拒绝",
   "tasks.cancelTask": "取消任务",
+  "tasks.openSession": "在会话中继续",
   "tasks.deleteConfirm": "删除任务？",
 };
 

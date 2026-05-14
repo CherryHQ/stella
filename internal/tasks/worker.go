@@ -85,15 +85,16 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	defer func() { _ = runner.Close() }()
 
 	// Set up memory session.
-	session := memory.Session{
-		ID:      "task:" + task.ID,
-		UserID:  task.UserID,
-		AgentID: agentID,
-	}
+	session := taskSession(task)
 	memCtx := memory.WithSessionID(ctx, session.ID)
 	memCtx = memory.WithUserID(memCtx, task.UserID)
 	memCtx = memory.WithAgentID(memCtx, agentID)
 
+	if err := saveTaskSessionInfo(memCtx, cfg.mem, task, session); err != nil {
+		log.Error("memory session info failed", "error", err)
+		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("memory session info failed: %v", err))
+		return
+	}
 	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
 		log.Error("memory bootstrap failed", "error", err)
 		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("memory bootstrap failed: %v", err))

@@ -19,6 +19,20 @@ function channelLabel(ch: string | null | undefined): string {
   return m ? m[1] : ch;
 }
 
+function isSchedulerSession(s: Session): boolean {
+  return Boolean(s.id && (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:")));
+}
+
+function isTaskSession(s: Session): boolean {
+  return Boolean(s.id?.startsWith("task:") || s.channel === "task");
+}
+
+function sessionChannelLabel(s: Session): string {
+  if (isTaskSession(s)) return "task";
+  if (isSchedulerSession(s)) return "scheduled";
+  return channelLabel(s.channel);
+}
+
 interface Props {
   sessions: Session[];
   sessionsLoading: boolean;
@@ -44,31 +58,31 @@ export function SessionSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [showScheduler, setShowScheduler] = useState(false);
+  const [sessionType, setSessionType] = useState<"chats" | "scheduled" | "tasks" | "all">("chats");
   const listRef = useRef<HTMLDivElement>(null);
 
   const filteredSessions = useMemo(
     () =>
       sessions.filter((s) => {
         if (!showArchived && s.archived) return false;
-        if (
-          !showScheduler &&
-          s.id &&
-          (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:"))
-        )
-          return false;
+        const isScheduled = isSchedulerSession(s);
+        const isTask = isTaskSession(s);
+        if (sessionType === "chats" && (isScheduled || isTask)) return false;
+        if (sessionType === "scheduled" && !isScheduled) return false;
+        if (sessionType === "tasks" && !isTask) return false;
         if (selectedAgent && s.agent_id !== selectedAgent) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           return (
             (s.title || "").toLowerCase().includes(q) ||
+            (s.id || "").toLowerCase().includes(q) ||
             (s.channel || "").toLowerCase().includes(q) ||
             (s.agent_id || "").toLowerCase().includes(q)
           );
         }
         return true;
       }),
-    [sessions, selectedAgent, showArchived, showScheduler, searchQuery],
+    [sessions, selectedAgent, showArchived, sessionType, searchQuery],
   );
 
   const handleScroll = useCallback(() => {
@@ -192,23 +206,29 @@ export function SessionSidebar({
               {filteredSessions.length}
             </span>
           </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showScheduler}
-                onChange={(e) => setShowScheduler(e.target.checked)}
-                className="w-3 h-3"
-              />
-              <span
+          <div className="flex items-center gap-1">
+            {[
+              ["chats", "Chats"],
+              ["scheduled", "Scheduled"],
+              ["tasks", "Tasks"],
+              ["all", "All"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setSessionType(value as "chats" | "scheduled" | "tasks" | "all")}
                 className={cn(
-                  "text-[10px] font-mono select-none",
-                  showScheduler ? "text-muted-foreground" : "text-muted-foreground/50",
+                  "rounded px-1.5 py-0.5 text-[10px] font-mono transition-colors",
+                  sessionType === value
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground",
                 )}
               >
-                Scheduled
-              </span>
-            </label>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input
                 type="checkbox"
@@ -253,7 +273,7 @@ export function SessionSidebar({
               {s.title || "Untitled"}
             </p>
             <div className="flex items-center gap-0 text-[10px] font-mono text-muted-foreground/50 min-w-0">
-              <span className="truncate">{channelLabel(s.channel) || "—"}</span>
+              <span className="truncate">{sessionChannelLabel(s) || "—"}</span>
               {s.agent_id && (
                 <span className="shrink-0 px-1 text-muted-foreground/30">&middot;</span>
               )}

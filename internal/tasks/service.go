@@ -517,14 +517,13 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		if task.Status != "blocked" {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond requires blocked status, got %q", task.Status)
 		}
-		session := memory.Session{
-			ID:      "task:" + id,
-			UserID:  task.UserID,
-			AgentID: task.AgentID.String,
-		}
+		session := taskSession(task)
 		memCtx := memory.WithSessionID(ctx, session.ID)
 		memCtx = memory.WithUserID(memCtx, task.UserID)
 		memCtx = memory.WithAgentID(memCtx, task.AgentID.String)
+		if err := saveTaskSessionInfo(memCtx, s.mem, task, session); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond session info: %w", err)
+		}
 		if err := s.mem.Bootstrap(memCtx, session); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond bootstrap: %w", err)
 		}

@@ -89,6 +89,14 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       <div className="flex items-start justify-between gap-4 mb-6">
         <h2 className="font-serif text-xl tracking-tight">{task.title}</h2>
         <div className="flex items-center gap-2 shrink-0">
+          {task.session_id && (
+            <a
+              href={`/sessions/${encodeURIComponent(task.session_id)}`}
+              className="inline-flex h-7 items-center rounded-md border border-input bg-popover px-2 text-xs font-medium text-foreground shadow-xs/5 hover:bg-accent/50"
+            >
+              {t("tasks.openSession")}
+            </a>
+          )}
           <Badge size="sm" variant={taskStatusVariant(task.status)}>
             {task.status}
           </Badge>
