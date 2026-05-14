@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-05-14
+
+### ✨ Features
+
+- **Settings**: Redesign providers, channels, credentials, users, plugins, and agents pages with master-detail layout; add consistent headers to Account and About pages
+- **Workspace**: Always show hidden files; add HTML artifact preview
+- **Plugins**: Redesign manifest install editor with themed selects
+- **Weixin**: iLink protocol integration — foundation, session guard, streaming API, voice handling, CDN/upload alignment
+- **Vault**: Require `STELLA_VAULT_KEY` at startup and auto-load from `.env`
+- **Stella**: Auto-load `$STELLA_HOME/.env` on startup
+
+### 🐛 Bug Fixes
+
+- **Workspace**: Render context menu via portal to fix viewport clipping
+- **Settings**: Fix credentials OAuth default section; make settings layout responsive for mobile
+
+**Full Changelog**: [v0.28.2...v0.29.0](https://github.com/CherryHQ/stella/compare/v0.28.2...v0.29.0)
+
 ## [0.28.2] - 2026-05-14
 
 ### 🐛 Bug Fixes
