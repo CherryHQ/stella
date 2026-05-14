@@ -56,7 +56,7 @@ components:
 
     SessionWorkspace:
       type: object
-      required: [root, paths]
+      required: [root, paths, total_files, total_dirs, total_bytes]
       properties:
         root:
           type: string
@@ -64,7 +64,17 @@ components:
         paths:
           type: array
           items: { type: string }
-          description: Relative file paths within the workspace
+          description: Relative file and directory paths within the workspace. Directory paths end with a slash.
+        total_files:
+          type: integer
+          description: Number of files in the workspace
+        total_dirs:
+          type: integer
+          description: Number of directories in the workspace, excluding the root
+        total_bytes:
+          type: integer
+          format: int64
+          description: Total size of regular files in bytes
 
     WorkspaceCreateRequest:
       type: object

@@ -464,6 +464,12 @@ type GetSessionMessagesParams struct {
 type GetSessionWorkspaceParams struct {
 	// ShowHidden Include dot-prefixed files and directories
 	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+
+	// Path Directory path to list relative to the workspace root
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// Depth Maximum number of levels to return below path
+	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
 }
 
 // GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
@@ -8266,6 +8272,30 @@ func NewGetSessionWorkspaceRequest(server string, sessionID string, params *GetS
 		if params.ShowHidden != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "show_hidden", *params.ShowHidden, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Path != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", *params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Depth != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "depth", *params.Depth, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

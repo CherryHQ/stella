@@ -1853,7 +1853,7 @@ export const sendSessionMessage = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List files in the session workspace
+ * List workspace disk entries and usage
  */
 export const getSessionWorkspace = <ThrowOnError extends boolean = false>(
   options: Options<GetSessionWorkspaceData, ThrowOnError>,

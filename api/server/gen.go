@@ -462,6 +462,12 @@ type GetSessionMessagesParams struct {
 type GetSessionWorkspaceParams struct {
 	// ShowHidden Include dot-prefixed files and directories
 	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+
+	// Path Directory path to list relative to the workspace root
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// Depth Maximum number of levels to return below path
+	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
 }
 
 // GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
@@ -1000,7 +1006,7 @@ type ServerInterface interface {
 	// Get the system prompt for a session
 	// (GET /api/sessions/{sessionID}/system-prompt)
 	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string)
-	// List files in the session workspace
+	// List workspace disk entries and usage
 	// (GET /api/sessions/{sessionID}/workspace)
 	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params GetSessionWorkspaceParams)
 	// Get the content of a file in the session workspace
@@ -4797,6 +4803,32 @@ func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r 
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "show_hidden"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "show_hidden", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "depth" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "depth", r.URL.Query(), &params.Depth, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "depth"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depth", Err: err})
 		}
 		return
 	}

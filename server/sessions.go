@@ -392,7 +392,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	if info.UserID <= 0 || info.AgentID == "" {
-		writeData(w, http.StatusOK, map[string]any{"root": "", "paths": []string{}})
+		writeData(w, http.StatusOK, workspaceDiskInfo{Root: "", Paths: []string{}})
 		return
 	}
 	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
@@ -402,62 +402,91 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 	}
 	root := userDir
 	showHidden := params.ShowHidden != nil && *params.ShowHidden
-	paths, err := collectWorkspacePaths(root, showHidden)
+	listPath := ""
+	if params.Path != nil {
+		listPath = *params.Path
+	}
+	depth := 2
+	if params.Depth != nil && *params.Depth > 0 {
+		depth = *params.Depth
+	}
+	diskInfo, err := collectWorkspaceDiskInfo(root, showHidden, listPath, depth)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+	writeData(w, http.StatusOK, diskInfo)
 }
 
-func collectWorkspacePaths(root string, showHidden bool) ([]string, error) {
-	const maxPaths = 1000
-	var visible, hidden []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+type workspaceDiskInfo struct {
+	Root       string   `json:"root"`
+	Paths      []string `json:"paths"`
+	TotalFiles int      `json:"total_files"`
+	TotalDirs  int      `json:"total_dirs"`
+	TotalBytes int64    `json:"total_bytes"`
+}
+
+func pathDepth(path string) int {
+	return len(strings.Split(filepath.ToSlash(path), "/"))
+}
+
+func collectWorkspaceDiskInfo(root string, showHidden bool, listPath string, depth int) (workspaceDiskInfo, error) {
+	info := workspaceDiskInfo{Root: root, Paths: []string{}}
+	listRoot, err := safePath(root, strings.TrimSuffix(listPath, "/"))
+	if err != nil {
+		return workspaceDiskInfo{}, err
+	}
+	if stat, statErr := os.Stat(listRoot); statErr != nil {
+		return workspaceDiskInfo{}, statErr
+	} else if !stat.IsDir() {
+		return workspaceDiskInfo{}, fmt.Errorf("path is not a directory")
+	}
+	err = filepath.WalkDir(listRoot, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil //nolint:nilerr // skip unreadable entries
+		}
+		scopeRel, scopeRelErr := filepath.Rel(listRoot, path)
+		if scopeRelErr != nil || scopeRel == "." {
+			return nil //nolint:nilerr
+		}
+		if depth > 0 && pathDepth(scopeRel) > depth {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil || rel == "." {
 			return nil //nolint:nilerr
 		}
 		name := d.Name()
-		if d.IsDir() {
-			if name == "__pycache__" || name == "node_modules" {
-				return filepath.SkipDir
-			}
-			if !showHidden && strings.HasPrefix(name, ".") {
+		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, string(filepath.Separator)+".")
+		if isDot && !showHidden {
+			if d.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, "/.")
-		if isDot {
-			if showHidden && len(hidden) < maxPaths {
-				hidden = append(hidden, rel)
-			}
-		} else {
-			visible = append(visible, rel)
-			if len(visible) >= maxPaths {
-				return filepath.SkipAll
-			}
+		if d.IsDir() {
+			info.TotalDirs++
+			info.Paths = append(info.Paths, filepath.ToSlash(rel)+"/")
+			return nil
 		}
+		entryInfo, statErr := d.Info()
+		if statErr != nil {
+			return nil //nolint:nilerr // skip unreadable entries
+		}
+		info.TotalFiles++
+		if entryInfo.Mode().IsRegular() {
+			info.TotalBytes += entryInfo.Size()
+		}
+		info.Paths = append(info.Paths, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return workspaceDiskInfo{}, err
 	}
-	paths := visible
-	if showHidden {
-		remaining := maxPaths - len(paths)
-		if remaining > 0 && len(hidden) > 0 {
-			if len(hidden) > remaining {
-				hidden = hidden[:remaining]
-			}
-			paths = append(paths, hidden...)
-		}
-	}
-	return paths, nil
+	return info, nil
 }
 
 // sessionWorkspaceRoot resolves the workspace root for a session, checking
@@ -541,12 +570,12 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 			return
 		}
 	}
-	paths, err := collectWorkspacePaths(root, false)
+	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]any{"root": root, "paths": paths})
+	writeData(w, http.StatusCreated, diskInfo)
 }
 
 func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
@@ -572,12 +601,12 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	paths, err := collectWorkspacePaths(root, false)
+	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+	writeData(w, http.StatusOK, diskInfo)
 }
 
 func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
@@ -612,12 +641,12 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessi
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	paths, err := collectWorkspacePaths(root, false)
+	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"root": root, "paths": paths})
+	writeData(w, http.StatusOK, diskInfo)
 }
 
 func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetWorkspaceFileContentParams) {

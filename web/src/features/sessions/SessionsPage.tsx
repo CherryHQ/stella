@@ -130,7 +130,7 @@ export function SessionsPage() {
     try {
       const data = await api<Workspace>(
         "GET",
-        `/api/sessions/${encodeURIComponent(sid)}/workspace?show_hidden=true`,
+        `/api/sessions/${encodeURIComponent(sid)}/workspace?show_hidden=true&depth=2`,
       );
       setWorkspace(data);
     } catch (e) {

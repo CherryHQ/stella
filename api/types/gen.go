@@ -980,11 +980,20 @@ type SessionDetail struct {
 
 // SessionWorkspace defines model for SessionWorkspace.
 type SessionWorkspace struct {
-	// Paths Relative file paths within the workspace
+	// Paths Relative file and directory paths within the workspace. Directory paths end with a slash.
 	Paths []string `json:"paths"`
 
 	// Root Absolute path of the workspace root directory
 	Root string `json:"root"`
+
+	// TotalBytes Total size of regular files in bytes
+	TotalBytes int64 `json:"total_bytes"`
+
+	// TotalDirs Number of directories in the workspace, excluding the root
+	TotalDirs int `json:"total_dirs"`
+
+	// TotalFiles Number of files in the workspace
+	TotalFiles int `json:"total_files"`
 }
 
 // SetMemoryRequest defines model for SetMemoryRequest.

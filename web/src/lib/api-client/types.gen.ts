@@ -929,9 +929,21 @@ export type SessionWorkspace = {
    */
   root: string;
   /**
-   * Relative file paths within the workspace
+   * Relative file and directory paths within the workspace. Directory paths end with a slash.
    */
   paths: Array<string>;
+  /**
+   * Number of files in the workspace
+   */
+  total_files: number;
+  /**
+   * Number of directories in the workspace, excluding the root
+   */
+  total_dirs: number;
+  /**
+   * Total size of regular files in bytes
+   */
+  total_bytes: number;
 };
 
 export type ComponentsSetMemoryRequest = {
@@ -4626,6 +4638,14 @@ export type GetSessionWorkspaceData = {
      * Include dot-prefixed files and directories
      */
     show_hidden?: boolean;
+    /**
+     * Directory path to list relative to the workspace root
+     */
+    path?: string;
+    /**
+     * Maximum number of levels to return below path
+     */
+    depth?: number;
   };
   url: "/api/sessions/{sessionID}/workspace";
 };
