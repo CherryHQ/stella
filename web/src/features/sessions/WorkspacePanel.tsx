@@ -450,9 +450,9 @@ function TreeWithSearch({
             <div
               style={{
                 borderRadius: 8,
-                border: "1px solid var(--border, #e5e5e5)",
-                background: "var(--popover, #fff)",
-                color: "var(--popover-foreground, #333)",
+                border: "1px solid var(--border)",
+                background: "var(--popover)",
+                color: "var(--popover-foreground)",
                 padding: "4px 0",
                 minWidth: 140,
                 boxShadow: "0 4px 12px rgba(0,0,0,.08)",
@@ -462,7 +462,7 @@ function TreeWithSearch({
                 type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";
@@ -478,7 +478,7 @@ function TreeWithSearch({
                 type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";
@@ -501,7 +501,7 @@ function TreeWithSearch({
                 download={item.path.split("/").pop()}
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background = "var(--accent, #f5f5f5)";
+                  (e.currentTarget as HTMLElement).style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLElement).style.background = "none";
@@ -514,7 +514,7 @@ function TreeWithSearch({
                 type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";
@@ -530,10 +530,10 @@ function TreeWithSearch({
                 type="button"
                 style={{
                   ...ctxItemStyle,
-                  color: "var(--destructive, #ef4444)",
+                  color: "var(--destructive)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";
@@ -548,7 +548,7 @@ function TreeWithSearch({
               <div
                 style={{
                   height: 1,
-                  background: "var(--border, #e5e5e5)",
+                  background: "var(--border)",
                   margin: "4px 8px",
                 }}
               />
@@ -556,7 +556,7 @@ function TreeWithSearch({
                 type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";
@@ -572,7 +572,7 @@ function TreeWithSearch({
                 type="button"
                 style={ctxItemStyle}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--accent, #f5f5f5)";
+                  e.currentTarget.style.background = "var(--accent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "none";

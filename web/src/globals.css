@@ -226,7 +226,7 @@
 }
 
 :root {
-  --destructive-foreground: oklch(1 0 0);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-700);
   --success: var(--color-emerald-500);
