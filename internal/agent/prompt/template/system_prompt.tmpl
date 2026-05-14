@@ -16,6 +16,13 @@
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
 
+# Rules
+
+- keep workspace organized:
+  - Save all agent-created files under `./assets/{YYYYMM}/{DD}-{name}` (e.g. `./assets/202506/14-report.html`)
+  - Clone repositories into `./repos/{repo-name}`
+  - Use `./tmp/` for temporary or ephemeral files; clean it up when done
+
 # Memories
 
 Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
