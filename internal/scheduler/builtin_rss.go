@@ -8,7 +8,7 @@ func init() {
 3. Notify only when at least one article was saved: count articles saved in step 2. If zero, do NOT call the notify tool — stop here. If one or more, call notify once:
    - For each article (up to 5): Worth-Reading label (emoji + text), title, author, and the "# Summary" section from the structured summary.
    - If more than 5 were saved, list the remaining as title + author only.`,
-		Schedule:    Schedule{Every: "1h"},
+		Schedule:    Schedule{Every: "6h"},
 		SessionMode: SessionNew,
 		ExecScope:   ExecScopeAllUsers,
 	})

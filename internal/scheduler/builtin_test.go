@@ -8,8 +8,8 @@ func TestBuiltinRSSJobRegistered(t *testing.T) {
 
 	for _, j := range builtinJobs {
 		if j.Name == "recally-rss" {
-			if j.Schedule.Every != "1h" {
-				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "1h")
+			if j.Schedule.Every != "6h" {
+				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "6h")
 			}
 			if j.SessionMode != SessionNew {
 				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
