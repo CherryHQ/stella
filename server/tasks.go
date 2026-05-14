@@ -243,6 +243,17 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
+	info := UserFromContext(r.Context())
+
+	task, err := s.tasksSvc.GetTask(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if info != nil && !info.IsAdmin && task.UserID != info.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 
 	events, err := s.tasksSvc.ListTaskEvents(r.Context(), id)
 	if err != nil {
@@ -316,6 +327,10 @@ func toAPITaskEvent(e sqlc.AgentTaskEvent) apiserver.AgentTaskEvent {
 		var detail map[string]any
 		if err := json.Unmarshal([]byte(e.Detail), &detail); err == nil && len(detail) > 0 {
 			ae.Detail = &detail
+		} else if err != nil {
+			// Legacy plain-string detail: wrap for API compatibility.
+			wrapped := map[string]any{"message": e.Detail}
+			ae.Detail = &wrapped
 		}
 	}
 	return ae

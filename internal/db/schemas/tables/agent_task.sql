@@ -4,7 +4,7 @@ CREATE TABLE agent_task (
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','blocked','review_requested','done','failed','cancelled')),
     priority TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent')),
-    session_id TEXT REFERENCES auth_sessions(id) ON DELETE SET NULL,
+    session_id TEXT,
     context TEXT NOT NULL DEFAULT '{}',
     review_request TEXT NOT NULL DEFAULT '{}',
     deps TEXT NOT NULL DEFAULT '[]',

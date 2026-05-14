@@ -213,7 +213,7 @@ func (t *TaskControlTool) logEvent(ctx context.Context, eventType, detail string
 		ID:        newID(),
 		TaskID:    t.taskID,
 		EventType: eventType,
-		Detail:    detail,
+		Detail:    detailJSON(detail),
 		CreatedAt: now,
 		UpdatedAt: now,
 	})

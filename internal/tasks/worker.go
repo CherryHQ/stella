@@ -60,7 +60,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		ID:        newID(),
 		TaskID:    task.ID,
 		EventType: "started",
-		Detail:    "",
+		Detail:    "{}",
 		CreatedAt: startedAt,
 		UpdatedAt: startedAt,
 	})
@@ -180,7 +180,7 @@ func markFailed(ctx context.Context, q *sqlc.Queries, taskID, reason string) {
 		ID:        newID(),
 		TaskID:    taskID,
 		EventType: "failed",
-		Detail:    reason,
+		Detail:    detailJSON(reason),
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
@@ -197,7 +197,7 @@ func markDone(ctx context.Context, q *sqlc.Queries, taskID string) {
 		ID:        newID(),
 		TaskID:    taskID,
 		EventType: "done",
-		Detail:    "",
+		Detail:    "{}",
 		CreatedAt: now,
 		UpdatedAt: now,
 	})

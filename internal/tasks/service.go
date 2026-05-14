@@ -223,7 +223,7 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 					ID:        newID(),
 					TaskID:    t.ID,
 					EventType: "blocked",
-					Detail:    fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status),
+					Detail:    detailJSON(fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status)),
 					CreatedAt: now,
 					UpdatedAt: now,
 				})
@@ -317,11 +317,36 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	return task, nil
 }
 
-// validateDeps checks that all dep IDs exist in the DB.
+// validateDeps checks that all dep IDs exist and that adding them introduces no cycle.
 func (s *Service) validateDeps(ctx context.Context, deps []string) error {
 	for _, id := range deps {
 		if _, err := s.q.GetAgentTask(ctx, id); err != nil {
 			return fmt.Errorf("tasks: dep %q not found: %w", id, err)
+		}
+	}
+	// DFS to detect cycles in the transitive dep graph.
+	inStack := make(map[string]bool)
+	var dfs func(id string) error
+	dfs = func(id string) error {
+		if inStack[id] {
+			return fmt.Errorf("tasks: cycle detected involving task %q", id)
+		}
+		inStack[id] = true
+		defer func() { inStack[id] = false }()
+		t, err := s.q.GetAgentTask(ctx, id)
+		if err != nil {
+			return nil
+		}
+		for _, depID := range parseDeps(t.Deps) {
+			if err := dfs(depID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, id := range deps {
+		if err := dfs(id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -491,8 +516,8 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		_, _ = s.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 			ID:        newID(),
 			TaskID:    id,
-			EventType: "rejected",
-			Detail:    action.Message,
+			EventType: "failed",
+			Detail:    detailJSON(action.Message),
 			CreatedAt: now,
 			UpdatedAt: now,
 		})
@@ -558,18 +583,45 @@ func (s *Service) dispatch(task sqlc.AgentTask) {
 			workerCancel()
 		}()
 
+		model := s.model
+		system := s.system
+		if task.AgentID.Valid && task.AgentID.String != "" {
+			if ag, err := s.q.GetAgent(workerCtx, task.AgentID.String); err == nil {
+				if ag.Model != "" {
+					override := s.model
+					override.ID = ag.Model
+					model = override
+				}
+				if ag.SystemPrompt != "" {
+					system = ag.SystemPrompt
+				}
+			} else {
+				s.log.Warn("dispatch: agent not found, using defaults", "agent_id", task.AgentID.String, "task_id", task.ID)
+			}
+		}
+
 		cfg := workerConfig{
 			q:             s.q,
 			mem:           s.mem,
 			stream:        s.stream,
-			model:         s.model,
-			system:        s.system,
+			model:         model,
+			system:        system,
 			registry:      s.registry,
 			hooks:         s.hooks,
 			toolLifecycle: s.toolLifecycle,
 		}
 		runWorker(workerCtx, workerCancel, cfg, task)
 	})
+}
+
+// detailJSON wraps a plain message string as a JSON object {"message":"..."}.
+// An empty message produces "{}".
+func detailJSON(msg string) string {
+	if msg == "" {
+		return "{}"
+	}
+	b, _ := json.Marshal(map[string]any{"message": msg})
+	return string(b)
 }
 
 // parseDeps unmarshals the deps JSON array. Returns nil on error.
