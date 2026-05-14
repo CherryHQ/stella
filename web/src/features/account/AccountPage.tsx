@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -67,14 +68,11 @@ export function AccountPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-serif text-3xl tracking-tight">{t("account.title")}</h1>
-        <p className="text-muted-foreground text-sm mt-1">Manage your account settings.</p>
-      </div>
+      <SettingsPageHeader title={t("account.title")} description="Manage your account settings." />
 
       <div className="mb-10">
         <h2 className="font-serif text-xl mb-4">{t("account.changePassword")}</h2>
-        <div className="rounded-xl border border-border bg-card p-6">
+        <div className="border-t border-border pt-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium">

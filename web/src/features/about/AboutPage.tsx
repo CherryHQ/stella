@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 
 type StatusResponse = {
   status: string;
@@ -42,12 +43,9 @@ export function AboutPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-serif text-3xl tracking-tight">{t("about.title")}</h1>
-        <p className="text-muted-foreground text-sm mt-1">{t("about.description")}</p>
-      </div>
+      <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
 
-      <div className="rounded-xl border border-border bg-card p-6 max-w-2xl mb-6">
+      <div className="border-t border-border pt-6 pb-6 max-w-2xl">
         <h2 className="font-serif text-xl mb-4">{t("about.versionInfo")}</h2>
         <dl className="divide-y divide-border">
           <InfoRow
@@ -65,7 +63,7 @@ export function AboutPage() {
       </div>
 
       {(status?.runtime || status?.database || status?.plugins) && (
-        <div className="rounded-xl border border-border bg-card p-6 max-w-2xl">
+        <div className="border-t border-border pt-6 pb-6 max-w-2xl">
           <h2 className="font-serif text-xl mb-4">{t("about.adminInfo")}</h2>
           <dl className="divide-y divide-border">
             {status.database && (
