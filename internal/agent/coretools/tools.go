@@ -50,7 +50,11 @@ func resolveToolPath(host sandbox.Host, projectRoot, path string) (string, error
 
 func resolveWritableToolPath(host sandbox.Host, projectRoot, path string) (string, error) {
 	if projectRoot != "" {
-		return tools.ResolveProjectPath(projectRoot, path)
+		resolved, err := tools.ResolveProjectPath(projectRoot, path)
+		if err != nil {
+			return "", err
+		}
+		return host.ResolveWritePath(resolved)
 	}
 	return host.ResolveWritePath(path)
 }

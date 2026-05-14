@@ -146,6 +146,17 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			ContainerPath: hostPath,
 			ReadOnly:      true,
 		})
+		// For paths that live inside the workspace host dir, also mount them
+		// read-only at their workspace-relative container path. Without this,
+		// bash can write to them via the writable workspace mount.
+		rel, relErr := filepath.Rel(workspaceHost, hostPath)
+		if relErr == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+			opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+				HostPath:      f.cfg.TranslateToDaemonPath(hostPath),
+				ContainerPath: filepath.Join(workspaceMount, rel),
+				ReadOnly:      true,
+			})
+		}
 	}
 
 	var toolBinPaths []string
