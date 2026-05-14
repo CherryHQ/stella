@@ -88,7 +88,7 @@ export function GenericConfigEditor({
                       id={fid}
                       value={pluginFieldText(value)}
                       onChange={(e) => onDraftChange(field.name, e.target.value)}
-                      className="select select-bordered select-sm w-full"
+                      className="h-7.5 sm:h-6.5 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-xs/5 outline-none transition-shadow focus:border-ring focus:ring-2 focus:ring-ring/24 dark:bg-input/32"
                     >
                       {(field.schema.enum || []).map((option) => (
                         <option key={String(option)} value={String(option)}>

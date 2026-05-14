@@ -6,12 +6,28 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 
+const SELECT_CLASS =
+  "h-7.5 sm:h-6.5 w-full rounded-lg border border-input bg-background px-2.5 text-sm font-mono text-foreground shadow-xs/5 outline-none transition-shadow focus:border-ring focus:ring-2 focus:ring-ring/24 dark:bg-input/32";
+
 interface Props {
   draft: ManifestInstallDraft;
   oauthProviders: ManifestOAuthProvider[];
   onChange: (draft: ManifestInstallDraft) => void;
   onSave: () => void;
   onReset: () => void;
+}
+
+function SectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
+      <span className="text-sm font-medium text-foreground">{title}</span>
+      {action}
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="block text-xs font-medium text-muted-foreground mb-1">{children}</label>;
 }
 
 export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave, onReset }: Props) {
@@ -63,29 +79,35 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
   }
 
   return (
-    <div className="px-4 pb-4 border-t border-border bg-muted/30">
-      <div className="pt-4 space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-sm font-medium">Tool definition</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Saved to <code className="font-mono">$STELLA_HOME/plugins.yaml</code>; binaries sync
-              after save.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={onReset} variant="ghost" size="xs">
-              Reset
-            </Button>
-            <Button onClick={onSave} variant="default" size="xs">
-              Save definition
-            </Button>
-          </div>
+    <div className="border-t border-border bg-muted/30 px-6 py-5 space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold">Edit definition</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Written to{" "}
+            <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
+              $STELLA_HOME/plugins.yaml
+            </code>
+            . Binaries sync on save.
+          </p>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button onClick={onReset} variant="ghost" size="xs">
+            Reset
+          </Button>
+          <Button onClick={onSave} variant="default" size="xs">
+            Save
+          </Button>
+        </div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">ID</label>
+      {/* Identity */}
+      <div className="space-y-3">
+        <SectionHeader title="Identity" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div>
+            <FieldLabel>ID</FieldLabel>
             <Input
               nativeInput
               value={draft.id}
@@ -94,8 +116,8 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               size="sm"
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Kind</label>
+          <div>
+            <FieldLabel>Kind</FieldLabel>
             <Input
               nativeInput
               value={draft.kind}
@@ -104,8 +126,8 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               size="sm"
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Name</label>
+          <div>
+            <FieldLabel>Name</FieldLabel>
             <Input
               nativeInput
               value={draft.name}
@@ -114,8 +136,8 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               size="sm"
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Display name</label>
+          <div>
+            <FieldLabel>Display name</FieldLabel>
             <Input
               nativeInput
               value={draft.display_name}
@@ -123,8 +145,8 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               size="sm"
             />
           </div>
-          <div className="space-y-1 md:col-span-2 xl:col-span-4">
-            <label className="text-xs font-medium text-muted-foreground">Description</label>
+          <div className="col-span-2 lg:col-span-4">
+            <FieldLabel>Description</FieldLabel>
             <Input
               nativeInput
               value={draft.description}
@@ -132,181 +154,235 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               size="sm"
             />
           </div>
+        </div>
+      </div>
 
-          {/* Binaries */}
-          <div className="space-y-1 md:col-span-2 xl:col-span-4">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-muted-foreground">Binaries</label>
-              <Button onClick={addBinary} variant="ghost" size="xs">
-                Add binary
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {draft.binaries.map((binary, index) => (
-                <div
-                  key={binary.id}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1.4fr_0.8fr_0.8fr_0.8fr_auto] gap-2 rounded-lg border border-border p-2"
-                >
-                  <Input
-                    nativeInput
-                    value={binary.name}
-                    onChange={(e) =>
-                      updateBinary(index, "name", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="binary name"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <Input
-                    nativeInput
-                    value={binary.tool}
-                    onChange={(e) =>
-                      updateBinary(index, "tool", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="owner/repo"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <Input
-                    nativeInput
-                    value={binary.version ?? ""}
-                    onChange={(e) =>
-                      updateBinary(index, "version", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="version"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <Input
-                    nativeInput
-                    value={binary.bin_path ?? ""}
-                    onChange={(e) =>
-                      updateBinary(index, "bin_path", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="bin path"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <Input
-                    nativeInput
-                    value={binary.bin ?? ""}
-                    onChange={(e) =>
-                      updateBinary(index, "bin", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="exe"
-                    className="font-mono"
-                    size="sm"
-                  />
+      {/* Binaries */}
+      <div className="space-y-3">
+        <SectionHeader
+          title="Binaries"
+          action={
+            <Button onClick={addBinary} variant="ghost" size="xs">
+              + Add binary
+            </Button>
+          }
+        />
+        {draft.binaries.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-background/60 px-4 py-5 text-center text-xs text-muted-foreground">
+            No binaries declared. Add one to install a CLI from a GitHub release.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {draft.binaries.map((binary, index) => (
+              <div
+                key={binary.id}
+                className="rounded-lg border border-border bg-background p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Binary {index + 1}
+                    {binary.name && (
+                      <span className="ml-2 font-mono font-normal normal-case text-foreground">
+                        {binary.name}
+                      </span>
+                    )}
+                  </span>
                   <Button
                     onClick={() => removeBinary(index)}
                     variant="ghost"
                     size="xs"
-                    className="text-destructive"
+                    className="text-destructive hover:text-destructive"
                   >
                     {t("common.remove")}
                   </Button>
                 </div>
-              ))}
-              {draft.binaries.length === 0 && (
-                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-                  No binaries declared.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Session env */}
-          <div className="space-y-1 md:col-span-2 xl:col-span-4">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                Session environment
-              </label>
-              <Button onClick={addSessionEnv} variant="ghost" size="xs">
-                Add env
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {draft.session_env.map((env, index) => (
-                <div
-                  key={env.id}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto_auto] gap-2 rounded-lg border border-border p-2 items-center"
-                >
-                  <Input
-                    nativeInput
-                    value={env.env_var}
-                    onChange={(e) =>
-                      updateSessionEnv(index, "env_var", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="ENV_VAR"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <select
-                    value={env.source}
-                    onChange={(e) => updateSessionEnv(index, "source", e.target.value)}
-                    className="select select-bordered select-sm w-full font-mono"
-                  >
-                    <option value="static">static</option>
-                    <option value="oauth.access_token">oauth.access_token</option>
-                    <option value="oauth.client_id">oauth.client_id</option>
-                    <option value="oauth.brand">oauth.brand</option>
-                  </select>
-                  <Input
-                    nativeInput
-                    value={env.value ?? ""}
-                    onChange={(e) =>
-                      updateSessionEnv(index, "value", (e.target as HTMLInputElement).value)
-                    }
-                    placeholder="value (static only)"
-                    className="font-mono"
-                    size="sm"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={!!env.required}
-                      onCheckedChange={(checked) => updateSessionEnv(index, "required", checked)}
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                  <div>
+                    <FieldLabel>Name</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={binary.name}
+                      onChange={(e) =>
+                        updateBinary(index, "name", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="my-cli"
+                      className="font-mono"
+                      size="sm"
                     />
-                    <span className="text-xs text-muted-foreground">required</span>
                   </div>
+                  <div className="col-span-1 lg:col-span-2">
+                    <FieldLabel>GitHub repo (owner/repo)</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={binary.tool}
+                      onChange={(e) =>
+                        updateBinary(index, "tool", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="owner/repo"
+                      className="font-mono"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Version</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={binary.version ?? ""}
+                      onChange={(e) =>
+                        updateBinary(index, "version", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="latest"
+                      className="font-mono"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Bin path</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={binary.bin_path ?? ""}
+                      onChange={(e) =>
+                        updateBinary(index, "bin_path", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="bin/in/archive"
+                      className="font-mono"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Executable</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={binary.bin ?? ""}
+                      onChange={(e) =>
+                        updateBinary(index, "bin", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="exe name"
+                      className="font-mono"
+                      size="sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Session environment */}
+      <div className="space-y-3">
+        <SectionHeader
+          title="Session environment"
+          action={
+            <Button onClick={addSessionEnv} variant="ghost" size="xs">
+              + Add variable
+            </Button>
+          }
+        />
+        {draft.session_env.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-background/60 px-4 py-5 text-center text-xs text-muted-foreground">
+            No session environment variables declared.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {draft.session_env.map((env, index) => (
+              <div
+                key={env.id}
+                className="rounded-lg border border-border bg-background p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Variable {index + 1}
+                    {env.env_var && (
+                      <span className="ml-2 font-mono font-normal normal-case text-foreground">
+                        {env.env_var}
+                      </span>
+                    )}
+                  </span>
                   <Button
                     onClick={() => removeSessionEnv(index)}
                     variant="ghost"
                     size="xs"
-                    className="text-destructive"
+                    className="text-destructive hover:text-destructive"
                   >
                     {t("common.remove")}
                   </Button>
                 </div>
-              ))}
-              {draft.session_env.length === 0 && (
-                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-                  No session environment variables declared.
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                  <div>
+                    <FieldLabel>Variable name</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={env.env_var}
+                      onChange={(e) =>
+                        updateSessionEnv(index, "env_var", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="MY_ENV_VAR"
+                      className="font-mono"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Source</FieldLabel>
+                    <select
+                      value={env.source}
+                      onChange={(e) => updateSessionEnv(index, "source", e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      <option value="static">static</option>
+                      <option value="oauth.access_token">oauth.access_token</option>
+                      <option value="oauth.client_id">oauth.client_id</option>
+                      <option value="oauth.brand">oauth.brand</option>
+                    </select>
+                  </div>
+                  <div>
+                    <FieldLabel>Value (static only)</FieldLabel>
+                    <Input
+                      nativeInput
+                      value={env.value ?? ""}
+                      onChange={(e) =>
+                        updateSessionEnv(index, "value", (e.target as HTMLInputElement).value)
+                      }
+                      placeholder="value"
+                      className="font-mono"
+                      size="sm"
+                      disabled={env.source !== "static"}
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
+                <div className="flex items-center gap-2.5 pt-1">
+                  <Switch
+                    checked={!!env.required}
+                    onCheckedChange={(checked) => updateSessionEnv(index, "required", checked)}
+                  />
+                  <span className="text-xs text-muted-foreground">Required</span>
+                </div>
+              </div>
+            ))}
           </div>
-
-          {/* OAuth */}
-          {(draft.oauth_provider ||
-            draft.session_env.some((e) => e.source.startsWith("oauth."))) && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">OAuth provider</label>
-              <select
-                value={draft.oauth_provider}
-                onChange={(e) => update({ oauth_provider: e.target.value })}
-                className="select select-bordered select-sm w-full font-mono"
-              >
-                <option value="">—</option>
-                {oauthProviders.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
+        )}
       </div>
+
+      {/* OAuth provider — only shown when relevant */}
+      {(draft.oauth_provider || draft.session_env.some((e) => e.source.startsWith("oauth."))) && (
+        <div className="space-y-3">
+          <SectionHeader title="OAuth provider" />
+          <div className="max-w-xs">
+            <select
+              value={draft.oauth_provider}
+              onChange={(e) => update({ oauth_provider: e.target.value })}
+              className={SELECT_CLASS}
+            >
+              <option value="">— none —</option>
+              {oauthProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
