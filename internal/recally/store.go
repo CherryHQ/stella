@@ -4,6 +4,7 @@ package recally
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -585,6 +586,178 @@ func (s *Store) GetDigest(ctx context.Context, userID int64) (*Digest, error) {
 	}
 
 	return digest, nil
+}
+
+// SaveDigest persists a daily digest snapshot. If one already exists for that
+// date it is replaced. Counts are snapshotted from the live digest.
+func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date string) (*StoredDigest, error) {
+	live, err := s.GetDigest(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get live digest: %w", err)
+	}
+
+	topTagsJSON, err := json.Marshal(live.TopTags)
+	if err != nil {
+		return nil, fmt.Errorf("encode top_tags: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin digest transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := s.q.WithTx(tx)
+	row, err := qtx.UpsertDigest(ctx, sqlc.UpsertDigestParams{
+		ID:                   generateID(),
+		UserID:               userID,
+		Date:                 date,
+		Narrative:            narrative,
+		SavedYesterdayCount:  int64(live.SavedYesterdayCount),
+		UnreadCount:          live.UnreadCount,
+		ReadCount:            live.ReadCount,
+		ArchivedCount:        live.ArchivedCount,
+		StarredCount:         live.StarredCount,
+		WorthRevisitingCount: int64(live.WorthRevisitingCount),
+		TotalArticles:        live.TotalArticles,
+		TopTags:              string(topTagsJSON),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upsert digest: %w", err)
+	}
+
+	// Replace article associations for both sections.
+	for _, section := range []DigestSection{DigestSectionSavedYesterday, DigestSectionWorthRevisiting} {
+		if err := qtx.DeleteDigestArticles(ctx, sqlc.DeleteDigestArticlesParams{
+			DigestID: row.ID,
+			Section:  section,
+		}); err != nil {
+			return nil, fmt.Errorf("clear digest articles: %w", err)
+		}
+	}
+
+	articles := map[DigestSection][]Article{
+		DigestSectionSavedYesterday:  live.SavedYesterday,
+		DigestSectionWorthRevisiting: live.WorthRevisiting,
+	}
+	for section, list := range articles {
+		for i, a := range list {
+			if err := qtx.AddDigestArticle(ctx, sqlc.AddDigestArticleParams{
+				DigestID:  row.ID,
+				ArticleID: a.ID,
+				Section:   section,
+				Position:  int64(i),
+			}); err != nil {
+				return nil, fmt.Errorf("add digest article: %w", err)
+			}
+		}
+	}
+
+	stored, err := s.hydrateDigest(ctx, qtx, row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit digest transaction: %w", err)
+	}
+	return stored, nil
+}
+
+// GetStoredDigestByDate returns a persisted digest with full article objects.
+func (s *Store) GetStoredDigestByDate(ctx context.Context, userID int64, date string) (*StoredDigest, error) {
+	row, err := s.q.GetDigestByDate(ctx, sqlc.GetDigestByDateParams{UserID: userID, Date: date})
+	if err != nil {
+		return nil, fmt.Errorf("get digest by date: %w", err)
+	}
+	return s.hydrateDigest(ctx, s.q, row)
+}
+
+// ListStoredDigests returns a paginated list of lightweight digest summaries.
+func (s *Store) ListStoredDigests(ctx context.Context, userID int64, limit, offset int64) ([]StoredDigestSummary, int64, error) {
+	total, err := s.q.CountDigests(ctx, userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count digests: %w", err)
+	}
+	rows, err := s.q.ListDigests(ctx, sqlc.ListDigestsParams{
+		UserID: userID,
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list digests: %w", err)
+	}
+	summaries := make([]StoredDigestSummary, 0, len(rows))
+	for _, r := range rows {
+		summaries = append(summaries, StoredDigestSummary{
+			ID:                   r.ID,
+			Date:                 r.Date,
+			Narrative:            r.Narrative,
+			SavedYesterdayCount:  r.SavedYesterdayCount,
+			WorthRevisitingCount: r.WorthRevisitingCount,
+			TotalArticles:        r.TotalArticles,
+			CreatedAt:            parseTime(r.CreatedAt),
+		})
+	}
+	return summaries, total, nil
+}
+
+func (s *Store) hydrateDigest(ctx context.Context, q *sqlc.Queries, row sqlc.RecallyDigest) (*StoredDigest, error) {
+	savedYesterday, err := s.loadDigestArticles(ctx, q, row.ID, DigestSectionSavedYesterday)
+	if err != nil {
+		return nil, err
+	}
+	worthRevisiting, err := s.loadDigestArticles(ctx, q, row.ID, DigestSectionWorthRevisiting)
+	if err != nil {
+		return nil, err
+	}
+	topTags := decodeTopTags(row.TopTags)
+
+	return &StoredDigest{
+		ID:                   row.ID,
+		UserID:               row.UserID,
+		Date:                 row.Date,
+		Narrative:            row.Narrative,
+		SavedYesterday:       savedYesterday,
+		SavedYesterdayCount:  row.SavedYesterdayCount,
+		UnreadCount:          row.UnreadCount,
+		ReadCount:            row.ReadCount,
+		ArchivedCount:        row.ArchivedCount,
+		StarredCount:         row.StarredCount,
+		WorthRevisiting:      worthRevisiting,
+		WorthRevisitingCount: row.WorthRevisitingCount,
+		TopTags:              topTags,
+		TotalArticles:        row.TotalArticles,
+		CreatedAt:            parseTime(row.CreatedAt),
+		UpdatedAt:            parseTime(row.UpdatedAt),
+	}, nil
+}
+
+func (s *Store) loadDigestArticles(ctx context.Context, q *sqlc.Queries, digestID, section string) ([]Article, error) {
+	rows, err := q.ListDigestArticles(ctx, sqlc.ListDigestArticlesParams{
+		DigestID: digestID,
+		Section:  section,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list digest articles (%s): %w", section, err)
+	}
+	articles := make([]Article, 0, len(rows))
+	for _, r := range rows {
+		var a Article
+		a.FromSQLCArticle(r)
+		articles = append(articles, a)
+	}
+	return articles, nil
+}
+
+func decodeTopTags(value string) []TagCount {
+	var tags []TagCount
+	if err := json.Unmarshal([]byte(value), &tags); err != nil {
+		return []TagCount{}
+	}
+	if tags == nil {
+		return []TagCount{}
+	}
+	return tags
 }
 
 func emptyOrString(value string) any {

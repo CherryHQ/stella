@@ -361,3 +361,76 @@ paths:
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+
+  /api/recally/digests:
+    get:
+      tags: [digest]
+      summary: List stored digests (most recent first)
+      operationId: listStoredDigests
+      parameters:
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+        - {
+            name: offset,
+            in: query,
+            schema: { type: integer, minimum: 0, default: 0 },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/StoredDigestSummaryList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [digest]
+      summary: Save a digest snapshot with narrative
+      operationId: saveDigest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/SaveDigestRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/StoredDigest",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/recally/digests/{date}:
+    parameters:
+      - { name: date, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [digest]
+      summary: Get a stored digest by date (YYYY-MM-DD)
+      operationId: getStoredDigest
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/StoredDigest",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

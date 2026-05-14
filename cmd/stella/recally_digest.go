@@ -4,6 +4,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
 func recallyDigestCommand() *ucli.Command {
@@ -33,6 +34,46 @@ func recallyDigestCommand() *ucli.Command {
 				return err
 			}
 			return printJSON(digest)
+		},
+	}
+}
+
+func recallyDigestSaveCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "digest-save",
+		Usage: "Persist a digest snapshot with an AI-generated narrative",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:     "narrative",
+				Aliases:  []string{"n"},
+				Usage:    "The narrative text to store",
+				Required: true,
+			},
+			&ucli.StringFlag{
+				Name:  "date",
+				Usage: "Digest date (YYYY-MM-DD); defaults to today",
+			},
+		},
+		Action: func(c *ucli.Context) error {
+			api, err := recallyAPI()
+			if err != nil {
+				return err
+			}
+			narrative := c.String("narrative")
+			body := apiclient.SaveDigestJSONRequestBody{Narrative: narrative}
+			if d := c.String("date"); d != "" {
+				body.Date = &d
+			}
+			resp, err := api.SaveDigest(c.Context, body)
+			if err != nil {
+				return wrapServerErr(err)
+			}
+			defer resp.Body.Close() //nolint:errcheck
+			var stored apitypes.StoredDigest
+			if err := decodeJSON(resp, &stored); err != nil {
+				return err
+			}
+			return printJSON(stored)
 		},
 	}
 }

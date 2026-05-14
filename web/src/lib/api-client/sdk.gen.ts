@@ -190,6 +190,9 @@ import type {
   GetSkillResponses,
   GetStatusData,
   GetStatusResponses,
+  GetStoredDigestData,
+  GetStoredDigestErrors,
+  GetStoredDigestResponses,
   GetVaultEntryData,
   GetVaultEntryErrors,
   GetVaultEntryResponses,
@@ -286,6 +289,9 @@ import type {
   ListSkillsData,
   ListSkillsErrors,
   ListSkillsResponses,
+  ListStoredDigestsData,
+  ListStoredDigestsErrors,
+  ListStoredDigestsResponses,
   ListToolsData,
   ListToolsErrors,
   ListToolsResponses,
@@ -324,6 +330,9 @@ import type {
   SaveArticleData,
   SaveArticleErrors,
   SaveArticleResponses,
+  SaveDigestData,
+  SaveDigestErrors,
+  SaveDigestResponses,
   SaveManifestPluginsData,
   SaveManifestPluginsErrors,
   SaveManifestPluginsResponses,
@@ -1356,6 +1365,58 @@ export const getDigest = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/recally/digest",
+    ...options,
+  });
+
+/**
+ * List stored digests (most recent first)
+ */
+export const listStoredDigests = <ThrowOnError extends boolean = false>(
+  options?: Options<ListStoredDigestsData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListStoredDigestsResponses,
+    ListStoredDigestsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/recally/digests",
+    ...options,
+  });
+
+/**
+ * Save a digest snapshot with narrative
+ */
+export const saveDigest = <ThrowOnError extends boolean = false>(
+  options: Options<SaveDigestData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    SaveDigestResponses,
+    SaveDigestErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/recally/digests",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Get a stored digest by date (YYYY-MM-DD)
+ */
+export const getStoredDigest = <ThrowOnError extends boolean = false>(
+  options: Options<GetStoredDigestData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetStoredDigestResponses,
+    GetStoredDigestErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/recally/digests/{date}",
     ...options,
   });
 

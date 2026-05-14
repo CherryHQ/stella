@@ -418,6 +418,12 @@ type GetArticleParams struct {
 	Include *string `form:"include,omitempty" json:"include,omitempty"`
 }
 
+// ListStoredDigestsParams defines parameters for ListStoredDigests.
+type ListStoredDigestsParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListFeedsParams defines parameters for ListFeeds.
 type ListFeedsParams struct {
 	// Url Lookup by exact feed URL
@@ -585,6 +591,9 @@ type SaveArticleJSONRequestBody = externalRef0.SaveArticleRequest
 
 // UpdateArticleJSONRequestBody defines body for UpdateArticle for application/json ContentType.
 type UpdateArticleJSONRequestBody = externalRef0.UpdateArticleRequest
+
+// SaveDigestJSONRequestBody defines body for SaveDigest for application/json ContentType.
+type SaveDigestJSONRequestBody = externalRef0.SaveDigestRequest
 
 // CreateFeedJSONRequestBody defines body for CreateFeed for application/json ContentType.
 type CreateFeedJSONRequestBody = externalRef0.CreateFeedRequest
@@ -1050,6 +1059,17 @@ type ClientInterface interface {
 
 	// GetDigest request
 	GetDigest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListStoredDigests request
+	ListStoredDigests(ctx context.Context, params *ListStoredDigestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SaveDigestWithBody request with any body
+	SaveDigestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SaveDigest(ctx context.Context, body SaveDigestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStoredDigest request
+	GetStoredDigest(ctx context.Context, date string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListFeeds request
 	ListFeeds(ctx context.Context, params *ListFeedsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2660,6 +2680,54 @@ func (c *Client) UpdateArticle(ctx context.Context, id string, body UpdateArticl
 
 func (c *Client) GetDigest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetDigestRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListStoredDigests(ctx context.Context, params *ListStoredDigestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListStoredDigestsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SaveDigestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSaveDigestRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SaveDigest(ctx context.Context, body SaveDigestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSaveDigestRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetStoredDigest(ctx context.Context, date string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStoredDigestRequest(c.Server, date)
 	if err != nil {
 		return nil, err
 	}
@@ -7113,6 +7181,146 @@ func NewGetDigestRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListStoredDigestsRequest generates requests for ListStoredDigests
+func NewListStoredDigestsRequest(server string, params *ListStoredDigestsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/recally/digests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSaveDigestRequest calls the generic SaveDigest builder with application/json body
+func NewSaveDigestRequest(server string, body SaveDigestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSaveDigestRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSaveDigestRequestWithBody generates requests for SaveDigest with any type of body
+func NewSaveDigestRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/recally/digests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetStoredDigestRequest generates requests for GetStoredDigest
+func NewGetStoredDigestRequest(server string, date string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "date", date, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/recally/digests/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListFeedsRequest generates requests for ListFeeds
 func NewListFeedsRequest(server string, params *ListFeedsParams) (*http.Request, error) {
 	var err error
@@ -9710,6 +9918,17 @@ type ClientWithResponsesInterface interface {
 
 	// GetDigestWithResponse request
 	GetDigestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetDigestResponse, error)
+
+	// ListStoredDigestsWithResponse request
+	ListStoredDigestsWithResponse(ctx context.Context, params *ListStoredDigestsParams, reqEditors ...RequestEditorFn) (*ListStoredDigestsResponse, error)
+
+	// SaveDigestWithBodyWithResponse request with any body
+	SaveDigestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SaveDigestResponse, error)
+
+	SaveDigestWithResponse(ctx context.Context, body SaveDigestJSONRequestBody, reqEditors ...RequestEditorFn) (*SaveDigestResponse, error)
+
+	// GetStoredDigestWithResponse request
+	GetStoredDigestWithResponse(ctx context.Context, date string, reqEditors ...RequestEditorFn) (*GetStoredDigestResponse, error)
 
 	// ListFeedsWithResponse request
 	ListFeedsWithResponse(ctx context.Context, params *ListFeedsParams, reqEditors ...RequestEditorFn) (*ListFeedsResponse, error)
@@ -12845,6 +13064,101 @@ func (r GetDigestResponse) ContentType() string {
 	return ""
 }
 
+type ListStoredDigestsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.StoredDigestSummaryList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListStoredDigestsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListStoredDigestsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListStoredDigestsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SaveDigestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.StoredDigest
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r SaveDigestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SaveDigestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SaveDigestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetStoredDigestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.StoredDigest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStoredDigestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStoredDigestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStoredDigestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListFeedsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15526,6 +15840,41 @@ func (c *ClientWithResponses) GetDigestWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetDigestResponse(rsp)
+}
+
+// ListStoredDigestsWithResponse request returning *ListStoredDigestsResponse
+func (c *ClientWithResponses) ListStoredDigestsWithResponse(ctx context.Context, params *ListStoredDigestsParams, reqEditors ...RequestEditorFn) (*ListStoredDigestsResponse, error) {
+	rsp, err := c.ListStoredDigests(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListStoredDigestsResponse(rsp)
+}
+
+// SaveDigestWithBodyWithResponse request with arbitrary body returning *SaveDigestResponse
+func (c *ClientWithResponses) SaveDigestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SaveDigestResponse, error) {
+	rsp, err := c.SaveDigestWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSaveDigestResponse(rsp)
+}
+
+func (c *ClientWithResponses) SaveDigestWithResponse(ctx context.Context, body SaveDigestJSONRequestBody, reqEditors ...RequestEditorFn) (*SaveDigestResponse, error) {
+	rsp, err := c.SaveDigest(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSaveDigestResponse(rsp)
+}
+
+// GetStoredDigestWithResponse request returning *GetStoredDigestResponse
+func (c *ClientWithResponses) GetStoredDigestWithResponse(ctx context.Context, date string, reqEditors ...RequestEditorFn) (*GetStoredDigestResponse, error) {
+	rsp, err := c.GetStoredDigest(ctx, date, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStoredDigestResponse(rsp)
 }
 
 // ListFeedsWithResponse request returning *ListFeedsResponse
@@ -19938,6 +20287,119 @@ func ParseGetDigestResponse(rsp *http.Response) (*GetDigestResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListStoredDigestsResponse parses an HTTP response from a ListStoredDigestsWithResponse call
+func ParseListStoredDigestsResponse(rsp *http.Response) (*ListStoredDigestsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListStoredDigestsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.StoredDigestSummaryList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSaveDigestResponse parses an HTTP response from a SaveDigestWithResponse call
+func ParseSaveDigestResponse(rsp *http.Response) (*SaveDigestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SaveDigestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.StoredDigest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetStoredDigestResponse parses an HTTP response from a GetStoredDigestWithResponse call
+func ParseGetStoredDigestResponse(rsp *http.Response) (*GetStoredDigestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStoredDigestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.StoredDigest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 

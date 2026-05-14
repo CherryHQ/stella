@@ -8,8 +8,8 @@ func TestBuiltinRSSJobRegistered(t *testing.T) {
 
 	for _, j := range builtinJobs {
 		if j.Name == "recally-rss" {
-			if j.Schedule.Every != "1h" {
-				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "1h")
+			if j.Schedule.Every != "6h" {
+				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "6h")
 			}
 			if j.SessionMode != SessionNew {
 				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
@@ -21,6 +21,27 @@ func TestBuiltinRSSJobRegistered(t *testing.T) {
 		}
 	}
 	t.Fatal("recally-rss builtin job not registered")
+}
+
+func TestBuiltinDigestJobRegistered(t *testing.T) {
+	builtinMu.Lock()
+	defer builtinMu.Unlock()
+
+	for _, j := range builtinJobs {
+		if j.Name == "recally-digest" {
+			if j.Schedule.Every != "24h" {
+				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "24h")
+			}
+			if j.SessionMode != SessionNew {
+				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
+			}
+			if j.ExecScope != ExecScopeAllUsers {
+				t.Errorf("ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)
+			}
+			return
+		}
+	}
+	t.Fatal("recally-digest builtin job not registered")
 }
 
 func TestEnsureBuiltinJobs(t *testing.T) {

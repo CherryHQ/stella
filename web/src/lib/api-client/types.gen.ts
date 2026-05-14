@@ -892,6 +892,14 @@ export type ComponentsSaveArticleRequest = {
   agent_id?: string | null;
 };
 
+export type SaveDigestRequest = {
+  narrative: string;
+  /**
+   * YYYY-MM-DD; defaults to today if omitted
+   */
+  date?: string;
+};
+
 export type ComponentsSendMessageRequest = {
   /**
    * Message content (required)
@@ -1022,6 +1030,39 @@ export type ComponentsStatusRuntime = {
   arch: string;
   goroutines: number;
   memory: ComponentsStatusMemory;
+};
+
+export type StoredDigest = {
+  id: string;
+  date: string;
+  narrative: string;
+  saved_yesterday: Array<ComponentsArticle>;
+  saved_yesterday_count: number;
+  unread_count: number;
+  read_count: number;
+  archived_count: number;
+  starred_count: number;
+  worth_revisiting: Array<ComponentsArticle>;
+  worth_revisiting_count: number;
+  top_tags: Array<ComponentsTagCount>;
+  total_articles: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoredDigestSummary = {
+  id: string;
+  date: string;
+  narrative: string;
+  saved_yesterday_count: number;
+  worth_revisiting_count: number;
+  total_articles: number;
+  created_at: string;
+};
+
+export type StoredDigestSummaryList = {
+  items: Array<StoredDigestSummary>;
+  total: number;
 };
 
 export type ComponentsSystemPromptResponse = {
@@ -1322,6 +1363,10 @@ export type _1Api1Recally1Articles = unknown;
 export type _1Api1Recally1Articles1Id = unknown;
 
 export type _1Api1Recally1Digest = unknown;
+
+export type _1Api1Recally1Digests = unknown;
+
+export type _1Api1Recally1Digests1Date = unknown;
 
 export type _1Api1Recally1Feeds = unknown;
 
@@ -3484,6 +3529,108 @@ export type GetDigestResponses = {
 };
 
 export type GetDigestResponse = GetDigestResponses[keyof GetDigestResponses];
+
+export type ListStoredDigestsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    limit?: number;
+    offset?: number;
+  };
+  url: "/api/recally/digests";
+};
+
+export type ListStoredDigestsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListStoredDigestsError =
+  ListStoredDigestsErrors[keyof ListStoredDigestsErrors];
+
+export type ListStoredDigestsResponses = {
+  /**
+   * ok
+   */
+  200: StoredDigestSummaryList;
+};
+
+export type ListStoredDigestsResponse =
+  ListStoredDigestsResponses[keyof ListStoredDigestsResponses];
+
+export type SaveDigestData = {
+  body: SaveDigestRequest;
+  path?: never;
+  query?: never;
+  url: "/api/recally/digests";
+};
+
+export type SaveDigestErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type SaveDigestError = SaveDigestErrors[keyof SaveDigestErrors];
+
+export type SaveDigestResponses = {
+  /**
+   * created
+   */
+  201: StoredDigest;
+};
+
+export type SaveDigestResponse = SaveDigestResponses[keyof SaveDigestResponses];
+
+export type GetStoredDigestData = {
+  body?: never;
+  path: {
+    date: string;
+  };
+  query?: never;
+  url: "/api/recally/digests/{date}";
+};
+
+export type GetStoredDigestErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetStoredDigestError =
+  GetStoredDigestErrors[keyof GetStoredDigestErrors];
+
+export type GetStoredDigestResponses = {
+  /**
+   * ok
+   */
+  200: StoredDigest;
+};
+
+export type GetStoredDigestResponse =
+  GetStoredDigestResponses[keyof GetStoredDigestResponses];
 
 export type ListModelsData = {
   body?: never;

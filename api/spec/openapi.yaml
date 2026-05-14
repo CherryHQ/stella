@@ -123,6 +123,10 @@ paths:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}"
   /api/recally/digest:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digest"
+  /api/recally/digests:
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digests"
+  /api/recally/digests/{date}:
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digests~1{date}"
   # ── Models ─────────────────────────────────────────────────────────────────
   /api/models:
     $ref: "./domain/models/paths.yaml#/paths/~1api~1models"

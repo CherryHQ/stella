@@ -16,6 +16,7 @@ import (
 	"github.com/mmcdole/gofeed"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/recally"
 )
@@ -605,6 +606,79 @@ func (h *recallyHandlers) GetDigest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toAPIDigest(digest))
 }
 
+func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Request, params apiserver.ListStoredDigestsParams) {
+	userID, ok := h.requireUser(w, r)
+	if !ok {
+		return
+	}
+	limit := int64(20)
+	if params.Limit != nil {
+		if *params.Limit < 1 || *params.Limit > 100 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return
+		}
+		limit = int64(*params.Limit)
+	}
+	offset := int64(0)
+	if params.Offset != nil {
+		if *params.Offset < 0 {
+			writeError(w, http.StatusBadRequest, "offset must be greater than or equal to 0")
+			return
+		}
+		offset = int64(*params.Offset)
+	}
+	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]apitypes.StoredDigestSummary, 0, len(summaries))
+	for _, s := range summaries {
+		items = append(items, toAPIStoredDigestSummary(s))
+	}
+	writeJSON(w, http.StatusOK, apitypes.StoredDigestSummaryList{Items: items, Total: total})
+}
+
+func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUser(w, r)
+	if !ok {
+		return
+	}
+	var body apitypes.SaveDigestRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Narrative == "" {
+		writeError(w, http.StatusBadRequest, "narrative is required")
+		return
+	}
+	date := time.Now().UTC().Format("2006-01-02")
+	if body.Date != nil && *body.Date != "" {
+		date = *body.Date
+	}
+	stored, err := h.store.SaveDigest(r.Context(), userID, body.Narrative, date)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Location", "/api/recally/digests/"+stored.Date)
+	writeJSON(w, http.StatusCreated, toAPIStoredDigest(stored))
+}
+
+func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request, date string) {
+	userID, ok := h.requireUser(w, r)
+	if !ok {
+		return
+	}
+	stored, err := h.store.GetStoredDigestByDate(r.Context(), userID, date)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "digest not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, toAPIStoredDigest(stored))
+}
+
 // ------------------------------ helpers -------------------------------------
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -757,6 +831,42 @@ func toAPIFeedEntry(e *recally.FeedEntry) apiserver.FeedEntry {
 		ErrorMsg:     ptrStr(e.ErrorMsg),
 		DiscoveredAt: e.DiscoveredAt,
 		ProcessedAt:  e.ProcessedAt,
+	}
+}
+
+func toAPIStoredDigest(d *recally.StoredDigest) apitypes.StoredDigest {
+	out := apitypes.StoredDigest{
+		Id:                   d.ID,
+		Date:                 d.Date,
+		Narrative:            d.Narrative,
+		SavedYesterday:       toAPIArticles(d.SavedYesterday),
+		SavedYesterdayCount:  d.SavedYesterdayCount,
+		UnreadCount:          d.UnreadCount,
+		ReadCount:            d.ReadCount,
+		ArchivedCount:        d.ArchivedCount,
+		StarredCount:         d.StarredCount,
+		WorthRevisiting:      toAPIArticles(d.WorthRevisiting),
+		WorthRevisitingCount: d.WorthRevisitingCount,
+		TotalArticles:        d.TotalArticles,
+		CreatedAt:            d.CreatedAt,
+		UpdatedAt:            d.UpdatedAt,
+		TopTags:              make([]apiserver.TagCount, 0, len(d.TopTags)),
+	}
+	for _, t := range d.TopTags {
+		out.TopTags = append(out.TopTags, apiserver.TagCount{Tag: t.Tag, Count: t.Count})
+	}
+	return out
+}
+
+func toAPIStoredDigestSummary(s recally.StoredDigestSummary) apitypes.StoredDigestSummary {
+	return apitypes.StoredDigestSummary{
+		Id:                   s.ID,
+		Date:                 s.Date,
+		Narrative:            s.Narrative,
+		SavedYesterdayCount:  s.SavedYesterdayCount,
+		WorthRevisitingCount: s.WorthRevisitingCount,
+		TotalArticles:        s.TotalArticles,
+		CreatedAt:            s.CreatedAt,
 	}
 }
 
