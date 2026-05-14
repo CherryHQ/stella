@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -53,6 +54,18 @@ func serverFlags() []ucli.Flag {
 }
 
 func serverAction(c *ucli.Context) error {
+	if os.Getenv("STELLA_VAULT_KEY") == "" {
+		return errors.New(
+			"STELLA_VAULT_KEY is not set\n\n" +
+				"stella requires a vault key to encrypt credentials and secrets.\n" +
+				"Generate one with age-keygen and add it to $STELLA_HOME/.env:\n\n" +
+				"  age-keygen\n" +
+				"  echo 'STELLA_VAULT_KEY=AGE-SECRET-KEY-1...' >> ~/.stella/.env\n\n" +
+				"Back up the key — if it is lost, all stored secrets become unrecoverable.\n" +
+				"See the vault documentation for details",
+		)
+	}
+
 	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
 
 	s, err := setup(ctx, true)

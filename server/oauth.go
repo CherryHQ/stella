@@ -30,10 +30,6 @@ func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
 
 // ListOAuthProviders handles GET /api/auth/profile/oauth/providers.
 func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
-	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
-		return
-	}
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
