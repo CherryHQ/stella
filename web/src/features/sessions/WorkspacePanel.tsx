@@ -5,7 +5,7 @@ import {
   useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
-import { FilePlus, FolderPlus, Trash2, Eye, EyeOff, RefreshCw, X } from "lucide-react";
+import { FilePlus, FolderPlus, Trash2, RefreshCw, X } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -48,7 +48,7 @@ interface Props {
   sessionID: string;
   workspace: Workspace | null;
   workspaceLoading: boolean;
-  onReload: (sid: string, showHidden?: boolean) => Promise<void>;
+  onReload: (sid: string) => Promise<void>;
 }
 
 type ViewMode = "tree" | "viewer";
@@ -68,13 +68,11 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(false);
-
   const enc = encodeURIComponent(sessionID);
 
   const reload = useCallback(() => {
-    onReload(sessionID, showHidden).catch(console.error);
-  }, [sessionID, showHidden, onReload]);
+    onReload(sessionID).catch(console.error);
+  }, [sessionID, onReload]);
 
   // File operations
   const openFile = useCallback(
@@ -234,20 +232,6 @@ export function WorkspacePanel({ sessionID, workspace, workspaceLoading, onReloa
             )}
           >
             <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-          <div className="w-px h-3 bg-border mx-0.5" />
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => {
-              const next = !showHidden;
-              setShowHidden(next);
-              onReload(sessionID, next).catch(console.error);
-            }}
-            title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
-            className={cn("px-1 h-6", showHidden ? "text-primary" : "text-muted-foreground/50")}
-          >
-            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
           </Button>
           <Button
             variant="ghost"

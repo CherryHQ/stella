@@ -41,6 +41,11 @@ export function isPdf(path: string): boolean {
   return extOf(path) === "pdf";
 }
 
+export function isHtml(path: string): boolean {
+  const ext = extOf(path);
+  return ext === "html" || ext === "htm";
+}
+
 export function isBinary(path: string): boolean {
   return BINARY_EXTS.has(extOf(path));
 }
@@ -62,6 +67,7 @@ export async function fetchBlobUrl(url: string, mimeType?: string): Promise<stri
 
 export function mimeTypeForPath(path: string): string {
   if (isPdf(path)) return "application/pdf";
+  if (isHtml(path)) return "text/html; charset=utf-8";
   if (isImage(path)) {
     const ext = extOf(path);
     const map: Record<string, string> = {

@@ -1,11 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { createHighlighter, type Highlighter } from "shiki";
-import { ArrowLeft, Pencil, Save, X, Loader2, ExternalLink, Download } from "lucide-react";
+import {
+  ArrowLeft,
+  Pencil,
+  Save,
+  X,
+  Loader2,
+  ExternalLink,
+  Download,
+  Eye,
+  Code2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
-import { extOf, isImage, isPdf, isBinary, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
+import {
+  extOf,
+  isImage,
+  isPdf,
+  isBinary,
+  isHtml,
+  fetchBlobUrl,
+  mimeTypeForPath,
+} from "./fileUtils";
 
 function isMarkdown(lang: string): boolean {
   return lang === "markdown" || lang === "md";
@@ -65,6 +83,7 @@ export function FileViewer({
 }: Props) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [highlighted, setHighlighted] = useState<string>("");
   const [highlightReady, setHighlightReady] = useState(false);
@@ -76,6 +95,7 @@ export function FileViewer({
 
   useEffect(() => {
     setEditing(false);
+    setPreviewMode(isHtml(path));
     setHighlighted("");
     setHighlightReady(false);
     setViewBlobUrl(null);
@@ -156,6 +176,7 @@ export function FileViewer({
   const startEditing = useCallback(() => {
     setEditContent(content);
     setEditing(true);
+    setPreviewMode(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [content]);
 
@@ -213,6 +234,17 @@ export function FileViewer({
           >
             <Download className="w-3 h-3" />
           </a>
+        )}
+        {!loading && isHtml(path) && !editing && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setPreviewMode((m) => !m)}
+            className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
+            title={previewMode ? "View source" : "Preview"}
+          >
+            {previewMode ? <Code2 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+          </Button>
         )}
         {!loading && !isBinary(path) && !isImage(path) && !isPdf(path) && (
           <>
@@ -285,6 +317,23 @@ export function FileViewer({
             </div>
           ))}
 
+        {!loading &&
+          isHtml(path) &&
+          previewMode &&
+          !editing &&
+          (viewBlobUrl ? (
+            <iframe
+              src={viewBlobUrl}
+              title={fileName}
+              sandbox="allow-scripts"
+              className="w-full h-full border-0 bg-white"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+            </div>
+          ))}
+
         {!loading && !isPdf(path) && isBinary(path) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
             <span className="text-xs font-mono">Binary file</span>
@@ -318,31 +367,35 @@ export function FileViewer({
           />
         )}
 
-        {!loading && !isImage(path) && !isBinary(path) && !editing && (
-          <>
-            {isMarkdown(language) ? (
-              <div className="px-4 py-3 prose prose-sm max-w-none text-foreground [&_*]:text-[12px]">
-                <Streamdown>{content}</Streamdown>
-              </div>
-            ) : highlighted ? (
-              <div
-                className={cn(
-                  "text-[12px] leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_pre]:m-0 [&_code]:!bg-transparent",
-                  "[&_.shiki]:!bg-transparent",
-                )}
-                dangerouslySetInnerHTML={{ __html: highlighted }}
-              />
-            ) : highlightReady ? (
-              <pre className="p-3 text-[12px] leading-relaxed text-foreground/80 whitespace-pre-wrap break-words font-mono">
-                {content}
-              </pre>
-            ) : (
-              <pre className="p-3 text-[12px] leading-relaxed text-foreground/60 whitespace-pre-wrap break-words font-mono">
-                {content}
-              </pre>
-            )}
-          </>
-        )}
+        {!loading &&
+          !isImage(path) &&
+          !isBinary(path) &&
+          !editing &&
+          !(isHtml(path) && previewMode) && (
+            <>
+              {isMarkdown(language) ? (
+                <div className="px-4 py-3 prose prose-sm max-w-none text-foreground [&_*]:text-[12px]">
+                  <Streamdown>{content}</Streamdown>
+                </div>
+              ) : highlighted ? (
+                <div
+                  className={cn(
+                    "text-[12px] leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_pre]:m-0 [&_code]:!bg-transparent",
+                    "[&_.shiki]:!bg-transparent",
+                  )}
+                  dangerouslySetInnerHTML={{ __html: highlighted }}
+                />
+              ) : highlightReady ? (
+                <pre className="p-3 text-[12px] leading-relaxed text-foreground/80 whitespace-pre-wrap break-words font-mono">
+                  {content}
+                </pre>
+              ) : (
+                <pre className="p-3 text-[12px] leading-relaxed text-foreground/60 whitespace-pre-wrap break-words font-mono">
+                  {content}
+                </pre>
+              )}
+            </>
+          )}
       </div>
     </div>
   );

@@ -125,13 +125,12 @@ export function SessionsPage() {
     return () => window.removeEventListener("popstate", onPop);
   }, [openSession]);
 
-  const loadWorkspace = useCallback(async (sid: string, showHidden = false) => {
+  const loadWorkspace = useCallback(async (sid: string) => {
     setWorkspaceLoading(true);
     try {
-      const qs = showHidden ? "?show_hidden=true" : "";
       const data = await api<Workspace>(
         "GET",
-        `/api/sessions/${encodeURIComponent(sid)}/workspace${qs}`,
+        `/api/sessions/${encodeURIComponent(sid)}/workspace?show_hidden=true`,
       );
       setWorkspace(data);
     } catch (e) {
