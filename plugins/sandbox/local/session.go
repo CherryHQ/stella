@@ -42,6 +42,12 @@ func (f *Factory) Available() bool { return true }
 // Supported returns an error if platform sandbox requirements are not met.
 func (f *Factory) Supported(_ sandboxpkg.Policy) error { return checkSandboxRequirements() }
 
+// tmpMount pairs a sandbox-space path (e.g. /tmp) with its backing real host path.
+type tmpMount struct {
+	sandboxPath string // absolute path the agent sees (e.g. /tmp)
+	realPath    string // absolute host path backing it
+}
+
 // CreateSession creates a new localSession.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
@@ -49,11 +55,17 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, err
 	}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	tmpMounts, ownsTmp, err := createSessionTmpMounts()
+	if err != nil {
+		return nil, fmt.Errorf("local: create session tmp: %w", err)
+	}
 	s := &localSession{
 		id:          sessionID,
 		policy:      policy,
 		realRoot:    realRoot,
 		sandboxRoot: sandboxRoot,
+		tmpMounts:   tmpMounts,
+		ownsTmp:     ownsTmp,
 		done:        make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
@@ -67,8 +79,10 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 type localSession struct {
 	id          string
 	policy      sandboxpkg.Policy
-	realRoot    string // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot string // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	realRoot    string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	tmpMounts   []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	ownsTmp     bool       // true when this session created the tmpMount dirs and should remove them on close
 	done        chan struct{}
 	doneOnce    sync.Once
 	mu          sync.RWMutex
@@ -125,6 +139,11 @@ func (s *localSession) Close() error {
 
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
+	if s.ownsTmp {
+		for _, m := range s.tmpMounts {
+			os.RemoveAll(m.realPath) //nolint:errcheck
+		}
+	}
 	return nil
 }
 
@@ -213,7 +232,33 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 		return resolved, s.toSandboxPath(resolved), nil
 	}
 
+	// Allow access to session temp directories (/tmp, /var/tmp).
+	for _, m := range s.tmpMounts {
+		if pathWithinRoot(m.realPath, resolved) {
+			if err := rejectLocalSymlinkTraversal(m.realPath, real); err != nil {
+				return "", "", fmt.Errorf("local: %w", err)
+			}
+			return resolved, s.toSandboxPath(resolved), nil
+		}
+	}
+
 	return "", "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
+}
+
+// matchingTmpMount returns the tmpMount with the longest sandboxPath that
+// contains sandboxPath, or nil if none match.
+func (s *localSession) matchingTmpMount(sandboxPath string) *tmpMount {
+	clean := filepath.Clean(sandboxPath)
+	var best *tmpMount
+	for i := range s.tmpMounts {
+		m := &s.tmpMounts[i]
+		if clean == m.sandboxPath || strings.HasPrefix(clean, m.sandboxPath+string(filepath.Separator)) {
+			if best == nil || len(m.sandboxPath) > len(best.sandboxPath) {
+				best = m
+			}
+		}
+	}
+	return best
 }
 
 // matchingExtraMount returns the longest extra read-only mount that contains
@@ -271,7 +316,15 @@ func rejectLocalSymlinkTraversal(root, path string) error {
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
 // When sandboxRoot == realRoot (no remapping), it is a no-op.
+// Temp paths (/tmp, /var/tmp) are checked first against tmpMounts.
 func (s *localSession) toRealPath(sandboxPath string) string {
+	if m := s.matchingTmpMount(sandboxPath); m != nil {
+		rel, _ := filepath.Rel(m.sandboxPath, filepath.Clean(sandboxPath))
+		if rel == "." {
+			return m.realPath
+		}
+		return filepath.Join(m.realPath, rel)
+	}
 	if s.sandboxRoot == s.realRoot {
 		return sandboxPath
 	}
@@ -283,11 +336,32 @@ func (s *localSession) toRealPath(sandboxPath string) string {
 }
 
 // toSandboxPath translates a real host path back into sandbox space.
+// Temp mount real paths are checked first against tmpMounts.
 func (s *localSession) toSandboxPath(realPath string) string {
+	clean := filepath.Clean(realPath)
+	// Use longest matching tmpMount (e.g. /var/tmp before /tmp if both match).
+	var best *tmpMount
+	for i := range s.tmpMounts {
+		m := &s.tmpMounts[i]
+		rel, err := filepath.Rel(m.realPath, clean)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if best == nil || len(m.realPath) > len(best.realPath) {
+			best = m
+		}
+	}
+	if best != nil {
+		rel, _ := filepath.Rel(best.realPath, clean)
+		if rel == "." {
+			return best.sandboxPath
+		}
+		return filepath.Join(best.sandboxPath, rel)
+	}
 	if s.sandboxRoot == s.realRoot {
 		return realPath
 	}
-	rel, err := filepath.Rel(s.realRoot, filepath.Clean(realPath))
+	rel, err := filepath.Rel(s.realRoot, clean)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return realPath
 	}
@@ -327,7 +401,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, "sh", []string{"-c", command})
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -412,7 +486,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, req.Path, args)
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)

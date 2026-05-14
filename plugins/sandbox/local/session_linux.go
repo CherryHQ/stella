@@ -88,6 +88,30 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 	return "/workspace", policy.WorkspaceRootOrDefault()
 }
 
+// createSessionTmpMounts creates per-session host directories for each sandbox
+// temp path (/tmp, /var/tmp) and returns them as tmpMount pairs. The session
+// owns these directories and must remove them on close.
+//
+// To add support for a new sandbox temp path (e.g. /run/user/1000):
+//  1. Create a host dir with os.MkdirTemp and append a tmpMount{sandboxPath, realPath}.
+//  2. Add a corresponding "--bind realPath sandboxPath" entry in wrapCommand below.
+//  3. Add the sandbox path to the platform profile in session_darwin.go if needed.
+func createSessionTmpMounts() ([]tmpMount, bool, error) {
+	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
+	if err != nil {
+		return nil, false, err
+	}
+	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
+	if err != nil {
+		os.RemoveAll(tmp) //nolint:errcheck
+		return nil, false, err
+	}
+	return []tmpMount{
+		{sandboxPath: "/tmp", realPath: tmp},
+		{sandboxPath: "/var/tmp", realPath: varTmp},
+	}, true, nil
+}
+
 var (
 	bwrapOnce      sync.Once
 	bwrapPath      string
@@ -197,7 +221,7 @@ func appendDirParents(args []string, path string) []string {
 //
 //   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
 //   - hostCwd returned: real host path (bwrap uses --chdir internally).
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
 	if !bwrapFunctional() {
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
@@ -213,11 +237,16 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 		"--tmpfs", "/",
 		"--dev", "/dev",
 		"--tmpfs", "/dev/shm",
-		"--tmpfs", "/tmp",
 		"--dir", "/var",
 		"--tmpfs", "/var/tmp",
 		"--proc", "/proc",
 		"--dir", "/run",
+	}
+	// Mount temp directories: bind each per-session host dir so file tools on
+	// the host share the same view as bash running inside bwrap.
+	// See createSessionTmpMounts for how to add a new temp path.
+	for _, m := range tmpMounts {
+		bwrapArgs = append(bwrapArgs, "--dir", m.sandboxPath, "--bind", m.realPath, m.sandboxPath)
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	bwrapArgs = appendStellaHomeMounts(bwrapArgs, policy.Env["STELLA_HOME"])
