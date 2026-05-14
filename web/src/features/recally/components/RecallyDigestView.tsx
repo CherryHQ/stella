@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import type { StoredDigest, StoredDigestSummary, Article } from "@/lib/api-client/types.gen";
 import type { TFunction } from "../constants";
 import { StatCard } from "./StatCard";
@@ -5,6 +6,7 @@ import { ArticleCard } from "./ArticleCard";
 
 export function RecallyDigestView({
   t,
+  className,
   storedDigests,
   storedDigestsLoading,
   selectedDigestDate,
@@ -15,6 +17,7 @@ export function RecallyDigestView({
   setSelectedId,
 }: {
   t: TFunction;
+  className?: string;
   storedDigests: StoredDigestSummary[];
   storedDigestsLoading: boolean;
   selectedDigestDate: string | null;
@@ -25,7 +28,12 @@ export function RecallyDigestView({
   setSelectedId: (id: string | null) => void;
 }) {
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
+    <section
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden border-r border-border bg-background",
+        className,
+      )}
+    >
       <div className="shrink-0 border-b border-border bg-background px-4 py-4">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           {t("recally.nav.digest")}

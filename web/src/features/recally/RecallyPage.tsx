@@ -89,16 +89,14 @@ export function RecallyPage() {
 
       {/* Main area */}
       <div
-        className={cn(
-          "flex-1 min-w-0 grid grid-cols-1 overflow-hidden",
-          !filters.digestView && "xl:grid-cols-[var(--recally-center-width)_1fr]",
-        )}
+        className="flex-1 min-w-0 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
         style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
       >
-        {/* Center panel: digest view or article list */}
+        {/* Center panel: digest view spans both columns; article list uses first column only */}
         {filters.digestView ? (
           <RecallyDigestView
             t={t}
+            className="xl:col-span-full"
             storedDigests={filters.storedDigests}
             storedDigestsLoading={filters.storedDigestsQuery.isLoading}
             selectedDigestDate={filters.selectedDigestDate}
@@ -124,26 +122,29 @@ export function RecallyPage() {
           />
         )}
 
-        {/* Right reader panel — article list mode only */}
-        {!filters.digestView && (
-          <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
-            <button
-              type="button"
-              aria-label={t("recally.resizeList")}
-              onMouseDown={startResize}
-              className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
-            />
-            <RecallyReader
-              t={t}
-              selectedId={selectedId}
-              updateArticleMut={mutations.updateArticleMut}
-              deleteArticleMut={mutations.deleteArticleMut}
-            />
-          </aside>
-        )}
+        {/* Right reader panel — always in DOM; hidden in digest view */}
+        <aside
+          className={cn(
+            "relative hidden min-h-0 flex-col bg-background",
+            !filters.digestView && "xl:flex",
+          )}
+        >
+          <button
+            type="button"
+            aria-label={t("recally.resizeList")}
+            onMouseDown={startResize}
+            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
+          />
+          <RecallyReader
+            t={t}
+            selectedId={selectedId}
+            updateArticleMut={mutations.updateArticleMut}
+            deleteArticleMut={mutations.deleteArticleMut}
+          />
+        </aside>
       </div>
 
-      {/* Reader overlay — mobile always; xl only when in digest view */}
+      {/* Mobile reader overlay — also shown on xl when in digest view */}
       {selectedId && (
         <div
           className={cn(
