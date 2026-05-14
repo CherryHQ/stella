@@ -47,5 +47,6 @@ type WeixinConfig struct {
 	BaseURL      string `json:"base_url"`
 	BotID        string `json:"bot_id"`
 	UserID       string `json:"user_id"`
+	SKRouteTag   string `json:"sk_route_tag"`
 	EnableNotify bool   `json:"enable_notify"`
 }

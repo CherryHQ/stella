@@ -62,7 +62,7 @@ func (b *Bot) keepTyping(ctx context.Context, msg WeixinMessage) {
 	}
 
 	// Send initial typing indicator.
-	if err := b.client.SendTyping(msg.FromUserID, ticket, 1, ""); err != nil {
+	if err := b.client.SendTyping(msg.FromUserID, ticket, 1); err != nil {
 		logger().Debug("typing start failed", "user_id", msg.FromUserID, "error", err)
 	}
 
@@ -73,12 +73,12 @@ func (b *Bot) keepTyping(ctx context.Context, msg WeixinMessage) {
 		select {
 		case <-ctx.Done():
 			// Send stop-typing.
-			if err := b.client.SendTyping(msg.FromUserID, ticket, 2, ""); err != nil {
+			if err := b.client.SendTyping(msg.FromUserID, ticket, 2); err != nil {
 				logger().Debug("typing stop failed", "user_id", msg.FromUserID, "error", err)
 			}
 			return
 		case <-ticker.C:
-			if err := b.client.SendTyping(msg.FromUserID, ticket, 1, ""); err != nil {
+			if err := b.client.SendTyping(msg.FromUserID, ticket, 1); err != nil {
 				logger().Debug("typing refresh failed", "user_id", msg.FromUserID, "error", err)
 			}
 		}
@@ -100,7 +100,7 @@ func (b *Bot) getTypingTicket(userID string) string {
 		contextToken, _ = v.(string)
 	}
 
-	resp, err := b.client.GetConfig(userID, contextToken, "")
+	resp, err := b.client.GetConfig(userID, contextToken)
 	if err != nil {
 		logger().Debug("getconfig for typing_ticket failed", "user_id", userID, "error", err)
 		return ""

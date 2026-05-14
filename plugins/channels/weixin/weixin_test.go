@@ -92,7 +92,7 @@ func TestHandleTextAbortDelegatesToCoordinator(t *testing.T) {
 			gotCmd, gotArgs = cmd, args
 			return "Aborted.", true, nil, nil
 		}},
-		client: NewClient(server.URL, "", "token"),
+		client: NewClient(server.URL, "", "token", ""),
 		ctx:    context.Background(),
 	}
 	bot.contextTokens.Store("user-1", "ctx-token")
@@ -707,7 +707,7 @@ func TestNotifyErrorWhenClientNil(t *testing.T) {
 func TestNotifyErrorWhenNoTargetUser(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{client: NewClient("", "", "tok")}
+	bot := &Bot{client: NewClient("", "", "tok", "")}
 	err := bot.Notify(context.Background(), channel.Notification{Text: "hello"})
 	if err == nil {
 		t.Fatal("expected error when no target user")
@@ -720,7 +720,7 @@ func TestNotifyErrorWhenNoTargetUser(t *testing.T) {
 func TestNotifyErrorWhenNoContextToken(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{client: NewClient("", "", "tok")}
+	bot := &Bot{client: NewClient("", "", "tok", "")}
 	err := bot.Notify(context.Background(), channel.Notification{ChatID: "user1", Text: "hello"})
 	if err == nil {
 		t.Fatal("expected error when no context_token")
@@ -1129,5 +1129,66 @@ func TestDecryptAESECB_WrongKeySize(t *testing.T) {
 	_, err := DecryptAESECB(make([]byte, 16), []byte("short"))
 	if err == nil {
 		t.Error("expected error for wrong key size")
+	}
+}
+
+func TestBuildClientVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		version string
+		want    uint32
+	}{
+		{"2.4.3", (2 << 16) | (4 << 8) | 3},
+		{"1.0.0", 1 << 16},
+		{"0.28.2", (0 << 16) | (28 << 8) | 2},
+		{"dev", 0},
+		{"", 0},
+	}
+	for _, tc := range tests {
+		got := buildClientVersion(tc.version)
+		if got != tc.want {
+			t.Errorf("buildClientVersion(%q) = %d, want %d", tc.version, got, tc.want)
+		}
+	}
+}
+
+func TestBuildBaseInfo(t *testing.T) {
+	t.Parallel()
+	c := NewClient("", "", "tok", "")
+	info := c.buildBaseInfo()
+	if info.ChannelVersion == "" {
+		t.Error("ChannelVersion must not be empty")
+	}
+	if info.BotAgent == "" {
+		t.Error("BotAgent must not be empty")
+	}
+	if !strings.HasPrefix(info.BotAgent, "Stella/") {
+		t.Errorf("BotAgent %q must start with 'Stella/'", info.BotAgent)
+	}
+}
+
+func TestCommonHeaders(t *testing.T) {
+	t.Parallel()
+
+	// Without SKRouteTag.
+	c := NewClient("", "", "tok", "")
+	h := c.commonHeaders()
+	for _, key := range []string{"iLink-App-Id", "iLink-App-ClientVersion", "Authorization", "AuthorizationType", "X-WECHAT-UIN"} {
+		if h[key] == "" {
+			t.Errorf("commonHeaders missing or empty key %q", key)
+		}
+	}
+	if _, ok := h["SKRouteTag"]; ok {
+		t.Error("SKRouteTag should not be present when empty")
+	}
+	if h["iLink-App-Id"] != "bot" {
+		t.Errorf("iLink-App-Id = %q, want %q", h["iLink-App-Id"], "bot")
+	}
+
+	// With SKRouteTag.
+	c2 := NewClient("", "", "tok", "my-tag")
+	h2 := c2.commonHeaders()
+	if h2["SKRouteTag"] != "my-tag" {
+		t.Errorf("SKRouteTag = %q, want %q", h2["SKRouteTag"], "my-tag")
 	}
 }

@@ -33,7 +33,7 @@ func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []cha
 				},
 			},
 		}
-		if err := b.client.SendMessage(reply, ""); err != nil {
+		if err := b.client.SendMessage(reply); err != nil {
 			logger().Error("send response chunk failed", "user_id", msg.FromUserID, "error", err)
 		}
 	}
@@ -81,7 +81,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 		FileSize:    len(encrypted),
 		NoNeedThumb: true,
 		AESKey:      keyHex,
-	}, "")
+	})
 	if err != nil {
 		logger().Error("getuploadurl for image failed", "error", err)
 		return
@@ -121,7 +121,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply, ""); err != nil {
+	if err := b.client.SendMessage(reply); err != nil {
 		logger().Error("send image message failed", "user_id", msg.FromUserID, "error", err)
 	}
 }
@@ -156,7 +156,7 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 		FileSize:    len(encrypted),
 		NoNeedThumb: true,
 		AESKey:      keyHex,
-	}, "")
+	})
 	if err != nil {
 		logger().Error("getuploadurl for file failed", "error", err)
 		return
@@ -194,7 +194,7 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply, ""); err != nil {
+	if err := b.client.SendMessage(reply); err != nil {
 		logger().Error("send file message failed", "user_id", msg.FromUserID, "error", err)
 	}
 }
@@ -229,7 +229,7 @@ func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
 		FileSize:    len(encrypted),
 		NoNeedThumb: true,
 		AESKey:      keyHex,
-	}, "")
+	})
 	if err != nil {
 		logger().Error("getuploadurl for video failed", "error", err)
 		return
@@ -266,7 +266,7 @@ func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply, ""); err != nil {
+	if err := b.client.SendMessage(reply); err != nil {
 		logger().Error("send video message failed", "user_id", msg.FromUserID, "error", err)
 	}
 }

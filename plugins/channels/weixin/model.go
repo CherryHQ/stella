@@ -15,11 +15,12 @@ const (
 
 // Item type constants.
 const (
-	ItemTypeText  = 1
-	ItemTypeImage = 2
-	ItemTypeVoice = 3
-	ItemTypeFile  = 4
-	ItemTypeVideo = 5
+	ItemTypeUnsupported = 0
+	ItemTypeText        = 1
+	ItemTypeImage       = 2
+	ItemTypeVoice       = 3
+	ItemTypeFile        = 4
+	ItemTypeVideo       = 5
 )
 
 // Media type constants for getuploadurl.
@@ -116,6 +117,7 @@ type CDNMedia struct {
 	EncryptQueryParam string `json:"encrypt_query_param,omitempty"`
 	AESKey            string `json:"aes_key,omitempty"` // base64 encoded
 	EncryptType       int    `json:"encrypt_type,omitempty"`
+	FullURL           string `json:"full_url,omitempty"`
 }
 
 // RefMessage represents a quoted/referenced message.
@@ -127,6 +129,7 @@ type RefMessage struct {
 // BaseInfo is included in every business POST request body.
 type BaseInfo struct {
 	ChannelVersion string `json:"channel_version"`
+	BotAgent       string `json:"bot_agent,omitempty"`
 }
 
 // --- API request/response types ---
@@ -217,7 +220,19 @@ type GetUploadURLResponse struct {
 	ErrCode          int    `json:"errcode,omitempty"`
 	ErrMsg           string `json:"errmsg,omitempty"`
 	UploadParam      string `json:"upload_param,omitempty"`
+	UploadFullURL    string `json:"upload_full_url,omitempty"`
 	ThumbUploadParam string `json:"thumb_upload_param,omitempty"`
+}
+
+// NotifyRequest is the request body for notifystart and notifystop.
+type NotifyRequest struct {
+	BaseInfo BaseInfo `json:"base_info"`
+}
+
+// NotifyResponse is the response body for notifystart and notifystop.
+type NotifyResponse struct {
+	Ret    int    `json:"ret,omitempty"`
+	ErrMsg string `json:"errmsg,omitempty"`
 }
 
 // QRCodeResponse is the response from get_bot_qrcode.

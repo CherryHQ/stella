@@ -50,10 +50,10 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 	combinedText := strings.Join(texts, "\n")
 	hasUnsupported := false
 	for _, item := range msg.ItemList {
-		if item.Type != ItemTypeText && item.Type != ItemTypeImage &&
-			item.Type != ItemTypeVoice && item.Type != ItemTypeFile && item.Type != ItemTypeVideo {
+		switch item.Type {
+		case ItemTypeText, ItemTypeImage, ItemTypeVoice, ItemTypeFile, ItemTypeVideo, ItemTypeUnsupported:
+		default:
 			hasUnsupported = true
-			break
 		}
 	}
 
@@ -122,9 +122,22 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 }
 
 // extractMessageContent walks all items and returns text fragments and image items.
-// Voice transcriptions, file names, and video placeholders are included as text.
+// Voice transcriptions, file names, video placeholders, and quoted messages are included as text.
 func extractMessageContent(items []MessageItem) (texts []string, images []*ImageItem) {
 	for _, item := range items {
+		// Quoted/referenced message — prepend as context before the item's own content.
+		if item.RefMsg != nil {
+			ref := item.RefMsg
+			if ref.Title != "" {
+				texts = append(texts, fmt.Sprintf("[引用: %s]", ref.Title))
+			} else if ref.MessageItem != nil {
+				refTexts, _ := extractMessageContent([]MessageItem{*ref.MessageItem})
+				for _, t := range refTexts {
+					texts = append(texts, fmt.Sprintf("[引用: %s]", t))
+				}
+			}
+		}
+
 		switch item.Type {
 		case ItemTypeText:
 			if item.TextItem != nil && strings.TrimSpace(item.TextItem.Text) != "" {
@@ -148,6 +161,8 @@ func extractMessageContent(items []MessageItem) (texts []string, images []*Image
 			}
 		case ItemTypeVideo:
 			texts = append(texts, "[video]")
+		case ItemTypeUnsupported:
+			// type=0 is a protocol placeholder; nothing to extract.
 		}
 	}
 	return
@@ -363,7 +378,7 @@ func (b *Bot) sendReply(msg WeixinMessage, text string) {
 		},
 	}
 
-	if err := b.client.SendMessage(reply, ""); err != nil {
+	if err := b.client.SendMessage(reply); err != nil {
 		logger().Error("send reply failed", "user_id", msg.FromUserID, "error", err)
 	}
 }

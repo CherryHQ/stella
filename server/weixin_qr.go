@@ -16,8 +16,8 @@ import (
 // from the iLink API. Any authenticated user can call this.
 // POST /api/channels/weixin/qr
 func (s *Server) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
-	client := weixin.NewClient("", "", "")
-	qr, err := client.GetQRCode("")
+	client := weixin.NewClient("", "", "", "")
+	qr, err := client.GetQRCode()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed to get QR code: "+err.Error())
 		return
@@ -42,8 +42,8 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 
-	client := weixin.NewClient("", "", "")
-	status, err := client.GetQRCodeStatus(qrcode, "")
+	client := weixin.NewClient("", "", "", "")
+	status, err := client.GetQRCodeStatus(qrcode)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed to poll QR status: "+err.Error())
 		return

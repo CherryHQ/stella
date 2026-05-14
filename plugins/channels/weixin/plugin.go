@@ -37,6 +37,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 				BaseURL:    cfg.BaseURL,
 				BotID:      cfg.BotID,
 				UserID:     cfg.UserID,
+				SKRouteTag: cfg.SKRouteTag,
 			}, handler)
 		},
 	}), nil

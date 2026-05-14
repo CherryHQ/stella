@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 
@@ -23,11 +25,11 @@ const (
 	// DefaultCDNBaseURL is the CDN base URL for media upload/download.
 	DefaultCDNBaseURL = "https://novac2c.cdn.weixin.qq.com"
 
-	// DefaultChannelVersion is the SDK/client version string.
-	DefaultChannelVersion = "1.0.0"
-
 	// authorizationType is the fixed value for the AuthorizationType header.
 	authorizationType = "ilink_bot_token"
+
+	// iLinkAppID is the fixed iLink application identifier for bot clients.
+	iLinkAppID = "bot"
 
 	// defaultTimeout is the default HTTP client timeout.
 	defaultTimeout = 40 * time.Second
@@ -44,11 +46,13 @@ type Client struct {
 	baseURL    string
 	cdnBaseURL string
 	token      string
+	skRouteTag string
 	httpClient *resty.Client
 }
 
 // NewClient creates a new iLink API client.
-func NewClient(baseURL, cdnBaseURL, token string) *Client {
+// skRouteTag is an optional routing hint sent via the SKRouteTag header; pass "" to omit it.
+func NewClient(baseURL, cdnBaseURL, token, skRouteTag string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -59,6 +63,7 @@ func NewClient(baseURL, cdnBaseURL, token string) *Client {
 		baseURL:    baseURL,
 		cdnBaseURL: cdnBaseURL,
 		token:      token,
+		skRouteTag: skRouteTag,
 		httpClient: httpclient.NewWithTimeout(defaultTimeout),
 	}
 }
@@ -73,26 +78,66 @@ func randomWechatUIN() string {
 	return base64.StdEncoding.EncodeToString([]byte(dec))
 }
 
-// commonHeaders returns the required headers for all business POST requests.
-func (c *Client) commonHeaders() map[string]string {
-	return map[string]string{
-		"Content-Type":      "application/json",
-		"AuthorizationType": authorizationType,
-		"Authorization":     "Bearer " + c.token,
-		"X-WECHAT-UIN":      randomWechatUIN(),
+// buildClientVersion encodes a semver string as the iLink uint32 wire format:
+// high 8 bits = 0, then major<<16 | minor<<8 | patch. Each component is clamped to 0xFF.
+// Returns 0 for non-semver strings (e.g. "dev").
+func buildClientVersion(v string) uint32 {
+	parts := strings.SplitN(v, ".", 3)
+	parse := func(s string) uint32 {
+		n, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return 0
+		}
+		return uint32(n) & 0xff
+	}
+	var major, minor, patch uint32
+	if len(parts) > 0 {
+		major = parse(parts[0])
+	}
+	if len(parts) > 1 {
+		minor = parse(parts[1])
+	}
+	if len(parts) > 2 {
+		patch = parse(parts[2])
+	}
+	return (major << 16) | (minor << 8) | patch
+}
+
+// buildBaseInfo returns a populated BaseInfo for all POST request bodies.
+func (c *Client) buildBaseInfo() BaseInfo {
+	v := version.Version
+	if v == "" {
+		v = "dev"
+	}
+	return BaseInfo{
+		ChannelVersion: v,
+		BotAgent:       "Stella/" + v,
 	}
 }
 
-// GetQRCode requests a new QR code for login.
-func (c *Client) GetQRCode(skRouteTag string) (*QRCodeResponse, error) {
-	r := c.httpClient.R()
-	if skRouteTag != "" {
-		r.SetHeader("SKRouteTag", skRouteTag)
+// commonHeaders returns the required headers for all iLink API requests.
+func (c *Client) commonHeaders() map[string]string {
+	headers := map[string]string{
+		"Content-Type":            "application/json",
+		"AuthorizationType":       authorizationType,
+		"Authorization":           "Bearer " + c.token,
+		"X-WECHAT-UIN":            randomWechatUIN(),
+		"iLink-App-Id":            iLinkAppID,
+		"iLink-App-ClientVersion": strconv.FormatUint(uint64(buildClientVersion(version.Version)), 10),
 	}
+	if c.skRouteTag != "" {
+		headers["SKRouteTag"] = c.skRouteTag
+	}
+	return headers
+}
 
+// GetQRCode requests a new QR code for login.
+func (c *Client) GetQRCode() (*QRCodeResponse, error) {
 	// iLink returns Content-Type: application/octet-stream even for JSON bodies,
 	// so we read the raw body and unmarshal manually.
-	resp, err := r.Get(c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3")
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		Get(c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode: %w", err)
 	}
@@ -120,16 +165,12 @@ func (c *Client) GetQRCode(skRouteTag string) (*QRCodeResponse, error) {
 }
 
 // GetQRCodeStatus polls the QR code scan status.
-func (c *Client) GetQRCodeStatus(qrcode, skRouteTag string) (*QRCodeStatusResponse, error) {
-	r := c.httpClient.R().
-		SetHeader("iLink-App-ClientVersion", "1").
-		SetQueryParam("qrcode", qrcode)
-	if skRouteTag != "" {
-		r.SetHeader("SKRouteTag", skRouteTag)
-	}
-
+func (c *Client) GetQRCodeStatus(qrcode string) (*QRCodeStatusResponse, error) {
 	// iLink returns Content-Type: application/octet-stream even for JSON bodies.
-	resp, err := r.Get(c.baseURL + "/ilink/bot/get_qrcode_status")
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetQueryParam("qrcode", qrcode).
+		Get(c.baseURL + "/ilink/bot/get_qrcode_status")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode status: %w", err)
 	}
@@ -164,14 +205,10 @@ func (c *Client) GetQRCodeStatus(qrcode, skRouteTag string) (*QRCodeStatusRespon
 
 // GetUpdates performs a long-poll for new messages.
 // Returns the response including messages, new cursor, and timeout hint.
-func (c *Client) GetUpdates(buf, channelVersion string, timeout time.Duration) (*GetUpdatesResponse, error) {
-	if channelVersion == "" {
-		channelVersion = DefaultChannelVersion
-	}
-
+func (c *Client) GetUpdates(buf string, timeout time.Duration) (*GetUpdatesResponse, error) {
 	body := GetUpdatesRequest{
 		GetUpdatesBuf: buf,
-		BaseInfo:      BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo:      c.buildBaseInfo(),
 	}
 
 	// Use a per-request client with adaptive timeout for long-polling.
@@ -199,14 +236,10 @@ func (c *Client) GetUpdates(buf, channelVersion string, timeout time.Duration) (
 }
 
 // SendMessage sends a message to a user.
-func (c *Client) SendMessage(msg WeixinMessage, channelVersion string) error {
-	if channelVersion == "" {
-		channelVersion = DefaultChannelVersion
-	}
-
+func (c *Client) SendMessage(msg WeixinMessage) error {
 	body := SendMessageRequest{
 		Msg:      msg,
-		BaseInfo: BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo: c.buildBaseInfo(),
 	}
 
 	var result SendMessageResponse
@@ -224,15 +257,11 @@ func (c *Client) SendMessage(msg WeixinMessage, channelVersion string) error {
 }
 
 // GetConfig retrieves the typing_ticket for a user.
-func (c *Client) GetConfig(userID, contextToken, channelVersion string) (*GetConfigResponse, error) {
-	if channelVersion == "" {
-		channelVersion = DefaultChannelVersion
-	}
-
+func (c *Client) GetConfig(userID, contextToken string) (*GetConfigResponse, error) {
 	body := GetConfigRequest{
 		ILinkUserID:  userID,
 		ContextToken: contextToken,
-		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo:     c.buildBaseInfo(),
 	}
 
 	var result GetConfigResponse
@@ -258,16 +287,12 @@ func (c *Client) GetConfig(userID, contextToken, channelVersion string) (*GetCon
 
 // SendTyping sends or cancels a typing indicator.
 // status=1 starts typing, status=2 cancels.
-func (c *Client) SendTyping(userID, typingTicket string, status int, channelVersion string) error {
-	if channelVersion == "" {
-		channelVersion = DefaultChannelVersion
-	}
-
+func (c *Client) SendTyping(userID, typingTicket string, status int) error {
 	body := SendTypingRequest{
 		ILinkUserID:  userID,
 		TypingTicket: typingTicket,
 		Status:       status,
-		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo:     c.buildBaseInfo(),
 	}
 
 	var result SendTypingResponse
@@ -285,18 +310,13 @@ func (c *Client) SendTyping(userID, typingTicket string, status int, channelVers
 }
 
 // GetUploadURL requests CDN upload parameters for a file.
-func (c *Client) GetUploadURL(params UploadParams, channelVersion string) (*GetUploadURLResponse, error) {
-	if channelVersion == "" {
-		channelVersion = DefaultChannelVersion
-	}
-
-	// Build the request body by embedding UploadParams fields + base_info.
+func (c *Client) GetUploadURL(params UploadParams) (*GetUploadURLResponse, error) {
 	reqBody := struct {
 		UploadParams
 		BaseInfo BaseInfo `json:"base_info"`
 	}{
 		UploadParams: params,
-		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
+		BaseInfo:     c.buildBaseInfo(),
 	}
 
 	var result GetUploadURLResponse
@@ -318,6 +338,47 @@ func (c *Client) GetUploadURL(params UploadParams, channelVersion string) (*GetU
 	}
 
 	return &result, nil
+}
+
+// NotifyStart notifies the iLink backend that this bot is starting.
+func (c *Client) NotifyStart() error {
+	body := NotifyRequest{BaseInfo: c.buildBaseInfo()}
+
+	var result NotifyResponse
+	_, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		ForceContentType("application/json").
+		Post(c.baseURL + "/ilink/bot/msg/notifystart")
+	if err != nil {
+		return fmt.Errorf("weixin: notifystart: %w", err)
+	}
+	if result.Ret != 0 {
+		return fmt.Errorf("weixin: notifystart: ret=%d: %s", result.Ret, result.ErrMsg)
+	}
+	return nil
+}
+
+// NotifyStop notifies the iLink backend that this bot is stopping.
+// Uses a standalone call so the request can finish even during shutdown.
+func (c *Client) NotifyStop() error {
+	body := NotifyRequest{BaseInfo: c.buildBaseInfo()}
+
+	var result NotifyResponse
+	_, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		ForceContentType("application/json").
+		Post(c.baseURL + "/ilink/bot/msg/notifystop")
+	if err != nil {
+		return fmt.Errorf("weixin: notifystop: %w", err)
+	}
+	if result.Ret != 0 {
+		return fmt.Errorf("weixin: notifystop: ret=%d: %s", result.Ret, result.ErrMsg)
+	}
+	return nil
 }
 
 // checkError returns ErrSessionExpired for ret=-14 or errcode=-14,

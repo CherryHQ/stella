@@ -13,10 +13,11 @@ import (
 // Config holds WeChat iLink bot settings.
 type Config struct {
 	InstanceID string `json:"-"`
-	BotToken   string `json:"bot_token"` // iLink bot_token
-	BaseURL    string `json:"base_url"`  // iLink base URL (default: https://ilinkai.weixin.qq.com)
-	BotID      string `json:"bot_id"`    // ilink_bot_id
-	UserID     string `json:"user_id"`   // ilink_user_id
+	BotToken   string `json:"bot_token"`    // iLink bot_token
+	BaseURL    string `json:"base_url"`     // iLink base URL (default: https://ilinkai.weixin.qq.com)
+	BotID      string `json:"bot_id"`       // ilink_bot_id
+	UserID     string `json:"user_id"`      // ilink_user_id
+	SKRouteTag string `json:"sk_route_tag"` // optional routing tag for backend traffic attribution
 }
 
 // Bot wraps a WeChat iLink bot with agent pool integration.
@@ -64,6 +65,11 @@ func (b *Bot) Platform() string { return channel.PlatformWeixin }
 // Stop gracefully shuts down the WeChat bot. Implements channel.Channel.
 func (b *Bot) Stop() {
 	logger().Info("stopping weixin bot")
+	if b.client != nil {
+		if err := b.client.NotifyStop(); err != nil {
+			logger().Warn("notifystop failed", "error", err)
+		}
+	}
 	if b.cancel != nil {
 		b.cancel()
 	}
@@ -74,7 +80,12 @@ func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
 
 	// Create the client with config values.
-	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken)
+	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken, b.cfg.SKRouteTag)
+
+	// Notify backend this bot is online.
+	if err := b.client.NotifyStart(); err != nil {
+		logger().Warn("notifystart failed", "error", err)
+	}
 
 	// Poll loop with retry/backoff.
 	timeout := 35 * time.Second
@@ -90,7 +101,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		default:
 		}
 
-		resp, err := b.client.GetUpdates(b.cursor, "", timeout)
+		resp, err := b.client.GetUpdates(b.cursor, timeout)
 		if err != nil {
 			if errors.Is(err, ErrSessionExpired) {
 				logger().Error("session expired, clearing all state")
@@ -172,7 +183,7 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 		},
 	}
 
-	if err := b.client.SendMessage(msg, ""); err != nil {
+	if err := b.client.SendMessage(msg); err != nil {
 		return fmt.Errorf("weixin: send notification: %w", err)
 	}
 	return nil
