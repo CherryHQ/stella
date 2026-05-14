@@ -102,7 +102,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
 	},
-		pkgagent.WithSystem(cfg.system),
+		pkgagent.WithSystem(taskSystemPrompt(cfg.system)),
 		pkgagent.WithHooks(cfg.hooks, hookMeta),
 		pkgagent.WithToolLifecycle(cfg.toolLifecycle),
 	)
@@ -125,16 +125,11 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	if len(history) == 0 {
 		// First run: system is set on runner via WithSystem; inject task description as first user message.
 		messages = []ai.Message{
-			ai.UserMessage{Content: fmt.Sprintf("Task: %s\n\nDescription: %s", task.Title, task.Description)},
+			ai.UserMessage{Content: taskStartMessage(task)},
 		}
 	} else {
 		// Resume: include history plus a resume prompt.
-		resumeMsg := ai.UserMessage{
-			Content: fmt.Sprintf(
-				"[Resume] Task %q (id: %s) is being resumed. Continue from where you left off.",
-				task.Title, task.ID,
-			),
-		}
+		resumeMsg := ai.UserMessage{Content: taskResumeMessage(task)}
 		messages = make([]ai.Message, len(history)+1)
 		copy(messages, history)
 		messages[len(history)] = resumeMsg
@@ -167,6 +162,22 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 			markDone(ctx, cfg.q, task.ID)
 		}
 	}
+}
+
+func taskSystemPrompt(base string) string {
+	return fmt.Sprintf(`%s
+
+# Async task mode
+
+Use task_control for task state: progress at checkpoints, block when user input is needed, request_review before risky/user-visible changes, done when complete, and failed when you cannot continue. Keep context compact and do not notify the user directly.`, base)
+}
+
+func taskStartMessage(task sqlc.AgentTask) string {
+	return fmt.Sprintf("Task ID: %s\nTask: %s\n\nDescription: %s\n\nStored context: %s", task.ID, task.Title, task.Description, task.Context)
+}
+
+func taskResumeMessage(task sqlc.AgentTask) string {
+	return fmt.Sprintf("[Resume] Task ID: %s\nTask: %s\nStatus before resume: %s\nStored context: %s\n\nContinue from the persisted conversation and this task context.", task.ID, task.Title, task.Status, task.Context)
 }
 
 func markFailed(ctx context.Context, q *sqlc.Queries, taskID, reason string) {
