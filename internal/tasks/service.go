@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -166,13 +168,17 @@ func (s *Service) notifyMessage(ctx context.Context, t sqlc.AgentTask) string {
 	if err == nil && len(events) > 0 {
 		detail = events[len(events)-1].Detail
 	}
+	link := ""
+	if base := strings.TrimRight(os.Getenv("STELLA_PUBLIC_URL"), "/"); base != "" {
+		link = " " + base + "/tasks/" + t.ID
+	}
 	switch t.Status {
 	case "blocked":
-		return fmt.Sprintf("Task %q is blocked: %s", t.Title, detail)
+		return fmt.Sprintf("Task %q is blocked: %s%s", t.Title, detail, link)
 	case "review_requested":
-		return fmt.Sprintf("Task %q requests review: %s", t.Title, detail)
+		return fmt.Sprintf("Task %q requests review: %s%s", t.Title, detail, link)
 	default:
-		return fmt.Sprintf("Task %q (%s): %s", t.Title, t.Status, detail)
+		return fmt.Sprintf("Task %q (%s): %s%s", t.Title, t.Status, detail, link)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -119,7 +121,7 @@ func (t *TaskTool) create(ctx context.Context, args map[string]any) (string, err
 
 	result := map[string]any{
 		"task": task,
-		"url":  "/tasks/" + task.ID,
+		"url":  taskURL(task.ID),
 	}
 	out, err := json.Marshal(result)
 	if err != nil {
@@ -160,4 +162,9 @@ func (t *TaskTool) get(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("task: marshal result: %w", err)
 	}
 	return string(out), nil
+}
+
+func taskURL(id string) string {
+	base := strings.TrimRight(os.Getenv("STELLA_PUBLIC_URL"), "/")
+	return base + "/tasks/" + id
 }
