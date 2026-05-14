@@ -154,6 +154,18 @@ func (s *Server) GetDigest(w http.ResponseWriter, r *http.Request) {
 	s.recally.GetDigest(w, r)
 }
 
+func (s *Server) ListStoredDigests(w http.ResponseWriter, r *http.Request, params apiserver.ListStoredDigestsParams) {
+	s.recally.ListStoredDigests(w, r, params)
+}
+
+func (s *Server) SaveDigest(w http.ResponseWriter, r *http.Request) {
+	s.recally.SaveDigest(w, r)
+}
+
+func (s *Server) GetStoredDigest(w http.ResponseWriter, r *http.Request, date string) {
+	s.recally.GetStoredDigest(w, r, date)
+}
+
 func (s *Server) ListFeeds(w http.ResponseWriter, r *http.Request, params apiserver.ListFeedsParams) {
 	s.recally.ListFeeds(w, r, params)
 }

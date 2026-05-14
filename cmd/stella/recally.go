@@ -19,6 +19,7 @@ func recallyCommand() *ucli.Command {
 			recallyDeleteCommand(),
 			recallyFeedCommand(),
 			recallyDigestCommand(),
+			recallyDigestSaveCommand(),
 		},
 	}
 }

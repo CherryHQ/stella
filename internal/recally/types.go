@@ -151,6 +151,45 @@ type TagCount struct {
 	Count int64  `json:"count"`
 }
 
+// DigestSection identifies which section of a digest an article belongs to.
+type DigestSection = string
+
+const (
+	DigestSectionSavedYesterday  DigestSection = "saved_yesterday"
+	DigestSectionWorthRevisiting DigestSection = "worth_revisiting"
+)
+
+// StoredDigest is a persisted daily digest snapshot with full article objects.
+type StoredDigest struct {
+	ID                   string     `json:"id"`
+	UserID               int64      `json:"user_id"`
+	Date                 string     `json:"date"`
+	Narrative            string     `json:"narrative"`
+	SavedYesterday       []Article  `json:"saved_yesterday"`
+	SavedYesterdayCount  int64      `json:"saved_yesterday_count"`
+	UnreadCount          int64      `json:"unread_count"`
+	ReadCount            int64      `json:"read_count"`
+	ArchivedCount        int64      `json:"archived_count"`
+	StarredCount         int64      `json:"starred_count"`
+	WorthRevisiting      []Article  `json:"worth_revisiting"`
+	WorthRevisitingCount int64      `json:"worth_revisiting_count"`
+	TopTags              []TagCount `json:"top_tags"`
+	TotalArticles        int64      `json:"total_articles"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// StoredDigestSummary is a lightweight digest record for list views.
+type StoredDigestSummary struct {
+	ID                   string    `json:"id"`
+	Date                 string    `json:"date"`
+	Narrative            string    `json:"narrative"`
+	SavedYesterdayCount  int64     `json:"saved_yesterday_count"`
+	WorthRevisitingCount int64     `json:"worth_revisiting_count"`
+	TotalArticles        int64     `json:"total_articles"`
+	CreatedAt            time.Time `json:"created_at"`
+}
+
 // Digest contains daily reading statistics and summaries.
 type Digest struct {
 	UserID               int64      `json:"user_id"`

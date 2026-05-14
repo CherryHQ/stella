@@ -392,6 +392,12 @@ type GetArticleParams struct {
 	Include *string `form:"include,omitempty" json:"include,omitempty"`
 }
 
+// ListStoredDigestsParams defines parameters for ListStoredDigests.
+type ListStoredDigestsParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // ListFeedsParams defines parameters for ListFeeds.
 type ListFeedsParams struct {
 	// Url Lookup by exact feed URL
@@ -554,6 +560,9 @@ type SaveArticleJSONRequestBody = externalRef0.SaveArticleRequest
 
 // UpdateArticleJSONRequestBody defines body for UpdateArticle for application/json ContentType.
 type UpdateArticleJSONRequestBody = externalRef0.UpdateArticleRequest
+
+// SaveDigestJSONRequestBody defines body for SaveDigest for application/json ContentType.
+type SaveDigestJSONRequestBody = externalRef0.SaveDigestRequest
 
 // CreateFeedJSONRequestBody defines body for CreateFeed for application/json ContentType.
 type CreateFeedJSONRequestBody = externalRef0.CreateFeedRequest
@@ -884,6 +893,15 @@ type ServerInterface interface {
 	// Get the current user's reading digest
 	// (GET /api/recally/digest)
 	GetDigest(w http.ResponseWriter, r *http.Request)
+	// List stored digests (most recent first)
+	// (GET /api/recally/digests)
+	ListStoredDigests(w http.ResponseWriter, r *http.Request, params ListStoredDigestsParams)
+	// Save a digest snapshot with narrative
+	// (POST /api/recally/digests)
+	SaveDigest(w http.ResponseWriter, r *http.Request)
+	// Get a stored digest by date (YYYY-MM-DD)
+	// (GET /api/recally/digests/{date})
+	GetStoredDigest(w http.ResponseWriter, r *http.Request, date string)
 	// List subscribed feeds
 	// (GET /api/recally/feeds)
 	ListFeeds(w http.ResponseWriter, r *http.Request, params ListFeedsParams)
@@ -3881,6 +3899,110 @@ func (siw *ServerInterfaceWrapper) GetDigest(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListStoredDigests operation middleware
+func (siw *ServerInterfaceWrapper) ListStoredDigests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListStoredDigestsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStoredDigests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveDigest operation middleware
+func (siw *ServerInterfaceWrapper) SaveDigest(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveDigest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetStoredDigest operation middleware
+func (siw *ServerInterfaceWrapper) GetStoredDigest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStoredDigest(w, r, date)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListFeeds operation middleware
 func (siw *ServerInterfaceWrapper) ListFeeds(w http.ResponseWriter, r *http.Request) {
 
@@ -5579,6 +5701,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.GetArticle)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.UpdateArticle)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/digest", wrapper.GetDigest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/digests", wrapper.ListStoredDigests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/digests", wrapper.SaveDigest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/digests/{date}", wrapper.GetStoredDigest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds", wrapper.ListFeeds)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/feeds", wrapper.CreateFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds/{feedId}/entries", wrapper.ListFeedEntries)

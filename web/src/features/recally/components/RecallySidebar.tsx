@@ -21,6 +21,8 @@ export function RecallySidebar({
   showAllTags,
   setShowAllTags,
   digest,
+  digestView,
+  setDigestView,
   sortedTags,
   visibleTags,
   hasMoreTags,
@@ -56,6 +58,8 @@ export function RecallySidebar({
         worth_revisiting_count?: number;
       }
     | undefined;
+  digestView: boolean;
+  setDigestView: Dispatch<SetStateAction<boolean>>;
   sortedTags: string[];
   visibleTags: string[];
   hasMoreTags: boolean;
@@ -84,14 +88,17 @@ export function RecallySidebar({
           <SidebarNavItem
             label={t("recally.nav.inbox")}
             count={digest?.total_articles}
-            active={statusFilter === null && starredFilter === null && tagFilter === null}
+            active={
+              !digestView && statusFilter === null && starredFilter === null && tagFilter === null
+            }
             onClick={clearFilters}
           />
           <SidebarNavItem
             label={t("recally.nav.starred")}
             count={digest?.starred_count}
-            active={starredFilter === true && tagFilter === null}
+            active={!digestView && starredFilter === true && tagFilter === null}
             onClick={() => {
+              setDigestView(false);
               setStarredFilter(true);
               setStatusFilter(null);
               setSourceTypeFilter(null);
@@ -101,9 +108,22 @@ export function RecallySidebar({
           <SidebarNavItem
             label={t("recally.nav.archive")}
             count={digest?.archived_count}
-            active={statusFilter === "archived" && tagFilter === null}
+            active={!digestView && statusFilter === "archived" && tagFilter === null}
             onClick={() => {
+              setDigestView(false);
               setStatusFilter("archived");
+              setStarredFilter(null);
+              setSourceTypeFilter(null);
+              setTagFilter(null);
+            }}
+          />
+          <SidebarNavItem
+            label={t("recally.nav.digest")}
+            count={digest?.saved_yesterday_count}
+            active={digestView}
+            onClick={() => {
+              setDigestView(true);
+              setStatusFilter(null);
               setStarredFilter(null);
               setSourceTypeFilter(null);
               setTagFilter(null);
