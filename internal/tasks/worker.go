@@ -57,12 +57,14 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	}
 
 	// Log a "started" event.
+	startedAt := time.Now().Format(time.RFC3339)
 	_, _ = cfg.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 		ID:        newID(),
 		TaskID:    task.ID,
 		EventType: "started",
 		Detail:    "",
-		CreatedAt: time.Now().Format(time.RFC3339),
+		CreatedAt: startedAt,
+		UpdatedAt: startedAt,
 	})
 
 	// Build the control tool with the worker's cancel func.
@@ -78,12 +80,12 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	session := memory.Session{
 		ID:      "task:" + task.ID,
 		UserID:  task.UserID,
-		AgentID: task.AgentID,
+		AgentID: task.AgentID.String,
 	}
 
 	memCtx := memory.WithSessionID(ctx, session.ID)
 	memCtx = memory.WithUserID(memCtx, task.UserID)
-	memCtx = memory.WithAgentID(memCtx, task.AgentID)
+	memCtx = memory.WithAgentID(memCtx, task.AgentID.String)
 
 	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
 		log.Error("memory bootstrap failed", "error", err)
@@ -94,7 +96,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	hookMeta := hooks.HookMeta{
 		SessionID: session.ID,
 		UserID:    task.UserID,
-		AgentID:   task.AgentID,
+		AgentID:   task.AgentID.String,
 	}
 
 	runner, err := pkgagent.NewRunner(pkgagent.RunnerConfig{
@@ -183,6 +185,7 @@ func markFailed(ctx context.Context, q *sqlc.Queries, taskID, reason string) {
 		EventType: "failed",
 		Detail:    reason,
 		CreatedAt: now,
+		UpdatedAt: now,
 	})
 }
 
@@ -199,6 +202,7 @@ func markDone(ctx context.Context, q *sqlc.Queries, taskID string) {
 		EventType: "done",
 		Detail:    "",
 		CreatedAt: now,
+		UpdatedAt: now,
 	})
 }
 

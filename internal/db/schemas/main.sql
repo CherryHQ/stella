@@ -29,5 +29,5 @@
 -- atlas:import tables/auth_oauth_provider.sql
 -- atlas:import tables/articles.sql
 -- atlas:import tables/rss_feeds.sql
--- atlas:import tables/agent_tasks.sql
--- atlas:import tables/agent_task_events.sql
+-- atlas:import tables/agent_task.sql
+-- atlas:import tables/agent_task_event.sql

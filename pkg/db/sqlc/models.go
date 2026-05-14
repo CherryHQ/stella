@@ -9,18 +9,18 @@ import (
 )
 
 type AgentTask struct {
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	Status        string `json:"status"`
-	Priority      string `json:"priority"`
-	SessionID     string `json:"session_id"`
-	Context       string `json:"context"`
-	ReviewRequest string `json:"review_request"`
-	AgentID       string `json:"agent_id"`
-	UserID        int64  `json:"user_id"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	Status        string         `json:"status"`
+	Priority      string         `json:"priority"`
+	SessionID     sql.NullString `json:"session_id"`
+	Context       string         `json:"context"`
+	ReviewRequest string         `json:"review_request"`
+	AgentID       sql.NullString `json:"agent_id"`
+	UserID        int64          `json:"user_id"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
 }
 
 type AgentTaskEvent struct {
@@ -29,6 +29,7 @@ type AgentTaskEvent struct {
 	EventType string `json:"event_type"`
 	Detail    string `json:"detail"`
 	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type Article struct {

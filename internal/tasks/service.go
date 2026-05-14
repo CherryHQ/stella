@@ -177,10 +177,10 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 		Description:   params.Description,
 		Status:        "pending",
 		Priority:      priority,
-		SessionID:     "task:" + id,
+		SessionID:     sql.NullString{String: "task:" + id, Valid: true},
 		Context:       "{}",
 		ReviewRequest: "{}",
-		AgentID:       params.AgentID,
+		AgentID:       sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
 		UserID:        params.UserID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -249,13 +249,13 @@ func (s *Service) UpdateTask(ctx context.Context, id string, userID int64, isAdm
 	}
 	agentID := update.AgentID
 	if agentID == "" {
-		agentID = task.AgentID
+		agentID = task.AgentID.String
 	}
 	if err := s.q.UpdateAgentTask(ctx, sqlc.UpdateAgentTaskParams{
 		Title:       title,
 		Description: desc,
 		Priority:    priority,
-		AgentID:     agentID,
+		AgentID:     sql.NullString{String: agentID, Valid: agentID != ""},
 		UpdatedAt:   time.Now().Format(time.RFC3339),
 		ID:          id,
 	}); err != nil {
@@ -366,6 +366,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 			EventType: "rejected",
 			Detail:    action.Message,
 			CreatedAt: now,
+			UpdatedAt: now,
 		})
 
 	case "respond":
@@ -376,11 +377,11 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isA
 		session := memory.Session{
 			ID:      "task:" + id,
 			UserID:  task.UserID,
-			AgentID: task.AgentID,
+			AgentID: task.AgentID.String,
 		}
 		memCtx := memory.WithSessionID(ctx, session.ID)
 		memCtx = memory.WithUserID(memCtx, task.UserID)
-		memCtx = memory.WithAgentID(memCtx, task.AgentID)
+		memCtx = memory.WithAgentID(memCtx, task.AgentID.String)
 		if err := s.mem.Bootstrap(memCtx, session); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond bootstrap: %w", err)
 		}

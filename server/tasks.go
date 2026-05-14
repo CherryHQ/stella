@@ -265,11 +265,11 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 	if t.Description != "" {
 		at.Description = &t.Description
 	}
-	if t.AgentID != "" {
-		at.AgentId = &t.AgentID
+	if t.AgentID.Valid && t.AgentID.String != "" {
+		at.AgentId = &t.AgentID.String
 	}
-	if t.SessionID != "" {
-		at.SessionId = &t.SessionID
+	if t.SessionID.Valid && t.SessionID.String != "" {
+		at.SessionId = &t.SessionID.String
 	}
 	if t.UserID != 0 {
 		at.UserId = &t.UserID

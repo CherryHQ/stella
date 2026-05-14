@@ -179,12 +179,14 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 }
 
 func (t *TaskControlTool) logEvent(ctx context.Context, eventType, detail string) error {
+	now := time.Now().Format(time.RFC3339)
 	_, err := t.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 		ID:        uuid.New().String(),
 		TaskID:    t.taskID,
 		EventType: eventType,
 		Detail:    detail,
-		CreatedAt: time.Now().Format(time.RFC3339),
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		return fmt.Errorf("task_control: log event: %w", err)
