@@ -385,6 +385,15 @@ const en = {
   "tasks.cancelTask": "Cancel Task",
   "tasks.openSession": "Continue in session",
   "tasks.deleteConfirm": "Delete task?",
+  "tasks.metricTotal": "Total",
+  "tasks.metricRunning": "Running",
+  "tasks.metricAttention": "Needs Attention",
+  "tasks.metricPending": "Pending",
+  "tasks.metricDone": "Done",
+  "tasks.metricFailed": "Failed",
+  "tasks.needsAttention": "Needs Attention",
+  "tasks.allTasks": "All tasks",
+  "tasks.respondPlaceholder": "Enter your response…",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -774,6 +783,15 @@ const zh: Record<MessageKey, string> = {
   "tasks.cancelTask": "取消任务",
   "tasks.openSession": "在会话中继续",
   "tasks.deleteConfirm": "删除任务？",
+  "tasks.metricTotal": "总计",
+  "tasks.metricRunning": "运行中",
+  "tasks.metricAttention": "需要关注",
+  "tasks.metricPending": "等待中",
+  "tasks.metricDone": "已完成",
+  "tasks.metricFailed": "已失败",
+  "tasks.needsAttention": "需要关注",
+  "tasks.allTasks": "所有任务",
+  "tasks.respondPlaceholder": "输入您的回复…",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };
