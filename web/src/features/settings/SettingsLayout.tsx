@@ -1,5 +1,6 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
-import { Link, Outlet } from "@tanstack/react-router";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
@@ -204,43 +205,101 @@ const settingsNav: {
   },
 ];
 
+function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: () => void }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {settingsNav.map((group) => {
+        const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
+        if (visibleItems.length === 0) return null;
+        return (
+          <div key={group.section}>
+            <div className="px-5 pt-6 pb-2 text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+              {group.section}
+            </div>
+            {visibleItems.map((item) => (
+              <Link
+                key={item.id}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                to={item.href as any}
+                onClick={onItemClick}
+                className="group/item flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium transition-colors text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                activeProps={{
+                  className:
+                    "group/item active flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium bg-primary/5 text-primary transition-colors",
+                }}
+              >
+                {item.icon}
+                {t(item.label)}
+              </Link>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function SettingsLayout() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const allItems = settingsNav.flatMap((g) => g.items);
+  const activeItem = allItems.find((item) => pathname.startsWith(item.href));
+  const activeLabel = activeItem ? t(activeItem.label) : "";
 
   return (
     <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
-      <nav className="w-[200px] shrink-0 border-r border-border bg-background overflow-y-auto">
-        {settingsNav.map((group) => {
-          const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
-          if (visibleItems.length === 0) return null;
-          return (
-            <div key={group.section}>
-              <div className="px-5 pt-6 pb-2 text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-                {group.section}
-              </div>
-              {visibleItems.map((item) => (
-                <Link
-                  key={item.id}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  to={item.href as any}
-                  className="group/item flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium transition-colors text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  activeProps={{
-                    className:
-                      "group/item active flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium bg-primary/5 text-primary transition-colors",
-                  }}
-                >
-                  {item.icon}
-                  {t(item.label)}
-                </Link>
-              ))}
-            </div>
-          );
-        })}
+      {/* Desktop sidebar — hidden on mobile */}
+      <nav className="hidden md:flex w-[200px] shrink-0 border-r border-border bg-background overflow-y-auto flex-col">
+        <NavItems isAdmin={isAdmin} />
       </nav>
-      <div className="flex-1 overflow-y-auto p-8 px-10 bg-background">
-        <Outlet />
+
+      {/* Mobile overlay */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
+          {/* Slide-in panel */}
+          <nav className="absolute left-0 top-0 bottom-0 w-64 bg-background overflow-y-auto shadow-xl">
+            <NavItems isAdmin={isAdmin} onItemClick={() => setMobileNavOpen(false)} />
+          </nav>
+        </div>
+      )}
+
+      {/* Content area */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-background">
+        {/* Mobile top bar */}
+        <div className="md:hidden shrink-0 flex items-center gap-3 px-4 border-b border-border h-11">
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Open navigation menu"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="w-5 h-5"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </button>
+          {activeLabel && <span className="text-sm font-medium">{activeLabel}</span>}
+        </div>
+
+        {/* Scrollable outlet — keeps exact p-8 px-10 for pages that depend on it */}
+        <div className="flex-1 overflow-y-auto p-8 px-10">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
