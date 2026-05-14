@@ -9,8 +9,6 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
-
-	"github.com/google/uuid"
 )
 
 const controlToolName = "task_control"
@@ -212,7 +210,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 func (t *TaskControlTool) logEvent(ctx context.Context, eventType, detail string) error {
 	now := time.Now().Format(time.RFC3339)
 	_, err := t.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        uuid.New().String(),
+		ID:        newID(),
 		TaskID:    t.taskID,
 		EventType: eventType,
 		Detail:    detail,

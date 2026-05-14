@@ -514,7 +514,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}
 			hookSet := hooks.NewHookSet(poolMgr.HookPlugins())
 			tasksSvc = tasks.New(tasks.Config{
-				DB:            db,
 				Queries:       sqlc.New(db),
 				Notifier:      dispatcher,
 				Memory:        memProvider,

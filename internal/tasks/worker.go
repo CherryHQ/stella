@@ -70,9 +70,8 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 
 	// Build ToolSet from parent registry + control tool.
 	toolSet := pkgagent.ToolSetFromRegistry(cfg.registry)
-	toolDefs := cfg.registry.Definitions()
 	toolSet[controlToolName] = pkgagent.WrapTool(controlTool)
-	toolDefs = append(toolDefs, controlTool.Definition())
+	toolDefs := append(cfg.registry.Definitions(), controlTool.Definition())
 
 	// Set up memory session.
 	session := memory.Session{
@@ -101,7 +100,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		Stream:          cfg.stream,
 		Model:           cfg.model,
 		Tools:           toolSet,
-		ToolDefinitions: aiToolDefs(toolDefs),
+		ToolDefinitions: toolDefs,
 	},
 		pkgagent.WithSystem(cfg.system),
 		pkgagent.WithHooks(cfg.hooks, hookMeta),
@@ -202,11 +201,4 @@ func markDone(ctx context.Context, q *sqlc.Queries, taskID string) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
-}
-
-// aiToolDefs converts tools.Definition (= ai.ToolDefinition) slice — it's a no-op alias.
-func aiToolDefs(defs []tools.Definition) []ai.ToolDefinition {
-	out := make([]ai.ToolDefinition, len(defs))
-	copy(out, defs)
-	return out
 }

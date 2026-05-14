@@ -27,7 +27,6 @@ const defaultMaxConcurrency = 5
 // Service manages task lifecycle: creation, dispatching workers, and actions.
 type Service struct {
 	q        *sqlc.Queries
-	db       *sql.DB
 	notifier notify.Notifier
 	mem      memory.Provider
 
@@ -51,7 +50,6 @@ type Service struct {
 
 // Config holds construction parameters for Service.
 type Config struct {
-	DB             *sql.DB
 	Queries        *sqlc.Queries
 	Notifier       notify.Notifier
 	Memory         memory.Provider
@@ -96,7 +94,6 @@ func New(cfg Config) *Service {
 	}
 	return &Service{
 		q:              cfg.Queries,
-		db:             cfg.DB,
 		notifier:       cfg.Notifier,
 		mem:            cfg.Memory,
 		stream:         cfg.Stream,
@@ -150,8 +147,7 @@ func (s *Service) Tick() {
 	if ctx == nil {
 		return
 	}
-	now := time.Now()
-	nowStr := now.Format(time.RFC3339)
+	nowStr := time.Now().Format(time.RFC3339)
 
 	s.sweepNotifications(ctx, nowStr)
 	s.sweepDepFailures(ctx, nowStr)
@@ -285,7 +281,7 @@ func (s *Service) depsAllDone(ctx context.Context, t sqlc.AgentTask) bool {
 func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc.AgentTask, error) {
 	priority := params.Priority
 	if priority == "" {
-		priority = "normal"
+		priority = "routine"
 	}
 
 	// Validate deps exist.
