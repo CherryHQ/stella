@@ -356,25 +356,21 @@ export function AutomationsPage() {
               Automations
             </h1>
             <div className="hidden text-xs text-muted-foreground md:block">
-              Tasks, schedules, and execution history
+              Now, later, and what happened
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex gap-1 rounded-xl border border-border bg-card/70 p-1">
-              <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Tasks" />
+              <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Now" />
               <TabButton
                 active={tab === "schedules"}
                 onClick={() => setTab("schedules")}
-                label="Schedules"
+                label="Scheduler"
               />
-              <TabButton
-                active={tab === "history"}
-                onClick={() => setTab("history")}
-                label="History"
-              />
+              <TabButton active={tab === "history"} onClick={() => setTab("history")} label="Log" />
             </div>
             <Button variant="outline" size="sm" onClick={() => setCreatingTask(true)}>
-              New task
+              New work
             </Button>
             <Button size="sm" onClick={startNewJob}>
               New schedule
@@ -387,9 +383,9 @@ export function AutomationsPage() {
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">Tasks board</h2>
+                    <h2 className="text-lg font-semibold tracking-tight">Now</h2>
                     <p className="text-sm text-muted-foreground">
-                      Async tasks only: durable work items with status, review, and blockers.
+                      Things Stella is doing now or waiting for you to review.
                     </p>
                   </div>
                   {loading && <Badge variant="outline">Refreshing…</Badge>}
@@ -465,9 +461,9 @@ export function AutomationsPage() {
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">Schedules</h2>
+                    <h2 className="text-lg font-semibold tracking-tight">Scheduler</h2>
                     <p className="text-sm text-muted-foreground">
-                      Scheduler definitions only: time-based triggers/templates, not work instances.
+                      Things Stella should start later or repeat automatically.
                     </p>
                   </div>
                   <Button size="sm" onClick={startNewJob}>
@@ -491,9 +487,9 @@ export function AutomationsPage() {
             {tab === "history" && (
               <>
                 <div className="mb-4">
-                  <h2 className="text-lg font-semibold tracking-tight">History ledger</h2>
+                  <h2 className="text-lg font-semibold tracking-tight">Log</h2>
                   <p className="text-sm text-muted-foreground">
-                    Execution history only: scheduler runs and task runs/events, not definitions.
+                    What ran, when it ran, and whether it succeeded.
                   </p>
                 </div>
                 <div className="relative grid gap-3 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border lg:grid-cols-2 lg:before:hidden">
@@ -551,8 +547,7 @@ export function AutomationsPage() {
               <div className="flex min-h-[30rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/60 p-6 text-center">
                 <h2 className="font-serif text-2xl italic tracking-tight">Select an item</h2>
                 <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                  Tasks open task detail. Schedules open run history first, with settings as a
-                  secondary section. History rows link back to their source object.
+                  Pick something from Now, Scheduler, or Log to inspect it here.
                 </p>
               </div>
             )}
@@ -563,7 +558,7 @@ export function AutomationsPage() {
       <Dialog open={creatingTask} onOpenChange={(open) => !open && setCreatingTask(false)}>
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New task</DialogTitle>
+            <DialogTitle>New work</DialogTitle>
           </DialogHeader>
           <DialogPanel>
             <div className="space-y-4">
