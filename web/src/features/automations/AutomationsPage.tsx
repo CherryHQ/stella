@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { meQueryOptions } from "@/lib/queries/me";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
@@ -117,10 +119,11 @@ function isFailedJob(job: SchedulerJob): boolean {
 
 export function AutomationsPage() {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [runsByJob, setRunsByJob] = useState<Record<number, SchedulerJobRun[]>>({});
   const [tab, setTab] = useState<ViewTab>("work");
   const [workLane, setWorkLane] = useState<WorkLaneKey>("attention");
@@ -151,17 +154,15 @@ export function AutomationsPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [taskList, jobList, agentList, me] = await Promise.all([
+      const [taskList, jobList, agentList] = await Promise.all([
         api<{ items: ComponentsAgentTask[] }>("GET", "/api/tasks"),
         api<SchedulerJobList>("GET", "/api/scheduler/jobs"),
         api<Agent[]>("GET", "/api/agents"),
-        api<{ is_admin: boolean }>("GET", "/api/auth/me").catch(() => ({ is_admin: false })),
       ]);
       const nextJobs = jobList.items || [];
       setTasks(taskList.items || []);
       setJobs(nextJobs);
       setAgents(agentList || []);
-      setIsAdmin(me.is_admin || false);
       await Promise.all(nextJobs.slice(0, 12).map((job) => loadRuns(job.id)));
     } finally {
       setLoading(false);

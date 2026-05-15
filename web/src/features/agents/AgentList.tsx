@@ -27,10 +27,10 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
         {agents.map((a) => (
           <div
             key={a.id}
-            onClick={() => onEdit(a)}
-            className={`group rounded-md px-2 py-2 cursor-pointer transition-colors ${
-              editingId === a.id ? "bg-primary/8" : "hover:bg-muted"
-            }`}
+            onClick={() => canEditAgent(a) && onEdit(a)}
+            className={`group rounded-md px-2 py-2 transition-colors ${
+              canEditAgent(a) ? "cursor-pointer" : "cursor-default opacity-60"
+            } ${editingId === a.id ? "bg-primary/8" : canEditAgent(a) ? "hover:bg-muted" : ""}`}
           >
             <div className="flex items-start justify-between gap-1">
               <div className="min-w-0 flex-1">

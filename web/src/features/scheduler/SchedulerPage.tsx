@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { meQueryOptions } from "@/lib/queries/me";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import type { Agent, SchedulerJob, SchedulerJobList, SchedulerJobRun } from "@/lib/types";
@@ -59,9 +61,10 @@ interface ConfirmState {
 
 export function SchedulerPage() {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
@@ -94,18 +97,9 @@ export function SchedulerPage() {
     }
   }, []);
 
-  const loadMe = useCallback(async () => {
-    try {
-      const me = await api<{ is_admin: boolean }>("GET", "/api/auth/me");
-      setIsAdmin(me.is_admin || false);
-    } catch {
-      setIsAdmin(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void Promise.all([loadJobs(), loadAgents(), loadMe()]);
-  }, [loadJobs, loadAgents, loadMe]);
+    void Promise.all([loadJobs(), loadAgents()]);
+  }, [loadJobs, loadAgents]);
 
   const loadRuns = useCallback(async (jobId: number) => {
     try {

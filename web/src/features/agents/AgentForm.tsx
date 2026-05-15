@@ -52,7 +52,10 @@ export function AgentForm({
   onOpenSkillInstallModal,
 }: Props) {
   const { t } = useI18n();
-  const { editingId, activeTab, isAdmin, form } = state;
+  const { editingId, activeTab, isAdmin, form, currentUserId } = state;
+
+  const canEdit =
+    isAdmin || !editingId || (form.creator_id !== 0 && form.creator_id === currentUserId);
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),
@@ -131,9 +134,11 @@ export function AgentForm({
           <Button onClick={onCancel} variant="ghost" size="sm">
             {t("common.cancel")}
           </Button>
-          <Button onClick={onSave} size="sm">
-            {editingId ? t("common.update") : t("common.create")}
-          </Button>
+          {canEdit && (
+            <Button onClick={onSave} size="sm">
+              {editingId ? t("common.update") : t("common.create")}
+            </Button>
+          )}
         </div>
       </div>
     </main>

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
 import { api } from "@/lib/api";
 import type { Channel, Identity, Plugin } from "@/lib/types";
@@ -694,7 +696,8 @@ function PublicChannelDetail({
 
 export function ChannelsPage() {
   const { t } = useI18n();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { data: me } = useQuery(meQueryOptions);
+  const isAdmin = me?.is_admin ?? false;
   const [publicChannels, setPublicChannels] = useState<Channel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
@@ -808,16 +811,7 @@ export function ChannelsPage() {
 
   useEffect(() => {
     const init = async () => {
-      let admin = false;
-      try {
-        const me = await api<{ is_admin: boolean }>("GET", "/api/auth/me");
-        admin = Boolean(me?.is_admin);
-        setIsAdmin(admin);
-      } catch {
-        /* ignore */
-      }
-
-      if (admin) {
+      if (isAdmin) {
         await loadChannelPlugins();
         await Promise.all([
           loadPublicChannels(),
@@ -848,7 +842,7 @@ export function ChannelsPage() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdmin, loadChannelPlugins, loadPublicChannels, loadIdentities, loadInstances]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear selection if selected instance is removed
   useEffect(() => {
