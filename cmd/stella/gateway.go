@@ -20,7 +20,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/credentials"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -29,7 +28,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
 	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/pkg/tools"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 	"github.com/CherryHQ/stella/server"
 )
@@ -108,18 +106,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		adminSrv.SetTasksService(s.tasksSvc)
 	}
 
-	// Wire the shared credentials service: inject invalidator and add the tool to
-	// all pools so every agent can use the credentials tool.
+	// Wire the shared credentials service: inject invalidator so token
+	// refresh propagates to running pools.
 	credSvc := adminSrv.CredentialsService()
 	credSvc.SetInvalidator(s.poolManager)
 	if s.oauthRegistry != nil {
 		credSvc.SetRegistry(s.oauthRegistry)
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
-	}
-	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {
-		if err := s.poolManager.AddBuiltinTool(gctx, tool); err != nil {
-			slog.Warn("failed to add builtin tool to pool manager", "tool", tool.Definition().Name, "error", err)
-		}
 	}
 
 	// Wire vault service if STELLA_VAULT_KEY is set.

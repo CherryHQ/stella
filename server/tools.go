@@ -4,15 +4,12 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/CherryHQ/stella/internal/credentials"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 	"github.com/CherryHQ/stella/plugins/tools/bash"
 	"github.com/CherryHQ/stella/plugins/tools/edit"
 	"github.com/CherryHQ/stella/plugins/tools/read"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
-	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
@@ -69,12 +66,7 @@ func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 // builtinToolDefinitions returns the canonical definitions from each tool
 // package. The memory tool definition is built dynamically from the provider.
 func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
-	defs := []pkgtools.Definition{
-		skillstool.SkillsDefinition(),
-		credentials.OAuthDefinition(),
-		credentials.VaultDefinition(),
-		tasktool.TaskDefinition(),
-	}
+	var defs []pkgtools.Definition
 	if s.mem != nil {
 		defs = append(defs, memory.BuildTool(s.mem).Definition())
 	}
