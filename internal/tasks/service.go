@@ -56,12 +56,14 @@ type Config struct {
 
 // CreateTaskParams holds parameters for creating a new task.
 type CreateTaskParams struct {
-	Title       string
-	Description string
-	Priority    string
-	AgentID     string
-	UserID      int64
-	Deps        []string
+	Title          string
+	Description    string
+	Priority       string
+	AgentID        string
+	UserID         int64
+	Deps           []string
+	SchedulerJobID string
+	SchedulerRunID string
 }
 
 // UpdateTaskParams holds parameters for updating task metadata.
@@ -288,19 +290,21 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	id := newID()
 	now := time.Now().Format(time.RFC3339)
 	task, err := s.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
-		ID:            id,
-		Title:         params.Title,
-		Description:   params.Description,
-		Status:        "pending",
-		Priority:      priority,
-		SessionID:     sql.NullString{String: "task:" + id, Valid: true},
-		Context:       "{}",
-		ReviewRequest: "{}",
-		Deps:          string(depsJSON),
-		AgentID:       sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
-		UserID:        params.UserID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:             id,
+		Title:          params.Title,
+		Description:    params.Description,
+		Status:         "pending",
+		Priority:       priority,
+		SessionID:      sql.NullString{String: "task:" + id, Valid: true},
+		Context:        "{}",
+		ReviewRequest:  "{}",
+		Deps:           string(depsJSON),
+		SchedulerJobID: sql.NullString{String: params.SchedulerJobID, Valid: params.SchedulerJobID != ""},
+		SchedulerRunID: sql.NullString{String: params.SchedulerRunID, Valid: params.SchedulerRunID != ""},
+		AgentID:        sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
+		UserID:         params.UserID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: create: %w", err)
