@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,10 +28,6 @@ func taskCommand() *ucli.Command {
 	}
 }
 
-func taskAPI() (*apiclient.Client, error) {
-	return newAPIClient()
-}
-
 func taskListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
@@ -40,21 +37,14 @@ func taskListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := taskAPI()
-			if err != nil {
-				return err
-			}
 			params := &apiclient.ListAgentTasksParams{}
 			if s := c.String("status"); s != "" {
 				params.Status = &s
 			}
-			resp, err := api.ListAgentTasks(c.Context, params)
+			list, err := apiCall[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListAgentTasks(c.Context, params)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.AgentTaskList
-			if err := decodeDataJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -88,17 +78,10 @@ func taskGetCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task get <task-id>")
 			}
-			api, err := taskAPI()
+			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetAgentTask(c.Context, id)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.GetAgentTask(c.Context, id)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var task apiclient.AgentTask
-			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -118,10 +101,6 @@ func taskCreateCommand() *ucli.Command {
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency task ID (can be repeated)"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := taskAPI()
-			if err != nil {
-				return err
-			}
 			body := apiclient.CreateAgentTaskJSONRequestBody{
 				Title: c.String("title"),
 			}
@@ -138,13 +117,10 @@ func taskCreateCommand() *ucli.Command {
 			if deps := c.StringSlice("dep"); len(deps) > 0 {
 				body.Deps = &deps
 			}
-			resp, err := api.CreateAgentTask(c.Context, body)
+			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateAgentTask(c.Context, body)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var task apiclient.AgentTask
-			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -167,10 +143,6 @@ func taskUpdateCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task update <task-id>")
 			}
-			api, err := taskAPI()
-			if err != nil {
-				return err
-			}
 			body := apiclient.UpdateAgentTaskJSONRequestBody{}
 			if t := c.String("title"); t != "" {
 				body.Title = &t
@@ -182,13 +154,10 @@ func taskUpdateCommand() *ucli.Command {
 				prio := apitypes.AgentTaskUpdatePriority(p)
 				body.Priority = &prio
 			}
-			resp, err := api.UpdateAgentTask(c.Context, id, body)
+			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.UpdateAgentTask(c.Context, id, body)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var task apiclient.AgentTask
-			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -206,16 +175,9 @@ func taskDeleteCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task delete <task-id>")
 			}
-			api, err := taskAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DeleteAgentTask(c.Context, id)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeDataJSON(resp, nil); err != nil {
+			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteAgentTask(c.Context, id)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Task %q deleted.\n", id)
@@ -243,22 +205,15 @@ func taskActionCommand() *ucli.Command {
 			if !valid[actionType] {
 				return fmt.Errorf("invalid action type %q; must be one of: %s", actionType, strings.Join([]string{"approve", "reject", "respond", "cancel"}, ", "))
 			}
-			api, err := taskAPI()
-			if err != nil {
-				return err
-			}
 			body := apiclient.AgentTaskActionJSONRequestBody{
 				Type: apitypes.AgentTaskActionType(actionType),
 			}
 			if m := c.String("message"); m != "" {
 				body.Message = &m
 			}
-			resp, err := api.AgentTaskAction(c.Context, id, body)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeDataJSON(resp, nil); err != nil {
+			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+				return api.AgentTaskAction(c.Context, id, body)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Action %q applied to task %s.\n", actionType, shortID(id))
@@ -280,17 +235,10 @@ func taskEventsCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task events <task-id>")
 			}
-			api, err := taskAPI()
+			list, err := apiCall[apiclient.AgentTaskEventList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListAgentTaskEvents(c.Context, id)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.ListAgentTaskEvents(c.Context, id)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.AgentTaskEventList
-			if err := decodeDataJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {

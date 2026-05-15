@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
@@ -22,10 +23,6 @@ func oauthCommand() *ucli.Command {
 	}
 }
 
-func oauthAPI() (*apiclient.Client, error) {
-	return newAPIClient()
-}
-
 func oauthProvidersCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "providers",
@@ -34,17 +31,10 @@ func oauthProvidersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := oauthAPI()
+			providers, err := apiCall[[]apiclient.OAuthProviderStatus](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListOAuthProviders(c.Context)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.ListOAuthProviders(c.Context)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var providers []apiclient.OAuthProviderStatus
-			if err := decodeDataJSON(resp, &providers); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -78,17 +68,10 @@ func oauthConnectCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth connect <provider>")
 			}
-			api, err := oauthAPI()
+			flow, err := apiCall[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
+				return api.StartOAuthFlow(c.Context, provider)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.StartOAuthFlow(c.Context, provider)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var flow apiclient.OAuthFlowStatus
-			if err := decodeDataJSON(resp, &flow); err != nil {
 				return err
 			}
 
@@ -106,17 +89,12 @@ func oauthConnectCommand() *ucli.Command {
 				case <-c.Done():
 					return c.Err()
 				case <-ticker.C:
-					pollResp, err := api.PollOAuthFlow(c.Context, provider, flow.FlowId)
+					status, err := apiCall[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
+						return api.PollOAuthFlow(c.Context, provider, flow.FlowId)
+					})
 					if err != nil {
-						return wrapServerErr(err)
-					}
-					var status apiclient.OAuthFlowStatus
-					if err := decodeDataJSON(pollResp, &status); err != nil {
-						pollResp.Body.Close() //nolint:errcheck
 						return err
 					}
-					pollResp.Body.Close() //nolint:errcheck
-
 					switch status.State {
 					case "completed":
 						fmt.Printf("Connected to %s.\n", provider)
@@ -145,17 +123,10 @@ func oauthStatusCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth status <provider>")
 			}
-			api, err := oauthAPI()
+			status, err := apiCall[apiclient.OAuthConnectedResponse](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetOAuthConnected(c.Context, provider)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.GetOAuthConnected(c.Context, provider)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var status apiclient.OAuthConnectedResponse
-			if err := decodeDataJSON(resp, &status); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -185,16 +156,9 @@ func oauthDisconnectCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth disconnect <provider>")
 			}
-			api, err := oauthAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DisconnectOAuth(c.Context, provider)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeDataJSON(resp, nil); err != nil {
+			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DisconnectOAuth(c.Context, provider)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Disconnected from %s.\n", provider)

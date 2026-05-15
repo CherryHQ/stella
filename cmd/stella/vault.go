@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 
 	ucli "github.com/urfave/cli/v2"
@@ -23,10 +24,6 @@ func vaultCommand() *ucli.Command {
 	}
 }
 
-func vaultAPI() (*apiclient.Client, error) {
-	return newAPIClient()
-}
-
 func vaultListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
@@ -35,17 +32,10 @@ func vaultListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := vaultAPI()
+			entries, err := apiCall[[]apiclient.VaultEntry](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListVaultEntries(c.Context)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.ListVaultEntries(c.Context)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var entries []apiclient.VaultEntry
-			if err := decodeDataJSON(resp, &entries); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -78,17 +68,10 @@ func vaultGetCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault get <name>")
 			}
-			api, err := vaultAPI()
+			entry, err := apiCall[apiclient.VaultEntryValue](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetVaultEntry(c.Context, name)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.GetVaultEntry(c.Context, name)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var entry apiclient.VaultEntryValue
-			if err := decodeDataJSON(resp, &entry); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -121,18 +104,9 @@ func vaultSetCommand() *ucli.Command {
 			case "":
 				return fmt.Errorf("usage: stella vault set <name> <value>  (use '-' to read from stdin)")
 			}
-			api, err := vaultAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.SetVaultEntry(c.Context, name, apiclient.SetVaultEntryJSONRequestBody{
-				Value: value,
-			})
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeDataJSON(resp, nil); err != nil {
+			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+				return api.SetVaultEntry(c.Context, name, apiclient.SetVaultEntryJSONRequestBody{Value: value})
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Vault entry %q set.\n", name)
@@ -151,16 +125,9 @@ func vaultDeleteCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault delete <name>")
 			}
-			api, err := vaultAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DeleteVaultEntry(c.Context, name)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeDataJSON(resp, nil); err != nil {
+			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteVaultEntry(c.Context, name)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Vault entry %q deleted.\n", name)
