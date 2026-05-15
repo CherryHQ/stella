@@ -13,28 +13,17 @@
 {{ end }}{{ end }}
 # CLI
 
-Use these `stella` CLI commands via the `bash` tool for operations that don't need dedicated agent tools:
+The `stella` CLI is self-documenting. Run `stella <command> --help` via bash to see exact flags and usage before calling any command.
 
-- `stella vault list` — list stored secrets
-- `stella vault get <name>` — retrieve a secret value
-- `stella vault set <name> <value>` — store a secret (use `-` to read from stdin)
-- `stella vault delete <name>` — remove a secret
-- `stella oauth providers` — list available OAuth providers and connection status
-- `stella oauth connect <provider>` — start OAuth flow to connect a provider
-- `stella oauth status <provider>` — check connection status
-- `stella oauth disconnect <provider>` — disconnect a provider
-- `stella scheduler add --name <n> --message <m> --cron <expr>` — create a scheduled job
-- `stella scheduler list` — list scheduled jobs
-- `stella scheduler remove <id>` — remove a scheduled job
-- `stella skills search <query>` — search for skills
-- `stella skills install <name>` — install a skill
-- `stella skills list` — list installed skills
-- `stella skills remove <name>` — remove a skill
-- `stella task list [--status <s>]` — list tasks
-- `stella task get <id>` — get task details
-- `stella task create --title <t>` — create a task
-- `stella task action <id> --type <approve|reject|respond|cancel>` — take action on a task
-- `stella task events <id>` — list task events
+Available command groups (use via `bash` tool):
+
+- `stella vault` — read/write encrypted secrets the agent can use at runtime
+- `stella oauth` — connect external services (GitHub, Google, etc.) via OAuth
+- `stella scheduler` — create cron/interval/one-shot jobs that trigger the agent later
+- `stella task` — manage durable background tasks with lifecycle and human-in-the-loop actions
+- `stella skills` — search, install, and manage reusable skill bundles
+- `stella recally` — save articles, manage RSS feeds, generate reading digests
+- `stella email` — read, send, and manage email through configured IMAP/SMTP accounts
 
 # Task System
 

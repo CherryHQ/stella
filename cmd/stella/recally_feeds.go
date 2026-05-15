@@ -14,6 +14,9 @@ func recallyFeedCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "feed",
 		Usage: "Manage RSS feeds",
+		Description: `Subscribe to RSS feeds and poll them for new entries. New entries can
+be saved as articles in your library or skipped. Use "feed poll" to
+check all feeds at once or target a single feed by ID.`,
 		Subcommands: []*ucli.Command{
 			recallyFeedAddCommand(),
 			recallyFeedListCommand(),
