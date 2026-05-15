@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import type { Agent, SchedulerJob, SchedulerJobList, SchedulerJobRun } from "@/lib/types";
@@ -115,6 +116,7 @@ function isFailedJob(job: SchedulerJob): boolean {
 }
 
 export function AutomationsPage() {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -319,13 +321,28 @@ export function AutomationsPage() {
   const workLanes: Array<{ key: WorkLaneKey; title: string; count: number; hint: string }> = [
     {
       key: "attention",
-      title: "Needs you",
+      title: t("automations.lane.needsYou"),
       count: attentionTasks.length,
-      hint: "blocked or review",
+      hint: t("automations.lane.needsYouHint"),
     },
-    { key: "running", title: "Running", count: runningTasks.length, hint: "active task work" },
-    { key: "pending", title: "Pending", count: pendingTasks.length, hint: "queued work" },
-    { key: "failed", title: "Failures", count: failedTasks.length, hint: "task failures" },
+    {
+      key: "running",
+      title: t("automations.lane.running"),
+      count: runningTasks.length,
+      hint: t("automations.lane.runningHint"),
+    },
+    {
+      key: "pending",
+      title: t("automations.lane.pending"),
+      count: pendingTasks.length,
+      hint: t("automations.lane.pendingHint"),
+    },
+    {
+      key: "failed",
+      title: t("automations.lane.failures"),
+      count: failedTasks.length,
+      hint: t("automations.lane.failuresHint"),
+    },
   ];
 
   const timeline = useMemo<TimelineItem[]>(() => {
@@ -367,18 +384,26 @@ export function AutomationsPage() {
                 Automations
               </h1>
               <div className="hidden text-sm text-muted-foreground md:block">
-                Now, later, and what happened
+                {t("automations.subtitle")}
               </div>
             </div>
           </div>
           <div className="grid h-10 grid-cols-3 rounded-xl border border-border bg-card/70 p-1 sm:flex sm:w-auto">
-            <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Now" />
+            <TabButton
+              active={tab === "work"}
+              onClick={() => setTab("work")}
+              label={t("automations.tab.tasks")}
+            />
             <TabButton
               active={tab === "schedules"}
               onClick={() => setTab("schedules")}
-              label="Scheduler"
+              label={t("automations.tab.scheduler")}
             />
-            <TabButton active={tab === "history"} onClick={() => setTab("history")} label="Log" />
+            <TabButton
+              active={tab === "history"}
+              onClick={() => setTab("history")}
+              label={t("automations.tab.log")}
+            />
           </div>
         </header>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_32rem]">
@@ -387,15 +412,17 @@ export function AutomationsPage() {
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">Now</h2>
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      {t("automations.tasks.title")}
+                    </h2>
                     <p className="text-sm text-muted-foreground">
-                      Things Stella is doing now or waiting for you to review.
+                      {t("automations.tasks.description")}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {loading && <Badge variant="outline">Refreshing…</Badge>}
+                    {loading && <Badge variant="outline">{t("automations.refreshing")}</Badge>}
                     <Button size="sm" onClick={() => setCreatingTask(true)}>
-                      New work
+                      {t("automations.newTask")}
                     </Button>
                   </div>
                 </div>
@@ -417,7 +444,7 @@ export function AutomationsPage() {
                 </div>
                 <div className="grid gap-3 2xl:grid-cols-4">
                   <LaneColumn
-                    title="Needs you"
+                    title={t("automations.lane.needsYou")}
                     active={workLane === "attention"}
                     hidden={workLane !== "attention"}
                   >
@@ -430,11 +457,11 @@ export function AutomationsPage() {
                       />
                     ))}
                     {attentionTasks.length === 0 && (
-                      <EmptyCard text="No blocked tasks or review requests." />
+                      <EmptyCard text={t("automations.empty.needsYou")} />
                     )}
                   </LaneColumn>
                   <LaneColumn
-                    title="Running"
+                    title={t("automations.lane.running")}
                     active={workLane === "running"}
                     hidden={workLane !== "running"}
                   >
@@ -446,10 +473,12 @@ export function AutomationsPage() {
                         onSelect={() => setSelection({ type: "task", id: task.id })}
                       />
                     ))}
-                    {runningTasks.length === 0 && <EmptyCard text="No task workers are running." />}
+                    {runningTasks.length === 0 && (
+                      <EmptyCard text={t("automations.empty.running")} />
+                    )}
                   </LaneColumn>
                   <LaneColumn
-                    title="Pending"
+                    title={t("automations.lane.pending")}
                     active={workLane === "pending"}
                     hidden={workLane !== "pending"}
                   >
@@ -461,10 +490,12 @@ export function AutomationsPage() {
                         onSelect={() => setSelection({ type: "task", id: task.id })}
                       />
                     ))}
-                    {pendingTasks.length === 0 && <EmptyCard text="No queued tasks." />}
+                    {pendingTasks.length === 0 && (
+                      <EmptyCard text={t("automations.empty.pending")} />
+                    )}
                   </LaneColumn>
                   <LaneColumn
-                    title="Failures"
+                    title={t("automations.lane.failures")}
                     active={workLane === "failed"}
                     hidden={workLane !== "failed"}
                   >
@@ -476,7 +507,9 @@ export function AutomationsPage() {
                         onSelect={() => setSelection({ type: "task", id: task.id })}
                       />
                     ))}
-                    {failedTasks.length === 0 && <EmptyCard text="No failed tasks." />}
+                    {failedTasks.length === 0 && (
+                      <EmptyCard text={t("automations.empty.failures")} />
+                    )}
                   </LaneColumn>
                 </div>
               </>
@@ -486,13 +519,15 @@ export function AutomationsPage() {
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">Scheduler</h2>
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      {t("automations.scheduler.title")}
+                    </h2>
                     <p className="text-sm text-muted-foreground">
-                      Things Stella should start later or repeat automatically.
+                      {t("automations.scheduler.description")}
                     </p>
                   </div>
                   <Button size="sm" onClick={startNewJob}>
-                    New schedule
+                    {t("automations.newSchedule")}
                   </Button>
                 </div>
                 <div className="grid gap-3 lg:grid-cols-2">
@@ -504,7 +539,7 @@ export function AutomationsPage() {
                       onSelect={() => selectJob(job)}
                     />
                   ))}
-                  {jobs.length === 0 && <EmptyCard text="No schedules yet." />}
+                  {jobs.length === 0 && <EmptyCard text={t("automations.scheduler.empty")} />}
                 </div>
               </>
             )}
@@ -512,9 +547,11 @@ export function AutomationsPage() {
             {tab === "history" && (
               <>
                 <div className="mb-4">
-                  <h2 className="text-lg font-semibold tracking-tight">Log</h2>
+                  <h2 className="text-lg font-semibold tracking-tight">
+                    {t("automations.log.title")}
+                  </h2>
                   <p className="text-sm text-muted-foreground">
-                    What ran, when it ran, and whether it succeeded.
+                    {t("automations.log.description")}
                   </p>
                 </div>
                 <div className="relative grid gap-3 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border lg:grid-cols-2 lg:before:hidden">
@@ -525,7 +562,7 @@ export function AutomationsPage() {
                       onSelect={() => setSelection(item.selection)}
                     />
                   ))}
-                  {timeline.length === 0 && <EmptyCard text="No recent automation history yet." />}
+                  {timeline.length === 0 && <EmptyCard text={t("automations.log.empty")} />}
                 </div>
               </>
             )}
@@ -534,10 +571,10 @@ export function AutomationsPage() {
           <aside className="hidden rounded-3xl border border-border bg-card/70 p-5 shadow-sm xl:sticky xl:top-5 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
             {selectedTask ? (
               <DetailShell
-                title="Task detail"
+                title={t("automations.detail.task")}
                 onDelete={() =>
                   setConfirm({
-                    msg: "Delete this task?",
+                    msg: t("automations.confirm.deleteTask"),
                     action: () => deleteTask(selectedTask.id),
                   })
                 }
@@ -554,7 +591,9 @@ export function AutomationsPage() {
                 form={jobForm}
                 setForm={setJobForm}
                 isValid={Boolean(isJobFormValid)}
-                savingLabel={selectedJob ? "Save schedule" : "Create schedule"}
+                savingLabel={
+                  selectedJob ? t("automations.saveSchedule") : t("automations.createSchedule")
+                }
                 triggering={selectedJob ? triggeringJobId === selectedJob.id : false}
                 onSave={saveJob}
                 onTrigger={selectedJob ? () => triggerJob(selectedJob) : undefined}
@@ -562,7 +601,7 @@ export function AutomationsPage() {
                   selectedJob && selectedJob.owner_kind !== "plugin"
                     ? () =>
                         setConfirm({
-                          msg: "Delete this schedule?",
+                          msg: t("automations.confirm.deleteSchedule"),
                           action: () => deleteJob(selectedJob.id),
                         })
                     : undefined
@@ -570,9 +609,11 @@ export function AutomationsPage() {
               />
             ) : (
               <div className="flex min-h-[30rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/60 p-6 text-center">
-                <h2 className="font-serif text-2xl italic tracking-tight">Select an item</h2>
+                <h2 className="font-serif text-2xl italic tracking-tight">
+                  {t("automations.select.title")}
+                </h2>
                 <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                  Pick something from Now, Scheduler, or Log to inspect it here.
+                  {t("automations.select.description")}
                 </p>
               </div>
             )}
@@ -588,10 +629,10 @@ export function AutomationsPage() {
           <DialogPanel className="p-4" scrollFade={false}>
             {selectedTask ? (
               <DetailShell
-                title="Task detail"
+                title={t("automations.detail.task")}
                 onDelete={() =>
                   setConfirm({
-                    msg: "Delete this task?",
+                    msg: t("automations.confirm.deleteTask"),
                     action: () => deleteTask(selectedTask.id),
                   })
                 }
@@ -608,7 +649,9 @@ export function AutomationsPage() {
                 form={jobForm}
                 setForm={setJobForm}
                 isValid={Boolean(isJobFormValid)}
-                savingLabel={selectedJob ? "Save schedule" : "Create schedule"}
+                savingLabel={
+                  selectedJob ? t("automations.saveSchedule") : t("automations.createSchedule")
+                }
                 triggering={selectedJob ? triggeringJobId === selectedJob.id : false}
                 onSave={saveJob}
                 onTrigger={selectedJob ? () => triggerJob(selectedJob) : undefined}
@@ -616,7 +659,7 @@ export function AutomationsPage() {
                   selectedJob && selectedJob.owner_kind !== "plugin"
                     ? () =>
                         setConfirm({
-                          msg: "Delete this schedule?",
+                          msg: t("automations.confirm.deleteSchedule"),
                           action: () => deleteJob(selectedJob.id),
                         })
                     : undefined
@@ -630,29 +673,29 @@ export function AutomationsPage() {
       <Dialog open={creatingTask} onOpenChange={(open) => !open && setCreatingTask(false)}>
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New work</DialogTitle>
+            <DialogTitle>{t("automations.newTask")}</DialogTitle>
           </DialogHeader>
           <DialogPanel>
             <div className="space-y-4">
-              <Field label="Title">
+              <Field label={t("tasks.fieldTitle")}>
                 <Input
                   type="text"
                   value={taskForm.title}
                   onChange={(e) => setTaskForm((form) => ({ ...form, title: e.target.value }))}
-                  placeholder="Task title"
+                  placeholder={t("tasks.fieldTitlePlaceholder")}
                   nativeInput
                 />
               </Field>
-              <Field label="Description">
+              <Field label={t("tasks.fieldDescription")}>
                 <Textarea
                   value={taskForm.description}
                   onChange={(e) =>
                     setTaskForm((form) => ({ ...form, description: e.target.value }))
                   }
-                  placeholder="Describe what the agent should do…"
+                  placeholder={t("tasks.fieldDescriptionPlaceholder")}
                 />
               </Field>
-              <Field label="Priority">
+              <Field label={t("tasks.fieldPriority")}>
                 <select
                   value={taskForm.priority}
                   onChange={(e) =>
@@ -663,18 +706,18 @@ export function AutomationsPage() {
                   }
                   className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent</option>
+                  <option value="routine">{t("tasks.priorityRoutine")}</option>
+                  <option value="urgent">{t("tasks.priorityUrgent")}</option>
                 </select>
               </Field>
             </div>
           </DialogPanel>
           <DialogFooter variant="bare">
             <Button size="sm" disabled={!taskForm.title.trim()} onClick={createTask}>
-              Create
+              {t("common.create")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setCreatingTask(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -687,7 +730,7 @@ export function AutomationsPage() {
           </DialogHeader>
           <DialogFooter variant="bare">
             <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -697,7 +740,7 @@ export function AutomationsPage() {
                 setConfirm(null);
               }}
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -743,6 +786,8 @@ function DetailShell({
   onDelete: () => void;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
+
   return (
     <div>
       <div className="mb-5 flex items-center justify-between gap-3 pr-10 xl:pr-0">
@@ -755,7 +800,7 @@ function DetailShell({
           className="text-destructive hover:text-destructive"
           onClick={onDelete}
         >
-          Delete
+          {t("common.delete")}
         </Button>
       </div>
       {children}
@@ -839,6 +884,7 @@ function ScheduleDetail({
   onTrigger?: () => void;
   onDelete?: () => void;
 }) {
+  const { t } = useI18n();
   const readOnly = job?.owner_kind === "plugin";
   const isNew = !job;
 
@@ -866,7 +912,7 @@ function ScheduleDetail({
               className="text-destructive hover:text-destructive"
               onClick={onDelete}
             >
-              Delete
+              {t("common.delete")}
             </Button>
           )}
         </div>
