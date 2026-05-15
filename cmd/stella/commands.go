@@ -583,7 +583,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -607,7 +607,6 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			PromptSectionsBuilder:    promptSectionsFn,
 			SessionPluginViewBuilder: sessionPluginViewFn,
 			ToolLifecycle:            toolLifecycle,
-			SkillStore:               skillStore,
 		})
 		if err != nil {
 			return err
@@ -649,6 +648,5 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.promptSectionsBuilder,
 		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
-		s.skillStore,
 	)
 }

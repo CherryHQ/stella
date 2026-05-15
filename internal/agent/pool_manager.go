@@ -556,7 +556,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		ToolLifecycle:            pm.toolLifecycle,
-		SkillStore:               pm.skillStore,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenService:             pm.tokenService,

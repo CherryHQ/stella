@@ -1,10 +1,7 @@
 package skills
 
 import (
-	"path/filepath"
-
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const PluginID = "tool/skills"
@@ -18,23 +15,7 @@ func init() {
 			DisplayName: "Skills",
 			Description: "Manage local agent skills.",
 			Capabilities: []string{
-				pkgplugins.CapabilityTool,
 				pkgplugins.CapabilityPrompt,
-			},
-		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    PluginID,
-			Name:        "skills",
-			Description: "Manage local agent skills.",
-			Required:    false,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewTool(
-					ctx.Platform.SkillStore(),
-					ctx.Paths.StellaHome,
-					ctx.Paths.AgentRoot,
-					ctx.Paths.ProjectRoot,
-					userSkillsDir(ctx.Paths.UserRoot),
-				), nil
 			},
 		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
@@ -44,15 +25,4 @@ func init() {
 			Build:    BuildPromptSection,
 		})
 	}))
-}
-
-func userSkillsDir(userRoot string) string {
-	if userRoot == "" {
-		return ""
-	}
-	return filepath.Join(userRoot, ".agents", "skills")
-}
-
-func SkillsDefinition() tools.Definition {
-	return pkgskillsToolDefinition()
 }

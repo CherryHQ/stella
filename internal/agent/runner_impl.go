@@ -556,15 +556,6 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 		if path, ok := args["path"].(string); ok {
 			return path
 		}
-	case "skills":
-		action, _ := args["action"].(string)
-		if name, _ := args["name"].(string); name != "" {
-			return action + " " + name
-		}
-		if src, _ := args["source"].(string); src != "" {
-			return action + " " + src
-		}
-		return action
 	case "memory":
 		action, _ := args["action"].(string)
 		return action
