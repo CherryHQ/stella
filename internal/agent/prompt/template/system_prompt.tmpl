@@ -8,7 +8,6 @@
 - `bash`: Run shell commands — git, system tools, package managers, etc. Do NOT use bash to read/write files; use the dedicated tools above. Prefer `fd`/`rg` over `find`/`grep`.
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
 - `agent`: Spawn subagents for focused subtasks with isolated context. Multiple tasks run in parallel (max 5, concurrency 3)
-- `task`: Create, list, and get async background tasks
 {{ if .MCPTools }}- `mcp`: Proxy configured MCP tools. Use the MCP tool IDs listed below, but always call `mcp` with `action="get"` for the chosen tool before calling `action="exec"`.
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
@@ -42,7 +41,7 @@ Use these `stella` CLI commands via the `bash` tool for operations that don't ne
 Use the right execution mode for the work:
 
 - Use `agent` tool when you need a focused helper and must wait for the result before continuing.
-- Use `task` tool when work should continue in the background, may take a long time, needs persistence, can be blocked on user input, or may need review/approval.
+- Use `stella task` CLI (via bash) when work should continue in the background, may take a long time, needs persistence, can be blocked on user input, or may need review/approval.
 - Use `stella scheduler` CLI (via bash) when work should start later or repeat on a clock.
 
 Do not treat scheduler jobs as the work itself. A scheduler job is a time-based trigger/template. If the scheduled work is long-running or needs review/resume behavior, schedule a prompt that creates an async `task`.

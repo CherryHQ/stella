@@ -40,7 +40,6 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
-	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -426,9 +425,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	// Build tasks service before NewPoolManager so the task tool is in builtinTools
-	// from the start. The RunnerFactory closure captures poolMgr by reference —
-	// it is nil here but populated before any task is dispatched.
+	// Build tasks service before NewPoolManager. The RunnerFactory closure
+	// captures poolMgr by reference — it is nil here but populated before
+	// any task is dispatched.
 	var tasksSvc *tasks.Service
 	{
 		runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
@@ -453,8 +452,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			Memory:        memProvider,
 			RunnerFactory: runnerFactory,
 		})
-		tt := tasktool.New(tasktool.Config{Service: tasksSvc})
-		builtinTools = append(builtinTools, tt)
 	}
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
