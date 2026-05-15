@@ -268,8 +268,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 
-	// Non-admin users can only view their own sessions.
-	if authInfo != nil && !authInfo.IsAdmin && si.UserID != authInfo.UserID {
+	if authInfo != nil && si.UserID != authInfo.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -357,7 +356,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sess
 func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) error {
 	info := UserFromContext(r.Context())
 	sm, ok := s.mem.(memory.SessionManager)
-	if info == nil || info.IsAdmin || !ok {
+	if info == nil || !ok {
 		return nil
 	}
 	si, err := sm.LoadInfo(r.Context(), sessionID)

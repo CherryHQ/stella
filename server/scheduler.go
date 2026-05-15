@@ -162,12 +162,9 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	// Non-admin users can only update their own jobs.
-	if info != nil && !info.IsAdmin {
-		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
 
 	var body apiserver.JobInput
@@ -198,14 +195,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		sessionMode = *body.SessionMode
 	}
 
-	// Non-admin users cannot change ownership.
 	var userID int64
-	switch {
-	case info != nil && !info.IsAdmin:
+	if info != nil {
 		userID = info.UserID
-	case body.UserId != nil:
-		userID = *body.UserId
-	case existing.UserID.Valid:
+	} else if existing.UserID.Valid {
 		userID = existing.UserID.Int64
 	}
 
@@ -291,12 +284,9 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	// Non-admin users can only delete their own jobs.
-	if info != nil && !info.IsAdmin {
-		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
 
 	var deleteErr error
@@ -325,15 +315,13 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	info := UserFromContext(r.Context())
-	if info != nil && !info.IsAdmin {
-		if existing.OwnerKind == scheduler.JobOwnerPlugin {
-			writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
-			return
-		}
-		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if existing.OwnerKind == scheduler.JobOwnerPlugin {
+		writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
+		return
+	}
+	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
 
 	runID, err := s.schedulerSvc.RunJobNow(r.Context(), id)
@@ -357,15 +345,12 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	}
 
 	info := UserFromContext(r.Context())
-	if info != nil && !info.IsAdmin {
-		// Non-admin: block plugin jobs, system jobs (no user_id), and other users' jobs.
-		if existing.OwnerKind == scheduler.JobOwnerPlugin ||
-			existing.OwnerKind == scheduler.JobOwnerSystem ||
-			!existing.UserID.Valid ||
-			existing.UserID.Int64 != info.UserID {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if info != nil && (existing.OwnerKind == scheduler.JobOwnerPlugin ||
+		existing.OwnerKind == scheduler.JobOwnerSystem ||
+		!existing.UserID.Valid ||
+		existing.UserID.Int64 != info.UserID) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
 
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
