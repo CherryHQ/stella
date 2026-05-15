@@ -13,8 +13,12 @@ import (
 
 func vaultCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "vault",
-		Usage: "Manage encrypted secrets",
+		Name:     "vault",
+		Usage:    "Manage encrypted secrets",
+		Category: "Configuration",
+		Description: `The vault stores API keys, tokens, and other secrets encrypted at rest
+with an age key. Secrets are available to the agent at runtime without
+exposing them in configuration files.`,
 		Subcommands: []*ucli.Command{
 			vaultListCommand(),
 			vaultGetCommand(),

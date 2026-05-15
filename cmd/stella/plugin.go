@@ -13,8 +13,12 @@ import (
 
 func pluginCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "plugin",
-		Usage: "Manage plugins",
+		Name:     "plugin",
+		Usage:    "Manage plugins",
+		Category: "Configuration",
+		Description: `Plugins provide LLM providers, messaging channels, tools, and other
+extensions. Use this command to list available plugins, enable or
+disable them, and view or update their configuration.`,
 		Subcommands: []*ucli.Command{
 			pluginListCommand(),
 			pluginEnableCommand(),
@@ -24,8 +28,6 @@ func pluginCommand() *ucli.Command {
 		Action: pluginListAction,
 	}
 }
-
-// --- list ---
 
 func pluginListCommand() *ucli.Command {
 	return &ucli.Command{
@@ -60,8 +62,6 @@ func pluginListAction(c *ucli.Context) error {
 	return nil
 }
 
-// --- enable ---
-
 func pluginEnableCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "enable",
@@ -72,8 +72,6 @@ func pluginEnableCommand() *ucli.Command {
 		},
 	}
 }
-
-// --- disable ---
 
 func pluginDisableCommand() *ucli.Command {
 	return &ucli.Command{
@@ -109,8 +107,6 @@ func setPluginEnabled(c *ucli.Context, enabled bool) error {
 	fmt.Printf("Plugin %q %s.\n", id, pluginEnabledState(enabled))
 	return nil
 }
-
-// --- config ---
 
 func pluginConfigCommand() *ucli.Command {
 	return &ucli.Command{
@@ -167,8 +163,6 @@ func pluginConfigAction(c *ucli.Context) error {
 	fmt.Printf("Plugin %q config updated.\n", id)
 	return nil
 }
-
-// --- helpers ---
 
 func listPlugins(ctx context.Context, store config.Store, kind string) ([]config.Plugin, error) {
 	if kind == "" {

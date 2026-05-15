@@ -46,8 +46,12 @@ import (
 
 func newApp() *ucli.App {
 	return &ucli.App{
-		Name:    "stella",
-		Usage:   "A local AI assistant",
+		Name:  "stella",
+		Usage: "A local AI assistant",
+		Description: `Stella is a self-hosted AI agent that connects to your favourite LLMs,
+messaging channels, and local tools. Run "stella" (or "stella serve") to
+start the server, then use the subcommands below to manage models,
+content, schedules, and more.`,
 		Version: displayVersion(),
 		Flags:   serverFlags(),
 		Action:  serverAction,

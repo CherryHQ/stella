@@ -12,8 +12,12 @@ import (
 
 func oauthCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "oauth",
-		Usage: "Manage OAuth provider connections",
+		Name:     "oauth",
+		Usage:    "Manage OAuth provider connections",
+		Category: "Configuration",
+		Description: `Connect external services (GitHub, Google, etc.) via OAuth so the agent
+can access them on your behalf. Use "providers" to see what is available,
+"connect" to start a new flow, and "status" to check existing connections.`,
 		Subcommands: []*ucli.Command{
 			oauthProvidersCommand(),
 			oauthConnectCommand(),

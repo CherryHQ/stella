@@ -14,8 +14,12 @@ import (
 
 func taskCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "task",
-		Usage: "Manage agent tasks",
+		Name:     "task",
+		Usage:    "Manage agent tasks",
+		Category: "Agent",
+		Description: `Create, track, and act on tasks assigned to the agent. Tasks go through
+a lifecycle (pending → running → review → done) and support dependencies,
+priorities, and human-in-the-loop actions like approve, reject, and respond.`,
 		Subcommands: []*ucli.Command{
 			taskListCommand(),
 			taskGetCommand(),

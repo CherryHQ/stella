@@ -12,8 +12,12 @@ import (
 
 func schedulerCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "scheduler",
-		Usage: "Manage scheduled jobs",
+		Name:     "scheduler",
+		Usage:    "Manage scheduled jobs",
+		Category: "Agent",
+		Description: `Schedule recurring or one-time agent jobs using cron expressions, Go
+durations, or absolute timestamps. The agent runs the job's instruction
+at the specified time and can optionally notify you with the results.`,
 		Subcommands: []*ucli.Command{
 			schedulerAddCommand(),
 			schedulerListCommand(),

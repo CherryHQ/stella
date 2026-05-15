@@ -21,14 +21,14 @@ import (
 
 const emailConfigKey = "EMAIL_CONFIG"
 
-// ---------------------------------------------------------------------------
-// Top-level command
-// ---------------------------------------------------------------------------
-
 func emailCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "email",
-		Usage: "Email client",
+		Name:     "email",
+		Usage:    "Email client",
+		Category: "Content",
+		Description: `Read, send, and manage email through IMAP/SMTP accounts configured in
+the vault. Use "email config" to add an account, then browse folders,
+read messages, and send mail directly from the terminal.`,
 		Subcommands: []*ucli.Command{
 			emailConfigCommand(),
 			emailFoldersCommand(),
@@ -39,10 +39,6 @@ func emailCommand() *ucli.Command {
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Vault helpers
-// ---------------------------------------------------------------------------
 
 func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Config, error) {
 	resp, err := api.GetVaultEntry(ctx, emailConfigKey)
@@ -108,10 +104,6 @@ func loadEmailConfig(ctx context.Context) (*email.Config, error) {
 	}
 	return loadVaultEmailConfig(ctx, api)
 }
-
-// ---------------------------------------------------------------------------
-// email config
-// ---------------------------------------------------------------------------
 
 func emailConfigCommand() *ucli.Command {
 	return &ucli.Command{
@@ -402,10 +394,6 @@ func emailConfigDefaultCommand() *ucli.Command {
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Runtime commands (use EMAIL_CONFIG env var)
-// ---------------------------------------------------------------------------
 
 func emailFoldersCommand() *ucli.Command {
 	return &ucli.Command{
@@ -726,10 +714,6 @@ func emailMarkCommand() *ucli.Command {
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // maskConfigPasswords returns a copy of cfg with passwords replaced by "****".
 func maskConfigPasswords(cfg *email.Config) map[string]any {
