@@ -20,15 +20,15 @@ function Home() {
   const { locale: lang } = useI18n();
 
   return (
-    <>
+    <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground">
       <SiteHeader />
-      <main className="home-page">
+      <main className="flex-1 home-page">
         <HeroSection lang={lang} />
         <FeaturesSection lang={lang} />
         <MeetStellaSection lang={lang} />
         <FooterCTA lang={lang} />
       </main>
-    </>
+    </div>
   );
 }
 
@@ -39,7 +39,7 @@ function HeroSection({ lang }: { lang: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
         <div>
           <div className="animate-fade-up stagger-1">
-            <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-8 font-[family-name:var(--font-mono)]">
+            <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary mb-8 font-[family-name:var(--font-mono)]">
               {tr.heroTag}
             </p>
           </div>
@@ -48,7 +48,7 @@ function HeroSection({ lang }: { lang: string }) {
             <br />
             {tr.heroTitle2}
             <br />
-            <span className="italic text-[var(--color-terra)]">{tr.heroTitle3}</span>
+            <span className="italic text-primary">{tr.heroTitle3}</span>
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
             <p className="text-muted-foreground text-base leading-relaxed mb-12">
@@ -59,7 +59,7 @@ function HeroSection({ lang }: { lang: string }) {
             <Link
               to="/docs/$"
               params={{ _splat: "" }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:bg-primary/90 transition-colors"
             >
               {tr.readTheDocs}
               <span aria-hidden="true">&rarr;</span>
@@ -75,7 +75,7 @@ function HeroSection({ lang }: { lang: string }) {
           </div>
         </div>
         <div className="animate-fade-up stagger-5 lg:pt-8">
-          <div className="bg-[var(--color-warm-900)] rounded-lg overflow-hidden ring-1 ring-white/[0.08]">
+          <div className="bg-neutral-900 rounded-lg overflow-hidden ring-1 ring-white/[0.08]">
             <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/[0.06]">
               <div className="w-2.5 h-2.5 rounded-full bg-white/15" />
               <div className="w-2.5 h-2.5 rounded-full bg-white/15" />
@@ -87,9 +87,7 @@ function HeroSection({ lang }: { lang: string }) {
             <div className="p-6 font-[family-name:var(--font-mono)] text-[13px] leading-7">
               {terminalLines.map((line, i) => (
                 <div key={i} className={line.prompt ? "mt-3 first:mt-0" : ""}>
-                  {line.prompt && (
-                    <span className="text-[var(--color-terra-light)] select-none">$ </span>
-                  )}
+                  {line.prompt && <span className="text-primary select-none">$ </span>}
                   <span className={line.prompt ? "text-white/90" : "text-white/50"}>
                     {line.text}
                   </span>
@@ -129,7 +127,7 @@ function FeaturesSection({ lang }: { lang: string }) {
 function FeatureItem({ label, title, body }: { label: string; title: string; body: string }) {
   return (
     <div>
-      <span className="text-[11px] font-medium tracking-[0.15em] text-[var(--color-terra)] uppercase mb-3 block font-[family-name:var(--font-mono)]">
+      <span className="text-[11px] font-medium tracking-[0.15em] text-primary uppercase mb-3 block font-[family-name:var(--font-mono)]">
         {label}
       </span>
       <h3 className="text-xl md:text-2xl tracking-tight text-foreground mb-3">{title}</h3>
@@ -144,7 +142,7 @@ function MeetStellaSection({ lang }: { lang: string }) {
     <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
         <div>
-          <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-6 font-[family-name:var(--font-mono)]">
+          <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary mb-6 font-[family-name:var(--font-mono)]">
             {tr.meetStella}
           </p>
           <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-6">
@@ -158,7 +156,7 @@ function MeetStellaSection({ lang }: { lang: string }) {
           </p>
           <Link
             to="/docs/$"
-            className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
+            className="inline-flex items-center gap-2 text-primary text-sm font-medium hover:text-primary/80 transition-colors"
           >
             {tr.learnMoreAboutStella}
             <span aria-hidden="true">&rarr;</span>
@@ -168,7 +166,7 @@ function MeetStellaSection({ lang }: { lang: string }) {
           <img
             src="/avatar.png"
             alt="Stella — AI assistant"
-            className="w-48 h-48 md:w-56 md:h-56 rounded-2xl object-cover ring-1 ring-white/[0.08]"
+            className="w-48 h-48 md:w-56 md:h-56 rounded-2xl object-cover ring-1 ring-border"
           />
         </div>
       </div>

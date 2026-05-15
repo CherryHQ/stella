@@ -46,6 +46,25 @@ import { MyPage } from "@/features/mypage/MyPage";
 export const Route = createFileRoute("/_app/mypage")({ component: MyPage });
 ```
 
+### Theming
+
+All colors, fonts, radii, and shadows are defined as CSS custom properties in `src/globals.css`. The theme is a **tweakcn shadcn preset** — do not edit the token values in `globals.css` manually.
+
+To swap or update the theme, run:
+
+```bash
+pnpm dlx shadcn@latest add https://tweakcn.com/r/themes/cmlk6zefr000004lbe9jygsqc
+```
+
+Tailwind utility classes map to those tokens via `@theme inline`.
+
+**Rules:**
+
+- Always use semantic Tailwind utilities: `bg-background`, `text-foreground`, `text-primary`, `bg-muted`, `border-border`, `text-muted-foreground`, etc.
+- Never hardcode color values inline (no `text-[#abc]`, no `bg-[oklch(...)]`, no `style={{ color: '...' }}`).
+- Never reference raw CSS variables directly in JSX (no `var(--some-color)`) unless no Tailwind utility exists for it.
+- To change the theme, run the shadcn command above — no component changes required.
+
 ### URL state
 
 Use TanStack Router search params instead of `history.pushState` directly.

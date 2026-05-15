@@ -24,10 +24,8 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 	}
 	info := UserFromContext(r.Context())
 	var userID int64
-	isAdmin := false
 	if info != nil {
 		userID = info.UserID
-		isAdmin = info.IsAdmin
 	}
 
 	var statusFilter string
@@ -35,7 +33,7 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		statusFilter = *params.Status
 	}
 
-	list, err := s.tasksSvc.ListTasks(r.Context(), userID, isAdmin, statusFilter)
+	list, err := s.tasksSvc.ListTasks(r.Context(), userID, false, statusFilter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -115,7 +113,7 @@ func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	if info != nil && !info.IsAdmin && task.UserID != info.UserID {
+	if info != nil && task.UserID != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -129,10 +127,8 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id stri
 	}
 	info := UserFromContext(r.Context())
 	var userID int64
-	isAdmin := false
 	if info != nil {
 		userID = info.UserID
-		isAdmin = info.IsAdmin
 	}
 
 	var body apiserver.AgentTaskUpdate
@@ -158,7 +154,7 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id stri
 		agentID = *body.AgentId
 	}
 
-	task, err := s.tasksSvc.UpdateTask(r.Context(), id, userID, isAdmin, tasks.UpdateTaskParams{
+	task, err := s.tasksSvc.UpdateTask(r.Context(), id, userID, false, tasks.UpdateTaskParams{
 		Title:       title,
 		Description: description,
 		Priority:    priority,
@@ -182,13 +178,11 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, id stri
 	}
 	info := UserFromContext(r.Context())
 	var userID int64
-	isAdmin := false
 	if info != nil {
 		userID = info.UserID
-		isAdmin = info.IsAdmin
 	}
 
-	if err := s.tasksSvc.DeleteTask(r.Context(), id, userID, isAdmin); err != nil {
+	if err := s.tasksSvc.DeleteTask(r.Context(), id, userID, false); err != nil {
 		if strings.Contains(err.Error(), "forbidden") {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
@@ -206,10 +200,8 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id stri
 	}
 	info := UserFromContext(r.Context())
 	var userID int64
-	isAdmin := false
 	if info != nil {
 		userID = info.UserID
-		isAdmin = info.IsAdmin
 	}
 
 	var body apiserver.AgentTaskAction
@@ -223,7 +215,7 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id stri
 		message = *body.Message
 	}
 
-	task, err := s.tasksSvc.HandleAction(r.Context(), id, userID, isAdmin, tasks.ActionParams{
+	task, err := s.tasksSvc.HandleAction(r.Context(), id, userID, false, tasks.ActionParams{
 		Action:  string(body.Type),
 		Message: message,
 	})
@@ -250,7 +242,7 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if info != nil && !info.IsAdmin && task.UserID != info.UserID {
+	if info != nil && task.UserID != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}

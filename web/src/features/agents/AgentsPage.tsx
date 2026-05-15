@@ -73,7 +73,7 @@ function emptyForm(): Omit<AgentDetail, "id"> {
     model_fast: "",
     system_prompt: "",
     soul: "",
-    scope: "system",
+    scope: "restricted",
     enabled: true,
     creator_id: 0,
     sandbox: { network: { mode: "disabled", allowlist: [] } },
