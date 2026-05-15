@@ -26,7 +26,7 @@ func init() {
 			PluginID:    PluginID,
 			Name:        "skills",
 			Description: "Manage local agent skills.",
-			Required:    true,
+			Required:    false,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return NewTool(
 					ctx.Platform.SkillStore(),
@@ -40,7 +40,7 @@ func init() {
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 			PluginID: PluginID,
 			Name:     "skills",
-			Required: true,
+			Required: false,
 			Build:    BuildPromptSection,
 		})
 	}))
