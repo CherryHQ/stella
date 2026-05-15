@@ -5,6 +5,7 @@ import type { ComponentsAgentTask, ComponentsAgentTaskEvent } from "@/lib/api-cl
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { SessionConversation } from "@/features/sessions/SessionConversation";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 
@@ -105,14 +106,6 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       <div className="flex items-start justify-between gap-4 mb-6">
         <h2 className="font-serif text-xl tracking-tight">{task.title}</h2>
         <div className="flex items-center gap-2 shrink-0">
-          {task.session_id && (
-            <a
-              href={`/sessions/${encodeURIComponent(task.session_id)}`}
-              className="inline-flex h-7 items-center rounded-md border border-input bg-popover px-2 text-xs font-medium text-foreground shadow-xs/5 hover:bg-accent/50"
-            >
-              {t("tasks.openSession")}
-            </a>
-          )}
           <Badge size="sm" variant={taskStatusVariant(task.status)}>
             {STATUS_KEY[task.status] ? t(STATUS_KEY[task.status]) : task.status}
           </Badge>
@@ -124,6 +117,15 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
 
       {/* Description */}
       {task.description && <p className="text-sm text-muted-foreground mb-4">{task.description}</p>}
+
+      {task.session_id && (
+        <div className="mb-6">
+          <SessionConversation
+            sessionId={task.session_id}
+            placeholder="Ask Stella about this task…"
+          />
+        </div>
+      )}
 
       {/* Context metadata */}
       {task.context && Object.keys(task.context).length > 0 && (

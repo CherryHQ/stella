@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { SessionConversation } from "@/features/sessions/SessionConversation";
 import { TaskDetail } from "@/features/tasks/TaskDetail";
 
 type ViewTab = "work" | "schedules" | "history";
@@ -122,6 +123,7 @@ export function AutomationsPage() {
   const [tab, setTab] = useState<ViewTab>("work");
   const [workLane, setWorkLane] = useState<WorkLaneKey>("attention");
   const [selection, setSelection] = useState<Selection>(null);
+  const [detailModalMode, setDetailModalMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskForm, setTaskForm] = useState<TaskForm>(emptyTaskForm());
@@ -169,6 +171,14 @@ export function AutomationsPage() {
     const id = setInterval(() => void load(), 15_000);
     return () => clearInterval(id);
   }, [load]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1279px)");
+    const update = () => setDetailModalMode(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   const selectJob = useCallback(
     (job: SchedulerJob) => {
@@ -350,31 +360,25 @@ export function AutomationsPage() {
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-background">
       <div className="mx-auto flex max-w-[90rem] flex-col gap-4 px-5 py-4">
-        <header className="flex flex-col gap-3 border-b border-border pb-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="font-serif text-2xl italic tracking-tight text-foreground">
-              Automations
-            </h1>
-            <div className="hidden text-xs text-muted-foreground md:block">
-              Now, later, and what happened
+        <header className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-3">
+              <h1 className="font-serif text-3xl italic leading-none tracking-tight text-foreground">
+                Automations
+              </h1>
+              <div className="hidden text-sm text-muted-foreground md:block">
+                Now, later, and what happened
+              </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-1 rounded-xl border border-border bg-card/70 p-1">
-              <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Now" />
-              <TabButton
-                active={tab === "schedules"}
-                onClick={() => setTab("schedules")}
-                label="Scheduler"
-              />
-              <TabButton active={tab === "history"} onClick={() => setTab("history")} label="Log" />
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setCreatingTask(true)}>
-              New work
-            </Button>
-            <Button size="sm" onClick={startNewJob}>
-              New schedule
-            </Button>
+          <div className="grid h-10 grid-cols-3 rounded-xl border border-border bg-card/70 p-1 sm:flex sm:w-auto">
+            <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Now" />
+            <TabButton
+              active={tab === "schedules"}
+              onClick={() => setTab("schedules")}
+              label="Scheduler"
+            />
+            <TabButton active={tab === "history"} onClick={() => setTab("history")} label="Log" />
           </div>
         </header>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_32rem]">
@@ -388,7 +392,12 @@ export function AutomationsPage() {
                       Things Stella is doing now or waiting for you to review.
                     </p>
                   </div>
-                  {loading && <Badge variant="outline">Refreshing…</Badge>}
+                  <div className="flex items-center gap-2">
+                    {loading && <Badge variant="outline">Refreshing…</Badge>}
+                    <Button size="sm" onClick={() => setCreatingTask(true)}>
+                      New work
+                    </Button>
+                  </div>
                 </div>
                 <div className="mb-4 grid gap-2 md:grid-cols-4">
                   {workLanes.map((item) => (
@@ -406,8 +415,12 @@ export function AutomationsPage() {
                     </button>
                   ))}
                 </div>
-                <div className="grid gap-3 lg:grid-cols-4">
-                  <LaneColumn title="Needs you" active={workLane === "attention"}>
+                <div className="grid gap-3 2xl:grid-cols-4">
+                  <LaneColumn
+                    title="Needs you"
+                    active={workLane === "attention"}
+                    hidden={workLane !== "attention"}
+                  >
                     {attentionTasks.map((task) => (
                       <TaskCard
                         key={task.id}
@@ -420,7 +433,11 @@ export function AutomationsPage() {
                       <EmptyCard text="No blocked tasks or review requests." />
                     )}
                   </LaneColumn>
-                  <LaneColumn title="Running" active={workLane === "running"}>
+                  <LaneColumn
+                    title="Running"
+                    active={workLane === "running"}
+                    hidden={workLane !== "running"}
+                  >
                     {runningTasks.map((task) => (
                       <TaskCard
                         key={task.id}
@@ -431,7 +448,11 @@ export function AutomationsPage() {
                     ))}
                     {runningTasks.length === 0 && <EmptyCard text="No task workers are running." />}
                   </LaneColumn>
-                  <LaneColumn title="Pending" active={workLane === "pending"}>
+                  <LaneColumn
+                    title="Pending"
+                    active={workLane === "pending"}
+                    hidden={workLane !== "pending"}
+                  >
                     {pendingTasks.map((task) => (
                       <TaskCard
                         key={task.id}
@@ -442,7 +463,11 @@ export function AutomationsPage() {
                     ))}
                     {pendingTasks.length === 0 && <EmptyCard text="No queued tasks." />}
                   </LaneColumn>
-                  <LaneColumn title="Failures" active={workLane === "failed"}>
+                  <LaneColumn
+                    title="Failures"
+                    active={workLane === "failed"}
+                    hidden={workLane !== "failed"}
+                  >
                     {failedTasks.map((task) => (
                       <TaskCard
                         key={task.id}
@@ -506,7 +531,7 @@ export function AutomationsPage() {
             )}
           </section>
 
-          <aside className="rounded-3xl border border-border bg-card/70 p-5 shadow-sm xl:sticky xl:top-5 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          <aside className="hidden rounded-3xl border border-border bg-card/70 p-5 shadow-sm xl:sticky xl:top-5 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
             {selectedTask ? (
               <DetailShell
                 title="Task detail"
@@ -554,6 +579,53 @@ export function AutomationsPage() {
           </aside>
         </div>{" "}
       </div>
+
+      <Dialog
+        open={detailModalMode && Boolean(selection)}
+        onOpenChange={(open) => !open && setSelection(null)}
+      >
+        <DialogPopup className="h-[85vh] max-w-3xl xl:hidden" showCloseButton>
+          <DialogPanel className="p-4" scrollFade={false}>
+            {selectedTask ? (
+              <DetailShell
+                title="Task detail"
+                onDelete={() =>
+                  setConfirm({
+                    msg: "Delete this task?",
+                    action: () => deleteTask(selectedTask.id),
+                  })
+                }
+              >
+                <TaskDetail task={selectedTask} onAction={handleTaskAction} onToast={showToast} />
+              </DetailShell>
+            ) : selectedRunJob && selectedRun ? (
+              <SchedulerRunDetail job={selectedRunJob} run={selectedRun} />
+            ) : selectedJob || selection?.type === "new-job" ? (
+              <ScheduleDetail
+                job={selectedJob}
+                agents={agents}
+                isAdmin={isAdmin}
+                form={jobForm}
+                setForm={setJobForm}
+                isValid={Boolean(isJobFormValid)}
+                savingLabel={selectedJob ? "Save schedule" : "Create schedule"}
+                triggering={selectedJob ? triggeringJobId === selectedJob.id : false}
+                onSave={saveJob}
+                onTrigger={selectedJob ? () => triggerJob(selectedJob) : undefined}
+                onDelete={
+                  selectedJob && selectedJob.owner_kind !== "plugin"
+                    ? () =>
+                        setConfirm({
+                          msg: "Delete this schedule?",
+                          action: () => deleteJob(selectedJob.id),
+                        })
+                    : undefined
+                }
+              />
+            ) : null}
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
 
       <Dialog open={creatingTask} onOpenChange={(open) => !open && setCreatingTask(false)}>
         <DialogPopup className="max-w-md">
@@ -655,7 +727,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+      className={`h-8 rounded-lg px-3 text-sm font-medium transition-colors sm:min-w-24 ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
     >
       {label}
     </button>
@@ -673,7 +745,7 @@ function DetailShell({
 }) {
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-3">
+      <div className="mb-5 flex items-center justify-between gap-3 pr-10 xl:pr-0">
         <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           {title}
         </div>
@@ -709,20 +781,17 @@ function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJob
         <div className="space-y-3 text-sm">
           <DetailRow label="Started" value={formatTime(run.started_at)} />
           {run.duration && <DetailRow label="Duration" value={run.duration} />}
-          {run.session_id && (
-            <div className="grid grid-cols-[5rem_1fr] gap-3">
-              <span className="text-muted-foreground">Session</span>
-              <a
-                href={`/sessions/${encodeURIComponent(run.session_id)}`}
-                className="text-primary hover:underline"
-              >
-                {run.session_id}
-              </a>
-            </div>
-          )}
           {run.error && <DetailRow label="Error" value={run.error} danger />}
         </div>
       </div>
+      {run.session_id && (
+        <div className="mt-4">
+          <SessionConversation
+            sessionId={run.session_id}
+            placeholder="Ask Stella about this run…"
+          />
+        </div>
+      )}
       <ScheduleSummary job={job} />
     </div>
   );
@@ -775,7 +844,7 @@ function ScheduleDetail({
 
   return (
     <div>
-      <div className="mb-5 flex items-start justify-between gap-3">
+      <div className="mb-5 flex items-start justify-between gap-3 pr-10 xl:pr-0">
         <div>
           <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             {isNew ? "New schedule" : "Schedule runs"}
@@ -983,15 +1052,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function LaneColumn({
   title,
   active,
+  hidden,
   children,
 }: {
   title: string;
   active: boolean;
+  hidden: boolean;
   children: ReactNode;
 }) {
   return (
     <div
-      className={`min-h-[30rem] rounded-2xl border p-2 ${active ? "border-primary/40 bg-primary/[0.03]" : "border-border bg-background/60"}`}
+      className={`min-h-[18rem] rounded-2xl border p-2 2xl:min-h-[30rem] ${hidden ? "hidden 2xl:block" : ""} ${active ? "border-primary/40 bg-primary/[0.03]" : "border-border bg-background/60"}`}
     >
       <div className="px-2 py-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {title}
