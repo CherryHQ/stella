@@ -119,6 +119,8 @@ export function PluginsPage() {
   );
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
 
+  const channelPlugins = plugins.filter((p) => p.kind === "channel");
+
   const mcpPlugin = plugins.find((p) => p.id === "tool/mcp") || null;
   const mcpPluginEnabled = !!mcpPlugin?.enabled;
 
@@ -474,6 +476,7 @@ export function PluginsPage() {
   const sections: { id: Tab; label: string }[] = [
     { id: "tools", label: t("plugins.tab.tools") },
     { id: "mcp", label: t("plugins.mcp.title") },
+    { id: "channels", label: t("plugins.tab.channels") },
     { id: "hooks", label: t("plugins.tab.hooks") },
     { id: "memory", label: t("plugins.tab.memory") },
     { id: "sandbox", label: t("plugins.tab.sandbox") },
@@ -761,6 +764,46 @@ export function PluginsPage() {
           onToggleMcpPlugin={(enabled) => togglePlugin("tool/mcp", enabled)}
           onSave={saveMcpConfig}
         />
+      </div>
+    );
+  } else if (tab === "channels") {
+    detail = (
+      <div className="p-6">
+        <p className="text-xs text-muted-foreground mb-4">
+          Enable messaging platform integrations. Enabled channels appear in Settings → Channels for
+          configuration.
+        </p>
+        <div className="border border-border rounded-lg divide-y divide-border">
+          {channelPlugins.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{pluginLabel(p)}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
+                  {p.enabled && (
+                    <Badge variant="success" size="sm">
+                      on
+                    </Badge>
+                  )}
+                </div>
+                {pluginDescription(p) && (
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {pluginDescription(p)}
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={p.enabled}
+                onCheckedChange={(checked) => void togglePlugin(p.id, checked)}
+              />
+            </div>
+          ))}
+          {channelPlugins.length === 0 && (
+            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+              No channel plugins registered.
+            </div>
+          )}
+        </div>
       </div>
     );
   } else if (tab === "hooks") {
