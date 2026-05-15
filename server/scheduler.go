@@ -344,10 +344,8 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	}
 
 	info := UserFromContext(r.Context())
-	if info != nil && (existing.OwnerKind == scheduler.JobOwnerPlugin ||
-		existing.OwnerKind == scheduler.JobOwnerSystem ||
-		!existing.UserID.Valid ||
-		existing.UserID.Int64 != info.UserID) {
+	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
+	if info != nil && !isGlobal && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}

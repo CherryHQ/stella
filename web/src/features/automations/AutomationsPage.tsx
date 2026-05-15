@@ -120,6 +120,14 @@ function isFailedJob(job: SchedulerJob): boolean {
   return Boolean(job.last_error);
 }
 
+function schedulerRunSessionId(job: SchedulerJob, run: SchedulerJobRun): string {
+  if (run.session_id) return run.session_id;
+  if (job.session_mode !== "new") {
+    return `${job.agent_id ? `${job.agent_id}:` : ""}scheduler:${job.id}`;
+  }
+  return "";
+}
+
 function parseAutomationsRoute(splat?: string): AutomationsRoute {
   const segments = splat?.split("/").filter(Boolean) ?? [];
   const [section, kind, id, runId] = segments;
@@ -228,7 +236,7 @@ export function AutomationsPage() {
       setTasks(taskList.items || []);
       setJobs(nextJobs);
       setAgents(agentList || []);
-      await Promise.all(nextJobs.slice(0, 12).map((job) => loadRuns(job.id)));
+      await Promise.all(nextJobs.map((job) => loadRuns(job.id)));
     } finally {
       setLoading(false);
     }
@@ -912,10 +920,10 @@ function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJob
           {run.error && <DetailRow label="Error" value={run.error} danger />}
         </div>
       </div>
-      {run.session_id && (
+      {schedulerRunSessionId(job, run) && (
         <div className="mt-4">
           <SessionConversation
-            sessionId={run.session_id}
+            sessionId={schedulerRunSessionId(job, run)}
             placeholder="Ask Stella about this run…"
           />
         </div>

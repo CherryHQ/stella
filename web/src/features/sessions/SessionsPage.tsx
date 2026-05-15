@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import type { Agent, Session, Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,8 @@ const RIGHT_DEFAULT = 300;
 
 export function SessionsPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { _splat?: string };
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -69,10 +72,7 @@ export function SessionsPage() {
 
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const openSession = useCallback(async (sessionID: string, pushState = true) => {
-    if (pushState) {
-      history.pushState({ sessionID }, "", "/sessions/" + encodeURIComponent(sessionID));
-    }
+  const loadSession = useCallback(async (sessionID: string) => {
     try {
       const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionID)}`);
       setSessionDetail(detail);
@@ -80,6 +80,13 @@ export function SessionsPage() {
       console.error(e);
     }
   }, []);
+
+  const openSession = useCallback(
+    async (sessionID: string) => {
+      await navigate({ to: "/sessions/$", params: { _splat: sessionID } });
+    },
+    [navigate],
+  );
 
   const createSession = useCallback(
     async (agentID: string) => {
@@ -102,28 +109,18 @@ export function SessionsPage() {
           })
           .catch(() => {}),
       ]);
-      const parts = window.location.pathname.split("/");
-      const sessionID =
-        parts.length >= 3 && parts[1] === "sessions" ? decodeURIComponent(parts[2]) : "";
-      if (sessionID) {
-        await openSession(sessionID, false);
-      }
     };
     void init();
-  }, [openSession]);
+  }, []);
 
   useEffect(() => {
-    const onPop = (e: PopStateEvent) => {
-      const sid = (e.state as { sessionID?: string } | null)?.sessionID;
-      if (sid) {
-        void openSession(sid, false);
-      } else {
-        setSessionDetail(null);
-      }
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [openSession]);
+    const sessionID = params._splat ? decodeURIComponent(params._splat) : "";
+    if (sessionID) {
+      void loadSession(sessionID);
+    } else {
+      setSessionDetail(null);
+    }
+  }, [loadSession, params._splat]);
 
   const loadWorkspace = useCallback(async (sid: string) => {
     setWorkspaceLoading(true);
@@ -182,7 +179,7 @@ export function SessionsPage() {
         currentUserID={currentUserID}
         onBack={() => {
           setSessionDetail(null);
-          history.pushState(null, "", "/sessions");
+          void navigate({ to: "/sessions" });
         }}
         onSessionUpdate={(s) => setSessionDetail(s)}
         onToggleLeft={() => setLeftOpen((v) => !v)}
