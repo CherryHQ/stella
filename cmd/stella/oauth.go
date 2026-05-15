@@ -44,7 +44,7 @@ func oauthProvidersCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var providers []apiclient.OAuthProviderStatus
-			if err := decodeJSON(resp, &providers); err != nil {
+			if err := decodeDataJSON(resp, &providers); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -88,7 +88,7 @@ func oauthConnectCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var flow apiclient.OAuthFlowStatus
-			if err := decodeJSON(resp, &flow); err != nil {
+			if err := decodeDataJSON(resp, &flow); err != nil {
 				return err
 			}
 
@@ -111,7 +111,7 @@ func oauthConnectCommand() *ucli.Command {
 						return wrapServerErr(err)
 					}
 					var status apiclient.OAuthFlowStatus
-					if err := decodeJSON(pollResp, &status); err != nil {
+					if err := decodeDataJSON(pollResp, &status); err != nil {
 						pollResp.Body.Close() //nolint:errcheck
 						return err
 					}
@@ -155,7 +155,7 @@ func oauthStatusCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var status apiclient.OAuthConnectedResponse
-			if err := decodeJSON(resp, &status); err != nil {
+			if err := decodeDataJSON(resp, &status); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -194,7 +194,7 @@ func oauthDisconnectCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := decodeDataJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Disconnected from %s.\n", provider)

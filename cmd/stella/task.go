@@ -54,7 +54,7 @@ func taskListCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var list apiclient.AgentTaskList
-			if err := decodeJSON(resp, &list); err != nil {
+			if err := decodeDataJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -98,7 +98,7 @@ func taskGetCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var task apiclient.AgentTask
-			if err := decodeJSON(resp, &task); err != nil {
+			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -144,7 +144,7 @@ func taskCreateCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var task apiclient.AgentTask
-			if err := decodeJSON(resp, &task); err != nil {
+			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -188,7 +188,7 @@ func taskUpdateCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var task apiclient.AgentTask
-			if err := decodeJSON(resp, &task); err != nil {
+			if err := decodeDataJSON(resp, &task); err != nil {
 				return err
 			}
 			return printJSON(task)
@@ -215,7 +215,7 @@ func taskDeleteCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := decodeDataJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Task %q deleted.\n", id)
@@ -258,7 +258,7 @@ func taskActionCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := decodeDataJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Action %q applied to task %s.\n", actionType, shortID(id))
@@ -290,7 +290,7 @@ func taskEventsCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var list apiclient.AgentTaskEventList
-			if err := decodeJSON(resp, &list); err != nil {
+			if err := decodeDataJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {

@@ -45,7 +45,7 @@ func vaultListCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var entries []apiclient.VaultEntry
-			if err := decodeJSON(resp, &entries); err != nil {
+			if err := decodeDataJSON(resp, &entries); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -88,7 +88,7 @@ func vaultGetCommand() *ucli.Command {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var entry apiclient.VaultEntryValue
-			if err := decodeJSON(resp, &entry); err != nil {
+			if err := decodeDataJSON(resp, &entry); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -132,7 +132,7 @@ func vaultSetCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := decodeDataJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Vault entry %q set.\n", name)
@@ -160,7 +160,7 @@ func vaultDeleteCommand() *ucli.Command {
 				return wrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := decodeDataJSON(resp, nil); err != nil {
 				return err
 			}
 			fmt.Printf("Vault entry %q deleted.\n", name)
