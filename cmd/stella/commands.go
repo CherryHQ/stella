@@ -374,7 +374,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
 	// Create PoolManager with builtin tools and external plugin tools.
-	// WithBuiltinTools sets the always-on builtin tools (scheduler, memory).
+	// WithBuiltinTools sets the always-on builtin tools (memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable external tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	toolLifecycle := &coreagent.ToolLifecycle{
