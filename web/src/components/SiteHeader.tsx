@@ -35,8 +35,7 @@ export function SiteHeader() {
 
   const appNavItems = [
     { label: t("nav.sessions"), href: "/sessions" },
-    { label: t("nav.scheduler"), href: "/scheduler" },
-    { label: t("nav.tasks"), href: "/tasks" },
+    { label: t("nav.automations"), href: "/automations" },
     { label: t("nav.recally"), href: "/recally" },
     { label: t("nav.settings"), href: "/settings" },
   ];

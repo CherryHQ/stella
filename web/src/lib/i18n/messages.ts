@@ -7,6 +7,7 @@ const en = {
 
   // Navigation
   "nav.sessions": "Sessions",
+  "nav.automations": "Automations",
   "nav.scheduler": "Scheduler",
   "nav.tasks": "Tasks",
   "nav.settings": "Settings",
@@ -427,6 +428,7 @@ const zh: Record<MessageKey, string> = {
 
   // Navigation
   "nav.sessions": "会话",
+  "nav.automations": "自动化",
   "nav.scheduler": "调度器",
   "nav.tasks": "任务",
   "nav.settings": "设置",
