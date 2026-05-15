@@ -1,4 +1,4 @@
-h1:WI9mIPi74pJ+8KPnwIB2AIDwtyYaiCFAaTp/K2ZnsYY=
+h1:hWNw6+oZ7+xyNY7G+COkIIZ78bafU+rArarWsnL6DRQ=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -33,8 +33,5 @@ h1:WI9mIPi74pJ+8KPnwIB2AIDwtyYaiCFAaTp/K2ZnsYY=
 20260506030735_add-exec-scope-and-run-userid.sql h1:4lvCtvDOGz8I6b/k8HZho0OQLcIFI4m+GRyBwX7Pzrg=
 20260506034118_fix-run-id-not-null.sql h1:gRKFWr11UOFPqg6+acePL31xJTJAgA/qallr0/uczfY=
 20260511092441_add-auth-oauth-provider.sql h1:o7a0Ej/I0Bdh0r0os8C1gSix92kCfzHLku790tBDV/U=
-20260514041004_agent_task.sql h1:U/yr9mXnx65mAeeNo0o2UMF/irAl37WakJsCT5tVZwU=
-20260514093839_add-recally-digests.sql h1:6QQvFhwN3SxvtLngCTDrTkfYl1jP0bkWMUyb9N9Nn2g=
-20260514101647_add_task_deps_notify_at.sql h1:JkVS7JJ7Qd+HR2BQISpPQKe/1eXI8aBWRpC76qbvtcA=
-20260514133443_remove_session_id_fk.sql h1:BacZug1sRwwaxVoOo1hKxaW6zfTw7/JHVj1kTDxE5ic=
-20260515010730_add_scheduler_task_links.sql h1:QE8UeSyba9LbDXZorIrBt6Cl6BkwSOhrvf7pdcJsby8=
+20260514093839_add-recally-digests.sql h1:T384+HyBeU+10dxV+YNsVpPmsSh0EG43Vbl/4RjiRvo=
+20260515043028_agent_task.sql h1:DA0q6JhO5auyNr11IvQQxFUBCoAc325ku+wfhK8cNog=
