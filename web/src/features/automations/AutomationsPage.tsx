@@ -914,44 +914,44 @@ function TaskDetailShell({
   const { t } = useI18n();
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="shrink-0 rounded-2xl border border-border bg-card p-4 shadow-xs/5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-              Task run
-            </div>
-            <h2 className="mt-2 truncate font-serif text-3xl italic tracking-tight">
-              {task.title}
-            </h2>
-            <div className="mt-2 truncate font-mono text-xs text-muted-foreground">{task.id}</div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant={taskBadgeVariant(task.status)}>{task.status}</Badge>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={onDelete}
-            >
-              {t("common.delete")}
-            </Button>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 rounded-xl bg-muted/35 p-3 text-sm sm:grid-cols-3">
-          <Metric label="Updated" value={formatTime(task.updated_at)} />
-          <Metric label="Priority" value={task.priority} />
-          <Metric label="Session" value={task.session_id || "—"} />
-        </div>
-        {task.description && (
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{task.description}</p>
-        )}
+    <AutomationDetailLayout
+      eyebrow="Task run"
+      title={task.title}
+      subtitle={task.id}
+      status={<Badge variant={taskBadgeVariant(task.status)}>{task.status}</Badge>}
+      actions={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          {t("common.delete")}
+        </Button>
+      }
+      metrics={[
+        { label: "Updated", value: formatTime(task.updated_at) },
+        { label: "Priority", value: task.priority },
+        { label: "Session", value: task.session_id || "—" },
+      ]}
+      description={task.description}
+    >
+      <div className="min-h-0 shrink-0 overflow-y-auto rounded-2xl border border-border bg-card p-4">
+        <TaskDetail
+          task={task}
+          onAction={onAction}
+          onToast={onToast}
+          hideSummary
+          hideConversation
+        />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border bg-card p-4">
-        <TaskDetail task={task} onAction={onAction} onToast={onToast} hideSummary />
-      </div>
-    </div>
+      <AutomationConversationPanel
+        sessionId={task.session_id}
+        placeholder="Ask Stella about this task…"
+        emptyText="This task does not have a persisted conversation session."
+      />
+    </AutomationDetailLayout>
   );
 }
 
@@ -959,48 +959,110 @@ function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJob
   const sessionId = schedulerRunSessionId(job, run);
 
   return (
+    <AutomationDetailLayout
+      eyebrow="Scheduler run"
+      title={job.name}
+      subtitle={run.id}
+      status={<Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>}
+      metrics={[
+        { label: "Started", value: formatTime(run.started_at) },
+        { label: "Duration", value: run.duration || "—" },
+        { label: "Schedule", value: jobScheduleText(job) },
+      ]}
+      error={run.error}
+    >
+      <div className="shrink-0">
+        <ScheduleSummary job={job} />
+      </div>
+
+      <AutomationConversationPanel
+        sessionId={sessionId}
+        placeholder="Ask Stella about this run…"
+        emptyText="This run does not have a persisted conversation session."
+      />
+    </AutomationDetailLayout>
+  );
+}
+
+function AutomationConversationPanel({
+  sessionId,
+  placeholder,
+  emptyText,
+}: {
+  sessionId?: string;
+  placeholder: string;
+  emptyText: string;
+}) {
+  return (
+    <div className="min-h-0 flex-1">
+      {sessionId ? (
+        <SessionConversation
+          sessionId={sessionId}
+          placeholder={placeholder}
+          className="h-full min-h-0"
+          bodyClassName="min-h-0 flex-1"
+        />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+          {emptyText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AutomationDetailLayout({
+  eyebrow,
+  title,
+  subtitle,
+  status,
+  actions,
+  metrics,
+  description,
+  error,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  status: ReactNode;
+  actions?: ReactNode;
+  metrics: Array<{ label: string; value: string }>;
+  description?: string;
+  error?: string;
+  children: ReactNode;
+}) {
+  return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="shrink-0 rounded-2xl border border-border bg-card p-4 shadow-xs/5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-              Scheduler run
+              {eyebrow}
             </div>
-            <h2 className="mt-2 truncate font-serif text-3xl italic tracking-tight">{job.name}</h2>
-            <div className="mt-2 truncate font-mono text-xs text-muted-foreground">{run.id}</div>
+            <h2 className="mt-2 truncate font-serif text-3xl italic tracking-tight">{title}</h2>
+            <div className="mt-2 truncate font-mono text-xs text-muted-foreground">{subtitle}</div>
           </div>
-          <Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>
+          <div className="flex shrink-0 items-center gap-2">
+            {status}
+            {actions}
+          </div>
         </div>
         <div className="mt-4 grid gap-3 rounded-xl bg-muted/35 p-3 text-sm sm:grid-cols-3">
-          <Metric label="Started" value={formatTime(run.started_at)} />
-          <Metric label="Duration" value={run.duration || "—"} />
-          <Metric label="Schedule" value={jobScheduleText(job)} />
+          {metrics.map((metric) => (
+            <Metric key={metric.label} label={metric.label} value={metric.value} />
+          ))}
         </div>
-        {run.error && (
+        {description && (
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
+        )}
+        {error && (
           <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            {run.error}
+            {error}
           </div>
         )}
       </div>
-
-      <div className="shrink-0">
-        <ScheduleSummary job={job} />
-      </div>
-
-      <div className="min-h-0 flex-1">
-        {sessionId ? (
-          <SessionConversation
-            sessionId={sessionId}
-            placeholder="Ask Stella about this run…"
-            className="h-full min-h-0"
-            bodyClassName="min-h-0 flex-1"
-          />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-            This run does not have a persisted conversation session.
-          </div>
-        )}
-      </div>
+      {children}
     </div>
   );
 }

@@ -51,9 +51,16 @@ interface Props {
   onAction: (updatedTask: ComponentsAgentTask) => void;
   onToast: (msg: string, kind?: "success" | "error") => void;
   hideSummary?: boolean;
+  hideConversation?: boolean;
 }
 
-export function TaskDetail({ task, onAction, onToast, hideSummary = false }: Props) {
+export function TaskDetail({
+  task,
+  onAction,
+  onToast,
+  hideSummary = false,
+  hideConversation = false,
+}: Props) {
   const { t } = useI18n();
   const [events, setEvents] = useState<ComponentsAgentTaskEvent[]>([]);
   const [respondText, setRespondText] = useState("");
@@ -259,7 +266,7 @@ export function TaskDetail({ task, onAction, onToast, hideSummary = false }: Pro
         )}
       </div>
 
-      {task.session_id && (
+      {!hideConversation && task.session_id && (
         <div>
           <SessionConversation
             sessionId={task.session_id}
