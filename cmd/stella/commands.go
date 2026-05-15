@@ -61,6 +61,9 @@ func newApp() *ucli.App {
 			recallyCommand(),
 			schedulerCommand(),
 			emailCommand(),
+			vaultCommand(),
+			oauthCommand(),
+			taskCommand(),
 			serviceCommand(),
 		},
 	}
