@@ -18,10 +18,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskDetail } from "@/features/tasks/TaskDetail";
 
-type LaneKey = "attention" | "running" | "scheduled" | "failed";
+type ViewTab = "work" | "schedules" | "history";
+type WorkLaneKey = "attention" | "running" | "pending" | "failed";
 type Selection =
   | { type: "task"; id: string }
   | { type: "job"; id: number }
+  | { type: "run"; jobId: number; runId: number }
   | { type: "new-job" }
   | null;
 type TimelineKind = "task" | "schedule" | "run";
@@ -117,7 +119,8 @@ export function AutomationsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [runsByJob, setRunsByJob] = useState<Record<number, SchedulerJobRun[]>>({});
-  const [lane, setLane] = useState<LaneKey>("attention");
+  const [tab, setTab] = useState<ViewTab>("work");
+  const [workLane, setWorkLane] = useState<WorkLaneKey>("attention");
   const [selection, setSelection] = useState<Selection>(null);
   const [loading, setLoading] = useState(true);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -286,20 +289,24 @@ export function AutomationsPage() {
 
   const attentionTasks = tasks.filter(taskNeedsAttention);
   const runningTasks = tasks.filter((task) => task.status === "running");
+  const pendingTasks = tasks.filter((task) => task.status === "pending");
   const failedTasks = tasks.filter(isFailedTask);
-  const failedJobs = jobs.filter(isFailedJob);
-  const enabledJobs = jobs.filter((job) => job.enabled);
   const selectedTask =
     selection?.type === "task" ? tasks.find((task) => task.id === selection.id) : null;
   const selectedJob =
     selection?.type === "job" ? jobs.find((job) => job.id === selection.id) : null;
-  const selectedRuns = selectedJob ? runsByJob[selectedJob.id] || [] : [];
+  const selectedRunJob =
+    selection?.type === "run" ? jobs.find((job) => job.id === selection.jobId) : null;
+  const selectedRun =
+    selectedRunJob && selection?.type === "run"
+      ? (runsByJob[selectedRunJob.id] || []).find((run) => run.id === selection.runId)
+      : null;
   const isJobFormValid =
     jobForm.name &&
     jobForm.message &&
     (jobForm.schedule_type === "cron" ? jobForm.cron : jobForm.every);
 
-  const lanes: Array<{ key: LaneKey; title: string; count: number; hint: string }> = [
+  const workLanes: Array<{ key: WorkLaneKey; title: string; count: number; hint: string }> = [
     {
       key: "attention",
       title: "Needs you",
@@ -307,13 +314,8 @@ export function AutomationsPage() {
       hint: "blocked or review",
     },
     { key: "running", title: "Running", count: runningTasks.length, hint: "active task work" },
-    { key: "scheduled", title: "Scheduled", count: enabledJobs.length, hint: "enabled triggers" },
-    {
-      key: "failed",
-      title: "Failures",
-      count: failedTasks.length + failedJobs.length,
-      hint: "needs investigation",
-    },
+    { key: "pending", title: "Pending", count: pendingTasks.length, hint: "queued work" },
+    { key: "failed", title: "Failures", count: failedTasks.length, hint: "task failures" },
   ];
 
   const timeline = useMemo<TimelineItem[]>(() => {
@@ -321,7 +323,7 @@ export function AutomationsPage() {
       id: `task:${task.id}`,
       kind: "task" as const,
       title: task.title,
-      description: task.description || "Async background task",
+      description: task.description || "Async task run",
       time: task.updated_at,
       status: task.status,
       selection: { type: "task", id: task.id } as Selection,
@@ -335,21 +337,11 @@ export function AutomationsPage() {
         description: run.error || run.session_id || jobScheduleText(job),
         time: run.started_at,
         status: run.status,
-        selection: { type: "job", id: job.id } as Selection,
+        selection: { type: "run", jobId: job.id, runId: run.id } as Selection,
       })),
     );
 
-    const jobItems = jobs.slice(0, 16).map((job) => ({
-      id: `job:${job.id}`,
-      kind: "schedule" as const,
-      title: job.name,
-      description: job.message || job.description || jobScheduleText(job),
-      time: job.last_run_at || job.at || "",
-      status: job.enabled ? "enabled" : "disabled",
-      selection: { type: "job", id: job.id } as Selection,
-    }));
-
-    return [...taskItems, ...runItems, ...jobItems]
+    return [...taskItems, ...runItems]
       .filter((item) => item.time)
       .sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
       .slice(0, 18);
@@ -357,119 +349,165 @@ export function AutomationsPage() {
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-background">
-      <div className="mx-auto flex max-w-[90rem] flex-col gap-5 px-5 py-5">
-        <header className="flex flex-col gap-4 rounded-3xl border border-border bg-card/70 p-5 shadow-sm md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              unified operations surface
-            </div>
-            <h1 className="mt-2 font-serif text-4xl italic tracking-tight text-foreground md:text-5xl">
+      <div className="mx-auto flex max-w-[90rem] flex-col gap-4 px-5 py-4">
+        <header className="flex flex-col gap-3 border-b border-border pb-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="font-serif text-2xl italic tracking-tight text-foreground">
               Automations
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Create and manage async tasks, scheduled triggers, and execution history from one
-              page.
-            </p>
+            <div className="hidden text-xs text-muted-foreground md:block">
+              Tasks, schedules, and execution history
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setCreatingTask(true)}>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1 rounded-xl border border-border bg-card/70 p-1">
+              <TabButton active={tab === "work"} onClick={() => setTab("work")} label="Tasks" />
+              <TabButton
+                active={tab === "schedules"}
+                onClick={() => setTab("schedules")}
+                label="Schedules"
+              />
+              <TabButton
+                active={tab === "history"}
+                onClick={() => setTab("history")}
+                label="History"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setCreatingTask(true)}>
               New task
             </Button>
-            <Button onClick={startNewJob}>New schedule</Button>
+            <Button size="sm" onClick={startNewJob}>
+              New schedule
+            </Button>
           </div>
         </header>
-
-        <section className="grid gap-3 md:grid-cols-4">
-          {lanes.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setLane(item.key)}
-              className={`rounded-2xl border p-4 text-left transition-all ${lane === item.key ? "border-primary bg-primary/[0.04] shadow-sm" : item.key === "attention" && item.count > 0 ? "border-destructive/30 bg-destructive/[0.03] hover:bg-destructive/[0.05]" : "border-border bg-card/70 hover:bg-muted/40"}`}
-            >
-              <div className="text-3xl font-semibold tracking-tight">{item.count}</div>
-              <div className="mt-2 text-sm font-medium">{item.title}</div>
-              <div className="mt-1 text-[11px] font-mono text-muted-foreground">{item.hint}</div>
-            </button>
-          ))}
-        </section>
-
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_32rem]">
           <section className="rounded-3xl border border-border bg-card/70 p-4 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight">Today’s automation board</h2>
-                <p className="text-sm text-muted-foreground">
-                  Operational Kanban for tasks and schedules.
-                </p>
-              </div>
-              {loading && <Badge variant="outline">Refreshing…</Badge>}
-            </div>
-            <div className="grid gap-3 lg:grid-cols-4">
-              <LaneColumn title="Needs you" active={lane === "attention"}>
-                {attentionTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    tone="attention"
-                    onSelect={() => setSelection({ type: "task", id: task.id })}
-                  />
-                ))}
-                {attentionTasks.length === 0 && (
-                  <EmptyCard text="No blocked tasks or review requests." />
-                )}
-              </LaneColumn>
-              <LaneColumn title="Running" active={lane === "running"}>
-                {runningTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    tone="running"
-                    onSelect={() => setSelection({ type: "task", id: task.id })}
-                  />
-                ))}
-                {runningTasks.length === 0 && <EmptyCard text="No task workers are running." />}
-              </LaneColumn>
-              <LaneColumn title="Scheduled" active={lane === "scheduled"}>
-                {enabledJobs.slice(0, 10).map((job) => (
-                  <ScheduleCard key={job.id} job={job} onSelect={() => selectJob(job)} />
-                ))}
-                {enabledJobs.length === 0 && <EmptyCard text="No enabled schedules." />}
-              </LaneColumn>
-              <LaneColumn title="Failures" active={lane === "failed"}>
-                {failedTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    tone="failed"
-                    onSelect={() => setSelection({ type: "task", id: task.id })}
-                  />
-                ))}
-                {failedJobs.map((job) => (
-                  <ScheduleCard key={job.id} job={job} failed onSelect={() => selectJob(job)} />
-                ))}
-                {failedTasks.length + failedJobs.length === 0 && (
-                  <EmptyCard text="No failed tasks or schedules." />
-                )}
-              </LaneColumn>
-            </div>
+            {tab === "work" && (
+              <>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-tight">Tasks board</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Async tasks only: durable work items with status, review, and blockers.
+                    </p>
+                  </div>
+                  {loading && <Badge variant="outline">Refreshing…</Badge>}
+                </div>
+                <div className="mb-4 grid gap-2 md:grid-cols-4">
+                  {workLanes.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setWorkLane(item.key)}
+                      className={`rounded-xl border p-3 text-left transition-all ${workLane === item.key ? "border-primary bg-primary/[0.04]" : item.key === "attention" && item.count > 0 ? "border-destructive/30 bg-destructive/[0.03]" : "border-border bg-background/60 hover:bg-muted/40"}`}
+                    >
+                      <div className="text-2xl font-semibold tracking-tight">{item.count}</div>
+                      <div className="mt-1 text-sm font-medium">{item.title}</div>
+                      <div className="mt-1 text-[11px] font-mono text-muted-foreground">
+                        {item.hint}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <LaneColumn title="Needs you" active={workLane === "attention"}>
+                    {attentionTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        tone="attention"
+                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                      />
+                    ))}
+                    {attentionTasks.length === 0 && (
+                      <EmptyCard text="No blocked tasks or review requests." />
+                    )}
+                  </LaneColumn>
+                  <LaneColumn title="Running" active={workLane === "running"}>
+                    {runningTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        tone="running"
+                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                      />
+                    ))}
+                    {runningTasks.length === 0 && <EmptyCard text="No task workers are running." />}
+                  </LaneColumn>
+                  <LaneColumn title="Pending" active={workLane === "pending"}>
+                    {pendingTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        tone="running"
+                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                      />
+                    ))}
+                    {pendingTasks.length === 0 && <EmptyCard text="No queued tasks." />}
+                  </LaneColumn>
+                  <LaneColumn title="Failures" active={workLane === "failed"}>
+                    {failedTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        tone="failed"
+                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                      />
+                    ))}
+                    {failedTasks.length === 0 && <EmptyCard text="No failed tasks." />}
+                  </LaneColumn>
+                </div>
+              </>
+            )}
 
-            <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
-              <h2 className="text-lg font-semibold tracking-tight">Timeline ledger</h2>
-              <p className="mb-4 text-sm text-muted-foreground">
-                Recent schedules, runs, and task state changes.
-              </p>
-              <div className="relative grid gap-3 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border lg:grid-cols-2 lg:before:hidden">
-                {timeline.map((item) => (
-                  <TimelineRow
-                    key={item.id}
-                    item={item}
-                    onSelect={() => setSelection(item.selection)}
-                  />
-                ))}
-                {timeline.length === 0 && <EmptyCard text="No recent automation history yet." />}
-              </div>
-            </div>
+            {tab === "schedules" && (
+              <>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-tight">Schedules</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Scheduler definitions only: time-based triggers/templates, not work instances.
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={startNewJob}>
+                    New schedule
+                  </Button>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {jobs.map((job) => (
+                    <ScheduleCard
+                      key={job.id}
+                      job={job}
+                      failed={isFailedJob(job)}
+                      onSelect={() => selectJob(job)}
+                    />
+                  ))}
+                  {jobs.length === 0 && <EmptyCard text="No schedules yet." />}
+                </div>
+              </>
+            )}
+
+            {tab === "history" && (
+              <>
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold tracking-tight">History ledger</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Execution history only: scheduler runs and task runs/events, not definitions.
+                  </p>
+                </div>
+                <div className="relative grid gap-3 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border lg:grid-cols-2 lg:before:hidden">
+                  {timeline.map((item) => (
+                    <TimelineRow
+                      key={item.id}
+                      item={item}
+                      onSelect={() => setSelection(item.selection)}
+                    />
+                  ))}
+                  {timeline.length === 0 && <EmptyCard text="No recent automation history yet." />}
+                </div>
+              </>
+            )}
           </section>
 
           <aside className="rounded-3xl border border-border bg-card/70 p-5 shadow-sm xl:sticky xl:top-5 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
@@ -485,10 +523,11 @@ export function AutomationsPage() {
               >
                 <TaskDetail task={selectedTask} onAction={handleTaskAction} onToast={showToast} />
               </DetailShell>
+            ) : selectedRunJob && selectedRun ? (
+              <SchedulerRunDetail job={selectedRunJob} run={selectedRun} />
             ) : selectedJob || selection?.type === "new-job" ? (
               <ScheduleDetail
                 job={selectedJob}
-                runs={selectedRuns}
                 agents={agents}
                 isAdmin={isAdmin}
                 form={jobForm}
@@ -510,17 +549,15 @@ export function AutomationsPage() {
               />
             ) : (
               <div className="flex min-h-[30rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/60 p-6 text-center">
-                <h2 className="font-serif text-2xl italic tracking-tight">
-                  Select work to inspect
-                </h2>
+                <h2 className="font-serif text-2xl italic tracking-tight">Select an item</h2>
                 <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-                  Open a task, schedule, or run from the board. Details, editing, actions, and run
-                  history all live here now.
+                  Tasks open task detail. Schedules open run history first, with settings as a
+                  secondary section. History rows link back to their source object.
                 </p>
               </div>
             )}
           </aside>
-        </div>
+        </div>{" "}
       </div>
 
       <Dialog open={creatingTask} onOpenChange={(open) => !open && setCreatingTask(false)}>
@@ -610,6 +647,26 @@ export function AutomationsPage() {
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function DetailShell({
   title,
   onDelete,
@@ -639,9 +696,62 @@ function DetailShell({
   );
 }
 
+function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJobRun }) {
+  return (
+    <div>
+      <div className="mb-5">
+        <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Scheduler run
+        </div>
+        <h2 className="mt-2 font-serif text-2xl italic tracking-tight">{job.name}</h2>
+      </div>
+      <div className="rounded-2xl border border-border bg-background/60 p-4">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>
+          <Badge variant="outline">{jobScheduleText(job)}</Badge>
+          <Badge variant="outline">{job.owner_kind || "user"}</Badge>
+        </div>
+        <div className="space-y-3 text-sm">
+          <DetailRow label="Started" value={formatTime(run.started_at)} />
+          {run.duration && <DetailRow label="Duration" value={run.duration} />}
+          {run.session_id && (
+            <div className="grid grid-cols-[5rem_1fr] gap-3">
+              <span className="text-muted-foreground">Session</span>
+              <a
+                href={`/sessions/${encodeURIComponent(run.session_id)}`}
+                className="text-primary hover:underline"
+              >
+                {run.session_id}
+              </a>
+            </div>
+          )}
+          {run.error && <DetailRow label="Error" value={run.error} danger />}
+        </div>
+      </div>
+      <ScheduleSummary job={job} />
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[5rem_1fr] gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={danger ? "text-destructive" : "text-foreground"}>{value}</span>
+    </div>
+  );
+}
+
 function ScheduleDetail({
   job,
-  runs,
   agents,
   isAdmin,
   form,
@@ -654,7 +764,6 @@ function ScheduleDetail({
   onDelete,
 }: {
   job: SchedulerJob | null | undefined;
-  runs: SchedulerJobRun[];
   agents: Agent[];
   isAdmin: boolean;
   form: JobForm;
@@ -667,12 +776,14 @@ function ScheduleDetail({
   onDelete?: () => void;
 }) {
   const readOnly = job?.owner_kind === "plugin";
+  const isNew = !job;
+
   return (
     <div>
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            {job ? "Schedule detail" : "New schedule"}
+            {isNew ? "New schedule" : "Schedule runs"}
           </div>
           <h2 className="mt-2 font-serif text-2xl italic tracking-tight">
             {job?.name || "Create a schedule"}
@@ -696,154 +807,144 @@ function ScheduleDetail({
           )}
         </div>
       </div>
-      {readOnly ? (
-        <PluginSchedule job={job} />
-      ) : (
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name">
-              <Input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Daily summary"
-                nativeInput
-              />
+
+      {job && <ScheduleSummary job={job} />}
+
+      {readOnly && <PluginSchedule job={job} />}
+
+      {!readOnly && (
+        <details
+          className="mt-6 rounded-2xl border border-border bg-background/60 p-4"
+          open={isNew}
+        >
+          <summary className="cursor-pointer text-sm font-semibold">
+            {isNew ? "Schedule settings" : "Edit schedule settings"}
+          </summary>
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name">
+                <Input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Daily summary"
+                  nativeInput
+                />
+              </Field>
+              <Field label="Session mode">
+                <select
+                  value={form.session_mode}
+                  onChange={(e) => setForm((prev) => ({ ...prev, session_mode: e.target.value }))}
+                  className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="reuse">Reuse session</option>
+                  <option value="new">New session each run</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Schedule">
+              <div className="mb-2 flex items-center gap-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    checked={form.schedule_type === "cron"}
+                    onChange={() => setForm((prev) => ({ ...prev, schedule_type: "cron" }))}
+                    className="accent-primary"
+                  />
+                  Cron
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    checked={form.schedule_type === "every"}
+                    onChange={() => setForm((prev) => ({ ...prev, schedule_type: "every" }))}
+                    className="accent-primary"
+                  />
+                  Interval
+                </label>
+              </div>
+              {form.schedule_type === "cron" ? (
+                <Input
+                  type="text"
+                  value={form.cron}
+                  onChange={(e) => setForm((prev) => ({ ...prev, cron: e.target.value }))}
+                  placeholder="0 9 * * 1-5"
+                  className="font-mono"
+                  nativeInput
+                />
+              ) : (
+                <Input
+                  type="text"
+                  value={form.every}
+                  onChange={(e) => setForm((prev) => ({ ...prev, every: e.target.value }))}
+                  placeholder="30m, 2h"
+                  className="font-mono"
+                  nativeInput
+                />
+              )}
             </Field>
-            <Field label="Session mode">
+            <Field label="Agent">
               <select
-                value={form.session_mode}
-                onChange={(e) => setForm((prev) => ({ ...prev, session_mode: e.target.value }))}
+                value={form.agent_id}
+                onChange={(e) => setForm((prev) => ({ ...prev, agent_id: e.target.value }))}
                 className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="reuse">Reuse session</option>
-                <option value="new">New session each run</option>
+                <option value="">Default agent</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
               </select>
             </Field>
-          </div>
-          <Field label="Schedule">
-            <div className="mb-2 flex items-center gap-4">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  checked={form.schedule_type === "cron"}
-                  onChange={() => setForm((prev) => ({ ...prev, schedule_type: "cron" }))}
-                  className="accent-primary"
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.system_job}
+                  onCheckedChange={(value) => setForm((prev) => ({ ...prev, system_job: value }))}
                 />
-                Cron
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="schedule_type"
-                  checked={form.schedule_type === "every"}
-                  onChange={() => setForm((prev) => ({ ...prev, schedule_type: "every" }))}
-                  className="accent-primary"
-                />
-                Interval
-              </label>
-            </div>
-            {form.schedule_type === "cron" ? (
-              <Input
-                type="text"
-                value={form.cron}
-                onChange={(e) => setForm((prev) => ({ ...prev, cron: e.target.value }))}
-                placeholder="0 9 * * 1-5"
-                className="font-mono"
-                nativeInput
-              />
-            ) : (
-              <Input
-                type="text"
-                value={form.every}
-                onChange={(e) => setForm((prev) => ({ ...prev, every: e.target.value }))}
-                placeholder="30m, 2h"
-                className="font-mono"
-                nativeInput
-              />
-            )}
-          </Field>
-          <Field label="Agent">
-            <select
-              value={form.agent_id}
-              onChange={(e) => setForm((prev) => ({ ...prev, agent_id: e.target.value }))}
-              className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Default agent</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={form.system_job}
-                onCheckedChange={(value) => setForm((prev) => ({ ...prev, system_job: value }))}
-              />
-              <span className="text-sm">System job</span>
-              <span className="text-xs text-muted-foreground">broadcasts to all users</span>
-            </div>
-          )}
-          <Field label="Message">
-            <Textarea
-              value={form.message}
-              onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))}
-              placeholder="What should the agent do?"
-            />
-          </Field>
-          <div className="flex items-center justify-between border-t border-border pt-4">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                checked={form.enabled}
-                onCheckedChange={(value) => setForm((prev) => ({ ...prev, enabled: value }))}
-              />
-              Enabled
-            </label>
-            <Button size="sm" disabled={!isValid} onClick={onSave}>
-              {savingLabel}
-            </Button>
-          </div>
-        </div>
-      )}
-      <div className="mt-8 border-t border-border pt-5">
-        <h3 className="mb-3 text-sm font-semibold">Recent runs</h3>
-        {runs.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No runs yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {runs.map((run) => (
-              <div
-                key={run.id}
-                className="rounded-xl border border-border bg-background/60 p-3 text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge size="sm" variant={runBadgeVariant(run.status)}>
-                    {run.status}
-                  </Badge>
-                  <span className="font-mono text-muted-foreground">
-                    {formatTime(run.started_at)}
-                  </span>
-                  {run.duration && (
-                    <span className="font-mono text-muted-foreground/60">{run.duration}</span>
-                  )}
-                </div>
-                {run.session_id && (
-                  <a
-                    href={`/sessions/${encodeURIComponent(run.session_id)}`}
-                    className="mt-2 block text-primary hover:underline"
-                  >
-                    Open session
-                  </a>
-                )}
-                {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
+                <span className="text-sm">System job</span>
+                <span className="text-xs text-muted-foreground">broadcasts to all users</span>
               </div>
-            ))}
+            )}
+            <Field label="Message">
+              <Textarea
+                value={form.message}
+                onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))}
+                placeholder="What should the agent do?"
+              />
+            </Field>
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={form.enabled}
+                  onCheckedChange={(value) => setForm((prev) => ({ ...prev, enabled: value }))}
+                />
+                Enabled
+              </label>
+              <Button size="sm" disabled={!isValid} onClick={onSave}>
+                {savingLabel}
+              </Button>
+            </div>
           </div>
-        )}
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ScheduleSummary({ job }: { job: SchedulerJob }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background/60 p-4">
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Badge variant={job.enabled ? "success" : "outline"}>
+          {job.enabled ? "enabled" : "disabled"}
+        </Badge>
+        <Badge variant="outline">{jobScheduleText(job)}</Badge>
+        <Badge variant="outline">{job.owner_kind || "user"}</Badge>
+        {job.session_mode && <Badge variant="outline">session:{job.session_mode}</Badge>}
       </div>
     </div>
   );
@@ -851,22 +952,25 @@ function ScheduleDetail({
 
 function PluginSchedule({ job }: { job: SchedulerJob }) {
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        {job.description || "Plugin-owned scheduled job"}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="info">plugin:{job.plugin_id}</Badge>
-        <Badge variant="outline">key:{job.job_key}</Badge>
-        <Badge variant="outline">runtime:{job.runtime_name}</Badge>
-        <Badge variant={job.enabled ? "success" : "outline"}>{job.enabled ? "on" : "off"}</Badge>
+    <details className="mt-6 rounded-2xl border border-border bg-background/60 p-4">
+      <summary className="cursor-pointer text-sm font-semibold">Schedule definition</summary>
+      <div className="mt-4 space-y-3">
+        <p className="text-sm text-muted-foreground">
+          {job.description || job.message || "Plugin-owned scheduled job"}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="info">plugin:{job.plugin_id}</Badge>
+          <Badge variant="outline">key:{job.job_key}</Badge>
+          <Badge variant="outline">runtime:{job.runtime_name}</Badge>
+          <Badge variant={job.enabled ? "success" : "outline"}>{job.enabled ? "on" : "off"}</Badge>
+        </div>
+        {job.payload && Object.keys(job.payload).length > 0 && (
+          <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">
+            {JSON.stringify(job.payload, null, 2)}
+          </pre>
+        )}
       </div>
-      {job.payload && Object.keys(job.payload).length > 0 && (
-        <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">
-          {JSON.stringify(job.payload, null, 2)}
-        </pre>
-      )}
-    </div>
+    </details>
   );
 }
 
