@@ -7,7 +7,7 @@ CREATE TABLE ctx_conversations (
     last_active TEXT NOT NULL DEFAULT (datetime('now')),
     bootstrapped_at TEXT,
     agent_id TEXT,
-    user_id INTEGER,
+    user_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

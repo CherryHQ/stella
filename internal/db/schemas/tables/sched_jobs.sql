@@ -15,7 +15,7 @@ CREATE TABLE sched_jobs (
     session_mode TEXT NOT NULL DEFAULT 'reuse',
     enabled INTEGER NOT NULL DEFAULT 1,
     agent_id TEXT,
-    user_id INTEGER,
+    user_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_run_at TEXT,

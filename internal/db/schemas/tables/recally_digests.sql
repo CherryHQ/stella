@@ -1,6 +1,6 @@
 CREATE TABLE recally_digests (
     id         TEXT NOT NULL PRIMARY KEY,
-    user_id    INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
     date       TEXT NOT NULL,
     narrative  TEXT NOT NULL DEFAULT '',
     saved_yesterday_count  INTEGER NOT NULL DEFAULT 0,
