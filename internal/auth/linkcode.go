@@ -76,7 +76,7 @@ func (s *LinkCodeStore) Generate(userID string, platform string) string {
 
 // Consume looks up a link code and returns the associated user ID and
 // platform if valid. The code is consumed (deleted) on success.
-// Returns (0, "", false) if the code is invalid or expired.
+// Returns ("", "", false) if the code is invalid or expired.
 func (s *LinkCodeStore) Consume(code string) (string, string, bool) {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if s.db != nil {
@@ -127,14 +127,19 @@ func isAlphanumeric(c rune) bool {
 }
 
 func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
-	const stmt = `CREATE TABLE IF NOT EXISTS auth_link_codes (
+	// Drop and recreate to ensure the schema is current. Link codes are
+	// ephemeral (5-minute TTL), so losing in-flight codes on restart is safe.
+	if _, err := s.db.ExecContext(ctx, `DROP TABLE IF EXISTS auth_link_codes`); err != nil {
+		return fmt.Errorf("link code store: drop schema: %w", err)
+	}
+	const stmt = `CREATE TABLE auth_link_codes (
 		code TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
 		platform TEXT NOT NULL,
 		expire_at INTEGER NOT NULL
 	)`
 	if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("link code store: ensure schema: %w", err)
+		return fmt.Errorf("link code store: create schema: %w", err)
 	}
 	return nil
 }

@@ -317,7 +317,7 @@ ALTER TABLE `new_auth_identities` RENAME TO `auth_identities`;
 CREATE UNIQUE INDEX `auth_identities_platform_external_id` ON `auth_identities` (`platform`, `external_id`);
 -- Create "new_auth_users" table
 CREATE TABLE `new_auth_users` (
-  `id` text NULL,
+  `id` text NOT NULL,
   `username` text NOT NULL,
   `password_hash` text NOT NULL DEFAULT '',
   `role` text NOT NULL DEFAULT 'user',

@@ -1,5 +1,5 @@
 CREATE TABLE auth_users (
-    id                  TEXT PRIMARY KEY,
+    id                  TEXT NOT NULL PRIMARY KEY,
     username            TEXT UNIQUE NOT NULL,
     password_hash       TEXT NOT NULL DEFAULT '',
     role                TEXT NOT NULL DEFAULT 'user',
