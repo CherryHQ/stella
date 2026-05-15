@@ -184,6 +184,7 @@ export function AutomationsPage() {
   const [tab, setTab] = useState<ViewTab>("work");
   const [workLane, setWorkLane] = useState<WorkLaneKey>("attention");
   const [selection, setSelection] = useState<Selection>(null);
+  const [timelineLimit, setTimelineLimit] = useState(24);
   const [detailModalMode, setDetailModalMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -458,13 +459,14 @@ export function AutomationsPage() {
 
     return [...taskItems, ...runItems]
       .filter((item) => item.time)
-      .sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
-      .slice(0, 18);
+      .sort((a, b) => Date.parse(b.time) - Date.parse(a.time));
   }, [jobs, runsByJob, tasks]);
 
+  const visibleTimeline = timeline.slice(0, timelineLimit);
+
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-background">
-      <div className="flex flex-col gap-4 px-5 py-4">
+    <div className="h-full min-h-0 overflow-hidden bg-background">
+      <div className="flex h-full min-h-0 flex-col gap-4 px-5 py-4">
         <header className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-baseline gap-3">
@@ -494,8 +496,14 @@ export function AutomationsPage() {
             />
           </div>
         </header>
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_32rem]">
-          <section className="p-4">
+        <div
+          className={
+            tab === "history"
+              ? "grid min-h-0 flex-1 gap-5 overflow-hidden xl:grid-cols-[minmax(0,1fr)_46rem]"
+              : "grid min-h-0 flex-1 gap-5 overflow-hidden xl:grid-cols-[minmax(0,1fr)_32rem]"
+          }
+        >
+          <section className="min-h-0 overflow-y-auto p-4">
             {tab === "work" && (
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -645,33 +653,57 @@ export function AutomationsPage() {
                     {t("automations.log.description")}
                   </p>
                 </div>
-                <div className="relative grid gap-3 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border lg:grid-cols-2 lg:before:hidden">
-                  {timeline.map((item) => (
+                <div
+                  className="relative grid max-h-full gap-2 overflow-y-auto pr-2 before:absolute before:bottom-2 before:left-3 before:top-2 before:w-px before:bg-border"
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight < 180) {
+                      setTimelineLimit((limit) => Math.min(limit + 24, timeline.length));
+                    }
+                  }}
+                >
+                  {visibleTimeline.map((item) => (
                     <TimelineRow
                       key={item.id}
                       item={item}
+                      active={
+                        selectionPath("history", item.selection) ===
+                        selectionPath("history", selection)
+                      }
                       onSelect={() => routeTo("history", item.selection)}
                     />
                   ))}
                   {timeline.length === 0 && <EmptyCard text={t("automations.log.empty")} />}
+                  {visibleTimeline.length < timeline.length && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-7 mt-2"
+                      onClick={() =>
+                        setTimelineLimit((limit) => Math.min(limit + 24, timeline.length))
+                      }
+                    >
+                      Load more
+                    </Button>
+                  )}
                 </div>
               </>
             )}
           </section>
 
-          <aside className="hidden border-l border-border p-5 xl:sticky xl:top-5 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          <aside className="hidden h-full min-h-0 overflow-y-auto border-l border-border p-5 xl:block">
             {selectedTask ? (
-              <DetailShell
-                title={t("automations.detail.task")}
+              <TaskDetailShell
+                task={selectedTask}
                 onDelete={() =>
                   setConfirm({
                     msg: t("automations.confirm.deleteTask"),
                     action: () => deleteTask(selectedTask.id),
                   })
                 }
-              >
-                <TaskDetail task={selectedTask} onAction={handleTaskAction} onToast={showToast} />
-              </DetailShell>
+                onAction={handleTaskAction}
+                onToast={showToast}
+              />
             ) : selectedRunJob && selectedRun ? (
               <SchedulerRunDetail job={selectedRunJob} run={selectedRun} />
             ) : selectedJob || selection?.type === "new-job" ? (
@@ -719,17 +751,17 @@ export function AutomationsPage() {
         <DialogPopup className="h-[85vh] max-w-3xl xl:hidden" showCloseButton>
           <DialogPanel className="p-4" scrollFade={false}>
             {selectedTask ? (
-              <DetailShell
-                title={t("automations.detail.task")}
+              <TaskDetailShell
+                task={selectedTask}
                 onDelete={() =>
                   setConfirm({
                     msg: t("automations.confirm.deleteTask"),
                     action: () => deleteTask(selectedTask.id),
                   })
                 }
-              >
-                <TaskDetail task={selectedTask} onAction={handleTaskAction} onToast={showToast} />
-              </DetailShell>
+                onAction={handleTaskAction}
+                onToast={showToast}
+              />
             ) : selectedRunJob && selectedRun ? (
               <SchedulerRunDetail job={selectedRunJob} run={selectedRun} />
             ) : selectedJob || selection?.type === "new-job" ? (
@@ -868,84 +900,118 @@ function TabButton({
   );
 }
 
-function DetailShell({
-  title,
+function TaskDetailShell({
+  task,
   onDelete,
-  children,
+  onAction,
+  onToast,
 }: {
-  title: string;
+  task: ComponentsAgentTask;
   onDelete: () => void;
-  children: ReactNode;
+  onAction: (updatedTask: ComponentsAgentTask) => void;
+  onToast: (msg: string, kind?: "success" | "error") => void;
 }) {
   const { t } = useI18n();
 
   return (
-    <div>
-      <div className="mb-5 flex items-center justify-between gap-3 pr-10 xl:pr-0">
-        <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-          {title}
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 rounded-2xl border border-border bg-card p-4 shadow-xs/5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+              Task run
+            </div>
+            <h2 className="mt-2 truncate font-serif text-3xl italic tracking-tight">
+              {task.title}
+            </h2>
+            <div className="mt-2 truncate font-mono text-xs text-muted-foreground">{task.id}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant={taskBadgeVariant(task.status)}>{task.status}</Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={onDelete}
+            >
+              {t("common.delete")}
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:text-destructive"
-          onClick={onDelete}
-        >
-          {t("common.delete")}
-        </Button>
+        <div className="mt-4 grid gap-3 rounded-xl bg-muted/35 p-3 text-sm sm:grid-cols-3">
+          <Metric label="Updated" value={formatTime(task.updated_at)} />
+          <Metric label="Priority" value={task.priority} />
+          <Metric label="Session" value={task.session_id || "—"} />
+        </div>
+        {task.description && (
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{task.description}</p>
+        )}
       </div>
-      {children}
+
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border bg-card p-4">
+        <TaskDetail task={task} onAction={onAction} onToast={onToast} hideSummary />
+      </div>
     </div>
   );
 }
 
 function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJobRun }) {
+  const sessionId = schedulerRunSessionId(job, run);
+
   return (
-    <div>
-      <div className="mb-5">
-        <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-          Scheduler run
-        </div>
-        <h2 className="mt-2 font-serif text-2xl italic tracking-tight">{job.name}</h2>
-      </div>
-      <div className="rounded-xl border border-border bg-muted/30 p-4">
-        <div className="mb-4 flex flex-wrap gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 rounded-2xl border border-border bg-card p-4 shadow-xs/5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+              Scheduler run
+            </div>
+            <h2 className="mt-2 truncate font-serif text-3xl italic tracking-tight">{job.name}</h2>
+            <div className="mt-2 truncate font-mono text-xs text-muted-foreground">{run.id}</div>
+          </div>
           <Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>
-          <Badge variant="outline">{jobScheduleText(job)}</Badge>
-          <Badge variant="outline">{job.owner_kind || "user"}</Badge>
         </div>
-        <div className="space-y-3 text-sm">
-          <DetailRow label="Started" value={formatTime(run.started_at)} />
-          {run.duration && <DetailRow label="Duration" value={run.duration} />}
-          {run.error && <DetailRow label="Error" value={run.error} danger />}
+        <div className="mt-4 grid gap-3 rounded-xl bg-muted/35 p-3 text-sm sm:grid-cols-3">
+          <Metric label="Started" value={formatTime(run.started_at)} />
+          <Metric label="Duration" value={run.duration || "—"} />
+          <Metric label="Schedule" value={jobScheduleText(job)} />
         </div>
+        {run.error && (
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {run.error}
+          </div>
+        )}
       </div>
-      {schedulerRunSessionId(job, run) && (
-        <div className="mt-4">
+
+      <div className="shrink-0">
+        <ScheduleSummary job={job} />
+      </div>
+
+      <div className="min-h-0 flex-1">
+        {sessionId ? (
           <SessionConversation
-            sessionId={schedulerRunSessionId(job, run)}
+            sessionId={sessionId}
             placeholder="Ask Stella about this run…"
+            className="h-full min-h-0"
+            bodyClassName="min-h-0 flex-1"
           />
-        </div>
-      )}
-      <ScheduleSummary job={job} />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            This run does not have a persisted conversation session.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function DetailRow({
-  label,
-  value,
-  danger = false,
-}: {
-  label: string;
-  value: string;
-  danger?: boolean;
-}) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[5rem_1fr] gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={danger ? "text-destructive" : "text-foreground"}>{value}</span>
+    <div className="min-w-0">
+      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 truncate font-medium text-foreground">{value}</div>
     </div>
   );
 }
@@ -1278,29 +1344,39 @@ function ScheduleCard({
   );
 }
 
-function TimelineRow({ item, onSelect }: { item: TimelineItem; onSelect: () => void }) {
+function TimelineRow({
+  item,
+  active,
+  onSelect,
+}: {
+  item: TimelineItem;
+  active: boolean;
+  onSelect: () => void;
+}) {
   const badgeVariant =
     item.kind === "run" ? runBadgeVariant(item.status) : taskBadgeVariant(item.status);
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="relative ml-7 block rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-muted/40"
+      className={`relative ml-7 block rounded-2xl border p-4 text-left transition-all ${active ? "border-primary bg-primary/[0.06] shadow-sm ring-1 ring-primary/15" : "border-border bg-card hover:border-primary/30 hover:bg-muted/40"}`}
     >
-      <span className="absolute -left-[1.72rem] top-4 size-2.5 rounded-full bg-primary ring-4 ring-background" />
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-xs font-mono text-muted-foreground">{formatTime(item.time)}</div>
-          <div className="mt-1 text-sm font-medium leading-5">{item.title}</div>
+      <span
+        className={`absolute -left-[1.72rem] top-5 size-2.5 rounded-full ring-4 ring-background ${active ? "bg-primary" : "bg-muted-foreground/45"}`}
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{item.kind}</Badge>
+            <span className="font-mono text-xs text-muted-foreground">{formatTime(item.time)}</span>
+          </div>
+          <div className="mt-2 truncate text-base font-semibold leading-6">{item.title}</div>
         </div>
         <Badge variant={badgeVariant}>{item.status}</Badge>
       </div>
-      <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+      <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
         {item.description}
       </p>
-      <div className="mt-3">
-        <Badge variant="outline">{item.kind}</Badge>
-      </div>
     </button>
   );
 }

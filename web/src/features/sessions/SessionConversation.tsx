@@ -15,9 +15,16 @@ import { Transcript } from "./Transcript";
 interface Props {
   sessionId: string;
   placeholder?: string;
+  className?: string;
+  bodyClassName?: string;
 }
 
-export function SessionConversation({ sessionId, placeholder = "Ask Stella about this…" }: Props) {
+export function SessionConversation({
+  sessionId,
+  placeholder = "Ask Stella about this…",
+  className = "",
+  bodyClassName = "h-[28rem]",
+}: Props) {
   const [input, setInput] = useState("");
   const [liveMessages, setLiveMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -270,7 +277,9 @@ export function SessionConversation({ sessionId, placeholder = "Ask Stella about
         </div>
       </div>
 
-      <div className="hidden overflow-hidden rounded-2xl border border-border bg-background sm:block">
+      <div
+        className={`hidden overflow-hidden rounded-2xl border border-border bg-background sm:flex sm:flex-col ${className}`}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
           <div className="min-w-0">
             <div className="text-sm font-semibold">Conversation</div>
@@ -283,7 +292,7 @@ export function SessionConversation({ sessionId, placeholder = "Ask Stella about
             Full view
           </a>
         </div>
-        <div className="flex h-[28rem] flex-col">{renderBody()}</div>
+        <div className={`flex flex-col ${bodyClassName}`}>{renderBody()}</div>
       </div>
 
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>

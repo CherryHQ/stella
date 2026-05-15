@@ -50,9 +50,10 @@ interface Props {
   task: ComponentsAgentTask;
   onAction: (updatedTask: ComponentsAgentTask) => void;
   onToast: (msg: string, kind?: "success" | "error") => void;
+  hideSummary?: boolean;
 }
 
-export function TaskDetail({ task, onAction, onToast }: Props) {
+export function TaskDetail({ task, onAction, onToast, hideSummary = false }: Props) {
   const { t } = useI18n();
   const [events, setEvents] = useState<ComponentsAgentTaskEvent[]>([]);
   const [respondText, setRespondText] = useState("");
@@ -102,29 +103,26 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <h2 className="font-serif text-xl tracking-tight">{task.title}</h2>
-        <div className="flex items-center gap-2 shrink-0">
-          <Badge size="sm" variant={taskStatusVariant(task.status)}>
-            {STATUS_KEY[task.status] ? t(STATUS_KEY[task.status]) : task.status}
-          </Badge>
-          <Badge size="sm" variant={task.priority === "urgent" ? "error" : "outline"}>
-            {PRIORITY_KEY[task.priority] ? t(PRIORITY_KEY[task.priority]) : task.priority}
-          </Badge>
-        </div>
-      </div>
+      {!hideSummary && (
+        <>
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <h2 className="font-serif text-xl tracking-tight">{task.title}</h2>
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge size="sm" variant={taskStatusVariant(task.status)}>
+                {STATUS_KEY[task.status] ? t(STATUS_KEY[task.status]) : task.status}
+              </Badge>
+              <Badge size="sm" variant={task.priority === "urgent" ? "error" : "outline"}>
+                {PRIORITY_KEY[task.priority] ? t(PRIORITY_KEY[task.priority]) : task.priority}
+              </Badge>
+            </div>
+          </div>
 
-      {/* Description */}
-      {task.description && <p className="text-sm text-muted-foreground mb-4">{task.description}</p>}
-
-      {task.session_id && (
-        <div className="mb-6">
-          <SessionConversation
-            sessionId={task.session_id}
-            placeholder="Ask Stella about this task…"
-          />
-        </div>
+          {/* Description */}
+          {task.description && (
+            <p className="text-sm text-muted-foreground mb-4">{task.description}</p>
+          )}
+        </>
       )}
 
       {/* Context metadata */}
@@ -231,7 +229,7 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       )}
 
       {/* Event timeline */}
-      <div className="pt-4 border-t border-border">
+      <div className="mb-6 border-t border-border pt-4">
         <h3 className="text-[13px] font-semibold mb-3">{t("tasks.eventTimeline")}</h3>
         {events.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("tasks.noEvents")}</p>
@@ -260,6 +258,17 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
           </div>
         )}
       </div>
+
+      {task.session_id && (
+        <div>
+          <SessionConversation
+            sessionId={task.session_id}
+            placeholder="Ask Stella about this task…"
+            className="min-h-[32rem]"
+            bodyClassName="min-h-[28rem]"
+          />
+        </div>
+      )}
     </div>
   );
 }
