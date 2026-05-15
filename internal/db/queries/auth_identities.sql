@@ -1,6 +1,6 @@
 -- name: CreateAuthIdentity :one
-INSERT INTO auth_identities (user_id, platform, external_id, name)
-VALUES (?, ?, ?, ?)
+INSERT INTO auth_identities (id, user_id, platform, external_id, name)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthIdentity :one

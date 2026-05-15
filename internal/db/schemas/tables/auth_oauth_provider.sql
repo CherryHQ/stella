@@ -1,5 +1,5 @@
 CREATE TABLE auth_oauth_provider (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                TEXT PRIMARY KEY,
     provider_id       TEXT UNIQUE NOT NULL,
     client_id         TEXT NOT NULL DEFAULT '',
     client_secret_enc TEXT NOT NULL DEFAULT '',

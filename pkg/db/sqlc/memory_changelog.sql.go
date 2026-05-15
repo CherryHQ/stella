@@ -52,11 +52,12 @@ func (q *Queries) GetMemoryChangelogAtVersion(ctx context.Context, arg GetMemory
 }
 
 const insertMemoryChangelog = `-- name: InsertMemoryChangelog :exec
-INSERT INTO memory_changelog (user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO memory_changelog (id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertMemoryChangelogParams struct {
+	ID                  string         `json:"id"`
 	UserID              int64          `json:"user_id"`
 	AgentID             string         `json:"agent_id"`
 	SessionID           sql.NullString `json:"session_id"`
@@ -73,6 +74,7 @@ type InsertMemoryChangelogParams struct {
 
 func (q *Queries) InsertMemoryChangelog(ctx context.Context, arg InsertMemoryChangelogParams) error {
 	_, err := q.db.ExecContext(ctx, insertMemoryChangelog,
+		arg.ID,
 		arg.UserID,
 		arg.AgentID,
 		arg.SessionID,

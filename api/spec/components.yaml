@@ -1815,8 +1815,7 @@ components:
       type: object
       properties:
         notify_identity_id:
-          type: integer
-          format: int64
+          type: string
           nullable: true
     SetMemoryRequest:
       type: object

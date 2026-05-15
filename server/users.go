@@ -30,7 +30,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		NotifyIdentityID *int64 `json:"notify_identity_id"`
+		NotifyIdentityID *string `json:"notify_identity_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())

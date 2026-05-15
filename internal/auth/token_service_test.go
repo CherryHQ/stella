@@ -4,13 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
 
 type fakeTokenStore struct {
 	users  map[int64]AuthUser
-	tokens map[int64]UserToken
+	tokens map[string]UserToken
 	nextID int64
 	now    func() time.Time
 }
@@ -18,7 +19,7 @@ type fakeTokenStore struct {
 func newFakeTokenStore(now func() time.Time) *fakeTokenStore {
 	return &fakeTokenStore{
 		users:  map[int64]AuthUser{1: {ID: 1, Username: "alice", IsActive: true}},
-		tokens: make(map[int64]UserToken),
+		tokens: make(map[string]UserToken),
 		nextID: 1,
 		now:    now,
 	}
@@ -31,7 +32,7 @@ func (s *fakeTokenStore) CreateUserToken(_ context.Context, token UserToken) (Us
 		}
 	}
 	now := s.now().UTC()
-	token.ID = s.nextID
+	token.ID = fmt.Sprint(s.nextID)
 	s.nextID++
 	token.CreatedAt = now
 	token.UpdatedAt = now
@@ -58,7 +59,7 @@ func (s *fakeTokenStore) GetActiveAutoUserToken(_ context.Context, userID int64)
 	return UserToken{}, sql.ErrNoRows
 }
 
-func (s *fakeTokenStore) RotateUserToken(_ context.Context, id int64) (int64, error) {
+func (s *fakeTokenStore) RotateUserToken(_ context.Context, id string) (int64, error) {
 	token, ok := s.tokens[id]
 	if !ok || token.RevokedAt != nil || token.RotatedAt != nil {
 		return 0, nil
@@ -71,7 +72,7 @@ func (s *fakeTokenStore) RotateUserToken(_ context.Context, id int64) (int64, er
 	return 1, nil
 }
 
-func (s *fakeTokenStore) UpdateUserTokenLastUsed(_ context.Context, id int64) (int64, error) {
+func (s *fakeTokenStore) UpdateUserTokenLastUsed(_ context.Context, id string) (int64, error) {
 	token, ok := s.tokens[id]
 	if !ok {
 		return 0, nil

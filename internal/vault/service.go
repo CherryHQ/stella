@@ -6,6 +6,8 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -85,6 +87,7 @@ func (s *Service) Set(ctx context.Context, userID int64, name string, plaintext 
 	}
 
 	if err := s.db.UpsertVaultEntry(ctx, sqlc.UpsertVaultEntryParams{
+		ID:         uuid.NewString(),
 		UserID:     userID,
 		Name:       name,
 		Ciphertext: ciphertext,

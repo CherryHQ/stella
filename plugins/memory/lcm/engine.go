@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -57,7 +59,7 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 
 // getOrCreateConversation retrieves or creates a conversation for the session.
 // Results are cached since conversation IDs are immutable once created.
-func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (int64, error) {
+func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (string, error) {
 	p.globalMu.Lock()
 	if id, ok := p.convCache[sessionID]; ok {
 		p.globalMu.Unlock()
@@ -71,20 +73,21 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 		return conv.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("get conversation: %w", err)
+		return "", fmt.Errorf("get conversation: %w", err)
 	}
 
 	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:        uuid.NewString(),
 		SessionID: sessionID,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("create conversation: %w", err)
+		return "", fmt.Errorf("create conversation: %w", err)
 	}
 	p.cacheConvID(sessionID, conv.ID)
 	return conv.ID, nil
 }
 
-func (p *Provider) cacheConvID(sessionID string, convID int64) {
+func (p *Provider) cacheConvID(sessionID string, convID string) {
 	p.globalMu.Lock()
 	p.convCache[sessionID] = convID
 	p.globalMu.Unlock()

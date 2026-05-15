@@ -196,8 +196,8 @@ WHERE id = ?
 `
 
 type UpdateAuthUserNotifyIdentityParams struct {
-	NotifyIdentityID sql.NullInt64 `json:"notify_identity_id"`
-	ID               int64         `json:"id"`
+	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
+	ID               int64          `json:"id"`
 }
 
 func (q *Queries) UpdateAuthUserNotifyIdentity(ctx context.Context, arg UpdateAuthUserNotifyIdentityParams) error {

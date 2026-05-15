@@ -10,7 +10,7 @@ type AuthUser struct {
 	Role             string    `json:"role"`
 	IsActive         bool      `json:"is_active"`
 	DefaultAgentID   string    `json:"default_agent_id,omitempty"`
-	NotifyIdentityID *int64    `json:"notify_identity_id,omitempty"`
+	NotifyIdentityID *string   `json:"notify_identity_id,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -95,7 +95,7 @@ const (
 
 // Identity represents a linked channel identity.
 type Identity struct {
-	ID         int64     `json:"id"`
+	ID         string    `json:"id"`
 	UserID     int64     `json:"user_id"`
 	Platform   string    `json:"platform"`
 	ExternalID string    `json:"external_id"`
@@ -113,7 +113,7 @@ type Session struct {
 
 // UserToken represents an API token owned by a user.
 type UserToken struct {
-	ID            int64      `json:"id"`
+	ID            string     `json:"id"`
 	UserID        int64      `json:"user_id"`
 	Name          string     `json:"name"`
 	TokenHash     string     `json:"-"`

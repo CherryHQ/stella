@@ -28,8 +28,8 @@ type tokenStore interface {
 	CreateUserToken(ctx context.Context, token UserToken) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveAutoUserToken(ctx context.Context, userID int64) (UserToken, error)
-	RotateUserToken(ctx context.Context, id int64) (int64, error)
-	UpdateUserTokenLastUsed(ctx context.Context, id int64) (int64, error)
+	RotateUserToken(ctx context.Context, id string) (int64, error)
+	UpdateUserTokenLastUsed(ctx context.Context, id string) (int64, error)
 	GetUser(ctx context.Context, id int64) (AuthUser, error)
 }
 

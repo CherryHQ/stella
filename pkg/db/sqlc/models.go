@@ -59,7 +59,7 @@ type Article struct {
 }
 
 type AuthIdentity struct {
-	ID         int64  `json:"id"`
+	ID         string `json:"id"`
 	UserID     int64  `json:"user_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
@@ -68,7 +68,7 @@ type AuthIdentity struct {
 }
 
 type AuthOauthProvider struct {
-	ID              int64  `json:"id"`
+	ID              string `json:"id"`
 	ProviderID      string `json:"provider_id"`
 	ClientID        string `json:"client_id"`
 	ClientSecretEnc string `json:"client_secret_enc"`
@@ -105,7 +105,7 @@ type AuthUser struct {
 	Role             string         `json:"role"`
 	IsActive         int64          `json:"is_active"`
 	DefaultAgentID   sql.NullString `json:"default_agent_id"`
-	NotifyIdentityID sql.NullInt64  `json:"notify_identity_id"`
+	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
 	AgePublicKey     string         `json:"age_public_key"`
 	AgePrivateKey    string         `json:"age_private_key"`
 	CreatedAt        string         `json:"created_at"`
@@ -118,7 +118,7 @@ type AuthUserAgent struct {
 }
 
 type AuthUserToken struct {
-	ID            int64          `json:"id"`
+	ID            string         `json:"id"`
 	UserID        int64          `json:"user_id"`
 	Name          string         `json:"name"`
 	TokenHash     string         `json:"token_hash"`
@@ -143,7 +143,7 @@ type CtxAgentMemory struct {
 }
 
 type CtxConversation struct {
-	ID             int64          `json:"id"`
+	ID             string         `json:"id"`
 	SessionID      string         `json:"session_id"`
 	Title          sql.NullString `json:"title"`
 	Channel        string         `json:"channel"`
@@ -157,17 +157,17 @@ type CtxConversation struct {
 }
 
 type CtxItem struct {
-	ConversationID int64          `json:"conversation_id"`
+	ConversationID string         `json:"conversation_id"`
 	Ordinal        int64          `json:"ordinal"`
 	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullInt64  `json:"message_id"`
+	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
 	CreatedAt      string         `json:"created_at"`
 }
 
 type CtxMessage struct {
-	ID             int64  `json:"id"`
-	ConversationID int64  `json:"conversation_id"`
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
 	Seq            int64  `json:"seq"`
 	Role           string `json:"role"`
 	EventType      string `json:"event_type"`
@@ -178,7 +178,7 @@ type CtxMessage struct {
 
 type CtxMessagePart struct {
 	ID          string         `json:"id"`
-	MessageID   int64          `json:"message_id"`
+	MessageID   string         `json:"message_id"`
 	PartType    string         `json:"part_type"`
 	Ordinal     int64          `json:"ordinal"`
 	TextContent sql.NullString `json:"text_content"`
@@ -191,7 +191,7 @@ type CtxMessagePart struct {
 
 type CtxSummary struct {
 	ID                      string         `json:"id"`
-	ConversationID          int64          `json:"conversation_id"`
+	ConversationID          string         `json:"conversation_id"`
 	Kind                    string         `json:"kind"`
 	Depth                   int64          `json:"depth"`
 	Content                 string         `json:"content"`
@@ -206,7 +206,7 @@ type CtxSummary struct {
 
 type CtxSummaryMessage struct {
 	SummaryID string `json:"summary_id"`
-	MessageID int64  `json:"message_id"`
+	MessageID string `json:"message_id"`
 	Ordinal   int64  `json:"ordinal"`
 }
 
@@ -217,7 +217,7 @@ type CtxSummaryParent struct {
 }
 
 type MemoryChangelog struct {
-	ID                  int64          `json:"id"`
+	ID                  string         `json:"id"`
 	UserID              int64          `json:"user_id"`
 	AgentID             string         `json:"agent_id"`
 	SessionID           sql.NullString `json:"session_id"`
@@ -424,7 +424,7 @@ type SkillFile struct {
 }
 
 type VaultEntry struct {
-	ID         int64  `json:"id"`
+	ID         string `json:"id"`
 	UserID     int64  `json:"user_id"`
 	Name       string `json:"name"`
 	Ciphertext string `json:"ciphertext"`

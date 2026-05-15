@@ -11,18 +11,19 @@ import (
 )
 
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO ctx_conversations (session_id, title)
-VALUES (?, ?)
+INSERT INTO ctx_conversations (id, session_id, title)
+VALUES (?, ?, ?)
 RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationParams struct {
+	ID        string         `json:"id"`
 	SessionID string         `json:"session_id"`
 	Title     sql.NullString `json:"title"`
 }
 
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, createConversation, arg.SessionID, arg.Title)
+	row := q.db.QueryRowContext(ctx, createConversation, arg.ID, arg.SessionID, arg.Title)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
@@ -41,12 +42,13 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const createConversationFull = `-- name: CreateConversationFull :one
-INSERT INTO ctx_conversations (session_id, title, channel, archived, last_active, agent_id, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_conversations (id, session_id, title, channel, archived, last_active, agent_id, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationFullParams struct {
+	ID         string         `json:"id"`
 	SessionID  string         `json:"session_id"`
 	Title      sql.NullString `json:"title"`
 	Channel    string         `json:"channel"`
@@ -58,6 +60,7 @@ type CreateConversationFullParams struct {
 
 func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversationFullParams) (CtxConversation, error) {
 	row := q.db.QueryRowContext(ctx, createConversationFull,
+		arg.ID,
 		arg.SessionID,
 		arg.Title,
 		arg.Channel,
@@ -87,7 +90,7 @@ const getConversation = `-- name: GetConversation :one
 SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE id = ?
 `
 
-func (q *Queries) GetConversation(ctx context.Context, id int64) (CtxConversation, error) {
+func (q *Queries) GetConversation(ctx context.Context, id string) (CtxConversation, error) {
 	row := q.db.QueryRowContext(ctx, getConversation, id)
 	var i CtxConversation
 	err := row.Scan(
@@ -240,7 +243,7 @@ const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped 
 UPDATE ctx_conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now') WHERE id = ?
 `
 
-func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, id int64) error {
+func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, id)
 	return err
 }
@@ -260,7 +263,7 @@ UPDATE ctx_conversations SET title = ?, updated_at = datetime('now') WHERE id = 
 
 type UpdateConversationTitleParams struct {
 	Title sql.NullString `json:"title"`
-	ID    int64          `json:"id"`
+	ID    string         `json:"id"`
 }
 
 func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConversationTitleParams) error {

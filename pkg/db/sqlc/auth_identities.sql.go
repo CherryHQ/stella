@@ -10,12 +10,13 @@ import (
 )
 
 const createAuthIdentity = `-- name: CreateAuthIdentity :one
-INSERT INTO auth_identities (user_id, platform, external_id, name)
-VALUES (?, ?, ?, ?)
+INSERT INTO auth_identities (id, user_id, platform, external_id, name)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id, user_id, platform, external_id, name, linked_at
 `
 
 type CreateAuthIdentityParams struct {
+	ID         string `json:"id"`
 	UserID     int64  `json:"user_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
@@ -24,6 +25,7 @@ type CreateAuthIdentityParams struct {
 
 func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (AuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, createAuthIdentity,
+		arg.ID,
 		arg.UserID,
 		arg.Platform,
 		arg.ExternalID,
@@ -45,7 +47,7 @@ const deleteAuthIdentity = `-- name: DeleteAuthIdentity :exec
 DELETE FROM auth_identities WHERE id = ?
 `
 
-func (q *Queries) DeleteAuthIdentity(ctx context.Context, id int64) error {
+func (q *Queries) DeleteAuthIdentity(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteAuthIdentity, id)
 	return err
 }
@@ -54,7 +56,7 @@ const getAuthIdentity = `-- name: GetAuthIdentity :one
 SELECT id, user_id, platform, external_id, name, linked_at FROM auth_identities WHERE id = ?
 `
 
-func (q *Queries) GetAuthIdentity(ctx context.Context, id int64) (AuthIdentity, error) {
+func (q *Queries) GetAuthIdentity(ctx context.Context, id string) (AuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, getAuthIdentity, id)
 	var i AuthIdentity
 	err := row.Scan(
@@ -133,7 +135,7 @@ WHERE id = ?
 
 type UpdateAuthIdentityExternalIDParams struct {
 	ExternalID string `json:"external_id"`
-	ID         int64  `json:"id"`
+	ID         string `json:"id"`
 }
 
 func (q *Queries) UpdateAuthIdentityExternalID(ctx context.Context, arg UpdateAuthIdentityExternalIDParams) error {

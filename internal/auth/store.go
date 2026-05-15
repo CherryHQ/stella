@@ -16,18 +16,18 @@ type AuthStore interface {
 	UpdateUser(ctx context.Context, u AuthUser) error
 	UpdateUserRole(ctx context.Context, userID int64, role string) error
 	UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error
-	UpdateUserNotifyIdentity(ctx context.Context, userID int64, identityID *int64) error
+	UpdateUserNotifyIdentity(ctx context.Context, userID int64, identityID *string) error
 	UpdateUserAgeKeys(ctx context.Context, userID int64, publicKey, privateKey string) error
 	DeleteUser(ctx context.Context, id int64) error
 	CountUsers(ctx context.Context) (int64, error)
 
 	// Identities (linked channel accounts)
 	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
-	GetIdentity(ctx context.Context, id int64) (Identity, error)
+	GetIdentity(ctx context.Context, id string) (Identity, error)
 	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (Identity, error)
-	UpdateIdentityExternalID(ctx context.Context, id int64, externalID string) error
+	UpdateIdentityExternalID(ctx context.Context, id string, externalID string) error
 	ListIdentitiesByUser(ctx context.Context, userID int64) ([]Identity, error)
-	DeleteIdentity(ctx context.Context, id int64) error
+	DeleteIdentity(ctx context.Context, id string) error
 
 	// Policies
 	CreatePolicy(ctx context.Context, p Policy) (Policy, error)
@@ -56,7 +56,7 @@ type AuthStore interface {
 	GetUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveAutoUserToken(ctx context.Context, userID int64) (UserToken, error)
-	RotateUserToken(ctx context.Context, id int64) (int64, error)
-	RevokeUserToken(ctx context.Context, id int64) (int64, error)
-	UpdateUserTokenLastUsed(ctx context.Context, id int64) (int64, error)
+	RotateUserToken(ctx context.Context, id string) (int64, error)
+	RevokeUserToken(ctx context.Context, id string) (int64, error)
+	UpdateUserTokenLastUsed(ctx context.Context, id string) (int64, error)
 }

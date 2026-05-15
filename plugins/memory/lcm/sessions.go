@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -21,6 +23,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			lastActive = time.Now().UTC()
 		}
 		_, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+			ID:         uuid.NewString(),
 			SessionID:  info.ID,
 			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
 			Channel:    info.Channel,

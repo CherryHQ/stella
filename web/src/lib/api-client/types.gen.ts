@@ -1151,7 +1151,7 @@ export type ComponentsUpdateFeedRequest = {
 };
 
 export type ComponentsUpdateNotifyIdentityRequest = {
-  notify_identity_id?: number | null;
+  notify_identity_id?: string | null;
 };
 
 export type ComponentsUpdatePluginConfigRequest = {
@@ -5448,7 +5448,7 @@ export type DeleteAuthUserIdentityData = {
   body?: never;
   path: {
     id: number;
-    identityId: number;
+    identityId: string;
   };
   query?: never;
   url: "/api/auth/users/{id}/identities/{identityId}";
@@ -5569,7 +5569,7 @@ export type ListProfileIdentitiesResponse =
 export type UnlinkProfileIdentityData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/profile/identities/{id}";

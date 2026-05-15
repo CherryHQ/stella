@@ -1,5 +1,5 @@
 CREATE TABLE memory_changelog (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          TEXT PRIMARY KEY,
     user_id     INTEGER NOT NULL,
     agent_id    TEXT NOT NULL,
     session_id  TEXT,

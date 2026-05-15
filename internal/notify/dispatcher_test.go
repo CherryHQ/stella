@@ -216,8 +216,8 @@ func TestNotifyUserSendsToFirstLinked(t *testing.T) {
 	d.SetAuthService(&mockAuthService{
 		user: pkgplugins.UserInfo{ID: 1},
 		identities: []pkgplugins.LinkedIdentity{
-			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
-			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+			{ID: "10", Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: "11", Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
 	})
 
@@ -243,12 +243,12 @@ func TestNotifyUserSendsToPreferred(t *testing.T) {
 	d.Register(tg)
 	d.Register(fs)
 
-	preferredID := int64(11)
+	preferredID := "11"
 	d.SetAuthService(&mockAuthService{
 		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &preferredID},
 		identities: []pkgplugins.LinkedIdentity{
-			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
-			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+			{ID: "10", Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: "11", Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
 	})
 
@@ -272,11 +272,11 @@ func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
 	tg := &mockChannel{name: "telegram"}
 	d.Register(tg)
 
-	staleID := int64(999)
+	staleID := "999"
 	d.SetAuthService(&mockAuthService{
 		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &staleID},
 		identities: []pkgplugins.LinkedIdentity{
-			{ID: 10, Platform: "telegram", ExternalID: "tg-123"},
+			{ID: "10", Platform: "telegram", ExternalID: "tg-123"},
 		},
 	})
 
@@ -305,7 +305,7 @@ func TestNotifyUserAgentBoundUsesDedicatedChannel(t *testing.T) {
 	d.SetAuthService(&mockAuthService{
 		user: pkgplugins.UserInfo{ID: 1},
 		identities: []pkgplugins.LinkedIdentity{
-			{ID: 10, Platform: "feishu", ExternalID: "fs-123"},
+			{ID: "10", Platform: "feishu", ExternalID: "fs-123"},
 		},
 	})
 
@@ -337,7 +337,7 @@ func TestNotifyUserOtherAgentUsesPlatformChannel(t *testing.T) {
 	d.SetAuthService(&mockAuthService{
 		user: pkgplugins.UserInfo{ID: 1},
 		identities: []pkgplugins.LinkedIdentity{
-			{ID: 10, Platform: "feishu", ExternalID: "fs-123"},
+			{ID: "10", Platform: "feishu", ExternalID: "fs-123"},
 		},
 	})
 

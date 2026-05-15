@@ -1,5 +1,5 @@
 CREATE TABLE ctx_conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL UNIQUE,
     title TEXT,
     channel TEXT NOT NULL DEFAULT '',

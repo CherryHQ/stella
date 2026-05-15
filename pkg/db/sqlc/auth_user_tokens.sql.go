@@ -12,17 +12,19 @@ import (
 
 const createAuthUserToken = `-- name: CreateAuthUserToken :one
 INSERT INTO auth_user_tokens (
+    id,
     user_id,
     name,
     token_hash,
     token_prefix,
     auto_generated,
     expires_at
-) VALUES (?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, user_id, name, token_hash, token_prefix, auto_generated, last_used_at, expires_at, rotated_at, revoked_at, created_at, updated_at
 `
 
 type CreateAuthUserTokenParams struct {
+	ID            string         `json:"id"`
 	UserID        int64          `json:"user_id"`
 	Name          string         `json:"name"`
 	TokenHash     string         `json:"token_hash"`
@@ -33,6 +35,7 @@ type CreateAuthUserTokenParams struct {
 
 func (q *Queries) CreateAuthUserToken(ctx context.Context, arg CreateAuthUserTokenParams) (AuthUserToken, error) {
 	row := q.db.QueryRowContext(ctx, createAuthUserToken,
+		arg.ID,
 		arg.UserID,
 		arg.Name,
 		arg.TokenHash,
@@ -151,7 +154,7 @@ WHERE id = ?
   AND revoked_at IS NULL
 `
 
-func (q *Queries) RevokeAuthUserToken(ctx context.Context, id int64) (int64, error) {
+func (q *Queries) RevokeAuthUserToken(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeAuthUserToken, id)
 	if err != nil {
 		return 0, err
@@ -169,7 +172,7 @@ WHERE id = ?
   AND rotated_at IS NULL
 `
 
-func (q *Queries) RotateAuthUserToken(ctx context.Context, id int64) (int64, error) {
+func (q *Queries) RotateAuthUserToken(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, rotateAuthUserToken, id)
 	if err != nil {
 		return 0, err
@@ -188,7 +191,7 @@ WHERE id = ?
   )
 `
 
-func (q *Queries) UpdateAuthUserTokenLastUsed(ctx context.Context, id int64) (int64, error) {
+func (q *Queries) UpdateAuthUserTokenLastUsed(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateAuthUserTokenLastUsed, id)
 	if err != nil {
 		return 0, err

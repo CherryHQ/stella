@@ -129,7 +129,7 @@ func TestMaybeCanonicalizeIdentityPromotesFeishuOpenIDToUnionID(t *testing.T) {
 		t.Fatalf("GetIdentityByPlatform(new): %v", err)
 	}
 	if got.ID != identity.ID {
-		t.Fatalf("updated identity id = %d, want %d", got.ID, identity.ID)
+		t.Fatalf("updated identity id = %s, want %s", got.ID, identity.ID)
 	}
 	if _, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "ou_legacy"); err == nil {
 		t.Fatal("expected legacy feishu open_id identity to be replaced")

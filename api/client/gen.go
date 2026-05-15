@@ -824,7 +824,7 @@ type ClientInterface interface {
 	ListProfileIdentities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UnlinkProfileIdentity request
-	UnlinkProfileIdentity(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UnlinkProfileIdentity(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GenerateLinkCodeWithBody request with any body
 	GenerateLinkCodeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -937,7 +937,7 @@ type ClientInterface interface {
 	UpdateAuthUserAgents(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAuthUserIdentity request
-	DeleteAuthUserIdentity(ctx context.Context, id int64, identityId int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteAuthUserIdentity(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateAuthUserRoleWithBody request with any body
 	UpdateAuthUserRoleWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1640,7 +1640,7 @@ func (c *Client) ListProfileIdentities(ctx context.Context, reqEditors ...Reques
 	return c.Client.Do(req)
 }
 
-func (c *Client) UnlinkProfileIdentity(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UnlinkProfileIdentity(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUnlinkProfileIdentityRequest(c.Server, id)
 	if err != nil {
 		return nil, err
@@ -2132,7 +2132,7 @@ func (c *Client) UpdateAuthUserAgents(ctx context.Context, id int64, body Update
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAuthUserIdentity(ctx context.Context, id int64, identityId int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) DeleteAuthUserIdentity(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteAuthUserIdentityRequest(c.Server, id, identityId)
 	if err != nil {
 		return nil, err
@@ -4547,12 +4547,12 @@ func NewListProfileIdentitiesRequest(server string) (*http.Request, error) {
 }
 
 // NewUnlinkProfileIdentityRequest generates requests for UnlinkProfileIdentity
-func NewUnlinkProfileIdentityRequest(server string, id int64) (*http.Request, error) {
+func NewUnlinkProfileIdentityRequest(server string, id string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5747,7 +5747,7 @@ func NewUpdateAuthUserAgentsRequestWithBody(server string, id int64, contentType
 }
 
 // NewDeleteAuthUserIdentityRequest generates requests for DeleteAuthUserIdentity
-func NewDeleteAuthUserIdentityRequest(server string, id int64, identityId int64) (*http.Request, error) {
+func NewDeleteAuthUserIdentityRequest(server string, id int64, identityId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -5759,7 +5759,7 @@ func NewDeleteAuthUserIdentityRequest(server string, id int64, identityId int64)
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "identityId", identityId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "identityId", identityId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9707,7 +9707,7 @@ type ClientWithResponsesInterface interface {
 	ListProfileIdentitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileIdentitiesResponse, error)
 
 	// UnlinkProfileIdentityWithResponse request
-	UnlinkProfileIdentityWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error)
+	UnlinkProfileIdentityWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error)
 
 	// GenerateLinkCodeWithBodyWithResponse request with any body
 	GenerateLinkCodeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GenerateLinkCodeResponse, error)
@@ -9820,7 +9820,7 @@ type ClientWithResponsesInterface interface {
 	UpdateAuthUserAgentsWithResponse(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
 
 	// DeleteAuthUserIdentityWithResponse request
-	DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId int64, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error)
+	DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error)
 
 	// UpdateAuthUserRoleWithBodyWithResponse request with any body
 	UpdateAuthUserRoleWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error)
@@ -15102,7 +15102,7 @@ func (c *ClientWithResponses) ListProfileIdentitiesWithResponse(ctx context.Cont
 }
 
 // UnlinkProfileIdentityWithResponse request returning *UnlinkProfileIdentityResponse
-func (c *ClientWithResponses) UnlinkProfileIdentityWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error) {
+func (c *ClientWithResponses) UnlinkProfileIdentityWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*UnlinkProfileIdentityResponse, error) {
 	rsp, err := c.UnlinkProfileIdentity(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15461,7 +15461,7 @@ func (c *ClientWithResponses) UpdateAuthUserAgentsWithResponse(ctx context.Conte
 }
 
 // DeleteAuthUserIdentityWithResponse request returning *DeleteAuthUserIdentityResponse
-func (c *ClientWithResponses) DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId int64, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error) {
+func (c *ClientWithResponses) DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error) {
 	rsp, err := c.DeleteAuthUserIdentity(ctx, id, identityId, reqEditors...)
 	if err != nil {
 		return nil, err

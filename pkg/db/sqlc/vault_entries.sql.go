@@ -95,20 +95,26 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID int64) ([]V
 }
 
 const upsertVaultEntry = `-- name: UpsertVaultEntry :exec
-INSERT INTO vault_entries (user_id, name, ciphertext)
-VALUES (?, ?, ?)
+INSERT INTO vault_entries (id, user_id, name, ciphertext)
+VALUES (?, ?, ?, ?)
 ON CONFLICT(user_id, name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = datetime('now')
 `
 
 type UpsertVaultEntryParams struct {
+	ID         string `json:"id"`
 	UserID     int64  `json:"user_id"`
 	Name       string `json:"name"`
 	Ciphertext string `json:"ciphertext"`
 }
 
 func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryParams) error {
-	_, err := q.db.ExecContext(ctx, upsertVaultEntry, arg.UserID, arg.Name, arg.Ciphertext)
+	_, err := q.db.ExecContext(ctx, upsertVaultEntry,
+		arg.ID,
+		arg.UserID,
+		arg.Name,
+		arg.Ciphertext,
+	)
 	return err
 }

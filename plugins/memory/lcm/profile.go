@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -238,6 +240,7 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID stri
 
 func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
 	p := sqlc.InsertMemoryChangelogParams{
+		ID:      uuid.NewString(),
 		UserID:  e.UserID,
 		AgentID: e.AgentID,
 		Scope:   e.Scope,

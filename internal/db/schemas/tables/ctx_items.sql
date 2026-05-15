@@ -1,8 +1,8 @@
 CREATE TABLE ctx_items (
-    conversation_id INTEGER NOT NULL REFERENCES ctx_conversations(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES ctx_conversations(id) ON DELETE CASCADE,
     ordinal INTEGER NOT NULL,
     item_type TEXT NOT NULL CHECK (item_type IN ('message', 'summary')),
-    message_id INTEGER REFERENCES ctx_messages(id) ON DELETE RESTRICT,
+    message_id TEXT REFERENCES ctx_messages(id) ON DELETE RESTRICT,
     summary_id TEXT REFERENCES ctx_summaries(id) ON DELETE RESTRICT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (conversation_id, ordinal),

@@ -40,8 +40,8 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 }
 
 const upsertAuthOAuthProvider = `-- name: UpsertAuthOAuthProvider :exec
-INSERT INTO auth_oauth_provider (provider_id, client_id, client_secret_enc, redirect_url)
-VALUES (?, ?, ?, ?)
+INSERT INTO auth_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(provider_id) DO UPDATE SET
     client_id         = excluded.client_id,
     client_secret_enc = excluded.client_secret_enc,
@@ -50,6 +50,7 @@ ON CONFLICT(provider_id) DO UPDATE SET
 `
 
 type UpsertAuthOAuthProviderParams struct {
+	ID              string `json:"id"`
 	ProviderID      string `json:"provider_id"`
 	ClientID        string `json:"client_id"`
 	ClientSecretEnc string `json:"client_secret_enc"`
@@ -58,6 +59,7 @@ type UpsertAuthOAuthProviderParams struct {
 
 func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAuthProviderParams) error {
 	_, err := q.db.ExecContext(ctx, upsertAuthOAuthProvider,
+		arg.ID,
 		arg.ProviderID,
 		arg.ClientID,
 		arg.ClientSecretEnc,

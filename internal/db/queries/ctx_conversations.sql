@@ -1,6 +1,6 @@
 -- name: CreateConversation :one
-INSERT INTO ctx_conversations (session_id, title)
-VALUES (?, ?)
+INSERT INTO ctx_conversations (id, session_id, title)
+VALUES (?, ?, ?)
 RETURNING *;
 
 -- name: GetConversation :one
@@ -16,8 +16,8 @@ UPDATE ctx_conversations SET title = ?, updated_at = datetime('now') WHERE id = 
 UPDATE ctx_conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now') WHERE id = ?;
 
 -- name: CreateConversationFull :one
-INSERT INTO ctx_conversations (session_id, title, channel, archived, last_active, agent_id, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_conversations (id, session_id, title, channel, archived, last_active, agent_id, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateConversationAgentUser :exec

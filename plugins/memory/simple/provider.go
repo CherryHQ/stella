@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/memorywrite"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -38,7 +40,7 @@ type Provider struct {
 	q         *sqlc.Queries
 	log       *slog.Logger
 	sessionMu map[string]*sync.Mutex
-	convCache map[string]int64
+	convCache map[string]string
 	globalMu  sync.Mutex
 }
 
@@ -49,7 +51,7 @@ func New(db *sql.DB) *Provider {
 		q:         sqlc.New(db),
 		log:       slog.Default(),
 		sessionMu: make(map[string]*sync.Mutex),
-		convCache: make(map[string]int64),
+		convCache: make(map[string]string),
 	}
 }
 
@@ -91,6 +93,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			for _, row := range rows {
 				seq++
 				_, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+					ID:             uuid.NewString(),
 					ConversationID: convID,
 					Seq:            seq,
 					Role:           row.role,
@@ -409,6 +412,7 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID stri
 
 func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
 	params := sqlc.InsertMemoryChangelogParams{
+		ID:      uuid.NewString(),
 		UserID:  e.UserID,
 		AgentID: e.AgentID,
 		Scope:   e.Scope,
@@ -605,7 +609,7 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 	return fn()
 }
 
-func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (int64, error) {
+func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (string, error) {
 	p.globalMu.Lock()
 	if id, ok := p.convCache[sessionID]; ok {
 		p.globalMu.Unlock()
@@ -619,20 +623,21 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 		return conv.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("get conversation: %w", err)
+		return "", fmt.Errorf("get conversation: %w", err)
 	}
 
 	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:        uuid.NewString(),
 		SessionID: sessionID,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("create conversation: %w", err)
+		return "", fmt.Errorf("create conversation: %w", err)
 	}
 	p.cacheConvID(sessionID, conv.ID)
 	return conv.ID, nil
 }
 
-func (p *Provider) cacheConvID(sessionID string, convID int64) {
+func (p *Provider) cacheConvID(sessionID string, convID string) {
 	p.globalMu.Lock()
 	p.convCache[sessionID] = convID
 	p.globalMu.Unlock()

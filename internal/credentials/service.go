@@ -8,6 +8,8 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/google/uuid"
+
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -238,6 +240,7 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		}
 	}
 	return s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+		ID:              uuid.NewString(),
 		ProviderID:      cfg.ProviderID,
 		ClientID:        cfg.ClientID,
 		ClientSecretEnc: secretEnc,

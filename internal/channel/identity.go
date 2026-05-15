@@ -91,7 +91,7 @@ func orderedIDs(ids ...string) []string {
 }
 
 func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, platform, preferredID string, match identityMatch) error {
-	if preferredID == "" || match.Identity.ID == 0 || match.Identity.ExternalID == preferredID {
+	if preferredID == "" || match.Identity.ID == "" || match.Identity.ExternalID == preferredID {
 		return nil
 	}
 
