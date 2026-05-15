@@ -121,4 +121,38 @@ func apiDo(call func(*apiclient.Client) (*http.Response, error)) error {
 	return decodeDataJSON(resp, nil)
 }
 
+// apiCallJSON is like apiCall but for endpoints that return bare JSON
+// without the {"data": ...} envelope (e.g. scheduler, recally).
+func apiCallJSON[T any](call func(*apiclient.Client) (*http.Response, error)) (T, error) {
+	var zero T
+	api, err := newAPIClient()
+	if err != nil {
+		return zero, err
+	}
+	resp, err := call(api)
+	if err != nil {
+		return zero, wrapServerErr(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	var out T
+	if err := decodeJSON(resp, &out); err != nil {
+		return zero, err
+	}
+	return out, nil
+}
+
+// apiDoJSON is like apiDo but for bare-JSON endpoints.
+func apiDoJSON(call func(*apiclient.Client) (*http.Response, error)) error {
+	api, err := newAPIClient()
+	if err != nil {
+		return err
+	}
+	resp, err := call(api)
+	if err != nil {
+		return wrapServerErr(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	return decodeJSON(resp, nil)
+}
+
 func ptr[T any](v T) *T { return &v }

@@ -1,10 +1,6 @@
 package main
 
-import (
-	ucli "github.com/urfave/cli/v2"
-
-	apiclient "github.com/CherryHQ/stella/api/client"
-)
+import ucli "github.com/urfave/cli/v2"
 
 func recallyCommand() *ucli.Command {
 	return &ucli.Command{
@@ -22,11 +18,4 @@ func recallyCommand() *ucli.Command {
 			recallyDigestSaveCommand(),
 		},
 	}
-}
-
-// recallyAPI returns an API client authenticated via STELLA_TOKEN. The CLI is
-// purely an HTTP client; the running stella server owns the database and the
-// markdown library on disk.
-func recallyAPI() (*apiclient.Client, error) {
-	return newAPIClient()
 }

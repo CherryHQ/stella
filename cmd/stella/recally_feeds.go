@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -33,17 +34,10 @@ func recallyFeedAddCommand() *ucli.Command {
 			if feedURL == "" {
 				return fmt.Errorf("usage: stella recally feed add <feed-url>")
 			}
-			api, err := recallyAPI()
+			feed, err := apiCallJSON[apiclient.Feed](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateFeed(c.Context, apiclient.CreateFeedJSONRequestBody{Url: feedURL})
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.CreateFeed(c.Context, apiclient.CreateFeedJSONRequestBody{Url: feedURL})
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var feed apiclient.Feed
-			if err := decodeJSON(resp, &feed); err != nil {
 				return err
 			}
 			fmt.Printf("Subscribed to feed: %s\n", feed.Id)
@@ -62,17 +56,10 @@ func recallyFeedListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
+			list, err := apiCallJSON[apiclient.FeedList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListFeeds(c.Context, &apiclient.ListFeedsParams{})
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.ListFeeds(c.Context, &apiclient.ListFeedsParams{})
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.FeedList
-			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -111,16 +98,9 @@ func recallyFeedRemoveCommand() *ucli.Command {
 			if feedID == "" {
 				return fmt.Errorf("usage: stella recally feed remove <feed-id>")
 			}
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DeleteFeed(c.Context, feedID)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := apiDoJSON(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteFeed(c.Context, feedID)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Feed %s removed.\n", shortID(feedID))
@@ -139,7 +119,7 @@ func recallyFeedPollCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
+			api, err := newAPIClient()
 			if err != nil {
 				return err
 			}
@@ -226,17 +206,10 @@ func recallyFeedMarkCommand() *ucli.Command {
 			if v := c.String("error"); v != "" {
 				body.ErrorMsg = &v
 			}
-			api, err := recallyAPI()
+			entry, err := apiCallJSON[apiclient.FeedEntry](func(api *apiclient.Client) (*http.Response, error) {
+				return api.UpdateFeedEntry(c.Context, feedID, entryID, body)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.UpdateFeedEntry(c.Context, feedID, entryID, body)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var entry apiclient.FeedEntry
-			if err := decodeJSON(resp, &entry); err != nil {
 				return err
 			}
 			fmt.Printf("Entry %s marked as %s (attempts: %d)\n", shortID(entryID), status, entry.Attempts)
