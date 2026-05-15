@@ -253,15 +253,15 @@ func TestOnJobCallbackFires(t *testing.T) {
 func TestAddJobWithOwner(t *testing.T) {
 	svc := testService(t)
 
-	job, err := svc.AddJobWithOwner("owned-job", "do work", Schedule{Every: "1h"}, "", "agent-x", 99)
+	job, err := svc.AddJobWithOwner("owned-job", "do work", Schedule{Every: "1h"}, "", "agent-x", "99")
 	if err != nil {
 		t.Fatalf("AddJobWithOwner: %v", err)
 	}
 	if job.AgentID != "agent-x" {
 		t.Errorf("AgentID = %q, want %q", job.AgentID, "agent-x")
 	}
-	if job.UserID != 99 {
-		t.Errorf("UserID = %d, want 99", job.UserID)
+	if job.UserID != "99" {
+		t.Errorf("UserID = %q, want 99", job.UserID)
 	}
 	if !job.Enabled {
 		t.Error("expected job to be enabled")
@@ -736,7 +736,7 @@ func TestRunJobNow_NotFound(t *testing.T) {
 func TestRunJobNow_AllUsers(t *testing.T) {
 	svc := testService(t)
 
-	var calledWith []int64
+	var calledWith []string
 	var mu sync.Mutex
 	svc.SetOnJob(func(_ context.Context, job Job) error {
 		mu.Lock()
@@ -744,8 +744,8 @@ func TestRunJobNow_AllUsers(t *testing.T) {
 		mu.Unlock()
 		return nil
 	})
-	svc.SetListActiveUsersFunc(func(_ context.Context) ([]int64, error) {
-		return []int64{1, 2}, nil
+	svc.SetListActiveUsersFunc(func(_ context.Context) ([]string, error) {
+		return []string{"1", "2"}, nil
 	})
 
 	job, err := svc.EnsureJob("all-users-test", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers)

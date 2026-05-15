@@ -89,9 +89,9 @@ func TestContextValues(t *testing.T) {
 		t.Errorf("expected 'sess-1', got %q", got)
 	}
 
-	ctx = WithUserID(ctx, 42)
-	if got := UserIDFromContext(ctx); got != 42 {
-		t.Errorf("expected 42, got %d", got)
+	ctx = WithUserID(ctx, "42")
+	if got := UserIDFromContext(ctx); got != "42" {
+		t.Errorf("expected '42', got %q", got)
 	}
 
 	ctx = WithAgentID(ctx, "agent-1")
@@ -105,8 +105,8 @@ func TestContextValues_Missing(t *testing.T) {
 	if got := SessionIDFromContext(ctx); got != "" {
 		t.Errorf("expected empty session ID, got %q", got)
 	}
-	if got := UserIDFromContext(ctx); got != 0 {
-		t.Errorf("expected 0 user ID, got %d", got)
+	if got := UserIDFromContext(ctx); got != "" {
+		t.Errorf("expected empty user ID, got %q", got)
 	}
 	if got := AgentIDFromContext(ctx); got != "" {
 		t.Errorf("expected empty agent ID, got %q", got)

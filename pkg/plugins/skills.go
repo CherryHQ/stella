@@ -12,7 +12,7 @@ const SkillMainFile = "SKILL.md"
 type Skill struct {
 	ID                     string
 	Scope                  string // system | agent | user | project (project is filesystem-only)
-	UserID                 int64
+	UserID                 string
 	AgentID                string
 	Name                   string
 	Description            string
@@ -24,9 +24,9 @@ type Skill struct {
 }
 
 // SkillViewContext describes who is asking and from where.
-// Empty fields mean no such context (e.g. UserID=0 → only system skills visible).
+// Empty fields mean no such context (e.g. empty UserID → only system skills visible).
 type SkillViewContext struct {
-	UserID  int64
+	UserID  string
 	AgentID string
 }
 

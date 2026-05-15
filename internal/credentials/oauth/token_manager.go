@@ -24,7 +24,7 @@ func (m *TokenManager) SetRegistry(r *ProviderRegistry) {
 
 // GetOAuthToken returns the generic OAuthBundle for providerID and userID.
 // It delegates to the ProviderRegistry to load the bundle from vault.
-func (m *TokenManager) GetOAuthToken(ctx context.Context, providerID string, userID int64) (*OAuthBundle, error) {
+func (m *TokenManager) GetOAuthToken(ctx context.Context, providerID string, userID string) (*OAuthBundle, error) {
 	if m.registry == nil {
 		return nil, fmt.Errorf("oauth: provider registry not set")
 	}

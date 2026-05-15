@@ -51,7 +51,7 @@ type Agent struct {
 	Workspace    string        `json:"workspace"`
 	Sandbox      SandboxConfig `json:"sandbox"`
 	Scope        string        `json:"scope"`
-	CreatorID    int64         `json:"creator_id"`
+	CreatorID    string        `json:"creator_id"`
 	Enabled      bool          `json:"enabled"`
 }
 

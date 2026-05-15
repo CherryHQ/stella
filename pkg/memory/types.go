@@ -28,13 +28,13 @@ func SessionIDFromContext(ctx context.Context) string {
 }
 
 // WithUserID attaches a user ID to the context.
-func WithUserID(ctx context.Context, userID int64) context.Context {
+func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, userIDKey, userID)
 }
 
 // UserIDFromContext extracts the user ID from context.
-func UserIDFromContext(ctx context.Context) int64 {
-	id, _ := ctx.Value(userIDKey).(int64)
+func UserIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(userIDKey).(string)
 	return id
 }
 
@@ -52,9 +52,9 @@ func AgentIDFromContext(ctx context.Context) string {
 // Session identifies the context of a single conversation.
 // It is created by Pool.Chat and passed to all Provider methods.
 type Session struct {
-	ID      string // unique session key (e.g. "default:cli:42:main")
+	ID      string // unique session key (e.g. "default:cli:<uuid>:main")
 	AgentID string // agent this session belongs to (e.g. "default")
-	UserID  int64  // internal user ID (0 for anonymous/legacy)
+	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
 }
 
@@ -62,7 +62,7 @@ type Session struct {
 type SessionInfo struct {
 	ID         string
 	AgentID    string
-	UserID     int64
+	UserID     string
 	Channel    string
 	Title      string // auto-generated from first message
 	CreatedAt  time.Time
@@ -73,7 +73,7 @@ type SessionInfo struct {
 // ListOptions controls session listing filters.
 type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
-	UserID          int64  // filter by user (0 = all)
+	UserID          string // filter by user (empty = all)
 	IncludeArchived bool
 	Limit           int // 0 = no limit
 	Offset          int // skip first N matching results

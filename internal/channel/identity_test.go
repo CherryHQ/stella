@@ -53,8 +53,8 @@ func TestResolveUserNoIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveUser: %v", err)
 	}
-	if resolved.User.ID != 0 {
-		t.Errorf("expected User.ID=0 for unlinked user, got %d", resolved.User.ID)
+	if resolved.User.ID != "" {
+		t.Errorf("expected empty User.ID for unlinked user, got %q", resolved.User.ID)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 		t.Fatalf("ResolveUser: %v", err)
 	}
 	if resolved.User.ID != authUser.ID {
-		t.Errorf("User.ID = %d, want %d", resolved.User.ID, authUser.ID)
+		t.Errorf("User.ID = %q, want %q", resolved.User.ID, authUser.ID)
 	}
 	if resolved.User.Role != auth.RoleUser {
 		t.Errorf("Role = %q, want %q", resolved.User.Role, auth.RoleUser)
@@ -101,7 +101,7 @@ func TestResolveUserCandidatesFallsBackToLegacyFeishuOpenID(t *testing.T) {
 		t.Fatalf("ResolveUserCandidates: %v", err)
 	}
 	if resolved.User.ID != authUser.ID {
-		t.Fatalf("User.ID = %d, want %d", resolved.User.ID, authUser.ID)
+		t.Fatalf("User.ID = %q, want %q", resolved.User.ID, authUser.ID)
 	}
 	if match.Identity.ID != identity.ID || match.Matched != "ou_legacy" {
 		t.Fatalf("match = %+v, want legacy identity %+v", match, identity)
@@ -247,7 +247,7 @@ func TestTryLinkCodeSuccess(t *testing.T) {
 		t.Fatalf("GetIdentityByPlatform: %v", err)
 	}
 	if identity.UserID != authUser.ID {
-		t.Errorf("identity.UserID = %d, want %d", identity.UserID, authUser.ID)
+		t.Errorf("identity.UserID = %q, want %q", identity.UserID, authUser.ID)
 	}
 }
 
@@ -273,7 +273,7 @@ func TestTryLinkCodeWithCandidatesPrefersStableFeishuID(t *testing.T) {
 		t.Fatalf("GetIdentityByPlatform: %v", err)
 	}
 	if identity.UserID != authUser.ID {
-		t.Fatalf("identity.UserID = %d, want %d", identity.UserID, authUser.ID)
+		t.Fatalf("identity.UserID = %q, want %q", identity.UserID, authUser.ID)
 	}
 }
 
@@ -401,7 +401,7 @@ func TestCoordinatorProvisionUserCreatesVaultKeys(t *testing.T) {
 
 func TestProvisionUserVaultKeysNoRecipientIsNoOp(t *testing.T) {
 	ts := setupStores(t)
-	if err := provisionUserVaultKeys(context.Background(), ts.authStore, nil, 123); err != nil {
+	if err := provisionUserVaultKeys(context.Background(), ts.authStore, nil, "123"); err != nil {
 		t.Fatalf("provisionUserVaultKeys(nil recipient): %v", err)
 	}
 }

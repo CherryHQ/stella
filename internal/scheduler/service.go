@@ -34,7 +34,7 @@ type TaskFunc func(ctx context.Context)
 
 // ListActiveUsersFunc returns the IDs of all currently active users.
 // Used by the scheduler to fan out ExecScopeAllUsers jobs.
-type ListActiveUsersFunc func(ctx context.Context) ([]int64, error)
+type ListActiveUsersFunc func(ctx context.Context) ([]string, error)
 
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
@@ -232,7 +232,7 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 // AddJob creates, persists, and schedules a new system-scoped job (no user context).
 // sessionMode controls session reuse: "reuse" (default) or "new".
 func (s *Service) AddJob(name, message string, sched Schedule, sessionMode string) (Job, error) {
-	return s.addJobInternal(name, message, sched, sessionMode, "", 0, JobOwnerUser, ExecScopeSystem)
+	return s.addJobInternal(name, message, sched, sessionMode, "", "", JobOwnerUser, ExecScopeSystem)
 }
 
 // AddJobForContext creates a user-owned job bound to the current execution context.
@@ -241,7 +241,7 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 	userID := memory.UserIDFromContext(ctx)
 	agentID := memory.AgentIDFromContext(ctx)
 	execScope := ExecScopeSystem
-	if userID > 0 {
+	if userID != "" {
 		execScope = ExecScopeUser
 	}
 	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
@@ -249,15 +249,15 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
 // Use AddJobForContext when a Go context carries agent/user scope.
-func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
+func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID string) (Job, error) {
 	execScope := ExecScopeSystem
-	if userID > 0 {
+	if userID != "" {
 		execScope = ExecScopeUser
 	}
 	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
 }
 
-func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID int64, ownerKind, execScope string) (Job, error) {
+func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -472,7 +472,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, 0, JobOwnerSystem, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope)
 }
 
 // ListJobs returns all jobs.
@@ -560,10 +560,10 @@ func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime 
 	}
 }
 
-// executeSingleRun runs one job execution for the given userID (0 = system context).
-func (s *Service) executeSingleRun(ctx context.Context, job Job, userID int64, isOneTime bool) {
+// executeSingleRun runs one job execution for the given userID (empty = system context).
+func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, isOneTime bool) {
 	var sessionID string
-	if userID > 0 {
+	if userID != "" {
 		sessionID = job.UserSessionID(userID)
 	} else {
 		sessionID = job.SessionID()
@@ -653,7 +653,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	}
 
 	sessionID := job.SessionID()
-	if job.UserID > 0 {
+	if job.UserID != "" {
 		sessionID = job.UserSessionID(job.UserID)
 	}
 	runID := uuid.New().String()[:8]

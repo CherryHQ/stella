@@ -13,9 +13,9 @@ import (
 
 // DB is the minimal database interface the vault Service requires.
 type DB interface {
-	GetAuthUser(ctx context.Context, id int64) (sqlc.AuthUser, error)
+	GetAuthUser(ctx context.Context, id string) (sqlc.AuthUser, error)
 	GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error)
-	ListVaultEntriesByUser(ctx context.Context, userID int64) ([]sqlc.VaultEntry, error)
+	ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error)
 	UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error
 	DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error
 }
@@ -68,7 +68,7 @@ func (s *Service) DecryptSystem(ciphertext string) (string, error) {
 
 // Set validates name, encrypts plaintext with the user's public key, and
 // upserts the vault entry. The user must already have age keys provisioned.
-func (s *Service) Set(ctx context.Context, userID int64, name string, plaintext string) error {
+func (s *Service) Set(ctx context.Context, userID string, name string, plaintext string) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (s *Service) Set(ctx context.Context, userID int64, name string, plaintext 
 		return fmt.Errorf("vault: set %q: get user: %w", name, err)
 	}
 	if user.AgePublicKey == "" {
-		return fmt.Errorf("vault: set %q: user %d has no age public key provisioned", name, userID)
+		return fmt.Errorf("vault: set %q: user %s has no age public key provisioned", name, userID)
 	}
 
 	ciphertext, err := Encrypt(user.AgePublicKey, plaintext)
@@ -98,7 +98,7 @@ func (s *Service) Set(ctx context.Context, userID int64, name string, plaintext 
 }
 
 // Delete removes a vault entry by name for the given user.
-func (s *Service) Delete(ctx context.Context, userID int64, name string) error {
+func (s *Service) Delete(ctx context.Context, userID string, name string) error {
 	if err := s.db.DeleteVaultEntry(ctx, sqlc.DeleteVaultEntryParams{
 		UserID: userID,
 		Name:   name,
@@ -109,13 +109,13 @@ func (s *Service) Delete(ctx context.Context, userID int64, name string) error {
 }
 
 // Get decrypts and returns the plaintext value of a single vault entry by name.
-func (s *Service) Get(ctx context.Context, userID int64, name string) (string, error) {
+func (s *Service) Get(ctx context.Context, userID string, name string) (string, error) {
 	user, err := s.db.GetAuthUser(ctx, userID)
 	if err != nil {
 		return "", fmt.Errorf("vault: get %q: get user: %w", name, err)
 	}
 	if user.AgePrivateKey == "" {
-		return "", fmt.Errorf("vault: get %q: user %d has no age private key provisioned", name, userID)
+		return "", fmt.Errorf("vault: get %q: user %s has no age private key provisioned", name, userID)
 	}
 
 	entry, err := s.db.GetVaultEntry(ctx, sqlc.GetVaultEntryParams{
@@ -135,7 +135,7 @@ func (s *Service) Get(ctx context.Context, userID int64, name string) (string, e
 
 // List returns metadata for all vault entries owned by userID. Ciphertext is
 // never included in the result.
-func (s *Service) List(ctx context.Context, userID int64) ([]EntryMeta, error) {
+func (s *Service) List(ctx context.Context, userID string) ([]EntryMeta, error) {
 	entries, err := s.db.ListVaultEntriesByUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("vault: list: %w", err)
@@ -153,13 +153,13 @@ func (s *Service) List(ctx context.Context, userID int64) ([]EntryMeta, error) {
 
 // LoadEnv decrypts all vault entries for userID and returns them as a
 // name→plaintext map. Intended for injecting secrets into sandbox environments.
-func (s *Service) LoadEnv(ctx context.Context, userID int64) (map[string]string, error) {
+func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string, error) {
 	user, err := s.db.GetAuthUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: get user: %w", err)
 	}
 	if user.AgePrivateKey == "" {
-		return nil, fmt.Errorf("vault: load env: user %d has no age private key provisioned", userID)
+		return nil, fmt.Errorf("vault: load env: user %s has no age private key provisioned", userID)
 	}
 
 	entries, err := s.db.ListVaultEntriesByUser(ctx, userID)

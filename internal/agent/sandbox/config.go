@@ -11,7 +11,7 @@ import (
 
 // VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
 type VaultEnvLoader interface {
-	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
 // PathConfig contains the host paths passed to sandbox operations.
@@ -28,7 +28,7 @@ type Config struct {
 	SandboxConfig    config.SandboxConfig
 	SandboxBackendFn func(ctx context.Context) string
 	Paths            PathConfig
-	UserID           int64
+	UserID           string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
 	TokenService     *auth.TokenService

@@ -23,12 +23,12 @@ func NewFileManager(stellaHome string) *FileManager {
 }
 
 // ArticlePath generates the storage path for an article file.
-func (fm *FileManager) ArticlePath(userID int64, articleID, title string, savedAt time.Time) string {
+func (fm *FileManager) ArticlePath(userID string, articleID, title string, savedAt time.Time) string {
 	slug := ExtractSlug(title)
 	year := savedAt.UTC().Format("2006")
 	month := savedAt.UTC().Format("01")
 	day := savedAt.UTC().Format("02")
-	return filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles", year, month, fmt.Sprintf("%s-%s-%s.md", day, slug, articlePathID(articleID)))
+	return filepath.Join(fm.stellaHome, "library", userID, "articles", year, month, fmt.Sprintf("%s-%s-%s.md", day, slug, articlePathID(articleID)))
 }
 
 func articlePathID(articleID string) string {
@@ -181,8 +181,8 @@ func (fm *FileManager) ArticleExists(path string) bool {
 }
 
 // EnsureLibrary creates the library directory structure if it doesn't exist.
-func (fm *FileManager) EnsureLibrary(userID int64) error {
-	libraryPath := filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles")
+func (fm *FileManager) EnsureLibrary(userID string) error {
+	libraryPath := filepath.Join(fm.stellaHome, "library", userID, "articles")
 	if err := os.MkdirAll(libraryPath, 0o755); err != nil {
 		return fmt.Errorf("create library: %w", err)
 	}
@@ -190,8 +190,8 @@ func (fm *FileManager) EnsureLibrary(userID int64) error {
 }
 
 // ListArticles returns all article markdown files in a user's library.
-func (fm *FileManager) ListArticles(userID int64) ([]string, error) {
-	libraryPath := filepath.Join(fm.stellaHome, "library", fmt.Sprintf("%d", userID), "articles")
+func (fm *FileManager) ListArticles(userID string) ([]string, error) {
+	libraryPath := filepath.Join(fm.stellaHome, "library", userID, "articles")
 	var files []string
 	err := filepath.Walk(libraryPath, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -210,6 +210,6 @@ func (fm *FileManager) ListArticles(userID int64) ([]string, error) {
 }
 
 // RebuildIndex lists article files for future DB reindexing workflows.
-func (fm *FileManager) RebuildIndex(userID int64) ([]string, error) {
+func (fm *FileManager) RebuildIndex(userID string) ([]string, error) {
 	return fm.ListArticles(userID)
 }

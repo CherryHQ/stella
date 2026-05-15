@@ -16,7 +16,7 @@ ON CONFLICT DO NOTHING
 `
 
 type AssignUserAgentParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
@@ -29,15 +29,15 @@ const listAgentUsers = `-- name: ListAgentUsers :many
 SELECT user_id FROM auth_user_agents WHERE agent_id = ? ORDER BY user_id
 `
 
-func (q *Queries) ListAgentUsers(ctx context.Context, agentID string) ([]int64, error) {
+func (q *Queries) ListAgentUsers(ctx context.Context, agentID string) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentUsers, agentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []string{}
 	for rows.Next() {
-		var user_id int64
+		var user_id string
 		if err := rows.Scan(&user_id); err != nil {
 			return nil, err
 		}
@@ -56,7 +56,7 @@ const listUserAgents = `-- name: ListUserAgents :many
 SELECT agent_id FROM auth_user_agents WHERE user_id = ? ORDER BY agent_id
 `
 
-func (q *Queries) ListUserAgents(ctx context.Context, userID int64) ([]string, error) {
+func (q *Queries) ListUserAgents(ctx context.Context, userID string) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listUserAgents, userID)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ DELETE FROM auth_user_agents WHERE user_id = ? AND agent_id = ?
 `
 
 type RemoveUserAgentParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 

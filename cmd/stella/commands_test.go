@@ -164,7 +164,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
-	r, err := factory(context.Background(), agent.RunnerParams{UserID: 1})
+	r, err := factory(context.Background(), agent.RunnerParams{UserID: "1"})
 	if err != nil {
 		t.Skipf("factory: docker not available: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		t.Fatalf("switchFn: %v", err)
 	}
 
-	session, err := pool.CreateSession("cli", 1)
+	session, err := pool.CreateSession("cli", "1")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}

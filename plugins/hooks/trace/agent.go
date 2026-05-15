@@ -25,7 +25,7 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
 		st.mu.Lock()
 		st.chatSpan.SetAttributes(
-			attribute.Int64("user_id", hctx.UserID),
+			attribute.String("user_id", hctx.UserID),
 			attribute.String("agent_id", hctx.AgentID),
 			attribute.Int("stella.chat.message_len", hctx.MessageLen),
 		)

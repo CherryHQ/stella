@@ -146,7 +146,7 @@ func TestMeEndpoint(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var me struct {
-		ID       int64  `json:"id"`
+		ID       string `json:"id"`
 		Username string `json:"username"`
 		Role     string `json:"role"`
 		IsAdmin  bool   `json:"is_admin"`
@@ -221,14 +221,14 @@ func TestExpiredSessionDenied(t *testing.T) {
 }
 
 type adminTokenVault struct {
-	env map[int64]map[string]string
+	env map[string]map[string]string
 }
 
 func newAdminTokenVault() *adminTokenVault {
-	return &adminTokenVault{env: make(map[int64]map[string]string)}
+	return &adminTokenVault{env: make(map[string]map[string]string)}
 }
 
-func (v *adminTokenVault) Set(_ context.Context, userID int64, name string, plaintext string) error {
+func (v *adminTokenVault) Set(_ context.Context, userID string, name string, plaintext string) error {
 	if v.env[userID] == nil {
 		v.env[userID] = make(map[string]string)
 	}
@@ -236,7 +236,7 @@ func (v *adminTokenVault) Set(_ context.Context, userID int64, name string, plai
 	return nil
 }
 
-func (v *adminTokenVault) LoadEnv(_ context.Context, userID int64) (map[string]string, error) {
+func (v *adminTokenVault) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
 	return v.env[userID], nil
 }
 

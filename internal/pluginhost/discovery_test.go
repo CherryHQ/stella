@@ -387,7 +387,7 @@ func (*fakeNotificationService) Notify(context.Context, pkgchannel.Notification)
 	return nil
 }
 
-func (*fakeNotificationService) NotifyUser(context.Context, int64, pkgchannel.Notification) error {
+func (*fakeNotificationService) NotifyUser(context.Context, string, pkgchannel.Notification) error {
 	return nil
 }
 
@@ -425,11 +425,11 @@ func (*fakeStateStoreBackend) Delete(context.Context, string, pkgplugins.StateSc
 
 type fakeAuthService struct{}
 
-func (*fakeAuthService) GetUser(context.Context, int64) (pkgplugins.UserInfo, error) {
+func (*fakeAuthService) GetUser(context.Context, string) (pkgplugins.UserInfo, error) {
 	return pkgplugins.UserInfo{}, nil
 }
 
-func (*fakeAuthService) ListUserIdentities(context.Context, int64) ([]pkgplugins.LinkedIdentity, error) {
+func (*fakeAuthService) ListUserIdentities(context.Context, string) ([]pkgplugins.LinkedIdentity, error) {
 	return nil, nil
 }
 

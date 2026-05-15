@@ -16,7 +16,7 @@ type ToolLifecycle struct {
 type ToolCallContext struct {
 	SessionID  string
 	Channel    string
-	UserID     int64
+	UserID     string
 	AgentID    string
 	ToolName   string
 	ToolCallID string
@@ -34,7 +34,7 @@ type ToolCallMutation struct {
 type ToolResultContext struct {
 	SessionID  string
 	Channel    string
-	UserID     int64
+	UserID     string
 	AgentID    string
 	ToolName   string
 	ToolCallID string

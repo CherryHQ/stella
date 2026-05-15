@@ -292,19 +292,19 @@ func (f *Fake) Expand(_ context.Context, summaryID string, _ int) (*memory.Expan
 // ProfileStore
 // ---------------------------------------------------------------------------
 
-func profileKey(userID int64, agentID string) string {
-	return fmt.Sprintf("%d:%s", userID, agentID)
+func profileKey(userID string, agentID string) string {
+	return fmt.Sprintf("%s:%s", userID, agentID)
 }
 
 // GetProfile implements memory.ProfileStore.
-func (f *Fake) GetProfile(_ context.Context, userID int64, agentID string) (string, error) {
+func (f *Fake) GetProfile(_ context.Context, userID string, agentID string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.profiles[profileKey(userID, agentID)], nil
 }
 
 // SetProfile implements memory.ProfileStore.
-func (f *Fake) SetProfile(_ context.Context, userID int64, agentID string, content string) error {
+func (f *Fake) SetProfile(_ context.Context, userID string, agentID string, content string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.profiles[profileKey(userID, agentID)] = content
@@ -312,14 +312,14 @@ func (f *Fake) SetProfile(_ context.Context, userID int64, agentID string, conte
 }
 
 // GetAgentSoul implements memory.ProfileStore.
-func (f *Fake) GetAgentSoul(_ context.Context, userID int64, agentID string) (string, error) {
+func (f *Fake) GetAgentSoul(_ context.Context, userID string, agentID string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.souls[profileKey(userID, agentID)], nil
 }
 
 // SetAgentSoul implements memory.ProfileStore.
-func (f *Fake) SetAgentSoul(_ context.Context, userID int64, agentID string, content string) error {
+func (f *Fake) SetAgentSoul(_ context.Context, userID string, agentID string, content string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.souls[profileKey(userID, agentID)] = content
@@ -331,7 +331,7 @@ func (f *Fake) SetAgentSoul(_ context.Context, userID int64, agentID string, con
 // ---------------------------------------------------------------------------
 
 // GetConstraints implements memory.ConstraintStore.
-func (f *Fake) GetConstraints(_ context.Context, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+func (f *Fake) GetConstraints(_ context.Context, userID string, agentID string) ([]memory.ConstraintEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := profileKey(userID, agentID)
@@ -344,7 +344,7 @@ func (f *Fake) GetConstraints(_ context.Context, userID int64, agentID string) (
 }
 
 // AddConstraint implements memory.ConstraintStore.
-func (f *Fake) AddConstraint(_ context.Context, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+func (f *Fake) AddConstraint(_ context.Context, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := profileKey(userID, agentID)
@@ -360,7 +360,7 @@ func (f *Fake) AddConstraint(_ context.Context, userID int64, agentID string, te
 }
 
 // RemoveConstraint implements memory.ConstraintStore.
-func (f *Fake) RemoveConstraint(_ context.Context, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+func (f *Fake) RemoveConstraint(_ context.Context, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := profileKey(userID, agentID)
@@ -410,7 +410,7 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 		if opts.AgentID != "" && si.info.AgentID != opts.AgentID {
 			continue
 		}
-		if opts.UserID != 0 && si.info.UserID != opts.UserID {
+		if opts.UserID != "" && si.info.UserID != opts.UserID {
 			continue
 		}
 		if !opts.IncludeArchived && si.info.Archived {
@@ -491,7 +491,7 @@ func (f *Fake) WriteChangelog(_ context.Context, entry memory.ChangeEntry) error
 
 // ReadChangelog implements memory.ChangelogReader.
 // Returns up to limit entries for the given scope in reverse-insertion order.
-func (f *Fake) ReadChangelog(_ context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+func (f *Fake) ReadChangelog(_ context.Context, userID string, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var result []memory.ChangeEntry
@@ -519,7 +519,7 @@ func (f *Fake) Changelog() []memory.ChangeEntry {
 
 // GetProfileAt implements memory.VersionedProfileStore.
 // The fake ignores version and returns the current profile (sufficient for tests).
-func (f *Fake) GetProfileAt(_ context.Context, userID int64, agentID string, _ int64) (string, error) {
+func (f *Fake) GetProfileAt(_ context.Context, userID string, agentID string, _ int64) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.profiles[profileKey(userID, agentID)], nil
@@ -527,7 +527,7 @@ func (f *Fake) GetProfileAt(_ context.Context, userID int64, agentID string, _ i
 
 // GetAgentSoulAt implements memory.VersionedProfileStore.
 // The fake ignores version and returns the current soul (sufficient for tests).
-func (f *Fake) GetAgentSoulAt(_ context.Context, userID int64, agentID string, _ int64) (string, error) {
+func (f *Fake) GetAgentSoulAt(_ context.Context, userID string, agentID string, _ int64) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.souls[profileKey(userID, agentID)], nil
@@ -539,7 +539,7 @@ func (f *Fake) GetAgentSoulAt(_ context.Context, userID int64, agentID string, _
 
 // GetConstraintsAt implements memory.VersionedConstraintStore.
 // The fake ignores version and returns the current constraints (sufficient for tests).
-func (f *Fake) GetConstraintsAt(_ context.Context, userID int64, agentID string, _ int64) ([]memory.ConstraintEntry, error) {
+func (f *Fake) GetConstraintsAt(_ context.Context, userID string, agentID string, _ int64) ([]memory.ConstraintEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := profileKey(userID, agentID)
@@ -555,13 +555,13 @@ func (f *Fake) GetConstraintsAt(_ context.Context, userID int64, agentID string,
 // SessionSnapshotStore
 // ---------------------------------------------------------------------------
 
-func snapshotKey(sessionID string, userID int64, agentID string) string {
-	return fmt.Sprintf("%s:%d:%s", sessionID, userID, agentID)
+func snapshotKey(sessionID string, userID string, agentID string) string {
+	return fmt.Sprintf("%s:%s:%s", sessionID, userID, agentID)
 }
 
 // GetOrCreateSessionSnapshot implements memory.SessionSnapshotStore.
 // Creates with version 0 when not found (sufficient for tests).
-func (f *Fake) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, userID int64, agentID string) (memory.SessionSnapshot, error) {
+func (f *Fake) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, userID string, agentID string) (memory.SessionSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := snapshotKey(sessionID, userID, agentID)
@@ -581,7 +581,7 @@ func (f *Fake) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, u
 
 // AdvanceSessionSnapshot implements memory.SessionSnapshotStore.
 // Updates the snapshot version to match the number of changelog entries.
-func (f *Fake) AdvanceSessionSnapshot(_ context.Context, sessionID string, userID int64, agentID string) error {
+func (f *Fake) AdvanceSessionSnapshot(_ context.Context, sessionID string, userID string, agentID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := snapshotKey(sessionID, userID, agentID)

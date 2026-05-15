@@ -37,18 +37,18 @@ func newRecallyHandlers(store *recally.Store, files *recally.FileManager) *recal
 
 // requireUser enforces bearer/session auth and returns the user ID. It writes
 // the 401 response itself so callers can return early.
-func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (int64, bool) {
+func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
-		return 0, false
+		return "", false
 	}
 	return info.UserID, true
 }
 
 // articleOwned loads an article and returns it only if the caller owns it.
 // Returns false (with the appropriate error response written) otherwise.
-func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID int64) (*recally.Article, bool) {
+func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, articleID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -61,7 +61,7 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 	return article, true
 }
 
-func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID int64) (*recally.Feed, bool) {
+func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, feedID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())

@@ -14,7 +14,7 @@ DELETE FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
 `
 
 type DeleteUserAgentMemoryParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
@@ -28,7 +28,7 @@ SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM c
 `
 
 type GetUserAgentMemoryParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
@@ -86,7 +86,7 @@ const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
 SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
 `
 
-func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64) ([]CtxAgentMemory, error) {
+func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string) ([]CtxAgentMemory, error) {
 	rows, err := q.db.QueryContext(ctx, listUserAgentMemoriesByUser, userID)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
 `
 
 type UpsertAgentConstraintsParams struct {
-	UserID      int64  `json:"user_id"`
+	UserID      string `json:"user_id"`
 	AgentID     string `json:"agent_id"`
 	Constraints string `json:"constraints"`
 }
@@ -157,7 +157,7 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
 `
 
 type UpsertAgentSoulParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Soul    string `json:"soul"`
 }
@@ -178,7 +178,7 @@ RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
 `
 
 type UpsertAgentSoulVersionedParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Soul    string `json:"soul"`
 }
@@ -207,7 +207,7 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
 `
 
 type UpsertUserAgentMemoryParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Content string `json:"content"`
 }
@@ -228,7 +228,7 @@ RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
 `
 
 type UpsertUserAgentMemoryVersionedParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Content string `json:"content"`
 }

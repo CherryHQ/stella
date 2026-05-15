@@ -15,7 +15,7 @@ SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND status = ?
 `
 
 type CountArticlesByStatusParams struct {
-	UserID int64  `json:"user_id"`
+	UserID string `json:"user_id"`
 	Status string `json:"status"`
 }
 
@@ -30,7 +30,7 @@ const countStarredArticles = `-- name: CountStarredArticles :one
 SELECT COUNT(*) as count FROM articles WHERE user_id = ? AND starred = 1
 `
 
-func (q *Queries) CountStarredArticles(ctx context.Context, userID int64) (int64, error) {
+func (q *Queries) CountStarredArticles(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countStarredArticles, userID)
 	var count int64
 	err := row.Scan(&count)
@@ -49,7 +49,7 @@ RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author,
 
 type CreateArticleParams struct {
 	ID           string         `json:"id"`
-	UserID       int64          `json:"user_id"`
+	UserID       string         `json:"user_id"`
 	AgentID      sql.NullString `json:"agent_id"`
 	Url          string         `json:"url"`
 	CanonicalUrl string         `json:"canonical_url"`
@@ -157,7 +157,7 @@ SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, su
 `
 
 type GetArticleByCanonicalURLParams struct {
-	UserID       int64  `json:"user_id"`
+	UserID       string `json:"user_id"`
 	CanonicalUrl string `json:"canonical_url"`
 }
 
@@ -195,7 +195,7 @@ WHERE user_id = ?
 ORDER BY saved_at DESC
 `
 
-func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID int64) ([]Article, error) {
+func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) ([]Article, error) {
 	rows, err := q.db.QueryContext(ctx, getArticlesSavedThisWeek, userID)
 	if err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ LIMIT ?5
 `
 
 type ListArticlesParams struct {
-	UserID     int64       `json:"user_id"`
+	UserID     string      `json:"user_id"`
 	Status     interface{} `json:"status"`
 	SourceType interface{} `json:"source_type"`
 	Starred    interface{} `json:"starred"`
@@ -312,7 +312,7 @@ WHERE user_id = ?
 ORDER BY saved_at DESC
 `
 
-func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID int64) ([]Article, error) {
+func (q *Queries) ListArticlesSavedYesterday(ctx context.Context, userID string) ([]Article, error) {
 	rows, err := q.db.QueryContext(ctx, listArticlesSavedYesterday, userID)
 	if err != nil {
 		return nil, err
@@ -365,7 +365,7 @@ LIMIT ?
 `
 
 type ListUnreadArticlesOlderThanParams struct {
-	UserID   int64       `json:"user_id"`
+	UserID   string      `json:"user_id"`
 	Datetime interface{} `json:"datetime"`
 	Limit    int64       `json:"limit"`
 }
@@ -425,7 +425,7 @@ LIMIT ?
 `
 
 type SearchArticlesParams struct {
-	UserID  int64          `json:"user_id"`
+	UserID  string         `json:"user_id"`
 	Column2 sql.NullString `json:"column_2"`
 	Column3 sql.NullString `json:"column_3"`
 	Column4 sql.NullString `json:"column_4"`

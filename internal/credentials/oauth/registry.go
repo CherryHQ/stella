@@ -91,7 +91,7 @@ func (r *ProviderRegistry) IDs() []string {
 // proactively refreshes and persists the new bundle before returning. On
 // refresh failure the existing bundle is returned so callers can decide what
 // to do with a soon-to-expire or already-expired token.
-func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, providerID string, userID int64) (*OAuthBundle, error) {
+func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, providerID string, userID string) (*OAuthBundle, error) {
 	r.mu.RLock()
 	cfg, ok := r.entries[providerID]
 	r.mu.RUnlock()
@@ -103,10 +103,10 @@ func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, provider
 		return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
 	}
 	if bundle == nil {
-		return nil, fmt.Errorf("oauth: user %d has not connected %s", userID, providerID)
+		return nil, fmt.Errorf("oauth: user %s has not connected %s", userID, providerID)
 	}
 	if bundle.AccessToken == "" {
-		return nil, fmt.Errorf("oauth: empty access token in vault for user %d provider %s", userID, providerID)
+		return nil, fmt.Errorf("oauth: empty access token in vault for user %s provider %s", userID, providerID)
 	}
 
 	if needsRefresh(bundle) {
@@ -145,7 +145,7 @@ func needsRefresh(bundle *OAuthBundle) bool {
 // (e.g. Feishu) will reject the second call; the caller falls back to the
 // stale bundle in that case. singleflight would collapse concurrent calls if
 // this becomes a problem in practice.
-func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg ProviderConfig, userID int64, bundle *OAuthBundle) (*OAuthBundle, error) {
+func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg ProviderConfig, userID string, bundle *OAuthBundle) (*OAuthBundle, error) {
 	var tokenURL string
 	var authStyle oauth2.AuthStyle
 	for _, f := range cfg.Flows {

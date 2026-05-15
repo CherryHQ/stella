@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ func TestListAuthUsers(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var users []struct {
-		ID         int64  `json:"id"`
+		ID         string `json:"id"`
 		Username   string `json:"username"`
 		IsActive   bool   `json:"is_active"`
 		Role       string `json:"role"`
@@ -55,14 +54,14 @@ func TestListAuthUsers(t *testing.T) {
 func TestGetAuthUser(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10), nil)
+	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	resp := parseResponse(t, rr)
 	var u struct {
-		ID       int64  `json:"id"`
+		ID       string `json:"id"`
 		Username string `json:"username"`
 		Role     string `json:"role"`
 	}
@@ -70,7 +69,7 @@ func TestGetAuthUser(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if u.ID != env.adminUser.ID {
-		t.Errorf("ID = %d, want %d", u.ID, env.adminUser.ID)
+		t.Errorf("ID = %q, want %q", u.ID, env.adminUser.ID)
 	}
 	if u.Username != "testadmin" {
 		t.Errorf("Username = %q, want %q", u.Username, "testadmin")
@@ -97,7 +96,7 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 	}
 
 	body := map[string]string{"role": "admin"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/role", body)
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -117,7 +116,7 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 	_ = env.authStore.UpdateUserRole(ctx, user.ID, auth.RoleAdmin)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/role", body)
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -132,7 +131,7 @@ func TestCannotDemoteSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/role", body)
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -142,7 +141,7 @@ func TestUpdateAuthUserRoleInvalid(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "superadmin"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/role", body)
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -155,7 +154,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Create a user.
 	hash, _ := auth.HashPassword("password3")
 	user, _ := env.authStore.CreateUser(ctx, "agentuser", hash)
-	uid := strconv.FormatInt(user.ID, 10)
+	uid := user.ID
 
 	// List agents - initially empty.
 	rr := doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
@@ -207,7 +206,7 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Create a user.
 	hash, _ := auth.HashPassword("password4")
 	user, _ := env.authStore.CreateUser(ctx, "deactivateme", hash)
-	uid := strconv.FormatInt(user.ID, 10)
+	uid := user.ID
 
 	// Create session for the user.
 	sessionID := auth.NewSessionID()
@@ -253,7 +252,7 @@ func TestCannotDeactivateSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/active", body)
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/active", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -316,7 +315,7 @@ func TestAuthUserWithLinkedIdentities(t *testing.T) {
 	}
 
 	// Get user details — should include the identity.
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10), nil)
+	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}

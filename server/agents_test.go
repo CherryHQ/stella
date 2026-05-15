@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -208,7 +207,7 @@ func TestAgentUserAssignment(t *testing.T) {
 	}
 	resp := parseResponse(t, rr)
 	var users []struct {
-		ID       int64  `json:"id"`
+		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
 	_ = json.Unmarshal(resp.Data, &users)
@@ -230,14 +229,14 @@ func TestAgentUserAssignment(t *testing.T) {
 		t.Fatalf("expected 1 user, got %d", len(users))
 	}
 	if users[0].ID != user.ID {
-		t.Errorf("user ID = %d, want %d", users[0].ID, user.ID)
+		t.Errorf("user ID = %q, want %q", users[0].ID, user.ID)
 	}
 	if users[0].Username != "testuser1" {
 		t.Errorf("username = %q, want %q", users[0].Username, "testuser1")
 	}
 
 	// Remove user.
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/users/"+strconv.FormatInt(user.ID, 10), nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/users/"+user.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("remove user: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}

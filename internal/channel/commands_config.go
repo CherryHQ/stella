@@ -12,11 +12,11 @@ import (
 // secure plaintext-ingest path for manual secrets. List and delete operations
 // are available via the credentials tool instead.
 // Returns (message, ok) where ok is false on error or bad input.
-func handleConfig(ctx context.Context, vaultSvc *vault.Service, userID int64, args string) (string, bool) {
+func handleConfig(ctx context.Context, vaultSvc *vault.Service, userID string, args string) (string, bool) {
 	if vaultSvc == nil {
 		return "Vault is not configured on this server.", false
 	}
-	if userID == 0 {
+	if userID == "" {
 		return "You must be logged in to manage secrets.", false
 	}
 

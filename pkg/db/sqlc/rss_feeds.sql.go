@@ -21,7 +21,7 @@ RETURNING id, user_id, agent_id, url, title, description, check_interval, last_c
 
 type CreateRSSFeedParams struct {
 	ID            string         `json:"id"`
-	UserID        int64          `json:"user_id"`
+	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
 	Url           string         `json:"url"`
 	Title         string         `json:"title"`
@@ -172,7 +172,7 @@ SELECT id, user_id, agent_id, url, title, description, check_interval, last_chec
 `
 
 type GetRSSFeedByURLParams struct {
-	UserID int64  `json:"user_id"`
+	UserID string `json:"user_id"`
 	Url    string `json:"url"`
 }
 
@@ -324,7 +324,7 @@ WHERE user_id = ?
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListRSSFeeds(ctx context.Context, userID int64) ([]RssFeed, error) {
+func (q *Queries) ListRSSFeeds(ctx context.Context, userID string) ([]RssFeed, error) {
 	rows, err := q.db.QueryContext(ctx, listRSSFeeds, userID)
 	if err != nil {
 		return nil, err

@@ -36,7 +36,7 @@ type CreateSchedJobRunParams struct {
 	StartedAt  string         `json:"started_at"`
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
-	UserID     sql.NullInt64  `json:"user_id"`
+	UserID     sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunParams) (SchedJobRun, error) {

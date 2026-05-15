@@ -8,12 +8,12 @@ import (
 
 // VaultStore is the narrow interface this package needs from the vault service.
 type VaultStore interface {
-	Set(ctx context.Context, userID int64, name string, plaintext string) error
-	Delete(ctx context.Context, userID int64, name string) error
-	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+	Set(ctx context.Context, userID string, name string, plaintext string) error
+	Delete(ctx context.Context, userID string, name string) error
+	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
-func saveBundle[T any](ctx context.Context, vs VaultStore, userID int64, key string, bundle T) error {
+func saveBundle[T any](ctx context.Context, vs VaultStore, userID string, key string, bundle T) error {
 	data, err := json.Marshal(bundle)
 	if err != nil {
 		return fmt.Errorf("oauth: marshal bundle %q: %w", key, err)
@@ -24,7 +24,7 @@ func saveBundle[T any](ctx context.Context, vs VaultStore, userID int64, key str
 	return nil
 }
 
-func loadBundle[T any](ctx context.Context, vs VaultStore, userID int64, key string) (*T, error) {
+func loadBundle[T any](ctx context.Context, vs VaultStore, userID string, key string) (*T, error) {
 	env, err := vs.LoadEnv(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: load bundle %q: %w", key, err)
@@ -41,7 +41,7 @@ func loadBundle[T any](ctx context.Context, vs VaultStore, userID int64, key str
 }
 
 // DeleteBundle removes the vault entry identified by key for userID.
-func DeleteBundle(ctx context.Context, vs VaultStore, userID int64, key string) error {
+func DeleteBundle(ctx context.Context, vs VaultStore, userID string, key string) error {
 	if err := vs.Delete(ctx, userID, key); err != nil {
 		return fmt.Errorf("oauth: delete bundle %q: %w", key, err)
 	}

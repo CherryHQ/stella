@@ -25,7 +25,7 @@ RETURNING id, user_id, name, token_hash, token_prefix, auto_generated, last_used
 
 type CreateAuthUserTokenParams struct {
 	ID            string         `json:"id"`
-	UserID        int64          `json:"user_id"`
+	UserID        string         `json:"user_id"`
 	Name          string         `json:"name"`
 	TokenHash     string         `json:"token_hash"`
 	TokenPrefix   string         `json:"token_prefix"`
@@ -101,7 +101,7 @@ LIMIT 1
 // autoTokenRotateAfter (60 days), which is always before autoTokenTTL (90 days),
 // so an auto token is replaced before it can expire. The Go layer handles
 // time-based rotation rather than relying on the DB expiry column.
-func (q *Queries) GetActiveAutoAuthUserTokenByUser(ctx context.Context, userID int64) (AuthUserToken, error) {
+func (q *Queries) GetActiveAutoAuthUserTokenByUser(ctx context.Context, userID string) (AuthUserToken, error) {
 	row := q.db.QueryRowContext(ctx, getActiveAutoAuthUserTokenByUser, userID)
 	var i AuthUserToken
 	err := row.Scan(

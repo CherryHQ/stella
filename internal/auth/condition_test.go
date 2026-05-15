@@ -37,15 +37,15 @@ func TestEvaluateConditions_EqLiteral(t *testing.T) {
 
 func TestEvaluateConditions_EqAttrRef(t *testing.T) {
 	req := AccessRequest{
-		Subject:  Subject{UserID: 42},
-		Resource: Resource{OwnerID: 42},
+		Subject:  Subject{UserID: "42"},
+		Resource: Resource{OwnerID: "42"},
 	}
 	cond := `{"resource.owner_id":{"eq":"subject.id"}}`
 	if !evaluateConditions(cond, req) {
 		t.Error("expected owner_id == subject.id to match")
 	}
 
-	req.Resource.OwnerID = 99
+	req.Resource.OwnerID = "99"
 	if evaluateConditions(cond, req) {
 		t.Error("expected owner_id != subject.id to fail")
 	}
@@ -71,7 +71,7 @@ func TestEvaluateConditions_Neq(t *testing.T) {
 func TestEvaluateConditions_In(t *testing.T) {
 	req := AccessRequest{
 		Subject: Subject{
-			UserID:   1,
+			UserID:   "1",
 			AgentIDs: []string{"agent-a", "agent-b", "agent-c"},
 		},
 		Resource: Resource{ID: "agent-b"},
@@ -143,9 +143,9 @@ func TestEvaluateConditions_Contains(t *testing.T) {
 
 func TestEvaluateConditions_MultipleConditionsAND(t *testing.T) {
 	req := AccessRequest{
-		Subject: Subject{UserID: 5},
+		Subject: Subject{UserID: "5"},
 		Resource: Resource{
-			OwnerID: 5,
+			OwnerID: "5",
 			Attrs:   map[string]any{"scope": "system"},
 		},
 	}

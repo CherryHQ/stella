@@ -52,7 +52,7 @@ type Job struct {
 	SessionMode string         `json:"session_mode"` // "reuse" (default) or "new"
 	Enabled     bool           `json:"enabled"`
 	AgentID     string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
-	UserID      int64          `json:"user_id,omitempty"`  // user context (0 = none)
+	UserID      string         `json:"user_id,omitempty"`  // user context (empty = none)
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`
@@ -69,7 +69,7 @@ type JobRun struct {
 	ID         string     `json:"id"`
 	JobID      string     `json:"job_id"`
 	SessionID  string     `json:"session_id"`
-	UserID     int64      `json:"user_id,omitempty"`
+	UserID     string     `json:"user_id,omitempty"`
 	Status     string     `json:"status"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
@@ -105,12 +105,12 @@ func (j Job) SessionID() string {
 
 // UserSessionID returns a user-scoped session ID for all_users fan-out sub-runs.
 // In reuse mode the ID is stable per user; in new mode a timestamp suffix ensures freshness.
-func (j Job) UserSessionID(userID int64) string {
+func (j Job) UserSessionID(userID string) string {
 	prefix := "scheduler"
 	if j.AgentID != "" {
 		prefix = j.AgentID + ":" + prefix
 	}
-	base := fmt.Sprintf("%s:%s:u%d", prefix, j.ID, userID)
+	base := fmt.Sprintf("%s:%s:u%s", prefix, j.ID, userID)
 	if j.SessionMode == SessionNew {
 		return fmt.Sprintf("%s:%d", base, time.Now().UnixNano())
 	}

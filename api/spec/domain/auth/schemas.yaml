@@ -23,14 +23,14 @@ components:
       type: object
       required: [id, username]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string }
         username: { type: string }
 
     MeResponse:
       type: object
       required: [id, username, role, is_admin]
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string }
         username: { type: string }
         role: { type: string }
         is_admin: { type: boolean }

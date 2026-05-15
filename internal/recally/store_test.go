@@ -155,7 +155,7 @@ func TestStore_SaveArticle(t *testing.T) {
 	}
 
 	// Save new article
-	article, isNew, err := store.SaveArticle(ctx, 1, req)
+	article, isNew, err := store.SaveArticle(ctx, "1", req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestStore_SaveArticle(t *testing.T) {
 
 	// Save same article again - should update
 	req.Title = "Updated Title"
-	article2, isNew2, err := store.SaveArticle(ctx, 1, req)
+	article2, isNew2, err := store.SaveArticle(ctx, "1", req)
 	if err != nil {
 		t.Fatalf("SaveArticle (update) failed: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestStore_GetArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Get Test",
 	}
-	created, _, err := store.SaveArticle(ctx, 1, req)
+	created, _, err := store.SaveArticle(ctx, "1", req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestStore_UpdateArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Original Title",
 	}
-	created, _, err := store.SaveArticle(ctx, 1, req)
+	created, _, err := store.SaveArticle(ctx, "1", req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestStore_DeleteArticle(t *testing.T) {
 		SourceType: SourceTypeWeb,
 		Title:      "Delete Test",
 	}
-	created, _, err := store.SaveArticle(ctx, 1, req)
+	created, _, err := store.SaveArticle(ctx, "1", req)
 	if err != nil {
 		t.Fatalf("SaveArticle failed: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestStore_ListArticles(t *testing.T) {
 			SourceType: SourceTypeWeb,
 			Title:      fmt.Sprintf("Article %d", i),
 		}
-		_, _, err := store.SaveArticle(ctx, 1, req)
+		_, _, err := store.SaveArticle(ctx, "1", req)
 		if err != nil {
 			t.Fatalf("SaveArticle failed: %v", err)
 		}
@@ -322,7 +322,7 @@ func TestStore_ListArticles(t *testing.T) {
 
 	// List all articles
 	filter := ArticleFilter{Limit: 10}
-	articles, err := store.ListArticles(ctx, 1, filter)
+	articles, err := store.ListArticles(ctx, "1", filter)
 	if err != nil {
 		t.Fatalf("ListArticles failed: %v", err)
 	}
@@ -346,14 +346,14 @@ func TestStore_SearchArticles(t *testing.T) {
 	}
 
 	for _, req := range articles {
-		_, _, err := store.SaveArticle(ctx, 1, req)
+		_, _, err := store.SaveArticle(ctx, "1", req)
 		if err != nil {
 			t.Fatalf("SaveArticle failed: %v", err)
 		}
 	}
 
 	// Search for "Go"
-	results, err := store.SearchArticles(ctx, 1, "Go", 10)
+	results, err := store.SearchArticles(ctx, "1", "Go", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestStore_SearchArticles(t *testing.T) {
 	}
 
 	// Search for "Python"
-	results, err = store.SearchArticles(ctx, 1, "Python", 10)
+	results, err = store.SearchArticles(ctx, "1", "Python", 10)
 	if err != nil {
 		t.Fatalf("SearchArticles failed: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestStore_Feeds(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, 1, "https://example.com/feed.xml", "Test Feed", "A test feed", nil)
+	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", "Test Feed", "A test feed", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Get feed by URL
-	byURL, err := store.GetFeedByURL(ctx, 1, "https://example.com/feed.xml")
+	byURL, err := store.GetFeedByURL(ctx, "1", "https://example.com/feed.xml")
 	if err != nil {
 		t.Fatalf("GetFeedByURL failed: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// List feeds
-	feeds, err := store.ListFeeds(ctx, 1)
+	feeds, err := store.ListFeeds(ctx, "1")
 	if err != nil {
 		t.Fatalf("ListFeeds failed: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, 1, "https://example.com/feed.xml", "Test Feed", "", nil)
+	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", "Test Feed", "", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}

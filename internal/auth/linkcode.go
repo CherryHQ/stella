@@ -22,7 +22,7 @@ const (
 
 // linkCodeEntry holds a pending link code with its owner and expiry.
 type linkCodeEntry struct {
-	UserID   int64
+	UserID   string
 	Platform string
 	ExpireAt time.Time
 }
@@ -56,7 +56,7 @@ func NewSharedLinkCodeStore(ctx context.Context, db *sql.DB) (*LinkCodeStore, er
 
 // Generate creates a new 6-character alphanumeric link code for the given
 // user and platform. Returns the code string.
-func (s *LinkCodeStore) Generate(userID int64, platform string) string {
+func (s *LinkCodeStore) Generate(userID string, platform string) string {
 	code := randomAlphanumeric(linkCodeLength)
 	if s.db != nil {
 		if err := s.generateShared(context.Background(), code, userID, platform); err != nil {
@@ -77,7 +77,7 @@ func (s *LinkCodeStore) Generate(userID int64, platform string) string {
 // Consume looks up a link code and returns the associated user ID and
 // platform if valid. The code is consumed (deleted) on success.
 // Returns (0, "", false) if the code is invalid or expired.
-func (s *LinkCodeStore) Consume(code string) (int64, string, bool) {
+func (s *LinkCodeStore) Consume(code string) (string, string, bool) {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if s.db != nil {
 		return s.consumeShared(context.Background(), code)
@@ -85,11 +85,11 @@ func (s *LinkCodeStore) Consume(code string) (int64, string, bool) {
 
 	val, ok := s.codes.LoadAndDelete(code)
 	if !ok {
-		return 0, "", false
+		return "", "", false
 	}
 	entry := val.(linkCodeEntry)
 	if time.Now().After(entry.ExpireAt) {
-		return 0, "", false
+		return "", "", false
 	}
 	return entry.UserID, entry.Platform, true
 }
@@ -129,7 +129,7 @@ func isAlphanumeric(c rune) bool {
 func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
 	const stmt = `CREATE TABLE IF NOT EXISTS auth_link_codes (
 		code TEXT PRIMARY KEY,
-		user_id INTEGER NOT NULL,
+		user_id TEXT NOT NULL,
 		platform TEXT NOT NULL,
 		expire_at INTEGER NOT NULL
 	)`
@@ -139,7 +139,7 @@ func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
 	return nil
 }
 
-func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID int64, platform string) error {
+func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID string, platform string) error {
 	if err := s.deleteExpired(ctx); err != nil {
 		return err
 	}
@@ -153,10 +153,10 @@ func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID 
 	return nil
 }
 
-func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (int64, string, bool) {
+func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (string, string, bool) {
 	if err := s.deleteExpired(ctx); err != nil {
 		slog.Error("link code: purge expired failed", "error", err)
-		return 0, "", false
+		return "", "", false
 	}
 
 	const stmt = `DELETE FROM auth_link_codes
@@ -164,20 +164,20 @@ func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (int64, 
 	RETURNING user_id, platform, expire_at`
 
 	var (
-		userID   int64
+		userID   string
 		platform string
 		expireAt int64
 	)
 	err := s.db.QueryRowContext(ctx, stmt, code).Scan(&userID, &platform, &expireAt)
 	if err == sql.ErrNoRows {
-		return 0, "", false
+		return "", "", false
 	}
 	if err != nil {
 		slog.Error("link code: consume failed", "code", code, "error", err)
-		return 0, "", false
+		return "", "", false
 	}
 	if time.Now().After(time.Unix(expireAt, 0)) {
-		return 0, "", false
+		return "", "", false
 	}
 	return userID, platform, true
 }

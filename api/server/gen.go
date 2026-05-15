@@ -723,7 +723,7 @@ type ServerInterface interface {
 	AssignAgentUser(w http.ResponseWriter, r *http.Request, id string)
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
-	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId int64)
+	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string)
 	// Authenticate and start a session
 	// (POST /api/auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -819,22 +819,22 @@ type ServerInterface interface {
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
 	// Get an auth user by ID (admin only)
 	// (GET /api/auth/users/{id})
-	GetAuthUser(w http.ResponseWriter, r *http.Request, id int64)
+	GetAuthUser(w http.ResponseWriter, r *http.Request, id string)
 	// Update the active status of an auth user (admin only)
 	// (PUT /api/auth/users/{id}/active)
-	UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id int64)
+	UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string)
 	// List agents assigned to an auth user (admin only)
 	// (GET /api/auth/users/{id}/agents)
-	ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64)
+	ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id string)
 	// Update agents assigned to an auth user (admin only)
 	// (PUT /api/auth/users/{id}/agents)
-	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64)
+	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string)
 	// Delete an identity linked to an auth user (admin only)
 	// (DELETE /api/auth/users/{id}/identities/{identityId})
-	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId string)
+	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string)
 	// Update the role of an auth user (admin only)
 	// (PUT /api/auth/users/{id}/role)
-	UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id int64)
+	UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string)
 	// List builtin resources of a given kind
 	// (GET /api/builtin/{kind})
 	ListBuiltinResources(w http.ResponseWriter, r *http.Request, kind string)
@@ -1083,19 +1083,19 @@ type ServerInterface interface {
 	ListTools(w http.ResponseWriter, r *http.Request)
 	// Update the default agent for a user (admin only)
 	// (PUT /api/users/{id}/default-agent)
-	UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id int64)
+	UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string)
 	// List memories for a user (admin only)
 	// (GET /api/users/{id}/memories)
-	ListUserMemories(w http.ResponseWriter, r *http.Request, id int64)
+	ListUserMemories(w http.ResponseWriter, r *http.Request, id string)
 	// Delete memory for a user and agent (admin only)
 	// (DELETE /api/users/{id}/memories/{agentId})
-	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string)
+	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
 	// Set memory for a user and agent (admin only)
 	// (PUT /api/users/{id}/memories/{agentId})
-	SetUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string)
+	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
 	// Update the notify identity for a user (admin only)
 	// (PUT /api/users/{id}/notify-identity)
-	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id int64)
+	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1793,9 +1793,9 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 	}
 
 	// ------------- Path parameter "userId" -------------
-	var userId int64
+	var userId string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
 		return
@@ -2701,9 +2701,9 @@ func (siw *ServerInterfaceWrapper) GetAuthUser(w http.ResponseWriter, r *http.Re
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2733,9 +2733,9 @@ func (siw *ServerInterfaceWrapper) UpdateAuthUserActive(w http.ResponseWriter, r
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2765,9 +2765,9 @@ func (siw *ServerInterfaceWrapper) ListAuthUserAgents(w http.ResponseWriter, r *
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2797,9 +2797,9 @@ func (siw *ServerInterfaceWrapper) UpdateAuthUserAgents(w http.ResponseWriter, r
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2829,9 +2829,9 @@ func (siw *ServerInterfaceWrapper) DeleteAuthUserIdentity(w http.ResponseWriter,
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2870,9 +2870,9 @@ func (siw *ServerInterfaceWrapper) UpdateAuthUserRole(w http.ResponseWriter, r *
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -5629,9 +5629,9 @@ func (siw *ServerInterfaceWrapper) UpdateUserDefaultAgent(w http.ResponseWriter,
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -5661,9 +5661,9 @@ func (siw *ServerInterfaceWrapper) ListUserMemories(w http.ResponseWriter, r *ht
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -5693,9 +5693,9 @@ func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *ht
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -5734,9 +5734,9 @@ func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -5775,9 +5775,9 @@ func (siw *ServerInterfaceWrapper) UpdateUserNotifyIdentity(w http.ResponseWrite
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return

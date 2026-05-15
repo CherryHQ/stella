@@ -8,8 +8,8 @@ import (
 // TestResetRunnersForUser verifies that ResetRunnersForUser closes runners
 // only for the targeted user, leaving other users' runners intact.
 func TestResetRunnersForUser(t *testing.T) {
-	const user1 int64 = 1
-	const user2 int64 = 2
+	const user1 = "1"
+	const user2 = "2"
 
 	ctx := context.Background()
 	factory, runners := mockRunnerFactory(nil)
@@ -63,7 +63,7 @@ func TestResetRunnersForUser(t *testing.T) {
 // TestInvalidateUserAcrossPools verifies PoolManager.InvalidateUser propagates
 // to all registered pools.
 func TestInvalidateUserAcrossPools(t *testing.T) {
-	const userID int64 = 7
+	const userID = "7"
 
 	ctx := context.Background()
 	factory1, runners1 := mockRunnerFactory(nil)

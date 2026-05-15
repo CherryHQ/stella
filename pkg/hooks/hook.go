@@ -23,7 +23,7 @@ const (
 // HookMeta carries shared metadata available to all hook invocations.
 type HookMeta struct {
 	SessionID string
-	UserID    int64
+	UserID    string
 	AgentID   string
 	Channel   string
 }

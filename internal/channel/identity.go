@@ -132,7 +132,7 @@ func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, pl
 func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
 	log := slog.With("component", "identity", "user_id", identity.User.ID)
 
-	if identity.User.ID == 0 {
+	if identity.User.ID == "" {
 		log.Warn("unlinked user denied access")
 		return "", ErrAgentAccessDenied
 	}

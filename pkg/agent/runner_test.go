@@ -36,7 +36,7 @@ func TestNewRunner_Success(t *testing.T) {
 
 func TestNewRunner_WithOptions(t *testing.T) {
 	hs := hooks.NewHookSet(nil)
-	meta := hooks.HookMeta{SessionID: "sess-1", UserID: 42}
+	meta := hooks.HookMeta{SessionID: "sess-1", UserID: "42"}
 
 	r, err := NewRunner(
 		RunnerConfig{Stream: fakeStream},
@@ -60,7 +60,7 @@ func TestNewRunner_WithOptions(t *testing.T) {
 
 func TestRunner_SetHookMeta(t *testing.T) {
 	r, _ := NewRunner(RunnerConfig{Stream: fakeStream})
-	meta := hooks.HookMeta{SessionID: "s1", UserID: 10}
+	meta := hooks.HookMeta{SessionID: "s1", UserID: "10"}
 	r.SetHookMeta(meta)
 	if r.hookMeta != meta {
 		t.Errorf("expected updated hookMeta, got %+v", r.hookMeta)

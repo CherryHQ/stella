@@ -80,7 +80,7 @@ type DBPromptParams struct {
 	AgentSoul         string                    // agent's default soul from DB (fallback for all users)
 	Memory            memory.Provider           // active provider for profile loading (may be nil)
 	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
-	UserID            int64                     // auth user ID for profile lookup
+	UserID            string                    // auth user ID for profile lookup
 	AgentID           string                    // agent ID for profile lookup
 	StellaHome        string
 	AgentRoot         string
@@ -120,7 +120,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Memory: per-user soul overrides the agent default when set.
-	if p.UserID > 0 && p.AgentID != "" {
+	if p.UserID != "" && p.AgentID != "" {
 		if p.SnapshotVersion > 0 {
 			// Versioned reads: use frozen version for stable session identity.
 			if vps, ok := p.Memory.(memory.VersionedProfileStore); ok {
@@ -162,7 +162,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// When a session snapshot is active, filter out entries that became active
 	// after the snapshot was last advanced so that background knowledge changes
 	// do not affect frozen sessions.
-	if p.KnowledgeStore != nil && p.UserID > 0 && p.AgentID != "" {
+	if p.KnowledgeStore != nil && p.UserID != "" && p.AgentID != "" {
 		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
 		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
 			if p.SnapshotVersion > 0 && !p.SnapshotUpdatedAt.IsZero() {

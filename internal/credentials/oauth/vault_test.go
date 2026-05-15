@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -16,23 +15,23 @@ func newMockVaultStore() *mockVaultStore {
 	return &mockVaultStore{data: make(map[string]string)}
 }
 
-func (m *mockVaultStore) key(userID int64, name string) string {
-	return fmt.Sprintf("%d:%s", userID, name)
+func (m *mockVaultStore) key(userID string, name string) string {
+	return userID + ":" + name
 }
 
-func (m *mockVaultStore) Set(_ context.Context, userID int64, name string, plaintext string) error {
+func (m *mockVaultStore) Set(_ context.Context, userID string, name string, plaintext string) error {
 	m.data[m.key(userID, name)] = plaintext
 	return nil
 }
 
-func (m *mockVaultStore) Delete(_ context.Context, userID int64, name string) error {
+func (m *mockVaultStore) Delete(_ context.Context, userID string, name string) error {
 	delete(m.data, m.key(userID, name))
 	return nil
 }
 
-func (m *mockVaultStore) LoadEnv(_ context.Context, userID int64) (map[string]string, error) {
+func (m *mockVaultStore) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
 	out := make(map[string]string)
-	prefix := fmt.Sprintf("%d:", userID)
+	prefix := userID + ":"
 	for k, v := range m.data {
 		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
 			name := k[len(prefix):]
@@ -45,7 +44,7 @@ func (m *mockVaultStore) LoadEnv(_ context.Context, userID int64) (map[string]st
 func TestSaveLoadOAuthBundle_RoundTrip(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(1)
+	userID := "1"
 
 	now := time.Now().UTC().Truncate(time.Second)
 	bundle := OAuthBundle{
@@ -91,7 +90,7 @@ func TestLoadOAuthBundle_AbsentKeyReturnsNil(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 
-	got, err := LoadOAuthBundle(ctx, vs, 42, VaultKeyGitHub)
+	got, err := LoadOAuthBundle(ctx, vs, "42", VaultKeyGitHub)
 	if err != nil {
 		t.Fatalf("LoadOAuthBundle: unexpected error: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestLoadOAuthBundle_AbsentKeyReturnsNil(t *testing.T) {
 func TestDeleteBundle(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(3)
+	userID := "3"
 
 	bundle := OAuthBundle{Version: 1, AccessToken: "ghp_todelete"}
 	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {

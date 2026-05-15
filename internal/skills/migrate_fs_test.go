@@ -116,7 +116,7 @@ func TestMigrateFilesystemRoundTrip(t *testing.T) {
 		case "user":
 			hasUserShared = true
 			if s.UserID != userID {
-				t.Errorf("user-scoped shared has UserID=%d, want %d", s.UserID, userID)
+				t.Errorf("user-scoped shared has UserID=%q, want %q", s.UserID, userID)
 			}
 		}
 	}

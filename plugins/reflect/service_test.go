@@ -35,7 +35,7 @@ func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) 
 	return nil
 }
 
-func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID int64, lastActive time.Time) {
+func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID string, lastActive time.Time) {
 	t.Helper()
 	ctx := context.Background()
 	sess := memory.Session{ID: id, AgentID: agentID, UserID: userID}
@@ -60,8 +60,8 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
 
 	now := time.Now().UTC()
-	seedFakeSession(t, fake, "s1", "a", 0, now) // anonymous
-	seedFakeSession(t, fake, "s2", "a", 1, now) // has user
+	seedFakeSession(t, fake, "s1", "a", "", now)  // anonymous
+	seedFakeSession(t, fake, "s2", "a", "1", now) // has user
 
 	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
@@ -81,8 +81,8 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	svc := &Service{memory: fake, wm: wm, batch: 10, log: testLogger()}
 
 	now := time.Now().UTC()
-	seedFakeSession(t, fake, "s1", "a", 1, now)
-	seedFakeSession(t, fake, "s2", "a", 2, now)
+	seedFakeSession(t, fake, "s1", "a", "1", now)
+	seedFakeSession(t, fake, "s2", "a", "2", now)
 
 	// Mark s1 as reviewed at or after its LastActive.
 	wm.marks["s1"] = now
@@ -105,8 +105,8 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	svc := &Service{memory: fake, wm: wm, batch: 10, log: testLogger()}
 
 	now := time.Now().UTC()
-	seedFakeSession(t, fake, "new", "a", 1, now)
-	seedFakeSession(t, fake, "old", "a", 2, now.Add(-2*time.Hour))
+	seedFakeSession(t, fake, "new", "a", "1", now)
+	seedFakeSession(t, fake, "old", "a", "2", now.Add(-2*time.Hour))
 
 	// Give "new" a recent watermark so it still qualifies but is "more recently reviewed".
 	wm.marks["new"] = now.Add(-10 * time.Minute)
@@ -131,8 +131,8 @@ func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	now := time.Now().UTC()
 	// Both sessions have never been reviewed (zero watermark).
 	// "older" has an earlier LastActive and should sort first.
-	seedFakeSession(t, fake, "newer", "a", 1, now)
-	seedFakeSession(t, fake, "older", "a", 2, now.Add(-3*time.Hour))
+	seedFakeSession(t, fake, "newer", "a", "1", now)
+	seedFakeSession(t, fake, "older", "a", "2", now.Add(-3*time.Hour))
 
 	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
@@ -152,7 +152,7 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 
 	now := time.Now().UTC()
 	for i := range 5 {
-		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", int64(i+1), now.Add(time.Duration(i)*time.Minute))
+		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 
 	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")

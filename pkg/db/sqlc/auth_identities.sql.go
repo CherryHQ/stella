@@ -17,7 +17,7 @@ RETURNING id, user_id, platform, external_id, name, linked_at
 
 type CreateAuthIdentityParams struct {
 	ID         string `json:"id"`
-	UserID     int64  `json:"user_id"`
+	UserID     string `json:"user_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
 	Name       string `json:"name"`
@@ -97,7 +97,7 @@ const listAuthIdentitiesByUser = `-- name: ListAuthIdentitiesByUser :many
 SELECT id, user_id, platform, external_id, name, linked_at FROM auth_identities WHERE user_id = ? ORDER BY linked_at
 `
 
-func (q *Queries) ListAuthIdentitiesByUser(ctx context.Context, userID int64) ([]AuthIdentity, error) {
+func (q *Queries) ListAuthIdentitiesByUser(ctx context.Context, userID string) ([]AuthIdentity, error) {
 	rows, err := q.db.QueryContext(ctx, listAuthIdentitiesByUser, userID)
 	if err != nil {
 		return nil, err

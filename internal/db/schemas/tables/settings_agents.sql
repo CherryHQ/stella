@@ -10,7 +10,7 @@ CREATE TABLE settings_agents (
     sandbox       TEXT NOT NULL DEFAULT '{}',
     enabled_builtin_skills TEXT NOT NULL DEFAULT '[]',
     scope         TEXT NOT NULL DEFAULT 'system',
-    creator_id    INTEGER NOT NULL DEFAULT 0,
+    creator_id    TEXT NOT NULL DEFAULT '',
     enabled       INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))

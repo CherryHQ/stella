@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"fmt"
-
 	"github.com/CherryHQ/stella/pkg/memory"
 )
 
@@ -39,8 +37,8 @@ func BuildSessionKey(agentID, platform, externalUserID, channelContext string) s
 // Linked users share a single session across all channels (for the same agent
 // and channel context), so the key omits the platform-specific external ID.
 // Format: {agentID}:user:{authUserID}:{channelContext}
-func BuildUserSessionKey(agentID string, authUserID int64, channelContext string) string {
-	return agentID + ":user:" + fmt.Sprintf("%d", authUserID) + ":" + channelContext
+func BuildUserSessionKey(agentID string, authUserID string, channelContext string) string {
+	return agentID + ":user:" + authUserID + ":" + channelContext
 }
 
 // SessionInfo is an alias for memory.SessionInfo.

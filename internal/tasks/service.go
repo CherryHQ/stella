@@ -60,7 +60,7 @@ type CreateTaskParams struct {
 	Description    string
 	Priority       string
 	AgentID        string
-	UserID         int64
+	UserID         string
 	Deps           []string
 	SchedulerJobID string
 	SchedulerRunID string
@@ -358,7 +358,7 @@ func (s *Service) GetTask(ctx context.Context, id string) (sqlc.AgentTask, error
 
 // ListTasks returns tasks filtered by optional userID and status.
 // isAdmin = true returns all users' tasks.
-func (s *Service) ListTasks(ctx context.Context, userID int64, isAdmin bool, status string) ([]sqlc.AgentTask, error) {
+func (s *Service) ListTasks(ctx context.Context, userID string, isAdmin bool, status string) ([]sqlc.AgentTask, error) {
 	if isAdmin {
 		if status != "" {
 			return s.q.ListAgentTasksByStatus(ctx, status)
@@ -382,7 +382,7 @@ func (s *Service) ListTasks(ctx context.Context, userID int64, isAdmin bool, sta
 }
 
 // UpdateTask updates mutable task fields (title, description, priority, agent_id).
-func (s *Service) UpdateTask(ctx context.Context, id string, userID int64, isAdmin bool, update UpdateTaskParams) (sqlc.AgentTask, error) {
+func (s *Service) UpdateTask(ctx context.Context, id string, userID string, isAdmin bool, update UpdateTaskParams) (sqlc.AgentTask, error) {
 	task, err := s.q.GetAgentTask(ctx, id)
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: get for update: %w", err)
@@ -420,7 +420,7 @@ func (s *Service) UpdateTask(ctx context.Context, id string, userID int64, isAdm
 }
 
 // DeleteTask deletes a task (cancels running worker if present).
-func (s *Service) DeleteTask(ctx context.Context, id string, userID int64, isAdmin bool) error {
+func (s *Service) DeleteTask(ctx context.Context, id string, userID string, isAdmin bool) error {
 	task, err := s.q.GetAgentTask(ctx, id)
 	if err != nil {
 		return fmt.Errorf("tasks: get for delete: %w", err)
@@ -438,7 +438,7 @@ func (s *Service) DeleteTask(ctx context.Context, id string, userID int64, isAdm
 }
 
 // HandleAction processes approve/reject/respond/cancel actions on a task.
-func (s *Service) HandleAction(ctx context.Context, id string, userID int64, isAdmin bool, action ActionParams) (sqlc.AgentTask, error) {
+func (s *Service) HandleAction(ctx context.Context, id string, userID string, isAdmin bool, action ActionParams) (sqlc.AgentTask, error) {
 	task, err := s.q.GetAgentTask(ctx, id)
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: get for action: %w", err)

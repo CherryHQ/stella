@@ -18,7 +18,7 @@ LIMIT 1
 `
 
 type GetMemoryChangelogAtVersionParams struct {
-	UserID             int64         `json:"user_id"`
+	UserID             string        `json:"user_id"`
 	AgentID            string        `json:"agent_id"`
 	Scope              string        `json:"scope"`
 	MemoryVersionAfter sql.NullInt64 `json:"memory_version_after"`
@@ -58,7 +58,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 type InsertMemoryChangelogParams struct {
 	ID                  string         `json:"id"`
-	UserID              int64          `json:"user_id"`
+	UserID              string         `json:"user_id"`
 	AgentID             string         `json:"agent_id"`
 	SessionID           sql.NullString `json:"session_id"`
 	EntityID            sql.NullString `json:"entity_id"`
@@ -99,7 +99,7 @@ LIMIT ?
 `
 
 type ListMemoryChangelogParams struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 	Scope   string `json:"scope"`
 	Limit   int64  `json:"limit"`

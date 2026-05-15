@@ -42,7 +42,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 			fmt.Sprintf("turn %d", st.turnNum),
 			trace.WithAttributes(
 				attribute.Int("stella.turn.number", st.turnNum),
-				attribute.Int64("user_id", hctx.UserID),
+				attribute.String("user_id", hctx.UserID),
 				attribute.String("agent_id", hctx.AgentID),
 			),
 		)
@@ -52,7 +52,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 			attribute.String("gen_ai.system", hctx.API),
 			attribute.String("gen_ai.request.model", hctx.Model),
 			attribute.String("gen_ai.conversation.id", hctx.SessionID),
-			attribute.Int64("user_id", hctx.UserID),
+			attribute.String("user_id", hctx.UserID),
 			attribute.String("agent_id", hctx.AgentID),
 			attribute.Int("gen_ai.request.message_count", hctx.MessageCount),
 			attribute.Int("gen_ai.request.tool_count", len(tools)),

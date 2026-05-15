@@ -20,7 +20,7 @@ import (
 // SetProfile writes a profile update within a transaction.
 // It increments the version, reads the before-state, and appends a changelog entry,
 // all atomically. The source is derived from ctx via memory.ChangeSourceFromContext.
-func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, content string) error {
+func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, content string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -74,7 +74,7 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, 
 
 // SetAgentSoul writes a soul update within a transaction, incrementing version
 // and appending a changelog entry atomically.
-func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, content string) error {
+func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, content string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -127,7 +127,7 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64
 }
 
 // DeleteProfile writes a changelog entry for a profile deletion, then deletes the record.
-func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string) error {
+func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -178,7 +178,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int6
 
 // GetConstraints reads the constraints JSON array from the DB row.
 // Returns an empty slice (not an error) when no row exists or constraints is empty/default.
-func GetConstraints(ctx context.Context, q *sqlc.Queries, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID string) ([]memory.ConstraintEntry, error) {
 	row, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return []memory.ConstraintEntry{}, nil
@@ -191,7 +191,7 @@ func GetConstraints(ctx context.Context, q *sqlc.Queries, userID int64, agentID 
 
 // AddConstraint appends a new constraint entry transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='create'.
-func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -261,7 +261,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int6
 
 // RemoveConstraint removes a constraint by ID transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='delete'.
-func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)

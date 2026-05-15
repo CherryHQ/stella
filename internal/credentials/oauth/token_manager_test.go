@@ -20,7 +20,7 @@ func TestNewTokenManager(t *testing.T) {
 func TestGetOAuthToken_Success(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(1)
+	userID := "1"
 
 	registry := NewProviderRegistry()
 	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
@@ -47,7 +47,7 @@ func TestGetOAuthToken_Success(t *testing.T) {
 func TestGetOAuthToken_NoBundle(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(42)
+	userID := "42"
 
 	registry := NewProviderRegistry()
 	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
@@ -66,7 +66,7 @@ func TestGetOAuthToken_NoBundle(t *testing.T) {
 func TestGetOAuthToken_EmptyToken(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(1)
+	userID := "1"
 
 	registry := NewProviderRegistry()
 	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
@@ -94,7 +94,7 @@ func TestGetOAuthToken_NoRegistry(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 
-	_, err := NewTokenManager(vs).GetOAuthToken(ctx, "github", 1)
+	_, err := NewTokenManager(vs).GetOAuthToken(ctx, "github", "1")
 	if err == nil {
 		t.Fatal("GetOAuthToken expected error when registry not set")
 	}

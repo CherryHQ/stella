@@ -27,19 +27,19 @@ const (
 type tokenStore interface {
 	CreateUserToken(ctx context.Context, token UserToken) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
-	GetActiveAutoUserToken(ctx context.Context, userID int64) (UserToken, error)
+	GetActiveAutoUserToken(ctx context.Context, userID string) (UserToken, error)
 	RotateUserToken(ctx context.Context, id string) (int64, error)
 	UpdateUserTokenLastUsed(ctx context.Context, id string) (int64, error)
-	GetUser(ctx context.Context, id int64) (AuthUser, error)
+	GetUser(ctx context.Context, id string) (AuthUser, error)
 }
 
 // VaultWriter writes plaintext secrets to the per-user vault.
 type VaultWriter interface {
-	Set(ctx context.Context, userID int64, name string, plaintext string) error
+	Set(ctx context.Context, userID string, name string, plaintext string) error
 }
 
 type vaultLoader interface {
-	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
 // TokenService owns API token lifecycle and authentication.
@@ -59,7 +59,7 @@ func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
 // (user_id) WHERE auto_generated=1 AND revoked_at IS NULL prevents duplicate
 // rows; the losing writer gets a constraint error that the caller is expected
 // to log and ignore (see buildSandboxEnv).
-func (s *TokenService) EnsureAutoToken(ctx context.Context, userID int64) error {
+func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error {
 	token, err := s.store.GetActiveAutoUserToken(ctx, userID)
 	if err == nil {
 		if ok, err := s.activeVaultTokenValid(ctx, userID, token); err != nil {
@@ -73,7 +73,7 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID int64) error 
 		return s.rotateAutoToken(ctx, token)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("token service: get active auto token for user %d: %w", userID, err)
+		return fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
 	}
 
 	if plaintext, ok, err := s.loadVaultToken(ctx, userID); err != nil {
@@ -104,7 +104,7 @@ func (s *TokenService) Authenticate(ctx context.Context, rawToken string) (AuthU
 	}
 	user, err := s.store.GetUser(ctx, token.UserID)
 	if err != nil {
-		return AuthUser{}, fmt.Errorf("token service: get user %d: %w", token.UserID, err)
+		return AuthUser{}, fmt.Errorf("token service: get user %s: %w", token.UserID, err)
 	}
 	if !user.IsActive {
 		return AuthUser{}, sql.ErrNoRows
@@ -134,7 +134,7 @@ func (s *TokenService) rotateAutoToken(ctx context.Context, token UserToken) err
 	return s.createAutoTokenRecord(ctx, token.UserID, plaintext)
 }
 
-func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID int64, plaintext string) error {
+func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID string, plaintext string) error {
 	expiresAt := s.now().UTC().Add(autoTokenTTL)
 	_, err := s.store.CreateUserToken(ctx, UserToken{
 		UserID:        userID,
@@ -145,7 +145,7 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID int64, 
 		ExpiresAt:     &expiresAt,
 	})
 	if err != nil {
-		return fmt.Errorf("token service: create auto token record for user %d: %w", userID, err)
+		return fmt.Errorf("token service: create auto token record for user %s: %w", userID, err)
 	}
 	return nil
 }
@@ -154,7 +154,7 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID int64, 
 // backfill migration. Returns ("", false, nil) when the vault does not
 // implement vaultLoader (e.g. write-only test stubs), which intentionally
 // skips backfill and falls through to token generation.
-func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID int64, token UserToken) (bool, error) {
+func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID string, token UserToken) (bool, error) {
 	if _, ok := s.vault.(vaultLoader); !ok {
 		return true, nil
 	}
@@ -165,7 +165,7 @@ func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID int64, 
 	return hashToken(plaintext) == token.TokenHash, nil
 }
 
-func (s *TokenService) loadVaultToken(ctx context.Context, userID int64) (string, bool, error) {
+func (s *TokenService) loadVaultToken(ctx context.Context, userID string) (string, bool, error) {
 	loader, ok := s.vault.(vaultLoader)
 	if !ok {
 		return "", false, nil

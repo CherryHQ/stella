@@ -20,7 +20,7 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 	}
 
 	type agentUser struct {
-		ID       int64  `json:"id"`
+		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
 	users := make([]agentUser, 0, len(userIDs))
@@ -43,13 +43,13 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 	ctx := r.Context()
 
 	var body struct {
-		UserID int64 `json:"user_id"`
+		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if body.UserID == 0 {
+	if body.UserID == "" {
 		writeError(w, http.StatusBadRequest, "user_id is required")
 		return
 	}
@@ -71,7 +71,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
 
-func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId int64) {
+func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string) {
 	if !requireAdmin(w, r) {
 		return
 	}

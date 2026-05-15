@@ -14,7 +14,7 @@ import (
 // PathResolver maps a skill's (scope, agentID, userID) to the base directory
 // where the skill's subdirectory lives on disk (e.g. "$STELLA_HOME/.agents/skills").
 // Return empty string to skip disk mirroring for a given scope.
-type PathResolver func(scope, agentID string, userID int64) string
+type PathResolver func(scope, agentID string, userID string) string
 
 // DiskSyncStore wraps a Store and mirrors every write to disk so that skill
 // scripts can be executed from the filesystem inside a sandbox.

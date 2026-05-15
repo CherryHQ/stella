@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 func TestLinkCodeGenerate(t *testing.T) {
 	store := auth.NewLinkCodeStore()
 
-	code := store.Generate(42, "telegram")
+	code := store.Generate("42", "telegram")
 	if len(code) != 6 {
 		t.Errorf("code length = %d, want 6", len(code))
 	}
@@ -28,15 +29,15 @@ func TestLinkCodeGenerate(t *testing.T) {
 func TestLinkCodeConsume(t *testing.T) {
 	store := auth.NewLinkCodeStore()
 
-	code := store.Generate(42, "telegram")
+	code := store.Generate("42", "telegram")
 
 	// Consume should succeed.
 	userID, platform, ok := store.Consume(code)
 	if !ok {
 		t.Fatal("expected Consume to succeed")
 	}
-	if userID != 42 {
-		t.Errorf("userID = %d, want 42", userID)
+	if userID != "42" {
+		t.Errorf("userID = %q, want 42", userID)
 	}
 	if platform != "telegram" {
 		t.Errorf("platform = %q, want %q", platform, "telegram")
@@ -71,13 +72,13 @@ func TestSharedLinkCodeConsumeAcrossStores(t *testing.T) {
 		t.Fatalf("NewSharedLinkCodeStore consumer: %v", err)
 	}
 
-	code := issuer.Generate(42, "telegram")
+	code := issuer.Generate("42", "telegram")
 	userID, platform, ok := consumer.Consume(code)
 	if !ok {
 		t.Fatal("expected Consume to succeed across store instances")
 	}
-	if userID != 42 {
-		t.Errorf("userID = %d, want 42", userID)
+	if userID != "42" {
+		t.Errorf("userID = %q, want 42", userID)
 	}
 	if platform != "telegram" {
 		t.Errorf("platform = %q, want telegram", platform)
@@ -87,7 +88,7 @@ func TestSharedLinkCodeConsumeAcrossStores(t *testing.T) {
 func TestLinkCodeConsumeCaseInsensitive(t *testing.T) {
 	store := auth.NewLinkCodeStore()
 
-	code := store.Generate(7, "qq")
+	code := store.Generate("7", "qq")
 
 	// Consume with lowercase should also work.
 	_, _, ok := store.Consume(strings.ToLower(code))
@@ -109,7 +110,7 @@ func TestLinkCodeConsumeExpired(t *testing.T) {
 	// We can't easily test TTL expiry without time manipulation,
 	// but we can verify the generate/consume flow works.
 	store := auth.NewLinkCodeStore()
-	code := store.Generate(1, "feishu")
+	code := store.Generate("1", "feishu")
 
 	// Immediately consuming should work.
 	_, _, ok := store.Consume(code)
@@ -123,7 +124,7 @@ func TestLinkCodeUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 
 	for i := range 100 {
-		code := store.Generate(int64(i), "telegram")
+		code := store.Generate(fmt.Sprintf("%d", i), "telegram")
 		if seen[code] {
 			t.Errorf("duplicate code generated: %s", code)
 		}
@@ -157,8 +158,8 @@ func TestIsLinkCode(t *testing.T) {
 func TestLinkCodeMultiplePlatforms(t *testing.T) {
 	store := auth.NewLinkCodeStore()
 
-	code1 := store.Generate(1, "telegram")
-	code2 := store.Generate(1, "qq")
+	code1 := store.Generate("1", "telegram")
+	code2 := store.Generate("1", "qq")
 
 	// Both should be consumable.
 	_, p1, ok := store.Consume(code1)

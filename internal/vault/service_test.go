@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"filippo.io/age"
+	"github.com/google/uuid"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -15,7 +16,7 @@ import (
 // testService sets up a vault Service backed by a real SQLite database. It
 // creates a user with age keys provisioned and returns the service, queries
 // object, and the created user ID.
-func testService(t *testing.T) (*vault.Service, *sqlc.Queries, int64) {
+func testService(t *testing.T) (*vault.Service, *sqlc.Queries, string) {
 	t.Helper()
 
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "vault_test.db"))
@@ -40,6 +41,7 @@ func testService(t *testing.T) (*vault.Service, *sqlc.Queries, int64) {
 
 	// Create a user.
 	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		ID:           uuid.NewString(),
 		Username:     "testuser",
 		PasswordHash: "hash",
 	})
@@ -187,6 +189,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 
 	// Create a user without age keys.
 	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		ID:           uuid.NewString(),
 		Username:     "nokeys",
 		PasswordHash: "hash",
 	})
@@ -236,6 +239,7 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 	}
 
 	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		ID:           uuid.NewString(),
 		Username:     "nokeys",
 		PasswordHash: "hash",
 	})

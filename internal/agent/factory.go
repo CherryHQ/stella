@@ -68,7 +68,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				userDir string
 				err     error
 			)
-			if params.UserID > 0 {
+			if params.UserID != "" {
 				userDir, err = SetupUserWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.UserID)
 			} else {
 				userDir, err = SetupSystemWorkspace(cfg.Snap.AgentID, config.StellaHome())

@@ -58,14 +58,14 @@ func TestUserFromContext_NilOnMissingKey(t *testing.T) {
 
 func TestWithAuthInfo_RoundTrip(t *testing.T) {
 	ctx := context.Background()
-	info := &AuthInfo{UserID: 42}
+	info := &AuthInfo{UserID: "42"}
 	ctx = withAuthInfo(ctx, info)
 
 	got := UserFromContext(ctx)
 	if got == nil {
 		t.Fatal("expected non-nil AuthInfo from context")
-	} else if got.UserID != 42 {
-		t.Errorf("expected UserID=42, got %d", got.UserID)
+	} else if got.UserID != "42" {
+		t.Errorf("expected UserID=42, got %q", got.UserID)
 	}
 }
 

@@ -235,18 +235,18 @@ func TestEngine_ConditionBasedDenial(t *testing.T) {
 
 	// Own data: allowed.
 	if !engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 1, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "1", Roles: []string{"user"}},
 		Action:   ActionRead,
-		Resource: Resource{Type: ResourceUserData, OwnerID: 1},
+		Resource: Resource{Type: ResourceUserData, OwnerID: "1"},
 	}) {
 		t.Error("should allow access to own data")
 	}
 
 	// Other's data: denied (condition doesn't match -> no allow policy matches).
 	if engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 1, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "1", Roles: []string{"user"}},
 		Action:   ActionRead,
-		Resource: Resource{Type: ResourceUserData, OwnerID: 99},
+		Resource: Resource{Type: ResourceUserData, OwnerID: "99"},
 	}) {
 		t.Error("should deny access to other user's data")
 	}
@@ -405,7 +405,7 @@ func TestEngine_BuiltinPolicies_AdminFullAccess(t *testing.T) {
 	for _, action := range []Action{ActionRead, ActionWrite, ActionCreate, ActionDelete, ActionManage} {
 		for _, res := range []ResourceType{ResourceAgent, ResourceProvider, ResourceSession, ResourceUser} {
 			if !engine.Can(ctx, AccessRequest{
-				Subject:  Subject{UserID: 1, Roles: []string{"admin"}},
+				Subject:  Subject{UserID: "1", Roles: []string{"admin"}},
 				Action:   action,
 				Resource: Resource{Type: res},
 			}) {
@@ -421,18 +421,18 @@ func TestEngine_BuiltinPolicies_UserOwnData(t *testing.T) {
 
 	// User can read own data.
 	if !engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 5, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "5", Roles: []string{"user"}},
 		Action:   ActionRead,
-		Resource: Resource{Type: ResourceUserData, OwnerID: 5},
+		Resource: Resource{Type: ResourceUserData, OwnerID: "5"},
 	}) {
 		t.Error("user should be able to read own data")
 	}
 
 	// User cannot read other's data.
 	if engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 5, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "5", Roles: []string{"user"}},
 		Action:   ActionRead,
-		Resource: Resource{Type: ResourceUserData, OwnerID: 99},
+		Resource: Resource{Type: ResourceUserData, OwnerID: "99"},
 	}) {
 		t.Error("user should not be able to read other's data")
 	}
@@ -444,7 +444,7 @@ func TestEngine_BuiltinPolicies_UserSystemAgents(t *testing.T) {
 
 	// User can read system-scoped agents.
 	if !engine.Can(ctx, AccessRequest{
-		Subject: Subject{UserID: 2, Roles: []string{"user"}},
+		Subject: Subject{UserID: "2", Roles: []string{"user"}},
 		Action:  ActionRead,
 		Resource: Resource{
 			Type:  ResourceAgent,
@@ -462,7 +462,7 @@ func TestEngine_BuiltinPolicies_UserAssignedAgents(t *testing.T) {
 	// User can execute assigned agent.
 	if !engine.Can(ctx, AccessRequest{
 		Subject: Subject{
-			UserID:   2,
+			UserID:   "2",
 			Roles:    []string{"user"},
 			AgentIDs: []string{"agent-x", "agent-y"},
 		},
@@ -475,7 +475,7 @@ func TestEngine_BuiltinPolicies_UserAssignedAgents(t *testing.T) {
 	// User cannot execute unassigned agent (that is not system scope).
 	if engine.Can(ctx, AccessRequest{
 		Subject: Subject{
-			UserID:   2,
+			UserID:   "2",
 			Roles:    []string{"user"},
 			AgentIDs: []string{"agent-x"},
 		},
@@ -495,7 +495,7 @@ func TestEngine_BuiltinPolicies_UserViewAgentsList(t *testing.T) {
 	ctx := context.Background()
 
 	if !engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 2, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "2", Roles: []string{"user"}},
 		Action:   ActionRead,
 		Resource: Resource{Type: ResourceAgentList},
 	}) {
@@ -508,7 +508,7 @@ func TestEngine_BuiltinPolicies_UserCannotManageProviders(t *testing.T) {
 	ctx := context.Background()
 
 	if engine.Can(ctx, AccessRequest{
-		Subject:  Subject{UserID: 2, Roles: []string{"user"}},
+		Subject:  Subject{UserID: "2", Roles: []string{"user"}},
 		Action:   ActionManage,
 		Resource: Resource{Type: ResourceProvider},
 	}) {

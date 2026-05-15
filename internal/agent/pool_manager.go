@@ -475,7 +475,7 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 // The closure captures snap at startAgent time. On rebuildPoolFactory the option is not
 // updated (acceptable for Phase 3 — a future pass can extend rebuildPoolFactory).
 func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOption {
-	return WithSnapshotPromptBuilder(func(ctx context.Context, userID int64, agentID string, memSnap memory.SessionSnapshot) string {
+	return WithSnapshotPromptBuilder(func(ctx context.Context, userID string, agentID string, memSnap memory.SessionSnapshot) string {
 		var promptTools []pkgplugins.PromptToolInfo
 		if pm.promptToolsBuilder != nil {
 			promptTools, _ = pm.promptToolsBuilder(ctx)
@@ -592,7 +592,7 @@ func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) erro
 
 // InvalidateUser closes all live runners for userID across all pools.
 // Satisfies the credentials.RunnerInvalidator interface.
-func (pm *PoolManager) InvalidateUser(userID int64) error {
+func (pm *PoolManager) InvalidateUser(userID string) error {
 	pm.mu.RLock()
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)

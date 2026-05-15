@@ -7,6 +7,8 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/google/uuid"
+
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -32,6 +34,7 @@ func TestBackfillUserKeys(t *testing.T) {
 	// Create two users without age keys.
 	for _, name := range []string{"alice", "bob"} {
 		if _, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+			ID:           uuid.NewString(),
 			Username:     name,
 			PasswordHash: "hash",
 		}); err != nil {

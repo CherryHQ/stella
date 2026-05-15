@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ type stubVaultLoader struct {
 	err error
 }
 
-func (s *stubVaultLoader) LoadEnv(_ context.Context, _ int64) (map[string]string, error) {
+func (s *stubVaultLoader) LoadEnv(_ context.Context, _ string) (map[string]string, error) {
 	return s.env, s.err
 }
 
@@ -30,23 +29,23 @@ func newStubOAuthVaultStore() *stubOAuthVaultStore {
 	return &stubOAuthVaultStore{data: make(map[string]string)}
 }
 
-func (s *stubOAuthVaultStore) key(userID int64, name string) string {
-	return fmt.Sprintf("%d:%s", userID, name)
+func (s *stubOAuthVaultStore) key(userID string, name string) string {
+	return userID + ":" + name
 }
 
-func (s *stubOAuthVaultStore) Set(_ context.Context, userID int64, name string, plaintext string) error {
+func (s *stubOAuthVaultStore) Set(_ context.Context, userID string, name string, plaintext string) error {
 	s.data[s.key(userID, name)] = plaintext
 	return nil
 }
 
-func (s *stubOAuthVaultStore) Delete(_ context.Context, userID int64, name string) error {
+func (s *stubOAuthVaultStore) Delete(_ context.Context, userID string, name string) error {
 	delete(s.data, s.key(userID, name))
 	return nil
 }
 
-func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID int64) (map[string]string, error) {
+func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
 	out := make(map[string]string)
-	prefix := fmt.Sprintf("%d:", userID)
+	prefix := userID + ":"
 	for k, v := range s.data {
 		if len(k) <= len(prefix) || k[:len(prefix)] != prefix {
 			continue
@@ -218,7 +217,7 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
 		},
-		UserID: 42,
+		UserID: "42",
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"MY_SECRET":   "s3cr3t",
@@ -284,7 +283,7 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
 		},
-		UserID: 1,
+		UserID: "1",
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
 				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
@@ -324,7 +323,7 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
-	userID := int64(7)
+	userID := "7"
 	now := time.Now().UTC().Truncate(time.Second)
 
 	registry := oauth.NewProviderRegistry()
@@ -407,7 +406,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
-	userID := int64(9)
+	userID := "9"
 
 	registry := oauth.NewProviderRegistry()
 	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})

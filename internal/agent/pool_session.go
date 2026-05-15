@@ -12,7 +12,7 @@ import (
 )
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
-func (p *Pool) CreateSession(channel string, userID ...int64) (SessionInfo, error) {
+func (p *Pool) CreateSession(channel string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
 	info := p.createSessionLocked(channel, userID...)
 	p.mu.Unlock()
@@ -21,7 +21,7 @@ func (p *Pool) CreateSession(channel string, userID ...int64) (SessionInfo, erro
 
 // createSessionLocked creates a new session and adds it to the in-memory map.
 // Caller must hold p.mu.
-func (p *Pool) createSessionLocked(channel string, userID ...int64) SessionInfo {
+func (p *Pool) createSessionLocked(channel string, userID ...string) SessionInfo {
 	now := time.Now()
 	info := SessionInfo{
 		ID:         channel + "-" + uuid.New().String()[:8],
@@ -30,7 +30,7 @@ func (p *Pool) createSessionLocked(channel string, userID ...int64) SessionInfo 
 		LastActive: now,
 		AgentID:    p.agentID,
 	}
-	if len(userID) > 0 && userID[0] != 0 {
+	if len(userID) > 0 && userID[0] != "" {
 		info.UserID = userID[0]
 	}
 	p.sessions[info.ID] = &Session{Info: info}
@@ -101,7 +101,7 @@ func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 // ResolveSession returns the active session for a channel, creating one if needed.
 // The check-and-create is atomic to prevent duplicate sessions under concurrent access.
 // An optional userID associates the session with a user (stored in conversations table).
-func (p *Pool) ResolveSession(channel string, userID ...int64) (SessionInfo, error) {
+func (p *Pool) ResolveSession(channel string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
 	if info, ok := p.activeSessionLocked(channel); ok {
 		p.mu.Unlock()
@@ -113,7 +113,7 @@ func (p *Pool) ResolveSession(channel string, userID ...int64) (SessionInfo, err
 }
 
 // RotateSession archives the active session for a channel (if any) and creates a new one.
-func (p *Pool) RotateSession(channel string, userID ...int64) (SessionInfo, error) {
+func (p *Pool) RotateSession(channel string, userID ...string) (SessionInfo, error) {
 	if old, ok := p.ActiveSession(channel); ok {
 		if err := p.ArchiveSession(old.ID); err != nil {
 			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)

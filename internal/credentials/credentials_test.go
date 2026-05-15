@@ -18,7 +18,7 @@ func newService(t *testing.T) *credentials.Service {
 	return credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
 }
 
-func ctxWithUser(userID int64) context.Context {
+func ctxWithUser(userID string) context.Context {
 	return memory.WithUserID(context.Background(), userID)
 }
 
@@ -59,7 +59,7 @@ func TestAddSecretInstruction(t *testing.T) {
 
 func TestListVaultNilVault(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.ListVault(context.Background(), 1)
+	_, err := svc.ListVault(context.Background(), "1")
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -67,7 +67,7 @@ func TestListVaultNilVault(t *testing.T) {
 
 func TestDeleteVaultEntryNilVault(t *testing.T) {
 	svc := newService(t)
-	err := svc.DeleteVaultEntry(context.Background(), 1, "FOO")
+	err := svc.DeleteVaultEntry(context.Background(), "1", "FOO")
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -83,7 +83,7 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
 	svc.SetRegistry(registry)
 
-	statuses := svc.GetProviderStatuses(context.Background(), 1)
+	statuses := svc.GetProviderStatuses(context.Background(), "1")
 	if len(statuses) == 0 {
 		t.Error("expected at least one provider status")
 	}
@@ -112,7 +112,7 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 
 func TestStartFlowNilVault(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), 1, "github")
+	_, err := svc.StartFlow(context.Background(), "1", "github")
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -120,7 +120,7 @@ func TestStartFlowNilVault(t *testing.T) {
 
 func TestPollFlowUnknownFlow(t *testing.T) {
 	svc := newService(t)
-	_, _, err := svc.PollFlow(context.Background(), 1, "github", "nonexistent-flow-id")
+	_, _, err := svc.PollFlow(context.Background(), "1", "github", "nonexistent-flow-id")
 	if err == nil {
 		t.Error("expected error for unknown flow")
 	}
@@ -128,7 +128,7 @@ func TestPollFlowUnknownFlow(t *testing.T) {
 
 func TestStartFlowUnsupportedProvider(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), 1, "unsupported-provider")
+	_, err := svc.StartFlow(context.Background(), "1", "unsupported-provider")
 	if err == nil {
 		t.Error("expected error for unsupported provider")
 	}
@@ -136,7 +136,7 @@ func TestStartFlowUnsupportedProvider(t *testing.T) {
 
 func TestDisconnectNilVault(t *testing.T) {
 	svc := newService(t)
-	err := svc.Disconnect(context.Background(), 1, "github")
+	err := svc.Disconnect(context.Background(), "1", "github")
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -144,7 +144,7 @@ func TestDisconnectNilVault(t *testing.T) {
 
 func TestDisconnectUnsupportedProvider(t *testing.T) {
 	svc := newService(t)
-	err := svc.Disconnect(context.Background(), 1, "badprovider")
+	err := svc.Disconnect(context.Background(), "1", "badprovider")
 	if err == nil {
 		t.Error("expected error for unsupported provider")
 	}
@@ -152,14 +152,14 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 
 func TestInvalidateUserNilInvalidator(t *testing.T) {
 	svc := newService(t)
-	if err := svc.InvalidateUser(42); err != nil {
+	if err := svc.InvalidateUser("42"); err != nil {
 		t.Errorf("InvalidateUser with nil invalidator should be a no-op, got %v", err)
 	}
 }
 
-type stubInvalidator struct{ called int64 }
+type stubInvalidator struct{ called string }
 
-func (s *stubInvalidator) InvalidateUser(userID int64) error {
+func (s *stubInvalidator) InvalidateUser(userID string) error {
 	s.called = userID
 	return nil
 }
@@ -168,11 +168,11 @@ func TestInvalidateUserCallsInvalidator(t *testing.T) {
 	svc := newService(t)
 	inv := &stubInvalidator{}
 	svc.SetInvalidator(inv)
-	if err := svc.InvalidateUser(99); err != nil {
+	if err := svc.InvalidateUser("99"); err != nil {
 		t.Fatal(err)
 	}
-	if inv.called != 99 {
-		t.Errorf("InvalidateUser called with %d, want 99", inv.called)
+	if inv.called != "99" {
+		t.Errorf("InvalidateUser called with %s, want 99", inv.called)
 	}
 }
 
@@ -203,7 +203,7 @@ func TestOAuthToolNoUserContext(t *testing.T) {
 
 func TestOAuthToolUnknownAction(t *testing.T) {
 	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "invalid"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "invalid"})
 	if err == nil {
 		t.Error("expected error for unknown action")
 	}
@@ -211,7 +211,7 @@ func TestOAuthToolUnknownAction(t *testing.T) {
 
 func TestOAuthToolStatus(t *testing.T) {
 	tool := newOAuthTool(t)
-	out, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "status"})
+	out, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "status"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestOAuthToolStatus(t *testing.T) {
 
 func TestOAuthToolConnectMissingProvider(t *testing.T) {
 	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "connect"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "connect"})
 	if err == nil {
 		t.Error("expected error when provider missing for connect")
 	}
@@ -232,7 +232,7 @@ func TestOAuthToolConnectPollMissingFlowID(t *testing.T) {
 	// Providing an unknown flow_id should error, not silently start a new flow.
 	svc := newService(t)
 	tool := credentials.NewOAuthTool(svc)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "connect", "provider": "github", "flow_id": "bad-id"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "connect", "provider": "github", "flow_id": "bad-id"})
 	if err == nil {
 		t.Error("expected error for unknown flow_id")
 	}
@@ -240,7 +240,7 @@ func TestOAuthToolConnectPollMissingFlowID(t *testing.T) {
 
 func TestOAuthToolDisconnectMissingProvider(t *testing.T) {
 	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "disconnect"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "disconnect"})
 	if err == nil {
 		t.Error("expected error when provider missing for disconnect")
 	}
@@ -273,7 +273,7 @@ func TestVaultToolNoUserContext(t *testing.T) {
 
 func TestVaultToolUnknownAction(t *testing.T) {
 	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "invalid"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "invalid"})
 	if err == nil {
 		t.Error("expected error for unknown action")
 	}
@@ -281,7 +281,7 @@ func TestVaultToolUnknownAction(t *testing.T) {
 
 func TestVaultToolListNoVault(t *testing.T) {
 	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "list"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "list"})
 	if err == nil {
 		t.Error("expected error listing when vault is nil")
 	}
@@ -289,7 +289,7 @@ func TestVaultToolListNoVault(t *testing.T) {
 
 func TestVaultToolRemoveMissingName(t *testing.T) {
 	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "remove"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "remove"})
 	if err == nil {
 		t.Error("expected error when name is missing for remove")
 	}
@@ -297,7 +297,7 @@ func TestVaultToolRemoveMissingName(t *testing.T) {
 
 func TestVaultToolAddMissingName(t *testing.T) {
 	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "add"})
+	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "add"})
 	if err == nil {
 		t.Error("expected error when name missing for add")
 	}
@@ -305,7 +305,7 @@ func TestVaultToolAddMissingName(t *testing.T) {
 
 func TestVaultToolAddInstruction(t *testing.T) {
 	tool := newVaultTool(t)
-	out, err := tool.Execute(ctxWithUser(1), map[string]any{
+	out, err := tool.Execute(ctxWithUser("1"), map[string]any{
 		"action":  "add",
 		"name":    "STRIPE_KEY",
 		"purpose": "process payments",

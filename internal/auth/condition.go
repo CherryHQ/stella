@@ -79,7 +79,7 @@ func resolveAttribute(path string, req AccessRequest) string {
 func resolveSubjectAttr(field string, s Subject) string {
 	switch field {
 	case "id":
-		return strconv.FormatInt(s.UserID, 10)
+		return s.UserID
 	case "roles":
 		// Return as JSON array for collection operators.
 		b, _ := json.Marshal(s.Roles)
@@ -103,7 +103,7 @@ func resolveResourceAttr(field string, r Resource) string {
 	case "id":
 		return r.ID
 	case "owner_id":
-		return strconv.FormatInt(r.OwnerID, 10)
+		return r.OwnerID
 	default:
 		if r.Attrs != nil {
 			return anyToString(r.Attrs[field])

@@ -58,7 +58,7 @@ func createAgentAsUser(t *testing.T, env *testEnv, sessionID, name string) strin
 }
 
 // createTestSkill creates a skill via the store and returns its ID.
-func createTestSkill(t *testing.T, env *testEnv, scope string, userID int64, agentID, name string) string {
+func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, agentID, name string) string {
 	t.Helper()
 	sk := skills.Skill{
 		Scope:       scope,
@@ -130,7 +130,7 @@ func TestAgentSkills_ListCreatorAccess(t *testing.T) {
 	_, otherSID := newNonAdmin(t, env, "other-list")
 
 	agentID := createAgentAsUser(t, env, creatorSID, "list-agent")
-	createTestSkill(t, env, "agent", 0, agentID, "agent-skill-1")
+	createTestSkill(t, env, "agent", "", agentID, "agent-skill-1")
 
 	// Creator: 200 + 1 skill.
 	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -170,7 +170,7 @@ func TestAgentSkills_CrossAgentScope(t *testing.T) {
 	a1 := createAgentAsUser(t, env, sid, "cross-a1")
 	a2 := createAgentAsUser(t, env, sid, "cross-a2")
 
-	skID := createTestSkill(t, env, "agent", 0, a1, "skill-on-agent1")
+	skID := createTestSkill(t, env, "agent", "", a1, "skill-on-agent1")
 
 	// GET /agents/{a2}/skills/{skID} must 404 — skill belongs to a1.
 	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+a2+"/skills/"+skID, nil)
@@ -184,7 +184,7 @@ func TestAgentSkills_UpdateDeleteFile(t *testing.T) {
 
 	_, sid := newNonAdmin(t, env, "creator-ud")
 	agentID := createAgentAsUser(t, env, sid, "ud-agent")
-	skID := createTestSkill(t, env, "agent", 0, agentID, "skill-ud")
+	skID := createTestSkill(t, env, "agent", "", agentID, "skill-ud")
 
 	// Update description.
 	desc := "updated"
@@ -361,8 +361,8 @@ func TestProfileSkills_InstallSelf(t *testing.T) {
 	if list[0]["scope"] != "user" {
 		t.Fatalf("installed skill scope = %v, want user", list[0]["scope"])
 	}
-	if got, ok := list[0]["user_id"].(float64); !ok || int64(got) != u.ID {
-		t.Fatalf("installed skill user_id = %v, want %d", list[0]["user_id"], u.ID)
+	if got, ok := list[0]["user_id"].(string); !ok || got != u.ID {
+		t.Fatalf("installed skill user_id = %v, want %q", list[0]["user_id"], u.ID)
 	}
 }
 
@@ -401,8 +401,8 @@ func TestProfileSkills_UploadZip(t *testing.T) {
 	if list[0]["disable_model_invocation"] != true {
 		t.Fatalf("uploaded skill disable_model_invocation = %v, want true", list[0]["disable_model_invocation"])
 	}
-	if got, ok := list[0]["user_id"].(float64); !ok || int64(got) != u.ID {
-		t.Fatalf("uploaded skill user_id = %v, want %d", list[0]["user_id"], u.ID)
+	if got, ok := list[0]["user_id"].(string); !ok || got != u.ID {
+		t.Fatalf("uploaded skill user_id = %v, want %q", list[0]["user_id"], u.ID)
 	}
 }
 
@@ -462,7 +462,7 @@ func TestProfileSkills_UploadZipRejectsPathTraversal(t *testing.T) {
 func TestAdminDeleteSkillFile(t *testing.T) {
 	env := setupAdmin(t)
 
-	skID := createTestSkill(t, env, "system", 0, "", "sys-skill")
+	skID := createTestSkill(t, env, "system", "", "", "sys-skill")
 
 	rr := doRequest(t, env, "DELETE", "/api/skills/"+skID+"/file?path=reference.md", nil)
 	if rr.Code != http.StatusOK {

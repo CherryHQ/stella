@@ -92,7 +92,7 @@ func skillsSearchCommand() *ucli.Command {
 	}
 }
 
-const cliSkillsUserID int64 = 1
+const cliSkillsUserID = "1"
 
 func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
 	userDir, err := agent.SetupUserWorkspace(snap.AgentID, config.StellaHome(), cliSkillsUserID)
@@ -120,14 +120,14 @@ func skillsInstallCommand() *ucli.Command {
 			}
 			defer closeDB()
 
-			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%d)...\n", source, cliSkillsUserID)
+			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%s)...\n", source, cliSkillsUserID)
 
 			name, err := skillstool.InstallToStore(c.Context, skillStore, source, "user", cliSkillsUserID, "")
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Skill %q installed (scope=user, user_id=%d).\n", name, cliSkillsUserID)
+			fmt.Printf("Skill %q installed (scope=user, user_id=%s).\n", name, cliSkillsUserID)
 			return nil
 		},
 	}

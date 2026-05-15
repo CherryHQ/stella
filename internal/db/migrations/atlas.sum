@@ -1,4 +1,4 @@
-h1:U0bE7S1VFXGKeOe2Sx0EUKRBb7NIsP3kGybh3JCvRPw=
+h1:on6z4dE4rugDSjT1Tmy+zifPSo2KXJ3nUj2aJcdbRsQ=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -36,3 +36,5 @@ h1:U0bE7S1VFXGKeOe2Sx0EUKRBb7NIsP3kGybh3JCvRPw=
 20260514093839_add-recally-digests.sql h1:T384+HyBeU+10dxV+YNsVpPmsSh0EG43Vbl/4RjiRvo=
 20260515043028_agent_task.sql h1:DA0q6JhO5auyNr11IvQQxFUBCoAc325ku+wfhK8cNog=
 20260515075813_uuid-ids.sql h1:l42jOYQZIVe3atEwvUJkIaIG9KYqaY4+d5Lm/ZzV6Qc=
+20260515113331_userid-uuid.sql h1:LvXn7dlLmEWH8xTO6Rw5TA1neg4d4/DQ53a2ENHerHM=
+20260515121317_creator_id_text.sql h1:Di2ENYKN1WgwigOT6KAiLM7UbU7zD4Y57YfmrDy1nNs=

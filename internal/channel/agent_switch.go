@@ -63,7 +63,7 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 		return ac.store.SetChatAgent(ctx, channelID, chat.Platform, chat.ChatID, ag.ID)
 	}
 
-	if user.ID == 0 {
+	if user.ID == "" {
 		return fmt.Errorf("link your account first to set a default agent")
 	}
 	return ac.authStore.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)

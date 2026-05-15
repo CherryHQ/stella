@@ -13,7 +13,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func testVaultService(t *testing.T) (*vault.Service, int64) {
+func testVaultService(t *testing.T) (*vault.Service, string) {
 	t.Helper()
 
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "config_cmd_test.db"))
@@ -35,10 +35,8 @@ func testVaultService(t *testing.T) (*vault.Service, int64) {
 		t.Fatal(err)
 	}
 
-	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-		Username:     "testuser",
-		PasswordHash: "hash",
-	})
+	authStore := appdb.NewAuthStore(db)
+	user, err := authStore.CreateUser(ctx, "testuser", "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +57,7 @@ func testVaultService(t *testing.T) (*vault.Service, int64) {
 }
 
 func TestHandleConfigNilVault(t *testing.T) {
-	resp, ok := handleConfig(context.Background(), nil, 1, "MY_KEY value")
+	resp, ok := handleConfig(context.Background(), nil, "1", "MY_KEY value")
 	if ok {
 		t.Error("expected ok=false for nil vault")
 	}
@@ -78,9 +76,9 @@ func TestHandleConfigNotLoggedIn(t *testing.T) {
 	masterID, _ := age.GenerateX25519Identity()
 	svc, _ := vault.NewService(sqlc.New(db), masterID.String())
 
-	resp, ok := handleConfig(context.Background(), svc, 0, "MY_KEY value")
+	resp, ok := handleConfig(context.Background(), svc, "", "MY_KEY value")
 	if ok {
-		t.Error("expected ok=false for userID=0")
+		t.Error("expected ok=false for empty userID")
 	}
 	if !strings.Contains(resp, "logged in") {
 		t.Errorf("expected logged in message, got %q", resp)

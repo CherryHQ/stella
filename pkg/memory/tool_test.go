@@ -70,7 +70,7 @@ func TestExecute_ConstraintListAddRemove(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), 1)
+	ctx := memory.WithUserID(context.Background(), "1")
 	ctx = memory.WithAgentID(ctx, "agent1")
 
 	// Initially empty.
@@ -136,7 +136,7 @@ func TestExecute_ConstraintListAddRemove(t *testing.T) {
 func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), 1)
+	ctx := memory.WithUserID(context.Background(), "1")
 	ctx = memory.WithAgentID(ctx, "agent1")
 
 	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_add"})
@@ -148,7 +148,7 @@ func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
 func TestExecute_ConstraintRemove_MissingID(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), 1)
+	ctx := memory.WithUserID(context.Background(), "1")
 	ctx = memory.WithAgentID(ctx, "agent1")
 
 	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_remove"})
@@ -257,7 +257,7 @@ func TestExecute_Status(t *testing.T) {
 
 func TestExecute_Search(t *testing.T) {
 	fake := memorytest.New()
-	sess := memory.Session{ID: "s1", AgentID: "agent1", UserID: 1}
+	sess := memory.Session{ID: "s1", AgentID: "agent1", UserID: "1"}
 	ctx := context.Background()
 	_ = fake.Bootstrap(ctx, sess)
 	_ = fake.Append(ctx, sess, ai.UserMessage{
@@ -268,7 +268,7 @@ func TestExecute_Search(t *testing.T) {
 	tool := memory.BuildTool(fake)
 	execCtx := memory.WithSessionID(context.Background(), "s1")
 	execCtx = memory.WithAgentID(execCtx, "agent1")
-	execCtx = memory.WithUserID(execCtx, 1)
+	execCtx = memory.WithUserID(execCtx, "1")
 
 	result, err := tool.Execute(execCtx, map[string]any{
 		"action":  "search",
@@ -374,7 +374,7 @@ func TestExecute_ProfileGetAndUpdate(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), 42)
+	ctx := memory.WithUserID(context.Background(), "42")
 	ctx = memory.WithAgentID(ctx, "agent1")
 
 	// profile_get on empty profile.
@@ -412,7 +412,7 @@ func TestExecute_SoulGetAndUpdate(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
-	ctx := memory.WithUserID(context.Background(), 42)
+	ctx := memory.WithUserID(context.Background(), "42")
 	ctx = memory.WithAgentID(ctx, "agent1")
 
 	// soul_get on empty soul.
@@ -469,7 +469,7 @@ func TestExecute_SearchMissingPattern(t *testing.T) {
 func TestExecute_ProfileUpdateMissingContent(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
-	ctx := memory.WithUserID(context.Background(), 1)
+	ctx := memory.WithUserID(context.Background(), "1")
 	ctx = memory.WithAgentID(ctx, "a")
 	_, err := tool.Execute(ctx, map[string]any{"action": "profile_update"})
 	if err == nil {

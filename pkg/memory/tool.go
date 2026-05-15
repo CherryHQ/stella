@@ -420,17 +420,17 @@ func (t *memoryTool) execExpand(ctx context.Context, args map[string]any) (strin
 }
 
 // requireProfileCtx validates that ProfileStore and user/agent context are available.
-func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (int64, string, error) {
+func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (string, string, error) {
 	if t.profileStore == nil {
-		return 0, "", fmt.Errorf("memory %s: not supported by provider", action)
+		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
 	userID := UserIDFromContext(ctx)
-	if userID == 0 {
-		return 0, "", fmt.Errorf("memory %s: no user context", action)
+	if userID == "" {
+		return "", "", fmt.Errorf("memory %s: no user context", action)
 	}
 	agentID := AgentIDFromContext(ctx)
 	if agentID == "" {
-		return 0, "", fmt.Errorf("memory %s: no agent context", action)
+		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
 	return userID, agentID, nil
 }
@@ -438,7 +438,7 @@ func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (int6
 func (t *memoryTool) execStoreGet(
 	ctx context.Context,
 	action string,
-	getter func(context.Context, int64, string) (string, error),
+	getter func(context.Context, string, string) (string, error),
 	emptyMsg string,
 ) (string, error) {
 	userID, agentID, err := t.requireProfileCtx(ctx, action)
@@ -459,7 +459,7 @@ func (t *memoryTool) execStoreUpdate(
 	ctx context.Context,
 	args map[string]any,
 	action string,
-	setter func(context.Context, int64, string, string) error,
+	setter func(context.Context, string, string, string) error,
 	successMsg string,
 ) (string, error) {
 	content, _ := args["content"].(string)
@@ -580,17 +580,17 @@ func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]an
 	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
 }
 
-func (t *memoryTool) requireConstraintCtx(ctx context.Context, action string) (int64, string, error) {
+func (t *memoryTool) requireConstraintCtx(ctx context.Context, action string) (string, string, error) {
 	if t.constraintStore == nil {
-		return 0, "", fmt.Errorf("memory %s: not supported by provider", action)
+		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
 	userID := UserIDFromContext(ctx)
-	if userID == 0 {
-		return 0, "", fmt.Errorf("memory %s: no user context", action)
+	if userID == "" {
+		return "", "", fmt.Errorf("memory %s: no user context", action)
 	}
 	agentID := AgentIDFromContext(ctx)
 	if agentID == "" {
-		return 0, "", fmt.Errorf("memory %s: no agent context", action)
+		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
 	return userID, agentID, nil
 }
@@ -656,7 +656,7 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context) {
 	}
 	userID := UserIDFromContext(ctx)
 	agentID := AgentIDFromContext(ctx)
-	if userID == 0 || agentID == "" {
+	if userID == "" || agentID == "" {
 		return
 	}
 	// Log but don't fail — snapshot advance failure should not block the write.

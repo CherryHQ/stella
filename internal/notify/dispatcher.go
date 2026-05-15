@@ -120,7 +120,7 @@ func (d *Dispatcher) SetChannelStore(store channelStore) {
 //
 // Falls back to broadcast if the user has no linked identities or if no
 // auth store is configured.
-func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.Notification) error {
+func (d *Dispatcher) NotifyUser(ctx context.Context, userID string, n pkgchannel.Notification) error {
 	table, authService, err := d.routingTableAndAuth(ctx)
 	if err != nil {
 		return err
@@ -319,7 +319,7 @@ func notifyWithChatID(ctx context.Context, entry channelEntry, n pkgchannel.Noti
 // If the user has a notify_identity_id preference that matches one of their
 // linked identities, that identity is returned. Otherwise the first identity
 // (earliest linked_at from the DB query) is used.
-func pickNotifyIdentity(ctx context.Context, as pkgplugins.Auth, userID int64, identities []pkgplugins.LinkedIdentity) pkgplugins.LinkedIdentity {
+func pickNotifyIdentity(ctx context.Context, as pkgplugins.Auth, userID string, identities []pkgplugins.LinkedIdentity) pkgplugins.LinkedIdentity {
 	user, err := as.GetUser(ctx, userID)
 	if err != nil {
 		slog.Warn("notifyUser: failed to get user, using first identity", "user_id", userID, "error", err)

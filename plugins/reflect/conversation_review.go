@@ -86,7 +86,7 @@ func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.Stream
 	return s.providers(api, apiKey, baseURL)
 }
 
-func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID int64, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
+func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
 	return newReviewer(reviewerConfig{
 		Stream:         stream,
 		Model:          model,
@@ -96,7 +96,7 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 	})
 }
 
-func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore, userID int64) []string {
+func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore, userID string) []string {
 	if store == nil {
 		return nil
 	}
@@ -116,11 +116,11 @@ func loadExistingSkillSummaries(ctx context.Context, store pkgplugins.SkillStore
 	return entries
 }
 
-func userSkillsDir(workspace string, userID int64) string {
-	return filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+func userSkillsDir(workspace string, userID string) string {
+	return filepath.Join(workspace, "users", userID, ".agents", "skills")
 }
 
-func (s *Service) notifyReviewResult(ctx context.Context, userID int64, result reviewResult) {
+func (s *Service) notifyReviewResult(ctx context.Context, userID string, result reviewResult) {
 	if (result.SkillsMutated <= 0 && !result.MemoryUpdated) || s.notifier == nil {
 		return
 	}

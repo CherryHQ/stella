@@ -41,7 +41,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 					attribute.String("gen_ai.operation.name", "execute_tool"),
 					attribute.String("gen_ai.tool.name", hctx.ToolName),
 					attribute.String("gen_ai.tool.call.id", hctx.ToolCallID),
-					attribute.Int64("user_id", hctx.UserID),
+					attribute.String("user_id", hctx.UserID),
 					attribute.String("agent_id", hctx.AgentID),
 					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
 					attribute.String("gen_ai.tool.input", input),

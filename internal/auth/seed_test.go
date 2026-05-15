@@ -89,7 +89,7 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 	}
 
 	if !engine.Can(ctx, auth.AccessRequest{
-		Subject:  auth.Subject{UserID: 1, Roles: []string{"admin"}},
+		Subject:  auth.Subject{UserID: "1", Roles: []string{"admin"}},
 		Action:   auth.ActionManage,
 		Resource: auth.Resource{Type: auth.ResourceSetting},
 	}) {
@@ -97,7 +97,7 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 	}
 
 	if engine.Can(ctx, auth.AccessRequest{
-		Subject:  auth.Subject{UserID: 2, Roles: []string{"user"}},
+		Subject:  auth.Subject{UserID: "2", Roles: []string{"user"}},
 		Action:   auth.ActionManage,
 		Resource: auth.Resource{Type: auth.ResourceSetting},
 	}) {

@@ -23,7 +23,7 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		return
 	}
 	info := UserFromContext(r.Context())
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	}
@@ -63,7 +63,7 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	}
@@ -126,7 +126,7 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	info := UserFromContext(r.Context())
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	}
@@ -177,7 +177,7 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	info := UserFromContext(r.Context())
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	}
@@ -199,7 +199,7 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	info := UserFromContext(r.Context())
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	}
@@ -279,7 +279,7 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 	if t.SessionID.Valid && t.SessionID.String != "" {
 		at.SessionId = &t.SessionID.String
 	}
-	if t.UserID != 0 {
+	if t.UserID != "" {
 		at.UserId = &t.UserID
 	}
 	if t.Context != "" && t.Context != "{}" {

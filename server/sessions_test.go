@@ -16,7 +16,7 @@ func TestToSessionResponse(t *testing.T) {
 		Channel:    "telegram",
 		Title:      "Hello",
 		AgentID:    "agent-1",
-		UserID:     42,
+		UserID:     "42",
 		CreatedAt:  now,
 		LastActive: now.Add(time.Hour),
 		Archived:   true,
@@ -28,8 +28,8 @@ func TestToSessionResponse(t *testing.T) {
 	if resp.Channel != "telegram" {
 		t.Errorf("Channel = %q", resp.Channel)
 	}
-	if resp.UserID != 42 {
-		t.Errorf("UserID = %d", resp.UserID)
+	if resp.UserID != "42" {
+		t.Errorf("UserID = %q", resp.UserID)
 	}
 	if !resp.Archived {
 		t.Error("Archived should be true")

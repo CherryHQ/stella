@@ -38,7 +38,7 @@ type CreateSchedulerJobParams struct {
 	SessionMode   string         `json:"session_mode"`
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullInt64  `json:"user_id"`
+	UserID        sql.NullString `json:"user_id"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
@@ -235,7 +235,7 @@ type UpdateSchedulerJobParams struct {
 	SessionMode   string         `json:"session_mode"`
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullInt64  `json:"user_id"`
+	UserID        sql.NullString `json:"user_id"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
 	LastError     string         `json:"last_error"`

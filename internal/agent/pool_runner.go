@@ -49,8 +49,8 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
 	}
-	if sess.Info.UserID == 0 {
-		if userID := memory.UserIDFromContext(ctx); userID != 0 {
+	if sess.Info.UserID == "" {
+		if userID := memory.UserIDFromContext(ctx); userID != "" {
 			sess.Info.UserID = userID
 		}
 	}
