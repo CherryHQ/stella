@@ -50,6 +50,7 @@ tags:
   - name: auth
   - name: plugins
   - name: status
+  - name: tasks
 paths:
   # ── Status ─────────────────────────────────────────────────────────────────
   /api/status:
@@ -239,6 +240,15 @@ paths:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run"
   /api/scheduler/jobs/{id}/runs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs"
+  # ── Tasks ──────────────────────────────────────────────────────────────────
+  /api/tasks:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
+  /api/tasks/{id}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}"
+  /api/tasks/{id}/action:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1action"
+  /api/tasks/{id}/events:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1events"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -492,4 +502,26 @@ components:
     }
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
+    }
+    AgentTask: { $ref: "./components.yaml#/components/schemas/AgentTask" }
+    AgentTaskList: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskList",
+    }
+    AgentTaskInput: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskInput",
+    }
+    AgentTaskUpdate: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskUpdate",
+    }
+    AgentTaskAction: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskAction",
+    }
+    AgentTaskReviewRequest: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskReviewRequest",
+    }
+    AgentTaskEvent: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskEvent",
+    }
+    AgentTaskEventList: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskEventList",
     }

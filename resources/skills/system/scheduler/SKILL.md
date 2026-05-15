@@ -10,6 +10,8 @@ metadata:
 
 # Scheduler
 
+Use scheduler for time-based triggers. If the scheduled work may be long-running, need human review, or need restart resilience, schedule a short prompt that creates an async `task` instead of doing the whole job inline.
+
 **Environment**: The CLI talks HTTP to the running stella server. `STELLA_TOKEN` is
 auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
 `http://127.0.0.1:25678`). Scheduler is enabled only when the stella server is
@@ -69,6 +71,16 @@ stella scheduler list --json
 Look for a job with the target name. If found, skip creation and report the existing job to the user.
 
 ## Patterns
+
+### Scheduled async task
+
+```bash
+stella scheduler add \
+    --name "weekly-audit" \
+    --message "Create an async task to audit the project and request review before making user-visible changes." \
+    --cron "0 9 * * 1" \
+    --session-mode new
+```
 
 ### Recurring task (cron)
 

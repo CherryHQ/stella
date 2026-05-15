@@ -206,6 +206,22 @@ export type UpdatePluginConfigRequest = ComponentsUpdatePluginConfigRequest;
 
 export type ManifestPlugin = ComponentsManifestPlugin;
 
+export type AgentTask = ComponentsAgentTask;
+
+export type AgentTaskList = ComponentsAgentTaskList;
+
+export type AgentTaskInput = ComponentsAgentTaskInput;
+
+export type AgentTaskUpdate = ComponentsAgentTaskUpdate;
+
+export type AgentTaskAction = ComponentsAgentTaskAction;
+
+export type AgentTaskReviewRequest = ComponentsAgentTaskReviewRequest;
+
+export type AgentTaskEvent = ComponentsAgentTaskEvent;
+
+export type AgentTaskEventList = ComponentsAgentTaskEventList;
+
 export type ComponentsAgent = {
   id?: string;
   name?: string;
@@ -223,6 +239,112 @@ export type ComponentsAgent = {
 
 export type ComponentsAgentList = {
   items: Array<ComponentsAgent>;
+};
+
+export type ComponentsAgentTask = {
+  id: string;
+  title: string;
+  description?: string;
+  status:
+    | "pending"
+    | "running"
+    | "blocked"
+    | "review_requested"
+    | "done"
+    | "failed"
+    | "cancelled";
+  priority: "routine" | "urgent";
+  session_id?: string;
+  /**
+   * Task-level metadata checkpoint (phase, decisions, blockers)
+   */
+  context?: {
+    [key: string]: unknown;
+  };
+  review_request?: ComponentsAgentTaskReviewRequest;
+  /**
+   * IDs of tasks that must be done before this task can run
+   */
+  deps?: Array<string>;
+  /**
+   * When to next notify the user; null means no pending notification
+   */
+  notify_at?: string;
+  agent_id?: string;
+  user_id?: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * An action taken on a task (approve/reject review, respond to block, cancel)
+ */
+export type ComponentsAgentTaskAction = {
+  type: "approve" | "reject" | "respond" | "cancel";
+  /**
+   * Optional message for respond/reject actions
+   */
+  message?: string;
+};
+
+export type ComponentsAgentTaskEvent = {
+  id: string;
+  task_id: string;
+  event_type:
+    | "started"
+    | "progress"
+    | "blocked"
+    | "review_requested"
+    | "done"
+    | "failed"
+    | "cancelled";
+  detail?: {
+    [key: string]: unknown;
+  };
+  created_at: string;
+};
+
+export type ComponentsAgentTaskEventList = {
+  items: Array<ComponentsAgentTaskEvent>;
+};
+
+/**
+ * Fields for creating an agent task
+ */
+export type ComponentsAgentTaskInput = {
+  title: string;
+  description?: string;
+  priority?: "routine" | "urgent";
+  agent_id?: string;
+  /**
+   * IDs of tasks that must be done before this task can run
+   */
+  deps?: Array<string>;
+};
+
+export type ComponentsAgentTaskList = {
+  items: Array<ComponentsAgentTask>;
+};
+
+/**
+ * Structured review request set by the task agent
+ */
+export type ComponentsAgentTaskReviewRequest = {
+  question?: string;
+  options?: Array<string>;
+  recommendation?: string;
+  risk?: "low" | "medium" | "high";
+  details?: string;
+};
+
+/**
+ * Fields for updating an agent task (all optional)
+ */
+export type ComponentsAgentTaskUpdate = {
+  title?: string;
+  description?: string;
+  priority?: "routine" | "urgent";
+  agent_id?: string;
 };
 
 export type ComponentsAgentUser = {
@@ -1313,6 +1435,14 @@ export type _1Api1Skills1Id = unknown;
 export type _1Api1Skills1Id1File = unknown;
 
 export type _1Api1Status = unknown;
+
+export type _1Api1Tasks = unknown;
+
+export type _1Api1Tasks1Id = unknown;
+
+export type _1Api1Tasks1Id1Action = unknown;
+
+export type _1Api1Tasks1Id1Events = unknown;
 
 export type _1Api1Tools = unknown;
 
@@ -6395,6 +6525,268 @@ export type ListSchedulerJobRunsResponses = {
 
 export type ListSchedulerJobRunsResponse =
   ListSchedulerJobRunsResponses[keyof ListSchedulerJobRunsResponses];
+
+export type ListAgentTasksData = {
+  body?: never;
+  path?: never;
+  query?: {
+    status?: string;
+  };
+  url: "/api/tasks";
+};
+
+export type ListAgentTasksErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListAgentTasksError =
+  ListAgentTasksErrors[keyof ListAgentTasksErrors];
+
+export type ListAgentTasksResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTaskList;
+};
+
+export type ListAgentTasksResponse =
+  ListAgentTasksResponses[keyof ListAgentTasksResponses];
+
+export type CreateAgentTaskData = {
+  body: ComponentsAgentTaskInput;
+  path?: never;
+  query?: never;
+  url: "/api/tasks";
+};
+
+export type CreateAgentTaskErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type CreateAgentTaskError =
+  CreateAgentTaskErrors[keyof CreateAgentTaskErrors];
+
+export type CreateAgentTaskResponses = {
+  /**
+   * created
+   */
+  201: ComponentsAgentTask;
+};
+
+export type CreateAgentTaskResponse =
+  CreateAgentTaskResponses[keyof CreateAgentTaskResponses];
+
+export type DeleteAgentTaskData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}";
+};
+
+export type DeleteAgentTaskErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type DeleteAgentTaskError =
+  DeleteAgentTaskErrors[keyof DeleteAgentTaskErrors];
+
+export type DeleteAgentTaskResponses = {
+  /**
+   * deleted
+   */
+  200: ComponentsDeleteResult;
+};
+
+export type DeleteAgentTaskResponse =
+  DeleteAgentTaskResponses[keyof DeleteAgentTaskResponses];
+
+export type GetAgentTaskData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}";
+};
+
+export type GetAgentTaskErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetAgentTaskError = GetAgentTaskErrors[keyof GetAgentTaskErrors];
+
+export type GetAgentTaskResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type GetAgentTaskResponse =
+  GetAgentTaskResponses[keyof GetAgentTaskResponses];
+
+export type UpdateAgentTaskData = {
+  body: ComponentsAgentTaskUpdate;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}";
+};
+
+export type UpdateAgentTaskErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type UpdateAgentTaskError =
+  UpdateAgentTaskErrors[keyof UpdateAgentTaskErrors];
+
+export type UpdateAgentTaskResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type UpdateAgentTaskResponse =
+  UpdateAgentTaskResponses[keyof UpdateAgentTaskResponses];
+
+export type AgentTaskActionData = {
+  body: ComponentsAgentTaskAction;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}/action";
+};
+
+export type AgentTaskActionErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type AgentTaskActionError =
+  AgentTaskActionErrors[keyof AgentTaskActionErrors];
+
+export type AgentTaskActionResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type AgentTaskActionResponse =
+  AgentTaskActionResponses[keyof AgentTaskActionResponses];
+
+export type ListAgentTaskEventsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}/events";
+};
+
+export type ListAgentTaskEventsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAgentTaskEventsError =
+  ListAgentTaskEventsErrors[keyof ListAgentTaskEventsErrors];
+
+export type ListAgentTaskEventsResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTaskEventList;
+};
+
+export type ListAgentTaskEventsResponse =
+  ListAgentTaskEventsResponses[keyof ListAgentTaskEventsResponses];
 
 export type ListPluginsData = {
   body?: never;

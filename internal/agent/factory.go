@@ -140,6 +140,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				"",
 				filepath.Join(userRoot, ".agents", "skills"),
 			))
+			runnerTools = append(runnerTools, params.ExtraTools...)
 
 			return newRunner(ctx, runnerConfig{
 				Provider: providerConfig{

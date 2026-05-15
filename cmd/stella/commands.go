@@ -27,9 +27,11 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/tasks"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -38,6 +40,7 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
+	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -74,6 +77,7 @@ type setupResult struct {
 	poolManager              *agent.PoolManager
 	pool                     *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc             *scheduler.Service
+	tasksSvc                 *tasks.Service
 	builtinTools             []tools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
@@ -419,6 +423,37 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
+	// Build tasks service before NewPoolManager so the task tool is in builtinTools
+	// from the start. The RunnerFactory closure captures poolMgr by reference —
+	// it is nil here but populated before any task is dispatched.
+	var tasksSvc *tasks.Service
+	{
+		runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
+			if poolMgr == nil {
+				return nil, false
+			}
+			if agentID == "" {
+				agentID = defaultAgentID
+			}
+			p := poolMgr.Get(agentID)
+			if p == nil {
+				p = poolMgr.DefaultPool()
+			}
+			if p == nil {
+				return nil, false
+			}
+			return p.Factory(), true
+		})
+		tasksSvc = tasks.New(tasks.Config{
+			Queries:       sqlc.New(db),
+			Notifier:      dispatcher,
+			Memory:        memProvider,
+			RunnerFactory: runnerFactory,
+		})
+		tt := tasktool.New(tasktool.Config{Service: tasksSvc})
+		builtinTools = append(builtinTools, tt)
+	}
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -506,6 +541,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		poolManager:              poolMgr,
 		pool:                     pool,
 		schedulerSvc:             schedulerSvc,
+		tasksSvc:                 tasksSvc,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,

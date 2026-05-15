@@ -61,6 +61,13 @@ func (p *Pool) SetFactory(factory NewRunnerFunc) {
 	p.mu.Unlock()
 }
 
+// Factory returns the current runner factory.
+func (p *Pool) Factory() NewRunnerFunc {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.factory
+}
+
 // hookPlugins returns the current hook plugins, or nil if none configured.
 func (p *Pool) hookPlugins() []hooks.HookPlugin {
 	p.mu.Lock()

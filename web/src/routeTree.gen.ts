@@ -14,11 +14,14 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSchedulerRouteImport } from './routes/_app/scheduler'
 import { Route as AppRecallyRouteImport } from './routes/_app/recally'
+import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
@@ -53,6 +56,11 @@ const DocsSplatRoute = DocsSplatRouteImport.update({
   path: '/docs/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -73,10 +81,20 @@ const AppRecallyRoute = AppRecallyRouteImport.update({
   path: '/recally',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAutomationsRoute = AppAutomationsRouteImport.update({
+  id: '/automations',
+  path: '/automations',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
+  id: '/$taskId',
+  path: '/$taskId',
+  getParentRoute: () => AppTasksRoute,
 } as any)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   id: '/users',
@@ -128,10 +146,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/automations': typeof AppAutomationsRoute
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
   '/settings': typeof AppSettingsRouteWithChildren
+  '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -142,15 +162,18 @@ export interface FileRoutesByFullPath {
   '/settings/plugins': typeof AppSettingsPluginsRoute
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
+  '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/settings/': typeof AppSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/automations': typeof AppAutomationsRoute
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
+  '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -161,6 +184,7 @@ export interface FileRoutesByTo {
   '/settings/plugins': typeof AppSettingsPluginsRoute
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
+  '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/settings': typeof AppSettingsIndexRoute
 }
 export interface FileRoutesById {
@@ -169,10 +193,12 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/_app/automations': typeof AppAutomationsRoute
   '/_app/recally': typeof AppRecallyRoute
   '/_app/scheduler': typeof AppSchedulerRoute
   '/_app/sessions': typeof AppSessionsRouteWithChildren
   '/_app/settings': typeof AppSettingsRouteWithChildren
+  '/_app/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
   '/_app/settings/about': typeof AppSettingsAboutRoute
@@ -183,6 +209,7 @@ export interface FileRoutesById {
   '/_app/settings/plugins': typeof AppSettingsPluginsRoute
   '/_app/settings/providers': typeof AppSettingsProvidersRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
+  '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
 }
 export interface FileRouteTypes {
@@ -191,10 +218,12 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/profile'
+    | '/automations'
     | '/recally'
     | '/scheduler'
     | '/sessions'
     | '/settings'
+    | '/tasks'
     | '/docs/$'
     | '/sessions/$'
     | '/settings/about'
@@ -205,15 +234,18 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/users'
+    | '/tasks/$taskId'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
     | '/profile'
+    | '/automations'
     | '/recally'
     | '/scheduler'
     | '/sessions'
+    | '/tasks'
     | '/docs/$'
     | '/sessions/$'
     | '/settings/about'
@@ -224,6 +256,7 @@ export interface FileRouteTypes {
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/users'
+    | '/tasks/$taskId'
     | '/settings'
   id:
     | '__root__'
@@ -231,10 +264,12 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/profile'
+    | '/_app/automations'
     | '/_app/recally'
     | '/_app/scheduler'
     | '/_app/sessions'
     | '/_app/settings'
+    | '/_app/tasks'
     | '/docs/$'
     | '/_app/sessions/$'
     | '/_app/settings/about'
@@ -245,6 +280,7 @@ export interface FileRouteTypes {
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/users'
+    | '/_app/tasks/$taskId'
     | '/_app/settings/'
   fileRoutesById: FileRoutesById
 }
@@ -293,6 +329,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/tasks': {
+      id: '/_app/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -321,12 +364,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRecallyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/automations': {
+      id: '/_app/automations'
+      path: '/automations'
+      fullPath: '/automations'
+      preLoaderRoute: typeof AppAutomationsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/': {
       id: '/_app/settings/'
       path: '/'
       fullPath: '/settings/'
       preLoaderRoute: typeof AppSettingsIndexRouteImport
       parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/tasks/$taskId': {
+      id: '/_app/tasks/$taskId'
+      path: '/$taskId'
+      fullPath: '/tasks/$taskId'
+      preLoaderRoute: typeof AppTasksTaskIdRouteImport
+      parentRoute: typeof AppTasksRoute
     }
     '/_app/settings/users': {
       id: '/_app/settings/users'
@@ -434,18 +491,34 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
   AppSettingsRouteChildren,
 )
 
+interface AppTasksRouteChildren {
+  AppTasksTaskIdRoute: typeof AppTasksTaskIdRoute
+}
+
+const AppTasksRouteChildren: AppTasksRouteChildren = {
+  AppTasksTaskIdRoute: AppTasksTaskIdRoute,
+}
+
+const AppTasksRouteWithChildren = AppTasksRoute._addFileChildren(
+  AppTasksRouteChildren,
+)
+
 interface AppRouteChildren {
+  AppAutomationsRoute: typeof AppAutomationsRoute
   AppRecallyRoute: typeof AppRecallyRoute
   AppSchedulerRoute: typeof AppSchedulerRoute
   AppSessionsRoute: typeof AppSessionsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppTasksRoute: typeof AppTasksRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAutomationsRoute: AppAutomationsRoute,
   AppRecallyRoute: AppRecallyRoute,
   AppSchedulerRoute: AppSchedulerRoute,
   AppSessionsRoute: AppSessionsRouteWithChildren,
   AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppTasksRoute: AppTasksRouteWithChildren,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

@@ -10,9 +10,11 @@ import {
 
 import { client } from "../client.gen";
 import {
+  agentTaskAction,
   assignAgentUser,
   changePassword,
   createAgent,
+  createAgentTask,
   createChannel,
   createFeed,
   createProvider,
@@ -23,6 +25,7 @@ import {
   deleteAgent,
   deleteAgentSkill,
   deleteAgentSkillFile,
+  deleteAgentTask,
   deleteArticle,
   deleteAuthUserIdentity,
   deleteChannel,
@@ -45,6 +48,7 @@ import {
   getAgent,
   getAgentSkill,
   getAgentSkillFile,
+  getAgentTask,
   getArticle,
   getAuthUser,
   getBuiltinResource,
@@ -75,6 +79,8 @@ import {
   installSkill,
   listAgents,
   listAgentSkills,
+  listAgentTaskEvents,
+  listAgentTasks,
   listAgentUsers,
   listArticles,
   listAuthUserAgents,
@@ -129,6 +135,7 @@ import {
   unlinkProfileIdentity,
   updateAgent,
   updateAgentSkill,
+  updateAgentTask,
   updateArticle,
   updateAuthUserActive,
   updateAuthUserAgents,
@@ -149,6 +156,9 @@ import {
   uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
+  AgentTaskActionData,
+  AgentTaskActionError,
+  AgentTaskActionResponse,
   AssignAgentUserData,
   AssignAgentUserError,
   AssignAgentUserResponse,
@@ -158,6 +168,9 @@ import type {
   CreateAgentData,
   CreateAgentError,
   CreateAgentResponse,
+  CreateAgentTaskData,
+  CreateAgentTaskError,
+  CreateAgentTaskResponse,
   CreateChannelData,
   CreateChannelError,
   CreateChannelResponse,
@@ -188,6 +201,9 @@ import type {
   DeleteAgentSkillFileError,
   DeleteAgentSkillFileResponse,
   DeleteAgentSkillResponse,
+  DeleteAgentTaskData,
+  DeleteAgentTaskError,
+  DeleteAgentTaskResponse,
   DeleteArticleData,
   DeleteArticleError,
   DeleteArticleResponse,
@@ -254,6 +270,9 @@ import type {
   GetAgentSkillFileError,
   GetAgentSkillFileResponse,
   GetAgentSkillResponse,
+  GetAgentTaskData,
+  GetAgentTaskError,
+  GetAgentTaskResponse,
   GetArticleData,
   GetArticleError,
   GetArticleResponse,
@@ -343,6 +362,12 @@ import type {
   ListAgentSkillsError,
   ListAgentSkillsResponse,
   ListAgentsResponse,
+  ListAgentTaskEventsData,
+  ListAgentTaskEventsError,
+  ListAgentTaskEventsResponse,
+  ListAgentTasksData,
+  ListAgentTasksError,
+  ListAgentTasksResponse,
   ListAgentUsersData,
   ListAgentUsersError,
   ListAgentUsersResponse,
@@ -500,6 +525,9 @@ import type {
   UpdateAgentSkillData,
   UpdateAgentSkillError,
   UpdateAgentSkillResponse,
+  UpdateAgentTaskData,
+  UpdateAgentTaskError,
+  UpdateAgentTaskResponse,
   UpdateArticleData,
   UpdateArticleError,
   UpdateArticleResponse,
@@ -4113,6 +4141,192 @@ export const listSchedulerJobRunsOptions = (
       return data;
     },
     queryKey: listSchedulerJobRunsQueryKey(options),
+  });
+
+export const listAgentTasksQueryKey = (options?: Options<ListAgentTasksData>) =>
+  createQueryKey("listAgentTasks", options);
+
+/**
+ * List agent tasks
+ */
+export const listAgentTasksOptions = (options?: Options<ListAgentTasksData>) =>
+  queryOptions<
+    ListAgentTasksResponse,
+    ListAgentTasksError,
+    ListAgentTasksResponse,
+    ReturnType<typeof listAgentTasksQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentTasks({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAgentTasksQueryKey(options),
+  });
+
+/**
+ * Create an agent task
+ */
+export const createAgentTaskMutation = (
+  options?: Partial<Options<CreateAgentTaskData>>,
+): UseMutationOptions<
+  CreateAgentTaskResponse,
+  CreateAgentTaskError,
+  Options<CreateAgentTaskData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateAgentTaskResponse,
+    CreateAgentTaskError,
+    Options<CreateAgentTaskData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createAgentTask({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Delete an agent task
+ */
+export const deleteAgentTaskMutation = (
+  options?: Partial<Options<DeleteAgentTaskData>>,
+): UseMutationOptions<
+  DeleteAgentTaskResponse,
+  DeleteAgentTaskError,
+  Options<DeleteAgentTaskData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentTaskResponse,
+    DeleteAgentTaskError,
+    Options<DeleteAgentTaskData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteAgentTask({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getAgentTaskQueryKey = (options: Options<GetAgentTaskData>) =>
+  createQueryKey("getAgentTask", options);
+
+/**
+ * Get an agent task
+ */
+export const getAgentTaskOptions = (options: Options<GetAgentTaskData>) =>
+  queryOptions<
+    GetAgentTaskResponse,
+    GetAgentTaskError,
+    GetAgentTaskResponse,
+    ReturnType<typeof getAgentTaskQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentTask({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getAgentTaskQueryKey(options),
+  });
+
+/**
+ * Update an agent task
+ */
+export const updateAgentTaskMutation = (
+  options?: Partial<Options<UpdateAgentTaskData>>,
+): UseMutationOptions<
+  UpdateAgentTaskResponse,
+  UpdateAgentTaskError,
+  Options<UpdateAgentTaskData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAgentTaskResponse,
+    UpdateAgentTaskError,
+    Options<UpdateAgentTaskData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await updateAgentTask({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Take an action on an agent task
+ */
+export const agentTaskActionMutation = (
+  options?: Partial<Options<AgentTaskActionData>>,
+): UseMutationOptions<
+  AgentTaskActionResponse,
+  AgentTaskActionError,
+  Options<AgentTaskActionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AgentTaskActionResponse,
+    AgentTaskActionError,
+    Options<AgentTaskActionData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await agentTaskAction({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAgentTaskEventsQueryKey = (
+  options: Options<ListAgentTaskEventsData>,
+) => createQueryKey("listAgentTaskEvents", options);
+
+/**
+ * List agent task events
+ */
+export const listAgentTaskEventsOptions = (
+  options: Options<ListAgentTaskEventsData>,
+) =>
+  queryOptions<
+    ListAgentTaskEventsResponse,
+    ListAgentTaskEventsError,
+    ListAgentTaskEventsResponse,
+    ReturnType<typeof listAgentTaskEventsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentTaskEvents({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAgentTaskEventsQueryKey(options),
   });
 
 export const listPluginsQueryKey = (options?: Options<ListPluginsData>) =>

@@ -3,6 +3,7 @@
   "pages": [
     "plugin-system",
     "scheduler-system",
+    "async-tasks",
     "notification-system",
     "agent-templates",
     "skills",

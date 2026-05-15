@@ -8,6 +8,9 @@ import {
 } from "./client";
 import { client } from "./client.gen";
 import type {
+  AgentTaskActionData,
+  AgentTaskActionErrors,
+  AgentTaskActionResponses,
   AssignAgentUserData,
   AssignAgentUserErrors,
   AssignAgentUserResponses,
@@ -17,6 +20,9 @@ import type {
   CreateAgentData,
   CreateAgentErrors,
   CreateAgentResponses,
+  CreateAgentTaskData,
+  CreateAgentTaskErrors,
+  CreateAgentTaskResponses,
   CreateChannelData,
   CreateChannelErrors,
   CreateChannelResponses,
@@ -47,6 +53,9 @@ import type {
   DeleteAgentSkillFileErrors,
   DeleteAgentSkillFileResponses,
   DeleteAgentSkillResponses,
+  DeleteAgentTaskData,
+  DeleteAgentTaskErrors,
+  DeleteAgentTaskResponses,
   DeleteArticleData,
   DeleteArticleErrors,
   DeleteArticleResponses,
@@ -113,6 +122,9 @@ import type {
   GetAgentSkillFileErrors,
   GetAgentSkillFileResponses,
   GetAgentSkillResponses,
+  GetAgentTaskData,
+  GetAgentTaskErrors,
+  GetAgentTaskResponses,
   GetArticleData,
   GetArticleErrors,
   GetArticleResponses,
@@ -202,6 +214,12 @@ import type {
   ListAgentSkillsErrors,
   ListAgentSkillsResponses,
   ListAgentsResponses,
+  ListAgentTaskEventsData,
+  ListAgentTaskEventsErrors,
+  ListAgentTaskEventsResponses,
+  ListAgentTasksData,
+  ListAgentTasksErrors,
+  ListAgentTasksResponses,
   ListAgentUsersData,
   ListAgentUsersErrors,
   ListAgentUsersResponses,
@@ -364,6 +382,9 @@ import type {
   UpdateAgentSkillData,
   UpdateAgentSkillErrors,
   UpdateAgentSkillResponses,
+  UpdateAgentTaskData,
+  UpdateAgentTaskErrors,
+  UpdateAgentTaskResponses,
   UpdateArticleData,
   UpdateArticleErrors,
   UpdateArticleResponses,
@@ -2654,6 +2675,130 @@ export const listSchedulerJobRuns = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/scheduler/jobs/{id}/runs",
+    ...options,
+  });
+
+/**
+ * List agent tasks
+ */
+export const listAgentTasks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAgentTasksData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListAgentTasksResponses,
+    ListAgentTasksErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks",
+    ...options,
+  });
+
+/**
+ * Create an agent task
+ */
+export const createAgentTask = <ThrowOnError extends boolean = false>(
+  options: Options<CreateAgentTaskData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateAgentTaskResponses,
+    CreateAgentTaskErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Delete an agent task
+ */
+export const deleteAgentTask = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentTaskData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteAgentTaskResponses,
+    DeleteAgentTaskErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}",
+    ...options,
+  });
+
+/**
+ * Get an agent task
+ */
+export const getAgentTask = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentTaskData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetAgentTaskResponses,
+    GetAgentTaskErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}",
+    ...options,
+  });
+
+/**
+ * Update an agent task
+ */
+export const updateAgentTask = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentTaskData, ThrowOnError>,
+) =>
+  (options.client ?? client).put<
+    UpdateAgentTaskResponses,
+    UpdateAgentTaskErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Take an action on an agent task
+ */
+export const agentTaskAction = <ThrowOnError extends boolean = false>(
+  options: Options<AgentTaskActionData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    AgentTaskActionResponses,
+    AgentTaskActionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}/action",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List agent task events
+ */
+export const listAgentTaskEvents = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentTaskEventsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAgentTaskEventsResponses,
+    ListAgentTaskEventsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}/events",
     ...options,
   });
 

@@ -8,6 +8,34 @@ import (
 	"database/sql"
 )
 
+type AgentTask struct {
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status"`
+	Priority       string         `json:"priority"`
+	SessionID      sql.NullString `json:"session_id"`
+	Context        string         `json:"context"`
+	ReviewRequest  string         `json:"review_request"`
+	Deps           string         `json:"deps"`
+	NotifyAt       sql.NullString `json:"notify_at"`
+	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
+	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
+	AgentID        sql.NullString `json:"agent_id"`
+	UserID         int64          `json:"user_id"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
+}
+
+type AgentTaskEvent struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	EventType string `json:"event_type"`
+	Detail    string `json:"detail"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type Article struct {
 	ID           string         `json:"id"`
 	UserID       int64          `json:"user_id"`

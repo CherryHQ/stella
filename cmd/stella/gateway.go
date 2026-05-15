@@ -104,6 +104,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
+	if s.tasksSvc != nil {
+		adminSrv.SetTasksService(s.tasksSvc)
+	}
 
 	// Wire the shared credentials service: inject invalidator and add the tool to
 	// all pools so every agent can use the credentials tool.
@@ -212,6 +215,20 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		defer func() { _ = s.schedulerSvc.Stop() }()
+	}
+
+	if s.tasksSvc != nil {
+		if err := s.tasksSvc.Start(ctx); err != nil {
+			return fmt.Errorf("start tasks service: %w", err)
+		}
+		defer s.tasksSvc.Stop()
+		if s.schedulerSvc != nil {
+			if err := s.schedulerSvc.ScheduleEvery(ctx, "30s", func(ctx context.Context) {
+				s.tasksSvc.Tick()
+			}); err != nil {
+				return fmt.Errorf("schedule tasks tick: %w", err)
+			}
+		}
 	}
 
 	if s.schedulerSvc != nil {

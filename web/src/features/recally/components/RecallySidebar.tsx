@@ -81,7 +81,7 @@ export function RecallySidebar({
     <div className="space-y-5 p-3">
       {/* Views */}
       <div>
-        <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
           {t("recally.section.library")}
         </div>
         <nav className="space-y-0.5">
@@ -134,7 +134,7 @@ export function RecallySidebar({
 
       {/* Refine */}
       <div className="space-y-3">
-        <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
           {t("recally.section.find")}
         </div>
         <div className="relative px-1">
@@ -149,7 +149,7 @@ export function RecallySidebar({
         </div>
 
         <div>
-          <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
             {t("recally.section.status")}
           </div>
           <div className="flex flex-wrap gap-1.5 px-1">
@@ -172,7 +172,7 @@ export function RecallySidebar({
         </div>
 
         <div>
-          <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
             {t("recally.section.sources")}
           </div>
           <div className="flex flex-wrap gap-1.5 px-1">
@@ -194,7 +194,7 @@ export function RecallySidebar({
 
         {sortedTags.length > 0 && (
           <div>
-            <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
               {t("recally.section.tags")}
             </div>
             <div className="flex flex-wrap gap-1 px-1">
@@ -223,7 +223,7 @@ export function RecallySidebar({
 
       {/* Feeds */}
       <div>
-        <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
           {t("recally.section.feeds")}
         </div>
         <div className="px-1 space-y-1.5">
@@ -309,7 +309,7 @@ export function RecallySidebar({
 
       {/* Digest note */}
       {digest && (
-        <div className="mx-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs text-muted-foreground shadow-sm">
+        <div className="mx-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{t("recally.nav.digest")}: </span>
           {t("recally.digest.savedYesterday", { count: digest.saved_yesterday_count ?? 0 })}
           {(digest.worth_revisiting_count ?? 0) > 0 && (

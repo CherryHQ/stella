@@ -126,6 +126,8 @@ type Job struct {
 
 `scheduler` 内置技能自动加载。它记录代理通过 Bash 调用的 `stella scheduler` CLI 命令。
 
+`scheduler` 适合做基于时间的触发。如果定时工作可能运行很久、需要审核或需要跨重启恢复，应让定时 prompt 创建异步 `task`，而不是在调度器运行中直接完成所有工作。这样调度器运行保持短小，持久化和人机协作状态由 task 服务负责。
+
 ### `stella scheduler add`——创建任务
 
 标志:

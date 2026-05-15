@@ -214,7 +214,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-5 pt-6 pb-2 text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="px-5 pt-6 pb-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
               {group.section}
             </div>
             {visibleItems.map((item) => (
@@ -254,7 +254,7 @@ export function SettingsLayout() {
   return (
     <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
       {/* Desktop sidebar — hidden on mobile */}
-      <nav className="hidden md:flex w-[200px] shrink-0 border-r border-border bg-background overflow-y-auto flex-col">
+      <nav className="hidden md:flex w-[200px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col">
         <NavItems isAdmin={isAdmin} />
       </nav>
 
