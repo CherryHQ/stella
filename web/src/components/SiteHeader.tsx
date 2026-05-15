@@ -20,9 +20,7 @@ import {
   applyTheme,
   getStoredTheme,
   setStoredTheme,
-  THEME_PRESETS,
   type ThemeAppearance,
-  type ThemePreset,
   type ThemeSettings,
 } from "@/lib/theme";
 
@@ -153,19 +151,11 @@ function ThemeSelector() {
     return () => media.removeEventListener("change", update);
   }, [theme]);
 
-  function updateTheme(next: ThemeSettings) {
-    setTheme(next);
-    setStoredTheme(next);
-  }
-
   function setAppearance(appearance: string) {
     if (!isAppearance(appearance)) return;
-    updateTheme({ ...theme, appearance });
-  }
-
-  function setPreset(preset: string) {
-    if (!isPreset(preset)) return;
-    updateTheme({ ...theme, preset });
+    const next = { appearance };
+    setTheme(next);
+    setStoredTheme(next);
   }
 
   const Icon = theme.appearance === "system" ? Monitor : theme.appearance === "light" ? Sun : Moon;
@@ -174,15 +164,12 @@ function ThemeSelector() {
     <DropdownMenu>
       <DropdownMenuTrigger
         className="inline-flex items-center gap-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
-        title={`Theme: ${THEME_LABELS[theme.preset]}, ${theme.appearance}`}
+        aria-label={`Appearance: ${theme.appearance}`}
+        title={`Appearance: ${theme.appearance}`}
       >
         <Icon className="size-4" />
-        <span
-          className={`hidden size-2.5 rounded-full border border-border sm:block ${THEME_SWATCHES[theme.preset]}`}
-        />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-52">
+      <DropdownMenuContent align="end" sideOffset={8} className="w-40">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Appearance</DropdownMenuLabel>
           {THEME_APPEARANCES.map((appearance) => (
@@ -193,19 +180,6 @@ function ThemeSelector() {
             >
               <ThemeCheck checked={theme.appearance === appearance} />
               {APPEARANCE_LABELS[appearance]}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Theme</DropdownMenuLabel>
-          {THEME_PRESETS.map((preset) => (
-            <DropdownMenuItem key={preset} onClick={() => setPreset(preset)} className="gap-2">
-              <ThemeCheck checked={theme.preset === preset} />
-              <span
-                className={`size-3 rounded-full border border-border ${THEME_SWATCHES[preset]}`}
-              />
-              <span className="flex-1">{THEME_LABELS[preset]}</span>
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
@@ -222,30 +196,8 @@ const APPEARANCE_LABELS: Record<ThemeAppearance, string> = {
   dark: "Dark",
 };
 
-const THEME_LABELS: Record<ThemePreset, string> = {
-  default: "Default",
-  blue: "Blue",
-  green: "Green",
-  rose: "Rose",
-  orange: "Orange",
-  violet: "Violet",
-};
-
-const THEME_SWATCHES: Record<ThemePreset, string> = {
-  default: "bg-neutral-800 dark:bg-neutral-100",
-  blue: "bg-blue-600",
-  green: "bg-emerald-600",
-  rose: "bg-rose-600",
-  orange: "bg-orange-600",
-  violet: "bg-violet-600",
-};
-
 function isAppearance(value: string): value is ThemeAppearance {
   return value === "system" || value === "light" || value === "dark";
-}
-
-function isPreset(value: string): value is ThemePreset {
-  return (THEME_PRESETS as string[]).includes(value);
 }
 
 function ThemeCheck({ checked }: { checked: boolean }) {
