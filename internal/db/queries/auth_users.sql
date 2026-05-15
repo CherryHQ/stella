@@ -1,6 +1,6 @@
 -- name: CreateAuthUser :one
-INSERT INTO auth_users (username, password_hash)
-VALUES (?, ?)
+INSERT INTO auth_users (id, username, password_hash)
+VALUES (?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthUser :one

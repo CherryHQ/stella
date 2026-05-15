@@ -7,7 +7,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/memory"
 )
 
-func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -25,7 +25,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -43,7 +43,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -55,7 +55,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id int
 	writeData(w, http.StatusOK, memories)
 }
 
-func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string) {
+func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -74,7 +74,7 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id int64,
 	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
-func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id int64, agentId string) {
+func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string) {
 	if !requireAdmin(w, r) {
 		return
 	}

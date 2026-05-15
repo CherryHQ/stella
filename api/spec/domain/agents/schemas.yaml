@@ -29,7 +29,7 @@ components:
         workspace: { type: string }
         sandbox: { $ref: "#/components/schemas/SandboxConfig" }
         scope: { type: string }
-        creator_id: { type: integer, format: int64 }
+        creator_id: { type: string }
         enabled: { type: boolean }
 
     AgentList:
@@ -51,14 +51,14 @@ components:
         workspace: { type: string }
         sandbox: { $ref: "#/components/schemas/SandboxConfig" }
         scope: { type: string }
-        creator_id: { type: integer, format: int64 }
+        creator_id: { type: string }
         enabled: { type: boolean }
         template_id: { type: string }
 
     AgentUser:
       type: object
       properties:
-        id: { type: integer, format: int64 }
+        id: { type: string }
         username: { type: string }
 
     AgentUserList:
@@ -74,14 +74,14 @@ components:
       type: object
       required: [user_id]
       properties:
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
 
     Skill:
       type: object
       properties:
         id: { type: string }
         scope: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         agent_id: { type: string }
         name: { type: string }
         description: { type: string }

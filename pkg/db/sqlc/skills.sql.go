@@ -19,7 +19,7 @@ RETURNING id, scope, user_id, agent_id, name, description, status, disable_model
 type CreateSkillParams struct {
 	ID                     string         `json:"id"`
 	Scope                  string         `json:"scope"`
-	UserID                 sql.NullInt64  `json:"user_id"`
+	UserID                 sql.NullString `json:"user_id"`
 	AgentID                sql.NullString `json:"agent_id"`
 	Name                   string         `json:"name"`
 	Description            string         `json:"description"`
@@ -207,8 +207,8 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 `
 
 type GetUserSkillByNameParams struct {
-	UserID sql.NullInt64 `json:"user_id"`
-	Name   string        `json:"name"`
+	UserID sql.NullString `json:"user_id"`
+	Name   string         `json:"name"`
 }
 
 func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByNameParams) (Skill, error) {
@@ -245,7 +245,7 @@ ORDER BY created_at DESC
 
 type ListActiveKnowledgeByTypeParams struct {
 	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullInt64  `json:"user_id"`
+	UserID        sql.NullString `json:"user_id"`
 	KnowledgeType interface{}    `json:"knowledge_type"`
 }
 
@@ -364,7 +364,7 @@ ORDER BY created_at
 
 type ListSkillsVisibleParams struct {
 	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullInt64  `json:"user_id"`
+	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisibleParams) ([]Skill, error) {
@@ -424,7 +424,7 @@ LIMIT 1
 type ResolveSkillParams struct {
 	Name    string         `json:"name"`
 	AgentID sql.NullString `json:"agent_id"`
-	UserID  sql.NullInt64  `json:"user_id"`
+	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Skill, error) {

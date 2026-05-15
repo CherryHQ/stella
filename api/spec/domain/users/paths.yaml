@@ -5,7 +5,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     put:
       tags: [users]
@@ -40,7 +40,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     put:
       tags: [users]
@@ -75,7 +75,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     get:
       tags: [users]
@@ -105,7 +105,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
       - { name: agentId, in: path, required: true, schema: { type: string } }
     put:
@@ -177,7 +177,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     get:
       tags: [auth-users]
@@ -203,7 +203,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     put:
       tags: [auth-users]
@@ -238,7 +238,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     get:
       tags: [auth-users]
@@ -289,7 +289,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
       - {
           name: identityId,
@@ -324,7 +324,7 @@ paths:
           name: id,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     put:
       tags: [auth-users]

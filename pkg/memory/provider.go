@@ -224,21 +224,21 @@ type Explorer interface {
 type ProfileStore interface {
 	// GetProfile returns the current user profile for the (userID, agentID) pair.
 	// Returns ("", nil) if no profile exists yet (not an error).
-	GetProfile(ctx context.Context, userID int64, agentID string) (string, error)
+	GetProfile(ctx context.Context, userID string, agentID string) (string, error)
 
 	// SetProfile overwrites the user profile for the (userID, agentID) pair.
 	// Callers are responsible for merging new content with existing content
 	// before calling SetProfile — this method always replaces, never appends.
-	SetProfile(ctx context.Context, userID int64, agentID string, content string) error
+	SetProfile(ctx context.Context, userID string, agentID string, content string) error
 
 	// GetAgentSoul returns the agent soul for the (userID, agentID) pair.
 	// The soul defines the agent's identity, personality, and behavior as
 	// customised by this specific user. Returns ("", nil) if not set.
-	GetAgentSoul(ctx context.Context, userID int64, agentID string) (string, error)
+	GetAgentSoul(ctx context.Context, userID string, agentID string) (string, error)
 
 	// SetAgentSoul overwrites the agent soul for the (userID, agentID) pair.
 	// Callers are responsible for merging; this method always replaces.
-	SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error
+	SetAgentSoul(ctx context.Context, userID string, agentID string, content string) error
 }
 
 // ---------------------------------------------------------------------------
@@ -258,15 +258,15 @@ type ConstraintEntry struct {
 // Reflect cannot modify them; only user-initiated writes are allowed by convention.
 type ConstraintStore interface {
 	// GetConstraints returns all active constraints for the (userID, agentID) pair.
-	GetConstraints(ctx context.Context, userID int64, agentID string) ([]ConstraintEntry, error)
+	GetConstraints(ctx context.Context, userID string, agentID string) ([]ConstraintEntry, error)
 
 	// AddConstraint adds a new constraint with a generated UUID-like ID.
 	// Returns the updated list of constraints.
-	AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]ConstraintEntry, error)
+	AddConstraint(ctx context.Context, userID string, agentID string, text string) ([]ConstraintEntry, error)
 
 	// RemoveConstraint removes the constraint with the given ID.
 	// Returns the updated list of constraints.
-	RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]ConstraintEntry, error)
+	RemoveConstraint(ctx context.Context, userID string, agentID string, id string) ([]ConstraintEntry, error)
 }
 
 // ---------------------------------------------------------------------------

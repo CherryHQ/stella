@@ -18,7 +18,7 @@ func NewAuthService(store auth.AuthStore) pkgplugins.Auth {
 	return authService{store: store}
 }
 
-func (s authService) GetUser(ctx context.Context, userID int64) (pkgplugins.UserInfo, error) {
+func (s authService) GetUser(ctx context.Context, userID string) (pkgplugins.UserInfo, error) {
 	user, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		return pkgplugins.UserInfo{}, err
@@ -35,7 +35,7 @@ func (s authService) GetUser(ctx context.Context, userID int64) (pkgplugins.User
 	}, nil
 }
 
-func (s authService) ListUserIdentities(ctx context.Context, userID int64) ([]pkgplugins.LinkedIdentity, error) {
+func (s authService) ListUserIdentities(ctx context.Context, userID string) ([]pkgplugins.LinkedIdentity, error) {
 	identities, err := s.store.ListIdentitiesByUser(ctx, userID)
 	if err != nil {
 		return nil, err

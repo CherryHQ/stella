@@ -20,7 +20,7 @@ type ProvisionRequest struct {
 	// OnUserCreated is invoked after CreateUser succeeds and before the identity
 	// is created. Callers can use it to provision optional user-scoped resources
 	// such as vault keys without adding auth->resource-package dependencies.
-	OnUserCreated func(ctx context.Context, userID int64) error
+	OnUserCreated func(ctx context.Context, userID string) error
 }
 
 // ProvisionIdentityUser creates a new user + identity pair atomically.

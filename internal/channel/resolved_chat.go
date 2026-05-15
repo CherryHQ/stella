@@ -17,7 +17,7 @@ type ResolvedChat struct {
 	ChatCtx    ChatContext
 }
 
-func (rc *ResolvedChat) UserID() int64 { return rc.User.ID }
+func (rc *ResolvedChat) UserID() string { return rc.User.ID }
 
 func (rc *ResolvedChat) ResolveSession() (agent.SessionInfo, error) {
 	return rc.Pool.ResolveSession(rc.SessionKey, rc.User.ID)
@@ -84,7 +84,7 @@ func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config
 	}
 
 	var sessionKey string
-	if resolved.User.ID != 0 && !isGroup {
+	if resolved.User.ID != "" && !isGroup {
 		sessionKey = agent.BuildUserSessionKey(agentID, resolved.User.ID, channelCtx)
 	} else {
 		sessionKey = agent.BuildSessionKey(agentID, platform, senderID, channelCtx)

@@ -55,7 +55,7 @@ type CreateConversationFullParams struct {
 	Archived   int64          `json:"archived"`
 	LastActive string         `json:"last_active"`
 	AgentID    sql.NullString `json:"agent_id"`
-	UserID     sql.NullInt64  `json:"user_id"`
+	UserID     sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversationFullParams) (CtxConversation, error) {
@@ -216,7 +216,7 @@ UPDATE ctx_conversations SET agent_id = ?, user_id = ?, updated_at = datetime('n
 
 type UpdateConversationAgentUserParams struct {
 	AgentID   sql.NullString `json:"agent_id"`
-	UserID    sql.NullInt64  `json:"user_id"`
+	UserID    sql.NullString `json:"user_id"`
 	SessionID string         `json:"session_id"`
 }
 

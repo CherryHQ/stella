@@ -19,7 +19,7 @@ import (
 type skillView struct {
 	ID                     string   `json:"id"`
 	Scope                  string   `json:"scope"`
-	UserID                 int64    `json:"user_id,omitempty"`
+	UserID                 string   `json:"user_id,omitempty"`
 	AgentID                string   `json:"agent_id,omitempty"`
 	Name                   string   `json:"name"`
 	Description            string   `json:"description"`
@@ -151,7 +151,7 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 
 type createSkillRequest struct {
 	Scope                  string            `json:"scope"`
-	UserID                 int64             `json:"user_id"`
+	UserID                 string            `json:"user_id"`
 	AgentID                string            `json:"agent_id"`
 	Name                   string            `json:"name"`
 	Description            string            `json:"description"`
@@ -189,7 +189,7 @@ func (s *Server) CreateSkill(w http.ResponseWriter, r *http.Request) {
 	// Validate scope-specific owner fields.
 	switch req.Scope {
 	case "user":
-		if req.UserID == 0 {
+		if req.UserID == "" {
 			writeError(w, http.StatusBadRequest, "user_id is required for scope=user")
 			return
 		}
@@ -315,7 +315,7 @@ func (s *Server) SearchSkills(w http.ResponseWriter, r *http.Request, params api
 type installSkillRequest struct {
 	Source  string `json:"source"`
 	Scope   string `json:"scope"`
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
@@ -343,7 +343,7 @@ func (s *Server) InstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Scope {
 	case "user":
-		if req.UserID == 0 {
+		if req.UserID == "" {
 			writeError(w, http.StatusBadRequest, "user_id is required for scope=user")
 			return
 		}

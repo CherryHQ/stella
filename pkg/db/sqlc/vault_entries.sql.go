@@ -13,7 +13,7 @@ const deleteAllVaultEntriesByUser = `-- name: DeleteAllVaultEntriesByUser :exec
 DELETE FROM vault_entries WHERE user_id = ?
 `
 
-func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID int64) error {
+func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID string) error {
 	_, err := q.db.ExecContext(ctx, deleteAllVaultEntriesByUser, userID)
 	return err
 }
@@ -23,7 +23,7 @@ DELETE FROM vault_entries WHERE user_id = ? AND name = ?
 `
 
 type DeleteVaultEntryParams struct {
-	UserID int64  `json:"user_id"`
+	UserID string `json:"user_id"`
 	Name   string `json:"name"`
 }
 
@@ -39,7 +39,7 @@ WHERE user_id = ? AND name = ?
 `
 
 type GetVaultEntryParams struct {
-	UserID int64  `json:"user_id"`
+	UserID string `json:"user_id"`
 	Name   string `json:"name"`
 }
 
@@ -64,7 +64,7 @@ WHERE user_id = ?
 ORDER BY name
 `
 
-func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID int64) ([]VaultEntry, error) {
+func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID string) ([]VaultEntry, error) {
 	rows, err := q.db.QueryContext(ctx, listVaultEntriesByUser, userID)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 
 type UpsertVaultEntryParams struct {
 	ID         string `json:"id"`
-	UserID     int64  `json:"user_id"`
+	UserID     string `json:"user_id"`
 	Name       string `json:"name"`
 	Ciphertext string `json:"ciphertext"`
 }

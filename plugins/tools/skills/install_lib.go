@@ -20,7 +20,7 @@ import (
 // scope must be one of "user" or "agent".
 // For scope="user", userID is used; for scope="agent", agentID is used.
 // Returns the installed skill name on success.
-func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID int64, agentID string) (string, error) {
+func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, error) {
 	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return "", err

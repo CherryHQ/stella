@@ -249,7 +249,7 @@ func (e SourceType) Valid() bool {
 
 // Agent defines model for Agent.
 type Agent struct {
-	CreatorId    *int64         `json:"creator_id,omitempty"`
+	CreatorId    *string        `json:"creator_id,omitempty"`
 	Enabled      *bool          `json:"enabled,omitempty"`
 	Id           *string        `json:"id,omitempty"`
 	Model        *string        `json:"model,omitempty"`
@@ -291,7 +291,7 @@ type AgentTask struct {
 	Status        AgentTaskStatus         `json:"status"`
 	Title         string                  `json:"title"`
 	UpdatedAt     time.Time               `json:"updated_at"`
-	UserId        *int64                  `json:"user_id,omitempty"`
+	UserId        *string                 `json:"user_id,omitempty"`
 }
 
 // AgentTaskPriority defines model for AgentTask.Priority.
@@ -371,7 +371,7 @@ type AgentTaskUpdatePriority string
 
 // AgentUser defines model for AgentUser.
 type AgentUser struct {
-	Id       *int64  `json:"id,omitempty"`
+	Id       *string `json:"id,omitempty"`
 	Username *string `json:"username,omitempty"`
 }
 
@@ -415,19 +415,19 @@ type ArticleStatus string
 
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest struct {
-	UserId int64 `json:"user_id"`
+	UserId string `json:"user_id"`
 }
 
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
-	Id       int64  `json:"id"`
+	Id       string `json:"id"`
 	Username string `json:"username"`
 }
 
 // AuthUser defines model for AuthUser.
 type AuthUser struct {
 	CreatedAt  string     `json:"created_at"`
-	Id         int64      `json:"id"`
+	Id         string     `json:"id"`
 	Identities []Identity `json:"identities"`
 	IsActive   bool       `json:"is_active"`
 	Role       string     `json:"role"`
@@ -503,7 +503,7 @@ type ChannelWriteRequest struct {
 
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
-	CreatorId    *int64         `json:"creator_id,omitempty"`
+	CreatorId    *string        `json:"creator_id,omitempty"`
 	Enabled      *bool          `json:"enabled,omitempty"`
 	Id           *string        `json:"id,omitempty"`
 	Model        *string        `json:"model,omitempty"`
@@ -541,7 +541,7 @@ type CreateSkillRequest struct {
 	Name                   *string            `json:"name,omitempty"`
 	Scope                  *string            `json:"scope,omitempty"`
 	Status                 *string            `json:"status,omitempty"`
-	UserId                 *int64             `json:"user_id,omitempty"`
+	UserId                 *string            `json:"user_id,omitempty"`
 }
 
 // DeleteFileResult defines model for DeleteFileResult.
@@ -648,17 +648,17 @@ type GlobalInstallSkillRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
 	Scope   *string `json:"scope,omitempty"`
 	Source  string  `json:"source"`
-	UserId  *int64  `json:"user_id,omitempty"`
+	UserId  *string `json:"user_id,omitempty"`
 }
 
 // Identity defines model for Identity.
 type Identity struct {
 	ExternalId string    `json:"external_id"`
-	Id         int64     `json:"id"`
+	Id         string    `json:"id"`
 	LinkedAt   time.Time `json:"linked_at"`
 	Name       string    `json:"name"`
 	Platform   string    `json:"platform"`
-	UserId     int64     `json:"user_id"`
+	UserId     string    `json:"user_id"`
 }
 
 // InstallSkillRequest defines model for InstallSkillRequest.
@@ -701,7 +701,7 @@ type Job struct {
 	// SessionMode Session behaviour: 'reuse' or 'new'
 	SessionMode string     `json:"session_mode"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	UserId      *int64     `json:"user_id,omitempty"`
+	UserId      *string    `json:"user_id,omitempty"`
 }
 
 // JobInput Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required.
@@ -716,8 +716,8 @@ type JobInput struct {
 	Name        *string `json:"name,omitempty"`
 	SessionMode *string `json:"session_mode,omitempty"`
 
-	// UserId Admin-only: set 0 for system jobs
-	UserId *int64 `json:"user_id,omitempty"`
+	// UserId Admin-only: set empty for system jobs
+	UserId *string `json:"user_id,omitempty"`
 }
 
 // JobList defines model for JobList.
@@ -735,7 +735,7 @@ type JobRun struct {
 	SessionId  string  `json:"session_id"`
 	StartedAt  string  `json:"started_at"`
 	Status     string  `json:"status"`
-	UserId     *int64  `json:"user_id,omitempty"`
+	UserId     *string `json:"user_id,omitempty"`
 }
 
 // JobRunList defines model for JobRunList.
@@ -772,7 +772,7 @@ type ManifestPluginsResponse struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
-	Id       int64  `json:"id"`
+	Id       string `json:"id"`
 	IsAdmin  bool   `json:"is_admin"`
 	Role     string `json:"role"`
 	Username string `json:"username"`
@@ -961,7 +961,7 @@ type Session struct {
 	Id         string `json:"id"`
 	LastActive string `json:"last_active"`
 	Title      string `json:"title"`
-	UserId     int64  `json:"user_id"`
+	UserId     string `json:"user_id"`
 }
 
 // SessionDetail defines model for SessionDetail.
@@ -974,7 +974,7 @@ type SessionDetail struct {
 	Id         string  `json:"id"`
 	LastActive string  `json:"last_active"`
 	Title      string  `json:"title"`
-	UserId     int64   `json:"user_id"`
+	UserId     string  `json:"user_id"`
 	UserName   *string `json:"user_name,omitempty"`
 }
 
@@ -1023,7 +1023,7 @@ type Skill struct {
 	Scope                  *string   `json:"scope,omitempty"`
 	Status                 *string   `json:"status,omitempty"`
 	UpdatedAt              *string   `json:"updated_at,omitempty"`
-	UserId                 *int64    `json:"user_id,omitempty"`
+	UserId                 *string   `json:"user_id,omitempty"`
 }
 
 // SkillFileResponse defines model for SkillFileResponse.

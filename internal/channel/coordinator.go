@@ -340,14 +340,14 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 		ExternalID: req.ExternalID,
 		Name:       req.Name,
 		EmailHint:  req.EmailHint,
-		OnUserCreated: func(ctx context.Context, userID int64) error {
+		OnUserCreated: func(ctx context.Context, userID string) error {
 			return provisionUserVaultKeys(ctx, c.authStore, c.vaultRecipient, userID)
 		},
 	})
 	return err
 }
 
-func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient *age.X25519Recipient, userID int64) error {
+func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient *age.X25519Recipient, userID string) error {
 	if recipient == nil {
 		return nil
 	}

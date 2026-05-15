@@ -13,7 +13,7 @@ import (
 )
 
 // setupTestDB creates a test database and returns the db, queries, userID, agentID, and cleanup.
-func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, int64, string, func()) {
+func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

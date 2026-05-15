@@ -13,7 +13,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		userID    int64
+		userID    string
 		title     string
 		savedAt   time.Time
 		articleID string
@@ -21,7 +21,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 	}{
 		{
 			name:      "basic path",
-			userID:    1,
+			userID:    "1",
 			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
 			title:     "Test Article",
 			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
@@ -29,7 +29,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 		},
 		{
 			name:      "title with special chars",
-			userID:    42,
+			userID:    "42",
 			articleID: "shortid",
 			title:     "What's New?!",
 			savedAt:   time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
@@ -37,7 +37,7 @@ func TestFileManager_ArticlePath(t *testing.T) {
 		},
 		{
 			name:      "empty title",
-			userID:    1,
+			userID:    "1",
 			articleID: "01HX3Q9M8N7P6Q5R4S3T2V1W0X",
 			title:     "",
 			savedAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
@@ -152,7 +152,7 @@ func TestFileManager_EnsureLibrary(t *testing.T) {
 	})
 
 	fm := NewFileManager(tempDir)
-	if err := fm.EnsureLibrary(1); err != nil {
+	if err := fm.EnsureLibrary("1"); err != nil {
 		t.Fatalf("EnsureLibrary failed: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestFileManager_ListArticles(t *testing.T) {
 		}
 	}
 
-	files, err := fm.ListArticles(1)
+	files, err := fm.ListArticles("1")
 	if err != nil {
 		t.Fatalf("ListArticles failed: %v", err)
 	}

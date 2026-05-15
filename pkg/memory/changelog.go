@@ -15,7 +15,7 @@ const (
 // ChangeEntry represents one changelog record.
 type ChangeEntry struct {
 	ID                  string
-	UserID              int64
+	UserID              string
 	AgentID             string
 	SessionID           string
 	Scope               string // "profile", "soul", "constraint", "skill", "compaction"
@@ -37,7 +37,7 @@ type ChangelogWriter interface {
 // ChangelogReader is implemented by providers that expose memory write history.
 type ChangelogReader interface {
 	// ReadChangelog returns the last N changelog entries for a given scope.
-	ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]ChangeEntry, error)
+	ReadChangelog(ctx context.Context, userID string, agentID string, scope string, limit int) ([]ChangeEntry, error)
 }
 
 type changeSourceKey struct{}

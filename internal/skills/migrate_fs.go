@@ -21,7 +21,7 @@ type MigrateFSConfig struct {
 	UserRoot      string
 	UserSkillsDir string
 	// Owner fields used when creating scoped rows.
-	UserID  int64
+	UserID  string
 	AgentID string
 }
 

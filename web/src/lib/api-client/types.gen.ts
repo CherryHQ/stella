@@ -233,7 +233,7 @@ export type ComponentsAgent = {
   workspace?: string;
   sandbox?: ComponentsSandboxConfig;
   scope?: string;
-  creator_id?: number;
+  creator_id?: string;
   enabled?: boolean;
 };
 
@@ -271,7 +271,7 @@ export type ComponentsAgentTask = {
    */
   notify_at?: string;
   agent_id?: string;
-  user_id?: number;
+  user_id?: string;
   created_at: string;
   updated_at: string;
 };
@@ -348,7 +348,7 @@ export type ComponentsAgentTaskUpdate = {
 };
 
 export type ComponentsAgentUser = {
-  id?: number;
+  id?: string;
   username?: string;
 };
 
@@ -390,16 +390,16 @@ export type ComponentsArticleList = {
 export type ComponentsArticleStatus = "unread" | "read" | "archived";
 
 export type ComponentsAssignAgentUserRequest = {
-  user_id: number;
+  user_id: string;
 };
 
 export type ComponentsAuthResponse = {
-  id: number;
+  id: string;
   username: string;
 };
 
 export type ComponentsAuthUser = {
-  id: number;
+  id: string;
   username: string;
   role: string;
   is_active: boolean;
@@ -483,7 +483,7 @@ export type ComponentsCreateAgentRequest = {
   workspace?: string;
   sandbox?: ComponentsSandboxConfig;
   scope?: string;
-  creator_id?: number;
+  creator_id?: string;
   enabled?: boolean;
   template_id?: string;
 };
@@ -503,7 +503,7 @@ export type ComponentsCreateSessionRequest = {
 
 export type ComponentsCreateSkillRequest = {
   scope?: string;
-  user_id?: number;
+  user_id?: string;
   agent_id?: string;
   name?: string;
   description?: string;
@@ -609,13 +609,13 @@ export type ComponentsGenerateLinkCodeRequest = {
 export type ComponentsGlobalInstallSkillRequest = {
   source: string;
   scope?: string;
-  user_id?: number;
+  user_id?: string;
   agent_id?: string;
 };
 
 export type ComponentsIdentity = {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   platform: string;
   external_id: string;
   name: string;
@@ -665,7 +665,7 @@ export type ComponentsJob = {
   session_mode: string;
   enabled: boolean;
   agent_id?: string;
-  user_id?: number;
+  user_id?: string;
   created_at?: string;
   updated_at?: string;
   last_run_at?: string | null;
@@ -686,9 +686,9 @@ export type ComponentsJobInput = {
   enabled?: boolean;
   agent_id?: string;
   /**
-   * Admin-only: set 0 for system jobs
+   * Admin-only: set empty for system jobs
    */
-  user_id?: number;
+  user_id?: string;
 };
 
 export type ComponentsJobList = {
@@ -699,7 +699,7 @@ export type JobRun = {
   id: string;
   job_id: string;
   session_id: string;
-  user_id?: number;
+  user_id?: string;
   status: string;
   started_at: string;
   finished_at?: string;
@@ -736,7 +736,7 @@ export type ManifestPluginsResponse = {
 };
 
 export type ComponentsMeResponse = {
-  id: number;
+  id: string;
   username: string;
   role: string;
   is_admin: boolean;
@@ -912,7 +912,7 @@ export type ComponentsSession = {
   channel: string;
   title: string;
   agent_id: string;
-  user_id: number;
+  user_id: string;
   created_at: string;
   last_active: string;
   archived: boolean;
@@ -961,7 +961,7 @@ export type ComponentsSetVaultEntryRequest = {
 export type ComponentsSkill = {
   id?: string;
   scope?: string;
-  user_id?: number;
+  user_id?: string;
   agent_id?: string;
   name?: string;
   description?: string;
@@ -1884,7 +1884,7 @@ export type RemoveAgentUserData = {
   body?: never;
   path: {
     id: string;
-    userId: number;
+    userId: string;
   };
   query?: never;
   url: "/api/agents/{id}/users/{userId}";
@@ -5038,7 +5038,7 @@ export type GetSessionSystemPromptResponse =
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/users/{id}/default-agent";
@@ -5081,7 +5081,7 @@ export type UpdateUserDefaultAgentResponse =
 export type UpdateUserNotifyIdentityData = {
   body: ComponentsUpdateNotifyIdentityRequest;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/users/{id}/notify-identity";
@@ -5124,7 +5124,7 @@ export type UpdateUserNotifyIdentityResponse =
 export type ListUserMemoriesData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/users/{id}/memories";
@@ -5167,7 +5167,7 @@ export type ListUserMemoriesResponse =
 export type DeleteUserMemoryData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
     agentId: string;
   };
   query?: never;
@@ -5205,7 +5205,7 @@ export type DeleteUserMemoryResponse =
 export type SetUserMemoryData = {
   body: ComponentsSetMemoryRequest;
   path: {
-    id: number;
+    id: string;
     agentId: string;
   };
   query?: never;
@@ -5282,7 +5282,7 @@ export type ListAuthUsersResponse =
 export type GetAuthUserData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/users/{id}";
@@ -5324,7 +5324,7 @@ export type GetAuthUserResponse =
 export type UpdateAuthUserRoleData = {
   body: ComponentsUpdateRoleRequest;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/users/{id}/role";
@@ -5367,7 +5367,7 @@ export type UpdateAuthUserRoleResponse =
 export type ListAuthUserAgentsData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/users/{id}/agents";
@@ -5404,7 +5404,7 @@ export type ListAuthUserAgentsResponse =
 export type UpdateAuthUserAgentsData = {
   body: ComponentsUpdateAgentsRequest;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/users/{id}/agents";
@@ -5447,7 +5447,7 @@ export type UpdateAuthUserAgentsResponse =
 export type DeleteAuthUserIdentityData = {
   body?: never;
   path: {
-    id: number;
+    id: string;
     identityId: string;
   };
   query?: never;
@@ -5497,7 +5497,7 @@ export type DeleteAuthUserIdentityResponse =
 export type UpdateAuthUserActiveData = {
   body: ComponentsUpdateActiveRequest;
   path: {
-    id: number;
+    id: string;
   };
   query?: never;
   url: "/api/auth/users/{id}/active";

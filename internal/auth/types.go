@@ -4,7 +4,7 @@ import "time"
 
 // AuthUser represents a system user with login credentials and preferences.
 type AuthUser struct {
-	ID               int64     `json:"id"`
+	ID               string    `json:"id"`
 	Username         string    `json:"username"`
 	PasswordHash     string    `json:"-"`
 	Role             string    `json:"role"`
@@ -49,7 +49,7 @@ type AccessRequest struct {
 
 // Subject represents the entity requesting access.
 type Subject struct {
-	UserID   int64          `json:"user_id"`
+	UserID   string         `json:"user_id"`
 	Roles    []string       `json:"roles"`
 	AgentIDs []string       `json:"agent_ids"`
 	Attrs    map[string]any `json:"attrs,omitempty"`
@@ -72,7 +72,7 @@ const (
 type Resource struct {
 	Type    ResourceType   `json:"type"`
 	ID      string         `json:"id"`
-	OwnerID int64          `json:"owner_id"`
+	OwnerID string         `json:"owner_id"`
 	Attrs   map[string]any `json:"attrs,omitempty"`
 }
 
@@ -96,7 +96,7 @@ const (
 // Identity represents a linked channel identity.
 type Identity struct {
 	ID         string    `json:"id"`
-	UserID     int64     `json:"user_id"`
+	UserID     string    `json:"user_id"`
 	Platform   string    `json:"platform"`
 	ExternalID string    `json:"external_id"`
 	Name       string    `json:"name"`
@@ -106,7 +106,7 @@ type Identity struct {
 // Session represents an HTTP session.
 type Session struct {
 	ID        string    `json:"id"`
-	UserID    int64     `json:"user_id"`
+	UserID    string    `json:"user_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -114,7 +114,7 @@ type Session struct {
 // UserToken represents an API token owned by a user.
 type UserToken struct {
 	ID            string     `json:"id"`
-	UserID        int64      `json:"user_id"`
+	UserID        string     `json:"user_id"`
 	Name          string     `json:"name"`
 	TokenHash     string     `json:"-"`
 	TokenPrefix   string     `json:"token_prefix"`

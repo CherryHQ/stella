@@ -62,7 +62,7 @@ func (t *VaultTool) Definition() tools.Definition {
 func (t *VaultTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	userID := memory.UserIDFromContext(ctx)
-	if userID == 0 {
+	if userID == "" {
 		return "", fmt.Errorf("vault tool requires user context")
 	}
 	switch action {
@@ -77,7 +77,7 @@ func (t *VaultTool) Execute(ctx context.Context, args map[string]any) (string, e
 	}
 }
 
-func (t *VaultTool) list(ctx context.Context, userID int64) (string, error) {
+func (t *VaultTool) list(ctx context.Context, userID string) (string, error) {
 	entries, err := t.svc.ListVault(ctx, userID)
 	if err != nil {
 		return "", err
@@ -93,7 +93,7 @@ func (t *VaultTool) list(ctx context.Context, userID int64) (string, error) {
 	return b.String(), nil
 }
 
-func (t *VaultTool) delete(ctx context.Context, userID int64, args map[string]any) (string, error) {
+func (t *VaultTool) delete(ctx context.Context, userID string, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for delete action")

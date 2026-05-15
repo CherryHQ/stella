@@ -29,6 +29,7 @@ func NewAuthStore(db *sql.DB) *AuthStore {
 
 func (s *AuthStore) CreateUser(ctx context.Context, username, passwordHash string) (auth.AuthUser, error) {
 	r, err := s.q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		ID:           uuid.NewString(),
 		Username:     username,
 		PasswordHash: passwordHash,
 	})
@@ -38,10 +39,10 @@ func (s *AuthStore) CreateUser(ctx context.Context, username, passwordHash strin
 	return userFromDB(r), nil
 }
 
-func (s *AuthStore) GetUser(ctx context.Context, id int64) (auth.AuthUser, error) {
+func (s *AuthStore) GetUser(ctx context.Context, id string) (auth.AuthUser, error) {
 	r, err := s.q.GetAuthUser(ctx, id)
 	if err != nil {
-		return auth.AuthUser{}, fmt.Errorf("get auth user %d: %w", id, err)
+		return auth.AuthUser{}, fmt.Errorf("get auth user %s: %w", id, err)
 	}
 	return userFromDB(r), nil
 }
@@ -77,22 +78,22 @@ func (s *AuthStore) UpdateUser(ctx context.Context, u auth.AuthUser) error {
 		PasswordHash: u.PasswordHash,
 		IsActive:     isActive,
 	}); err != nil {
-		return fmt.Errorf("update auth user %d: %w", u.ID, err)
+		return fmt.Errorf("update auth user %s: %w", u.ID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error {
+func (s *AuthStore) UpdateUserDefaultAgent(ctx context.Context, userID string, agentID string) error {
 	if err := s.q.UpdateAuthUserDefaultAgent(ctx, sqlc.UpdateAuthUserDefaultAgentParams{
 		DefaultAgentID: sql.NullString{String: agentID, Valid: agentID != ""},
 		ID:             userID,
 	}); err != nil {
-		return fmt.Errorf("update default agent for user %d: %w", userID, err)
+		return fmt.Errorf("update default agent for user %s: %w", userID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) UpdateUserNotifyIdentity(ctx context.Context, userID int64, identityID *string) error {
+func (s *AuthStore) UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error {
 	var v sql.NullString
 	if identityID != nil {
 		v = sql.NullString{String: *identityID, Valid: true}
@@ -101,14 +102,14 @@ func (s *AuthStore) UpdateUserNotifyIdentity(ctx context.Context, userID int64, 
 		NotifyIdentityID: v,
 		ID:               userID,
 	}); err != nil {
-		return fmt.Errorf("update notify identity for user %d: %w", userID, err)
+		return fmt.Errorf("update notify identity for user %s: %w", userID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) DeleteUser(ctx context.Context, id int64) error {
+func (s *AuthStore) DeleteUser(ctx context.Context, id string) error {
 	if err := s.q.DeleteAuthUser(ctx, id); err != nil {
-		return fmt.Errorf("delete auth user %d: %w", id, err)
+		return fmt.Errorf("delete auth user %s: %w", id, err)
 	}
 	return nil
 }
@@ -117,23 +118,23 @@ func (s *AuthStore) CountUsers(ctx context.Context) (int64, error) {
 	return s.q.CountAuthUsers(ctx)
 }
 
-func (s *AuthStore) UpdateUserAgeKeys(ctx context.Context, userID int64, publicKey, privateKey string) error {
+func (s *AuthStore) UpdateUserAgeKeys(ctx context.Context, userID string, publicKey, privateKey string) error {
 	if err := s.q.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
 		AgePublicKey:  publicKey,
 		AgePrivateKey: privateKey,
 		ID:            userID,
 	}); err != nil {
-		return fmt.Errorf("update age keys for user %d: %w", userID, err)
+		return fmt.Errorf("update age keys for user %s: %w", userID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) UpdateUserRole(ctx context.Context, userID int64, role string) error {
+func (s *AuthStore) UpdateUserRole(ctx context.Context, userID string, role string) error {
 	if err := s.q.UpdateAuthUserRole(ctx, sqlc.UpdateAuthUserRoleParams{
 		Role: role,
 		ID:   userID,
 	}); err != nil {
-		return fmt.Errorf("update role for user %d: %w", userID, err)
+		return fmt.Errorf("update role for user %s: %w", userID, err)
 	}
 	return nil
 }
@@ -183,10 +184,10 @@ func (s *AuthStore) UpdateIdentityExternalID(ctx context.Context, id string, ext
 	return nil
 }
 
-func (s *AuthStore) ListIdentitiesByUser(ctx context.Context, userID int64) ([]auth.Identity, error) {
+func (s *AuthStore) ListIdentitiesByUser(ctx context.Context, userID string) ([]auth.Identity, error) {
 	rows, err := s.q.ListAuthIdentitiesByUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("list identities for user %d: %w", userID, err)
+		return nil, fmt.Errorf("list identities for user %s: %w", userID, err)
 	}
 	out := make([]auth.Identity, len(rows))
 	for i, r := range rows {
@@ -293,42 +294,42 @@ func (s *AuthStore) DeletePolicy(ctx context.Context, id string) error {
 
 // --- User-Agent assignments ---
 
-func (s *AuthStore) AssignAgent(ctx context.Context, userID int64, agentID string) error {
+func (s *AuthStore) AssignAgent(ctx context.Context, userID string, agentID string) error {
 	if err := s.q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{
 		UserID:  userID,
 		AgentID: agentID,
 	}); err != nil {
-		return fmt.Errorf("assign agent %q to user %d: %w", agentID, userID, err)
+		return fmt.Errorf("assign agent %q to user %s: %w", agentID, userID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) RemoveAgent(ctx context.Context, userID int64, agentID string) error {
+func (s *AuthStore) RemoveAgent(ctx context.Context, userID string, agentID string) error {
 	if err := s.q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{
 		UserID:  userID,
 		AgentID: agentID,
 	}); err != nil {
-		return fmt.Errorf("remove agent %q from user %d: %w", agentID, userID, err)
+		return fmt.Errorf("remove agent %q from user %s: %w", agentID, userID, err)
 	}
 	return nil
 }
 
-func (s *AuthStore) ListUserAgentIDs(ctx context.Context, userID int64) ([]string, error) {
+func (s *AuthStore) ListUserAgentIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.q.ListUserAgents(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("list user agents for user %d: %w", userID, err)
+		return nil, fmt.Errorf("list user agents for user %s: %w", userID, err)
 	}
 	out := make([]string, len(rows))
 	copy(out, rows)
 	return out, nil
 }
 
-func (s *AuthStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]int64, error) {
+func (s *AuthStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]string, error) {
 	rows, err := s.q.ListAgentUsers(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list agent users for agent %q: %w", agentID, err)
 	}
-	out := make([]int64, len(rows))
+	out := make([]string, len(rows))
 	copy(out, rows)
 	return out, nil
 }
@@ -369,9 +370,9 @@ func (s *AuthStore) DeleteExpiredSessions(ctx context.Context) error {
 	return nil
 }
 
-func (s *AuthStore) DeleteUserSessions(ctx context.Context, userID int64) error {
+func (s *AuthStore) DeleteUserSessions(ctx context.Context, userID string) error {
 	if err := s.q.DeleteUserAuthSessions(ctx, userID); err != nil {
-		return fmt.Errorf("delete sessions for user %d: %w", userID, err)
+		return fmt.Errorf("delete sessions for user %s: %w", userID, err)
 	}
 	return nil
 }
@@ -403,7 +404,7 @@ func (s *AuthStore) CreateUserToken(ctx context.Context, token auth.UserToken) (
 		ExpiresAt:     nullStringFromTimePtr(token.ExpiresAt),
 	})
 	if err != nil {
-		return auth.UserToken{}, fmt.Errorf("create user token for user %d: %w", token.UserID, err)
+		return auth.UserToken{}, fmt.Errorf("create user token for user %s: %w", token.UserID, err)
 	}
 	return userTokenFromDB(r), nil
 }
@@ -424,10 +425,10 @@ func (s *AuthStore) GetActiveUserTokenByHash(ctx context.Context, tokenHash stri
 	return userTokenFromDB(r), nil
 }
 
-func (s *AuthStore) GetActiveAutoUserToken(ctx context.Context, userID int64) (auth.UserToken, error) {
+func (s *AuthStore) GetActiveAutoUserToken(ctx context.Context, userID string) (auth.UserToken, error) {
 	r, err := s.q.GetActiveAutoAuthUserTokenByUser(ctx, userID)
 	if err != nil {
-		return auth.UserToken{}, fmt.Errorf("get active auto user token for user %d: %w", userID, err)
+		return auth.UserToken{}, fmt.Errorf("get active auto user token for user %s: %w", userID, err)
 	}
 	return userTokenFromDB(r), nil
 }

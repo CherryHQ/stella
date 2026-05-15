@@ -31,7 +31,7 @@ func newTracedWithCollector(inner memory.Provider) (memory.Provider, *collecting
 	return traced, col
 }
 
-var testSession = memory.Session{ID: "sess-1", AgentID: "agent-1", UserID: 42}
+var testSession = memory.Session{ID: "sess-1", AgentID: "agent-1", UserID: "42"}
 
 func TestTracedProvider_Name(t *testing.T) {
 	fake := memorytest.New()
@@ -244,7 +244,7 @@ func TestTracedProvider_GetProfile(t *testing.T) {
 	traced, col := newTracedWithCollector(fake)
 	col.events = nil
 
-	_, err := traced.(memory.ProfileStore).GetProfile(context.Background(), 1, "agent-1")
+	_, err := traced.(memory.ProfileStore).GetProfile(context.Background(), "1", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestTracedProvider_SetProfile(t *testing.T) {
 	traced, col := newTracedWithCollector(fake)
 	col.events = nil
 
-	err := traced.(memory.ProfileStore).SetProfile(context.Background(), 1, "agent-1", "profile content")
+	err := traced.(memory.ProfileStore).SetProfile(context.Background(), "1", "agent-1", "profile content")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestTracedProvider_GetAgentSoul(t *testing.T) {
 	traced, col := newTracedWithCollector(fake)
 	col.events = nil
 
-	_, err := traced.(memory.ProfileStore).GetAgentSoul(context.Background(), 1, "agent-1")
+	_, err := traced.(memory.ProfileStore).GetAgentSoul(context.Background(), "1", "agent-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestTracedProvider_SetAgentSoul(t *testing.T) {
 	traced, col := newTracedWithCollector(fake)
 	col.events = nil
 
-	err := traced.(memory.ProfileStore).SetAgentSoul(context.Background(), 1, "agent-1", "soul content")
+	err := traced.(memory.ProfileStore).SetAgentSoul(context.Background(), "1", "agent-1", "soul content")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestTracedProvider_SaveInfo(t *testing.T) {
 	traced, col := newTracedWithCollector(fake)
 	col.events = nil
 
-	info := memory.SessionInfo{ID: "sess-1", AgentID: "agent-1", UserID: 1, Title: "Test Session"}
+	info := memory.SessionInfo{ID: "sess-1", AgentID: "agent-1", UserID: "1", Title: "Test Session"}
 	err := traced.(memory.SessionManager).SaveInfo(context.Background(), info)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func TestTracedProvider_LoadInfo(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)
 
-	info := memory.SessionInfo{ID: "sess-1", AgentID: "agent-1", UserID: 1}
+	info := memory.SessionInfo{ID: "sess-1", AgentID: "agent-1", UserID: "1"}
 	_ = traced.(memory.SessionManager).SaveInfo(context.Background(), info)
 	col.events = nil
 

@@ -166,7 +166,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		SessionMode:   job.SessionMode,
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
+		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
 		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
 		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
@@ -199,7 +199,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		SessionMode:   job.SessionMode,
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
+		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
 		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
@@ -236,7 +236,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		j.AgentID = r.AgentID.String
 	}
 	if r.UserID.Valid {
-		j.UserID = r.UserID.Int64
+		j.UserID = r.UserID.String
 	}
 	if r.LastRunAt.Valid {
 		if parsed, err := time.Parse(dbTimeLayout, r.LastRunAt.String); err == nil {
@@ -303,14 +303,14 @@ func nullableTime(t *time.Time) sql.NullString {
 	return sql.NullString{String: t.UTC().Format(dbTimeLayout), Valid: true}
 }
 
-func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, userID int64, startedAt time.Time) error {
+func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
 	_, err := s.q.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
 		ID:        id,
 		JobID:     jobID,
 		SessionID: sessionID,
 		Status:    RunStatusRunning,
 		StartedAt: startedAt.UTC().Format(dbTimeLayout),
-		UserID:    sql.NullInt64{Int64: userID, Valid: userID != 0},
+		UserID:    sql.NullString{String: userID, Valid: userID != ""},
 	})
 	return err
 }
@@ -319,7 +319,7 @@ func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string,
 // job and creates the initial "running" record in a single transaction.
 // SQLite serializes writes, so Begin + check + insert is effectively atomic.
 // Returns errJobAlreadyRunning if a run is already active.
-func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID int64, startedAt time.Time) error {
+func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -340,7 +340,7 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 		SessionID: sessionID,
 		Status:    RunStatusRunning,
 		StartedAt: startedAt.UTC().Format(dbTimeLayout),
-		UserID:    sql.NullInt64{Int64: userID, Valid: userID != 0},
+		UserID:    sql.NullString{String: userID, Valid: userID != ""},
 	}); err != nil {
 		return err
 	}
@@ -367,7 +367,7 @@ func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
 		Error:     r.Error,
 	}
 	if r.UserID.Valid {
-		run.UserID = r.UserID.Int64
+		run.UserID = r.UserID.String
 	}
 	if r.FinishedAt.Valid {
 		if parsed, err := time.Parse(dbTimeLayout, r.FinishedAt.String); err == nil {

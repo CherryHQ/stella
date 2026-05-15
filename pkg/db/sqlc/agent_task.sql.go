@@ -14,7 +14,7 @@ const countRunningAgentTasksByUser = `-- name: CountRunningAgentTasksByUser :one
 SELECT count(*) FROM agent_task WHERE status = 'running' AND user_id = ?
 `
 
-func (q *Queries) CountRunningAgentTasksByUser(ctx context.Context, userID int64) (int64, error) {
+func (q *Queries) CountRunningAgentTasksByUser(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countRunningAgentTasksByUser, userID)
 	var count int64
 	err := row.Scan(&count)
@@ -43,7 +43,7 @@ type CreateAgentTaskParams struct {
 	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
 	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
 	AgentID        sql.NullString `json:"agent_id"`
-	UserID         int64          `json:"user_id"`
+	UserID         string         `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
 }
@@ -217,7 +217,7 @@ const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
 SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
 `
 
-func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID int64) ([]AgentTask, error) {
+func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]AgentTask, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser, userID)
 	if err != nil {
 		return nil, err

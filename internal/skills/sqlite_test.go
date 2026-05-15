@@ -24,7 +24,7 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
 
 // seedFixtures inserts the auth_users and settings_agents rows needed by FK constraints.
 // Returns (userID, agentID).
-func seedFixtures(t *testing.T, db *sql.DB) (int64, string) {
+func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 

@@ -39,7 +39,7 @@ func TestProvisionIdentityUserNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.ID == 0 {
+	if user.ID == "" {
 		t.Fatal("expected non-zero user ID")
 	}
 	if user.Username != "alice" {
@@ -73,7 +73,7 @@ func TestProvisionIdentityUserIdempotent(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 	if u1.ID != u2.ID {
-		t.Errorf("idempotency: got different user IDs %d vs %d", u1.ID, u2.ID)
+		t.Errorf("idempotency: got different user IDs %q vs %q", u1.ID, u2.ID)
 	}
 
 	users, _ := store.ListUsers(ctx)
@@ -171,13 +171,13 @@ func TestProvisionIdentityUserCallsOnUserCreated(t *testing.T) {
 	store := setupProvisionStore(t)
 	ctx := context.Background()
 
-	var calledUserID int64
+	var calledUserID string
 	req := auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "on_callback",
 		Name:       "Frank",
 		EmailHint:  "frank@example.com",
-		OnUserCreated: func(_ context.Context, userID int64) error {
+		OnUserCreated: func(_ context.Context, userID string) error {
 			calledUserID = userID
 			return nil
 		},
@@ -188,7 +188,7 @@ func TestProvisionIdentityUserCallsOnUserCreated(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if calledUserID != user.ID {
-		t.Fatalf("OnUserCreated called with user_id=%d, want %d", calledUserID, user.ID)
+		t.Fatalf("OnUserCreated called with user_id=%q, want %q", calledUserID, user.ID)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestProvisionIdentityUserOnUserCreatedFailureRollsBackUser(t *testing.T) {
 		ExternalID: "on_callback_fail",
 		Name:       "Grace",
 		EmailHint:  "grace@example.com",
-		OnUserCreated: func(_ context.Context, _ int64) error {
+		OnUserCreated: func(_ context.Context, _ string) error {
 			return errors.New("boom")
 		},
 	}
@@ -224,10 +224,10 @@ func TestProvisionIdentityUserOnUserCreatedFailureRollsBackUser(t *testing.T) {
 
 type provisionStubStore struct {
 	getIdentityByPlatform func(context.Context, string, string) (auth.Identity, error)
-	getUser               func(context.Context, int64) (auth.AuthUser, error)
+	getUser               func(context.Context, string) (auth.AuthUser, error)
 	getUserByUsername     func(context.Context, string) (auth.AuthUser, error)
 	createUser            func(context.Context, string, string) (auth.AuthUser, error)
-	deleteUser            func(context.Context, int64) error
+	deleteUser            func(context.Context, string) error
 	createIdentity        func(context.Context, auth.Identity) (auth.Identity, error)
 }
 
@@ -235,7 +235,7 @@ func (s provisionStubStore) CreateUser(ctx context.Context, username, passwordHa
 	return s.createUser(ctx, username, passwordHash)
 }
 
-func (s provisionStubStore) GetUser(ctx context.Context, id int64) (auth.AuthUser, error) {
+func (s provisionStubStore) GetUser(ctx context.Context, id string) (auth.AuthUser, error) {
 	return s.getUser(ctx, id)
 }
 
@@ -244,23 +244,23 @@ func (s provisionStubStore) GetUserByUsername(ctx context.Context, username stri
 }
 func (s provisionStubStore) ListUsers(context.Context) ([]auth.AuthUser, error) { panic("unused") }
 func (s provisionStubStore) UpdateUser(context.Context, auth.AuthUser) error    { panic("unused") }
-func (s provisionStubStore) UpdateUserRole(context.Context, int64, string) error {
+func (s provisionStubStore) UpdateUserRole(context.Context, string, string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) UpdateUserDefaultAgent(context.Context, int64, string) error {
+func (s provisionStubStore) UpdateUserDefaultAgent(context.Context, string, string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) UpdateUserNotifyIdentity(context.Context, int64, *string) error {
+func (s provisionStubStore) UpdateUserNotifyIdentity(context.Context, string, *string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) UpdateUserAgeKeys(context.Context, int64, string, string) error {
+func (s provisionStubStore) UpdateUserAgeKeys(context.Context, string, string, string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) DeleteUser(ctx context.Context, id int64) error {
+func (s provisionStubStore) DeleteUser(ctx context.Context, id string) error {
 	return s.deleteUser(ctx, id)
 }
 func (s provisionStubStore) CountUsers(context.Context) (int64, error) { panic("unused") }
@@ -280,7 +280,7 @@ func (s provisionStubStore) UpdateIdentityExternalID(context.Context, string, st
 	panic("unused")
 }
 
-func (s provisionStubStore) ListIdentitiesByUser(context.Context, int64) ([]auth.Identity, error) {
+func (s provisionStubStore) ListIdentitiesByUser(context.Context, string) ([]auth.Identity, error) {
 	panic("unused")
 }
 func (s provisionStubStore) DeleteIdentity(context.Context, string) error { panic("unused") }
@@ -292,15 +292,15 @@ func (s provisionStubStore) ListPolicies(context.Context) ([]auth.Policy, error)
 func (s provisionStubStore) ListEnabledPolicies(context.Context) ([]auth.Policy, error) {
 	panic("unused")
 }
-func (s provisionStubStore) UpdatePolicy(context.Context, auth.Policy) error  { panic("unused") }
-func (s provisionStubStore) DeletePolicy(context.Context, string) error       { panic("unused") }
-func (s provisionStubStore) AssignAgent(context.Context, int64, string) error { panic("unused") }
-func (s provisionStubStore) RemoveAgent(context.Context, int64, string) error { panic("unused") }
-func (s provisionStubStore) ListUserAgentIDs(context.Context, int64) ([]string, error) {
+func (s provisionStubStore) UpdatePolicy(context.Context, auth.Policy) error   { panic("unused") }
+func (s provisionStubStore) DeletePolicy(context.Context, string) error        { panic("unused") }
+func (s provisionStubStore) AssignAgent(context.Context, string, string) error { panic("unused") }
+func (s provisionStubStore) RemoveAgent(context.Context, string, string) error { panic("unused") }
+func (s provisionStubStore) ListUserAgentIDs(context.Context, string) ([]string, error) {
 	panic("unused")
 }
 
-func (s provisionStubStore) ListAgentUserIDs(context.Context, string) ([]int64, error) {
+func (s provisionStubStore) ListAgentUserIDs(context.Context, string) ([]string, error) {
 	panic("unused")
 }
 
@@ -311,9 +311,9 @@ func (s provisionStubStore) CreateSession(context.Context, auth.Session) (auth.S
 func (s provisionStubStore) GetSession(context.Context, string) (auth.Session, error) {
 	panic("unused")
 }
-func (s provisionStubStore) DeleteSession(context.Context, string) error     { panic("unused") }
-func (s provisionStubStore) DeleteExpiredSessions(context.Context) error     { panic("unused") }
-func (s provisionStubStore) DeleteUserSessions(context.Context, int64) error { panic("unused") }
+func (s provisionStubStore) DeleteSession(context.Context, string) error      { panic("unused") }
+func (s provisionStubStore) DeleteExpiredSessions(context.Context) error      { panic("unused") }
+func (s provisionStubStore) DeleteUserSessions(context.Context, string) error { panic("unused") }
 func (s provisionStubStore) UpdateSessionExpiry(context.Context, string, time.Time) error {
 	panic("unused")
 }
@@ -330,7 +330,7 @@ func (s provisionStubStore) GetActiveUserTokenByHash(context.Context, string) (a
 	panic("unused")
 }
 
-func (s provisionStubStore) GetActiveAutoUserToken(context.Context, int64) (auth.UserToken, error) {
+func (s provisionStubStore) GetActiveAutoUserToken(context.Context, string) (auth.UserToken, error) {
 	panic("unused")
 }
 
@@ -364,10 +364,10 @@ func TestProvisionIdentityUserPropagatesIdentityLookupError(t *testing.T) {
 func TestProvisionIdentityUserReturnsExistingUserFromIdentity(t *testing.T) {
 	store := provisionStubStore{
 		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			return auth.Identity{UserID: 42}, nil
+			return auth.Identity{UserID: "42"}, nil
 		},
-		getUser: func(context.Context, int64) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: 42, Username: "existing"}, nil
+		getUser: func(context.Context, string) (auth.AuthUser, error) {
+			return auth.AuthUser{ID: "42", Username: "existing"}, nil
 		},
 	}
 	user, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
@@ -377,7 +377,7 @@ func TestProvisionIdentityUserReturnsExistingUserFromIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProvisionIdentityUser: %v", err)
 	}
-	if user.ID != 42 || user.Username != "existing" {
+	if user.ID != "42" || user.Username != "existing" {
 		t.Fatalf("user = %+v, want existing user", user)
 	}
 }
@@ -391,9 +391,9 @@ func TestProvisionIdentityUserOnUserCreatedCleanupFailureIncludesBothErrors(t *t
 			return auth.AuthUser{}, sql.ErrNoRows
 		},
 		createUser: func(context.Context, string, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: 7, Username: "cleanup"}, nil
+			return auth.AuthUser{ID: "7", Username: "cleanup"}, nil
 		},
-		deleteUser: func(context.Context, int64) error {
+		deleteUser: func(context.Context, string) error {
 			return errors.New("cleanup failed")
 		},
 		createIdentity: func(context.Context, auth.Identity) (auth.Identity, error) {
@@ -404,7 +404,7 @@ func TestProvisionIdentityUserOnUserCreatedCleanupFailureIncludesBothErrors(t *t
 		Platform:   "feishu",
 		ExternalID: "cleanup",
 		EmailHint:  "cleanup@example.com",
-		OnUserCreated: func(context.Context, int64) error {
+		OnUserCreated: func(context.Context, string) error {
 			return errors.New("callback failed")
 		},
 	})
@@ -446,22 +446,22 @@ func TestProvisionIdentityUserIdentityRaceReturnsWinner(t *testing.T) {
 			if lookupCalls == 1 {
 				return auth.Identity{}, sql.ErrNoRows
 			}
-			return auth.Identity{UserID: 99}, nil
+			return auth.Identity{UserID: "99"}, nil
 		},
 		getUserByUsername: func(context.Context, string) (auth.AuthUser, error) {
 			return auth.AuthUser{}, sql.ErrNoRows
 		},
 		createUser: func(context.Context, string, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: 7, Username: "racy"}, nil
+			return auth.AuthUser{ID: "7", Username: "racy"}, nil
 		},
-		deleteUser: func(context.Context, int64) error {
+		deleteUser: func(context.Context, string) error {
 			return nil
 		},
 		createIdentity: func(context.Context, auth.Identity) (auth.Identity, error) {
 			return auth.Identity{}, errors.New("unique constraint")
 		},
-		getUser: func(context.Context, int64) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: 99, Username: "winner"}, nil
+		getUser: func(context.Context, string) (auth.AuthUser, error) {
+			return auth.AuthUser{ID: "99", Username: "winner"}, nil
 		},
 	}
 	user, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
@@ -472,7 +472,7 @@ func TestProvisionIdentityUserIdentityRaceReturnsWinner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProvisionIdentityUser: %v", err)
 	}
-	if user.ID != 99 || user.Username != "winner" {
+	if user.ID != "99" || user.Username != "winner" {
 		t.Fatalf("user = %+v, want winner", user)
 	}
 }

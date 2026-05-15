@@ -52,7 +52,7 @@ func newLCMTestSession(suffix string) memory.Session {
 	return memory.Session{
 		ID:      "test:cli:1:" + suffix,
 		AgentID: "test",
-		UserID:  1,
+		UserID:  "1",
 		Channel: "cli",
 	}
 }

@@ -31,7 +31,7 @@ func generateID() string {
 }
 
 // SaveArticle saves or updates an article by canonical URL.
-func (s *Store) SaveArticle(ctx context.Context, userID int64, req SaveRequest) (*Article, bool, error) {
+func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
 	canonicalURL := req.CanonicalURL
 	if canonicalURL == "" {
 		canonicalURL = NormalizeURL(req.URL)
@@ -94,7 +94,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID int64, req SaveRequest) 
 }
 
 // GetArticleByCanonicalURL retrieves an article by canonical URL for a user.
-func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID int64, canonicalURL string) (*Article, error) {
+func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID string, canonicalURL string) (*Article, error) {
 	row, err := s.q.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -204,7 +204,7 @@ func (s *Store) DeleteArticle(ctx context.Context, articleID string) error {
 }
 
 // ListArticles lists articles for a user with optional filtering.
-func (s *Store) ListArticles(ctx context.Context, userID int64, filter ArticleFilter) ([]Article, error) {
+func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleFilter) ([]Article, error) {
 	limit := int64(filter.Limit)
 	if limit <= 0 {
 		limit = 50
@@ -237,7 +237,7 @@ func (s *Store) ListArticles(ctx context.Context, userID int64, filter ArticleFi
 }
 
 // SearchArticles searches articles by title, summary, tags, or author.
-func (s *Store) SearchArticles(ctx context.Context, userID int64, query string, limit int) ([]Article, error) {
+func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -264,7 +264,7 @@ func (s *Store) SearchArticles(ctx context.Context, userID int64, query string, 
 }
 
 // CreateFeed creates a new RSS feed subscription.
-func (s *Store) CreateFeed(ctx context.Context, userID int64, feedURL, title, description string, agentID *string) (*Feed, error) {
+func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL, title, description string, agentID *string) (*Feed, error) {
 	row, err := s.q.CreateRSSFeed(ctx, sqlc.CreateRSSFeedParams{
 		ID:            generateID(),
 		UserID:        userID,
@@ -301,7 +301,7 @@ func (s *Store) GetFeed(ctx context.Context, feedID string) (*Feed, error) {
 }
 
 // GetFeedByURL retrieves a feed by URL for a user.
-func (s *Store) GetFeedByURL(ctx context.Context, userID int64, feedURL string) (*Feed, error) {
+func (s *Store) GetFeedByURL(ctx context.Context, userID string, feedURL string) (*Feed, error) {
 	row, err := s.q.GetRSSFeedByURL(ctx, sqlc.GetRSSFeedByURLParams{UserID: userID, Url: feedURL})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -315,7 +315,7 @@ func (s *Store) GetFeedByURL(ctx context.Context, userID int64, feedURL string) 
 }
 
 // ListFeeds lists all feeds for a user.
-func (s *Store) ListFeeds(ctx context.Context, userID int64) ([]Feed, error) {
+func (s *Store) ListFeeds(ctx context.Context, userID string) ([]Feed, error) {
 	rows, err := s.q.ListRSSFeeds(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list feeds: %w", err)
@@ -481,7 +481,7 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, articleID, filePath s
 }
 
 // GetDigest generates a daily reading digest for a user.
-func (s *Store) GetDigest(ctx context.Context, userID int64) (*Digest, error) {
+func (s *Store) GetDigest(ctx context.Context, userID string) (*Digest, error) {
 	digest := &Digest{
 		UserID: userID,
 		Date:   time.Now().UTC(),
@@ -590,7 +590,7 @@ func (s *Store) GetDigest(ctx context.Context, userID int64) (*Digest, error) {
 
 // SaveDigest persists a daily digest snapshot. If one already exists for that
 // date it is replaced. Counts are snapshotted from the live digest.
-func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date string) (*StoredDigest, error) {
+func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date string) (*StoredDigest, error) {
 	live, err := s.GetDigest(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get live digest: %w", err)
@@ -664,7 +664,7 @@ func (s *Store) SaveDigest(ctx context.Context, userID int64, narrative, date st
 }
 
 // GetStoredDigestByDate returns a persisted digest with full article objects.
-func (s *Store) GetStoredDigestByDate(ctx context.Context, userID int64, date string) (*StoredDigest, error) {
+func (s *Store) GetStoredDigestByDate(ctx context.Context, userID string, date string) (*StoredDigest, error) {
 	row, err := s.q.GetDigestByDate(ctx, sqlc.GetDigestByDateParams{UserID: userID, Date: date})
 	if err != nil {
 		return nil, fmt.Errorf("get digest by date: %w", err)
@@ -673,7 +673,7 @@ func (s *Store) GetStoredDigestByDate(ctx context.Context, userID int64, date st
 }
 
 // ListStoredDigests returns a paginated list of lightweight digest summaries.
-func (s *Store) ListStoredDigests(ctx context.Context, userID int64, limit, offset int64) ([]StoredDigestSummary, int64, error) {
+func (s *Store) ListStoredDigests(ctx context.Context, userID string, limit, offset int64) ([]StoredDigestSummary, int64, error) {
 	total, err := s.q.CountDigests(ctx, userID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count digests: %w", err)

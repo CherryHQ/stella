@@ -39,7 +39,7 @@ func newTestSession() memory.Session {
 	return memory.Session{
 		ID:      "test:cli:1:main-extra",
 		AgentID: "test",
-		UserID:  1,
+		UserID:  "1",
 		Channel: "cli",
 	}
 }

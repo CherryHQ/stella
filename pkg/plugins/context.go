@@ -87,7 +87,7 @@ type SystemPromptContext struct {
 	HomeDir     string
 	AgentRoot   string
 	ProjectRoot string
-	UserID      int64
+	UserID      string
 	AgentID     string
 	UserRoot    string
 	// RegisteredPluginIDs and EnabledPluginIDs describe plugin visibility for
@@ -110,7 +110,7 @@ type BeforeRunContext struct {
 	State        PluginState
 	SessionID    string
 	Channel      string
-	UserID       int64
+	UserID       string
 	AgentID      string
 	Model        string
 	MessageText  string
@@ -124,7 +124,7 @@ type BeforeToolCallContext struct {
 	State      PluginState
 	SessionID  string
 	Channel    string
-	UserID     int64
+	UserID     string
 	AgentID    string
 	ToolName   string
 	ToolCallID string
@@ -137,7 +137,7 @@ type AfterToolResultContext struct {
 	State      PluginState
 	SessionID  string
 	Channel    string
-	UserID     int64
+	UserID     string
 	AgentID    string
 	ToolName   string
 	ToolCallID string

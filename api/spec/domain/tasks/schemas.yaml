@@ -43,7 +43,7 @@ components:
           description: "When to next notify the user; null means no pending notification",
         }
         agent_id: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 

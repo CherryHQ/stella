@@ -53,7 +53,7 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 
 // requireSkillScope checks that skill matches the expected scope and owner.
 // Returns the skill or an error status + message.
-func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID int64, agentID string) (*skills.Skill, int, string) {
+func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID string, agentID string) (*skills.Skill, int, string) {
 	sk, err := s.findSkillByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -154,7 +154,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, code, msg)
 		return
 	}
-	sk, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", 0, agentID)
+	sk, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -174,7 +174,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", 0, agentID); code != 0 {
+	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
@@ -188,7 +188,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", 0, agentID); code != 0 {
+	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
@@ -202,7 +202,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", 0, agentID); code != 0 {
+	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
@@ -216,7 +216,7 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", 0, agentID); code != 0 {
+	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
@@ -251,7 +251,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusBadRequest, "source is required")
 		return
 	}
-	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, "agent", 0, agentID)
+	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, "agent", "", agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -158,7 +158,7 @@ paths:
           name: userId,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     delete:
       tags: [agents]

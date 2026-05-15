@@ -22,18 +22,19 @@ func (q *Queries) CountAuthUsers(ctx context.Context) (int64, error) {
 }
 
 const createAuthUser = `-- name: CreateAuthUser :one
-INSERT INTO auth_users (username, password_hash)
-VALUES (?, ?)
+INSERT INTO auth_users (id, username, password_hash)
+VALUES (?, ?, ?)
 RETURNING id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at
 `
 
 type CreateAuthUserParams struct {
+	ID           string `json:"id"`
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"`
 }
 
 func (q *Queries) CreateAuthUser(ctx context.Context, arg CreateAuthUserParams) (AuthUser, error) {
-	row := q.db.QueryRowContext(ctx, createAuthUser, arg.Username, arg.PasswordHash)
+	row := q.db.QueryRowContext(ctx, createAuthUser, arg.ID, arg.Username, arg.PasswordHash)
 	var i AuthUser
 	err := row.Scan(
 		&i.ID,
@@ -55,7 +56,7 @@ const deleteAuthUser = `-- name: DeleteAuthUser :exec
 DELETE FROM auth_users WHERE id = ?
 `
 
-func (q *Queries) DeleteAuthUser(ctx context.Context, id int64) error {
+func (q *Queries) DeleteAuthUser(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteAuthUser, id)
 	return err
 }
@@ -64,7 +65,7 @@ const getAuthUser = `-- name: GetAuthUser :one
 SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_users WHERE id = ?
 `
 
-func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
+func (q *Queries) GetAuthUser(ctx context.Context, id string) (AuthUser, error) {
 	row := q.db.QueryRowContext(ctx, getAuthUser, id)
 	var i AuthUser
 	err := row.Scan(
@@ -158,7 +159,7 @@ type UpdateAuthUserParams struct {
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"`
 	IsActive     int64  `json:"is_active"`
-	ID           int64  `json:"id"`
+	ID           string `json:"id"`
 }
 
 func (q *Queries) UpdateAuthUser(ctx context.Context, arg UpdateAuthUserParams) error {
@@ -180,7 +181,7 @@ WHERE id = ?
 
 type UpdateAuthUserDefaultAgentParams struct {
 	DefaultAgentID sql.NullString `json:"default_agent_id"`
-	ID             int64          `json:"id"`
+	ID             string         `json:"id"`
 }
 
 func (q *Queries) UpdateAuthUserDefaultAgent(ctx context.Context, arg UpdateAuthUserDefaultAgentParams) error {
@@ -197,7 +198,7 @@ WHERE id = ?
 
 type UpdateAuthUserNotifyIdentityParams struct {
 	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
-	ID               int64          `json:"id"`
+	ID               string         `json:"id"`
 }
 
 func (q *Queries) UpdateAuthUserNotifyIdentity(ctx context.Context, arg UpdateAuthUserNotifyIdentityParams) error {
@@ -214,7 +215,7 @@ WHERE id = ?
 
 type UpdateAuthUserRoleParams struct {
 	Role string `json:"role"`
-	ID   int64  `json:"id"`
+	ID   string `json:"id"`
 }
 
 func (q *Queries) UpdateAuthUserRole(ctx context.Context, arg UpdateAuthUserRoleParams) error {
@@ -233,7 +234,7 @@ WHERE id = ?
 type UpdateUserAgeKeysParams struct {
 	AgePublicKey  string `json:"age_public_key"`
 	AgePrivateKey string `json:"age_private_key"`
-	ID            int64  `json:"id"`
+	ID            string `json:"id"`
 }
 
 func (q *Queries) UpdateUserAgeKeys(ctx context.Context, arg UpdateUserAgeKeysParams) error {

@@ -132,7 +132,7 @@ func TestGetToken_RefreshesNearExpiry(t *testing.T) {
 
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(1)
+	userID := "1"
 
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{
@@ -187,7 +187,7 @@ func TestGetToken_SkipsRefreshWhenFreshToken(t *testing.T) {
 
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(2)
+	userID := "2"
 
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{
@@ -230,7 +230,7 @@ func TestGetToken_RefreshFailureFallsBackToExisting(t *testing.T) {
 
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(3)
+	userID := "3"
 
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{
@@ -274,7 +274,7 @@ func TestGetToken_NoRefreshForTokenWithoutExpiry(t *testing.T) {
 
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(4)
+	userID := "4"
 
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{

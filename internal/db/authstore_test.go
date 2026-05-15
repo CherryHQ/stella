@@ -47,8 +47,8 @@ func TestUserCRUD(t *testing.T) {
 	if user.Username != "alice" || !user.IsActive {
 		t.Errorf("CreateUser = %+v", user)
 	}
-	if user.ID == 0 {
-		t.Error("expected non-zero ID")
+	if user.ID == "" {
+		t.Error("expected non-empty ID")
 	}
 
 	// Get by ID.
@@ -66,7 +66,7 @@ func TestUserCRUD(t *testing.T) {
 		t.Fatalf("GetUserByUsername: %v", err)
 	}
 	if got.ID != user.ID {
-		t.Errorf("GetUserByUsername ID = %d, want %d", got.ID, user.ID)
+		t.Errorf("GetUserByUsername ID = %q, want %q", got.ID, user.ID)
 	}
 
 	// List.
@@ -185,7 +185,7 @@ func TestIdentityCRUD(t *testing.T) {
 		t.Fatalf("GetIdentityByPlatform: %v", err)
 	}
 	if got.UserID != user.ID {
-		t.Errorf("GetIdentityByPlatform user_id = %d", got.UserID)
+		t.Errorf("GetIdentityByPlatform user_id = %q", got.UserID)
 	}
 
 	identities, err := store.ListIdentitiesByUser(ctx, user.ID)
@@ -387,7 +387,7 @@ func TestSessionCRUD(t *testing.T) {
 		t.Fatalf("GetSession: %v", err)
 	}
 	if got.UserID != user.ID {
-		t.Errorf("GetSession user_id = %d", got.UserID)
+		t.Errorf("GetSession user_id = %q", got.UserID)
 	}
 
 	// Update expiry.

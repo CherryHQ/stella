@@ -40,7 +40,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	}
 
 	// Set user and agent context from session metadata (loaded from DB).
-	if sess.Info.UserID != 0 {
+	if sess.Info.UserID != "" {
 		ctx = memory.WithUserID(ctx, sess.Info.UserID)
 	}
 	agentID := sess.Info.AgentID
@@ -142,7 +142,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	// Front-end (tool) writes advance the snapshot; back-end (Reflect) writes don't.
 	var snapshotPrompt string
 	if p.snapshotPromptFn != nil {
-		if sss, ok := p.mem.(memory.SessionSnapshotStore); ok && sess.Info.UserID > 0 && agentID != "" {
+		if sss, ok := p.mem.(memory.SessionSnapshotStore); ok && sess.Info.UserID != "" && agentID != "" {
 			snapshot, snapErr := sss.GetOrCreateSessionSnapshot(ctx, sessionID, sess.Info.UserID, agentID)
 			if snapErr != nil {
 				p.log.Warn("session snapshot failed", "session_id", sessionID, "error", snapErr)

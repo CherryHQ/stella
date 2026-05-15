@@ -9,7 +9,7 @@ components:
       type: object
       properties:
         scope: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         agent_id: { type: string }
         name: { type: string }
         description: { type: string }
@@ -25,7 +25,7 @@ components:
       properties:
         source: { type: string }
         scope: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         agent_id: { type: string }
 
     ProfileInstallSkillRequest:

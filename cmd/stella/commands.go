@@ -115,7 +115,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	rawSkillStore := skills.New(db)
-	skillStore := skills.NewDiskSyncStore(rawSkillStore, func(scope, agentID string, userID int64) string {
+	skillStore := skills.NewDiskSyncStore(rawSkillStore, func(scope, agentID string, userID string) string {
 		base := config.StellaHome()
 		switch scope {
 		case "system":
@@ -126,10 +126,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}
 			return filepath.Join(base, "workspaces", agentID, ".agents", "skills")
 		case "user":
-			if agentID == "" || userID == 0 {
+			if agentID == "" || userID == "" {
 				return ""
 			}
-			return filepath.Join(base, "workspaces", agentID, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+			return filepath.Join(base, "workspaces", agentID, "users", userID, ".agents", "skills")
 		default:
 			return ""
 		}

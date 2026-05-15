@@ -28,7 +28,7 @@ func New(db *sql.DB) *SQLiteStore {
 func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
+		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list: %w", err)
@@ -84,7 +84,7 @@ func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) 
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
+		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -148,7 +148,7 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	// Set nullable owner fields based on scope.
 	switch sk.Scope {
 	case "user":
-		params.UserID = sql.NullInt64{Int64: sk.UserID, Valid: true}
+		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}
@@ -273,7 +273,7 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 	}
 	rows, err := s.q.ListActiveKnowledgeByType(ctx, sqlc.ListActiveKnowledgeByTypeParams{
 		AgentID:       sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
+		UserID:        sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 		KnowledgeType: typeFilter,
 	})
 	if err != nil {
@@ -347,7 +347,7 @@ func mapRow(r sqlc.Skill) Skill {
 	return Skill{
 		ID:                     r.ID,
 		Scope:                  r.Scope,
-		UserID:                 r.UserID.Int64,
+		UserID:                 r.UserID.String,
 		AgentID:                r.AgentID.String,
 		Name:                   r.Name,
 		Description:            r.Description,

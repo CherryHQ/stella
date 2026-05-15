@@ -30,7 +30,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
 		isGlobal := row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem
-		if !isGlobal && info != nil && row.UserID.Valid && row.UserID.Int64 != info.UserID {
+		if !isGlobal && info != nil && row.UserID.Valid && row.UserID.String != info.UserID {
 			continue
 		}
 		jobs = append(jobs, dbRowToAPIJob(row))
@@ -59,8 +59,8 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		sessionMode = *body.SessionMode
 	}
 
-	// Non-admin users always own their jobs; only admins can create system jobs (user_id=0).
-	var userID int64
+	// Non-admin users always own their jobs; only admins can create system jobs (user_id="").
+	var userID string
 	if body.UserId != nil {
 		userID = *body.UserId
 	}
@@ -87,7 +87,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 
 	// Infer exec_scope from user_id when not explicitly set.
 	execScope := scheduler.ExecScopeSystem
-	if userID > 0 {
+	if userID != "" {
 		execScope = scheduler.ExecScopeUser
 	}
 
@@ -115,7 +115,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		SessionMode:   sessionMode,
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
-		UserID:        sql.NullInt64{Int64: userID, Valid: userID != 0},
+		UserID:        sql.NullString{String: userID, Valid: userID != ""},
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		LastRunAt:     sql.NullString{},
@@ -139,7 +139,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		SessionMode: sessionMode,
 		Enabled:     enabled != 0,
 		AgentId:     ptrStr(agentID),
-		UserId:      ptrInt64(userID),
+		UserId:      ptrStr(userID),
 		CreatedAt:   nowT,
 		UpdatedAt:   nowT,
 	}
@@ -160,7 +160,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+	if info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -193,11 +193,11 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		sessionMode = *body.SessionMode
 	}
 
-	var userID int64
+	var userID string
 	if info != nil {
 		userID = info.UserID
 	} else if existing.UserID.Valid {
-		userID = existing.UserID.Int64
+		userID = existing.UserID.String
 	}
 
 	agentID := ""
@@ -234,7 +234,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		SessionMode:   sessionMode,
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
-		UserID:        sql.NullInt64{Int64: userID, Valid: userID != 0},
+		UserID:        sql.NullString{String: userID, Valid: userID != ""},
 		UpdatedAt:     now,
 		LastRunAt:     existing.LastRunAt,
 		LastError:     existing.LastError,
@@ -259,7 +259,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		SessionMode: sessionMode,
 		Enabled:     enabled != 0,
 		AgentId:     ptrStr(agentID),
-		UserId:      ptrInt64(userID),
+		UserId:      ptrStr(userID),
 		CreatedAt:   parseDBTime(existing.CreatedAt),
 		UpdatedAt:   parseDBTime(now),
 		LastRunAt:   parseDBTimeNullable(existing.LastRunAt),
@@ -282,7 +282,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+	if info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -318,7 +318,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+	if !isGlobal && info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -345,7 +345,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 
 	info := UserFromContext(r.Context())
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
-	if info != nil && !isGlobal && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+	if info != nil && !isGlobal && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -401,7 +401,7 @@ func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 		j.AgentId = ptrStr(row.AgentID.String)
 	}
 	if row.UserID.Valid {
-		j.UserId = ptrInt64(row.UserID.Int64)
+		j.UserId = ptrStr(row.UserID.String)
 	}
 	if row.LastRunAt.Valid {
 		j.LastRunAt = parseDBTime(row.LastRunAt.String)
@@ -425,7 +425,7 @@ func schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 		SessionMode: job.SessionMode,
 		Enabled:     job.Enabled,
 		AgentId:     ptrStr(job.AgentID),
-		UserId:      ptrInt64(job.UserID),
+		UserId:      ptrStr(job.UserID),
 		CreatedAt:   ptrTime(job.CreatedAt),
 		UpdatedAt:   ptrTime(job.UpdatedAt),
 		LastRunAt:   job.LastRunAt,
@@ -449,7 +449,7 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 		j.Error = &row.Error
 	}
 	if row.UserID.Valid {
-		j.UserId = ptrInt64(row.UserID.Int64)
+		j.UserId = ptrStr(row.UserID.String)
 	}
 	if row.FinishedAt.Valid {
 		j.FinishedAt = &row.FinishedAt.String
@@ -483,13 +483,6 @@ func parseDBTimeNullable(ns sql.NullString) *time.Time {
 		return nil
 	}
 	return parseDBTime(ns.String)
-}
-
-func ptrInt64(i int64) *int64 {
-	if i == 0 {
-		return nil
-	}
-	return &i
 }
 
 func ptrTime(t time.Time) *time.Time {

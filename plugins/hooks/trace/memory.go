@@ -75,7 +75,7 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		attribute.Float64("stella.memory.duration_s", hctx.Duration.Seconds()),
 		attribute.String("stella.memory.op", string(hctx.Op)),
 		attribute.String("stella.memory.session_id", hctx.SessionID),
-		attribute.Int64("user_id", hctx.UserID),
+		attribute.String("user_id", hctx.UserID),
 		attribute.String("agent_id", hctx.AgentID),
 	}
 	if hctx.MessageCount > 0 {

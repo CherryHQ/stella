@@ -807,7 +807,7 @@ type ClientInterface interface {
 	AssignAgentUser(ctx context.Context, id string, body AssignAgentUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RemoveAgentUser request
-	RemoveAgentUser(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	RemoveAgentUser(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// LoginWithBody request with any body
 	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -921,28 +921,28 @@ type ClientInterface interface {
 	ListAuthUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetAuthUser request
-	GetAuthUser(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetAuthUser(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateAuthUserActiveWithBody request with any body
-	UpdateAuthUserActiveWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserActiveWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateAuthUserActive(ctx context.Context, id int64, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserActive(ctx context.Context, id string, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAuthUserAgents request
-	ListAuthUserAgents(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListAuthUserAgents(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateAuthUserAgentsWithBody request with any body
-	UpdateAuthUserAgentsWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserAgentsWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateAuthUserAgents(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserAgents(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAuthUserIdentity request
-	DeleteAuthUserIdentity(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteAuthUserIdentity(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateAuthUserRoleWithBody request with any body
-	UpdateAuthUserRoleWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserRoleWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateAuthUserRole(ctx context.Context, id int64, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAuthUserRole(ctx context.Context, id string, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListBuiltinResources request
 	ListBuiltinResources(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1247,25 +1247,25 @@ type ClientInterface interface {
 	ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateUserDefaultAgentWithBody request with any body
-	UpdateUserDefaultAgentWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateUserDefaultAgentWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateUserDefaultAgent(ctx context.Context, id int64, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateUserDefaultAgent(ctx context.Context, id string, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListUserMemories request
-	ListUserMemories(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListUserMemories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteUserMemory request
-	DeleteUserMemory(ctx context.Context, id int64, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetUserMemoryWithBody request with any body
-	SetUserMemoryWithBody(ctx context.Context, id int64, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetUserMemory(ctx context.Context, id int64, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateUserNotifyIdentityWithBody request with any body
-	UpdateUserNotifyIdentityWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateUserNotifyIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateUserNotifyIdentity(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateUserNotifyIdentity(ctx context.Context, id string, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) DeleteOAuthProviderConfig(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1568,7 +1568,7 @@ func (c *Client) AssignAgentUser(ctx context.Context, id string, body AssignAgen
 	return c.Client.Do(req)
 }
 
-func (c *Client) RemoveAgentUser(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) RemoveAgentUser(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRemoveAgentUserRequest(c.Server, id, userId)
 	if err != nil {
 		return nil, err
@@ -2060,7 +2060,7 @@ func (c *Client) ListAuthUsers(ctx context.Context, reqEditors ...RequestEditorF
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAuthUser(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) GetAuthUser(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetAuthUserRequest(c.Server, id)
 	if err != nil {
 		return nil, err
@@ -2072,7 +2072,7 @@ func (c *Client) GetAuthUser(ctx context.Context, id int64, reqEditors ...Reques
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserActiveWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserActiveWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserActiveRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
 		return nil, err
@@ -2084,7 +2084,7 @@ func (c *Client) UpdateAuthUserActiveWithBody(ctx context.Context, id int64, con
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserActive(ctx context.Context, id int64, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserActive(ctx context.Context, id string, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserActiveRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
@@ -2096,7 +2096,7 @@ func (c *Client) UpdateAuthUserActive(ctx context.Context, id int64, body Update
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListAuthUserAgents(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) ListAuthUserAgents(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAuthUserAgentsRequest(c.Server, id)
 	if err != nil {
 		return nil, err
@@ -2108,7 +2108,7 @@ func (c *Client) ListAuthUserAgents(ctx context.Context, id int64, reqEditors ..
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserAgentsWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserAgentsWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserAgentsRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
 		return nil, err
@@ -2120,7 +2120,7 @@ func (c *Client) UpdateAuthUserAgentsWithBody(ctx context.Context, id int64, con
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserAgents(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserAgents(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserAgentsRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
@@ -2132,7 +2132,7 @@ func (c *Client) UpdateAuthUserAgents(ctx context.Context, id int64, body Update
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAuthUserIdentity(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) DeleteAuthUserIdentity(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteAuthUserIdentityRequest(c.Server, id, identityId)
 	if err != nil {
 		return nil, err
@@ -2144,7 +2144,7 @@ func (c *Client) DeleteAuthUserIdentity(ctx context.Context, id int64, identityI
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserRoleWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserRoleWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserRoleRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
 		return nil, err
@@ -2156,7 +2156,7 @@ func (c *Client) UpdateAuthUserRoleWithBody(ctx context.Context, id int64, conte
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAuthUserRole(ctx context.Context, id int64, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateAuthUserRole(ctx context.Context, id string, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserRoleRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
@@ -3488,7 +3488,7 @@ func (c *Client) ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateUserDefaultAgentWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateUserDefaultAgentWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateUserDefaultAgentRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
 		return nil, err
@@ -3500,7 +3500,7 @@ func (c *Client) UpdateUserDefaultAgentWithBody(ctx context.Context, id int64, c
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateUserDefaultAgent(ctx context.Context, id int64, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateUserDefaultAgent(ctx context.Context, id string, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateUserDefaultAgentRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
@@ -3512,7 +3512,7 @@ func (c *Client) UpdateUserDefaultAgent(ctx context.Context, id int64, body Upda
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListUserMemories(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) ListUserMemories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListUserMemoriesRequest(c.Server, id)
 	if err != nil {
 		return nil, err
@@ -3524,7 +3524,7 @@ func (c *Client) ListUserMemories(ctx context.Context, id int64, reqEditors ...R
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteUserMemory(ctx context.Context, id int64, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteUserMemoryRequest(c.Server, id, agentId)
 	if err != nil {
 		return nil, err
@@ -3536,7 +3536,7 @@ func (c *Client) DeleteUserMemory(ctx context.Context, id int64, agentId string,
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemoryWithBody(ctx context.Context, id int64, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetUserMemoryRequestWithBody(c.Server, id, agentId, contentType, body)
 	if err != nil {
 		return nil, err
@@ -3548,7 +3548,7 @@ func (c *Client) SetUserMemoryWithBody(ctx context.Context, id int64, agentId st
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemory(ctx context.Context, id int64, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetUserMemoryRequest(c.Server, id, agentId, body)
 	if err != nil {
 		return nil, err
@@ -3560,7 +3560,7 @@ func (c *Client) SetUserMemory(ctx context.Context, id int64, agentId string, bo
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateUserNotifyIdentityWithBody(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateUserNotifyIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateUserNotifyIdentityRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
 		return nil, err
@@ -3572,7 +3572,7 @@ func (c *Client) UpdateUserNotifyIdentityWithBody(ctx context.Context, id int64,
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateUserNotifyIdentity(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+func (c *Client) UpdateUserNotifyIdentity(ctx context.Context, id string, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateUserNotifyIdentityRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
@@ -4385,7 +4385,7 @@ func NewAssignAgentUserRequestWithBody(server string, id string, contentType str
 }
 
 // NewRemoveAgentUserRequest generates requests for RemoveAgentUser
-func NewRemoveAgentUserRequest(server string, id string, userId int64) (*http.Request, error) {
+func NewRemoveAgentUserRequest(server string, id string, userId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4397,7 +4397,7 @@ func NewRemoveAgentUserRequest(server string, id string, userId int64) (*http.Re
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5585,12 +5585,12 @@ func NewListAuthUsersRequest(server string) (*http.Request, error) {
 }
 
 // NewGetAuthUserRequest generates requests for GetAuthUser
-func NewGetAuthUserRequest(server string, id int64) (*http.Request, error) {
+func NewGetAuthUserRequest(server string, id string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5619,7 +5619,7 @@ func NewGetAuthUserRequest(server string, id int64) (*http.Request, error) {
 }
 
 // NewUpdateAuthUserActiveRequest calls the generic UpdateAuthUserActive builder with application/json body
-func NewUpdateAuthUserActiveRequest(server string, id int64, body UpdateAuthUserActiveJSONRequestBody) (*http.Request, error) {
+func NewUpdateAuthUserActiveRequest(server string, id string, body UpdateAuthUserActiveJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -5630,12 +5630,12 @@ func NewUpdateAuthUserActiveRequest(server string, id int64, body UpdateAuthUser
 }
 
 // NewUpdateAuthUserActiveRequestWithBody generates requests for UpdateAuthUserActive with any type of body
-func NewUpdateAuthUserActiveRequestWithBody(server string, id int64, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateAuthUserActiveRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5666,12 +5666,12 @@ func NewUpdateAuthUserActiveRequestWithBody(server string, id int64, contentType
 }
 
 // NewListAuthUserAgentsRequest generates requests for ListAuthUserAgents
-func NewListAuthUserAgentsRequest(server string, id int64) (*http.Request, error) {
+func NewListAuthUserAgentsRequest(server string, id string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5700,7 +5700,7 @@ func NewListAuthUserAgentsRequest(server string, id int64) (*http.Request, error
 }
 
 // NewUpdateAuthUserAgentsRequest calls the generic UpdateAuthUserAgents builder with application/json body
-func NewUpdateAuthUserAgentsRequest(server string, id int64, body UpdateAuthUserAgentsJSONRequestBody) (*http.Request, error) {
+func NewUpdateAuthUserAgentsRequest(server string, id string, body UpdateAuthUserAgentsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -5711,12 +5711,12 @@ func NewUpdateAuthUserAgentsRequest(server string, id int64, body UpdateAuthUser
 }
 
 // NewUpdateAuthUserAgentsRequestWithBody generates requests for UpdateAuthUserAgents with any type of body
-func NewUpdateAuthUserAgentsRequestWithBody(server string, id int64, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateAuthUserAgentsRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5747,12 +5747,12 @@ func NewUpdateAuthUserAgentsRequestWithBody(server string, id int64, contentType
 }
 
 // NewDeleteAuthUserIdentityRequest generates requests for DeleteAuthUserIdentity
-func NewDeleteAuthUserIdentityRequest(server string, id int64, identityId string) (*http.Request, error) {
+func NewDeleteAuthUserIdentityRequest(server string, id string, identityId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5788,7 +5788,7 @@ func NewDeleteAuthUserIdentityRequest(server string, id int64, identityId string
 }
 
 // NewUpdateAuthUserRoleRequest calls the generic UpdateAuthUserRole builder with application/json body
-func NewUpdateAuthUserRoleRequest(server string, id int64, body UpdateAuthUserRoleJSONRequestBody) (*http.Request, error) {
+func NewUpdateAuthUserRoleRequest(server string, id string, body UpdateAuthUserRoleJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -5799,12 +5799,12 @@ func NewUpdateAuthUserRoleRequest(server string, id int64, body UpdateAuthUserRo
 }
 
 // NewUpdateAuthUserRoleRequestWithBody generates requests for UpdateAuthUserRole with any type of body
-func NewUpdateAuthUserRoleRequestWithBody(server string, id int64, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateAuthUserRoleRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9355,7 +9355,7 @@ func NewListToolsRequest(server string) (*http.Request, error) {
 }
 
 // NewUpdateUserDefaultAgentRequest calls the generic UpdateUserDefaultAgent builder with application/json body
-func NewUpdateUserDefaultAgentRequest(server string, id int64, body UpdateUserDefaultAgentJSONRequestBody) (*http.Request, error) {
+func NewUpdateUserDefaultAgentRequest(server string, id string, body UpdateUserDefaultAgentJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -9366,12 +9366,12 @@ func NewUpdateUserDefaultAgentRequest(server string, id int64, body UpdateUserDe
 }
 
 // NewUpdateUserDefaultAgentRequestWithBody generates requests for UpdateUserDefaultAgent with any type of body
-func NewUpdateUserDefaultAgentRequestWithBody(server string, id int64, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateUserDefaultAgentRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9402,12 +9402,12 @@ func NewUpdateUserDefaultAgentRequestWithBody(server string, id int64, contentTy
 }
 
 // NewListUserMemoriesRequest generates requests for ListUserMemories
-func NewListUserMemoriesRequest(server string, id int64) (*http.Request, error) {
+func NewListUserMemoriesRequest(server string, id string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9436,12 +9436,12 @@ func NewListUserMemoriesRequest(server string, id int64) (*http.Request, error) 
 }
 
 // NewDeleteUserMemoryRequest generates requests for DeleteUserMemory
-func NewDeleteUserMemoryRequest(server string, id int64, agentId string) (*http.Request, error) {
+func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9477,7 +9477,7 @@ func NewDeleteUserMemoryRequest(server string, id int64, agentId string) (*http.
 }
 
 // NewSetUserMemoryRequest calls the generic SetUserMemory builder with application/json body
-func NewSetUserMemoryRequest(server string, id int64, agentId string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
+func NewSetUserMemoryRequest(server string, id string, agentId string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -9488,12 +9488,12 @@ func NewSetUserMemoryRequest(server string, id int64, agentId string, body SetUs
 }
 
 // NewSetUserMemoryRequestWithBody generates requests for SetUserMemory with any type of body
-func NewSetUserMemoryRequestWithBody(server string, id int64, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetUserMemoryRequestWithBody(server string, id string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9531,7 +9531,7 @@ func NewSetUserMemoryRequestWithBody(server string, id int64, agentId string, co
 }
 
 // NewUpdateUserNotifyIdentityRequest calls the generic UpdateUserNotifyIdentity builder with application/json body
-func NewUpdateUserNotifyIdentityRequest(server string, id int64, body UpdateUserNotifyIdentityJSONRequestBody) (*http.Request, error) {
+func NewUpdateUserNotifyIdentityRequest(server string, id string, body UpdateUserNotifyIdentityJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -9542,12 +9542,12 @@ func NewUpdateUserNotifyIdentityRequest(server string, id int64, body UpdateUser
 }
 
 // NewUpdateUserNotifyIdentityRequestWithBody generates requests for UpdateUserNotifyIdentity with any type of body
-func NewUpdateUserNotifyIdentityRequestWithBody(server string, id int64, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateUserNotifyIdentityRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9690,7 +9690,7 @@ type ClientWithResponsesInterface interface {
 	AssignAgentUserWithResponse(ctx context.Context, id string, body AssignAgentUserJSONRequestBody, reqEditors ...RequestEditorFn) (*AssignAgentUserResponse, error)
 
 	// RemoveAgentUserWithResponse request
-	RemoveAgentUserWithResponse(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error)
+	RemoveAgentUserWithResponse(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error)
 
 	// LoginWithBodyWithResponse request with any body
 	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error)
@@ -9804,28 +9804,28 @@ type ClientWithResponsesInterface interface {
 	ListAuthUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthUsersResponse, error)
 
 	// GetAuthUserWithResponse request
-	GetAuthUserWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*GetAuthUserResponse, error)
+	GetAuthUserWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAuthUserResponse, error)
 
 	// UpdateAuthUserActiveWithBodyWithResponse request with any body
-	UpdateAuthUserActiveWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error)
+	UpdateAuthUserActiveWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error)
 
-	UpdateAuthUserActiveWithResponse(ctx context.Context, id int64, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error)
+	UpdateAuthUserActiveWithResponse(ctx context.Context, id string, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error)
 
 	// ListAuthUserAgentsWithResponse request
-	ListAuthUserAgentsWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*ListAuthUserAgentsResponse, error)
+	ListAuthUserAgentsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserAgentsResponse, error)
 
 	// UpdateAuthUserAgentsWithBodyWithResponse request with any body
-	UpdateAuthUserAgentsWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
+	UpdateAuthUserAgentsWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
 
-	UpdateAuthUserAgentsWithResponse(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
+	UpdateAuthUserAgentsWithResponse(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
 
 	// DeleteAuthUserIdentityWithResponse request
-	DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error)
+	DeleteAuthUserIdentityWithResponse(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error)
 
 	// UpdateAuthUserRoleWithBodyWithResponse request with any body
-	UpdateAuthUserRoleWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error)
+	UpdateAuthUserRoleWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error)
 
-	UpdateAuthUserRoleWithResponse(ctx context.Context, id int64, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error)
+	UpdateAuthUserRoleWithResponse(ctx context.Context, id string, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error)
 
 	// ListBuiltinResourcesWithResponse request
 	ListBuiltinResourcesWithResponse(ctx context.Context, kind string, reqEditors ...RequestEditorFn) (*ListBuiltinResourcesResponse, error)
@@ -10130,25 +10130,25 @@ type ClientWithResponsesInterface interface {
 	ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error)
 
 	// UpdateUserDefaultAgentWithBodyWithResponse request with any body
-	UpdateUserDefaultAgentWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error)
+	UpdateUserDefaultAgentWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error)
 
-	UpdateUserDefaultAgentWithResponse(ctx context.Context, id int64, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error)
+	UpdateUserDefaultAgentWithResponse(ctx context.Context, id string, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error)
 
 	// ListUserMemoriesWithResponse request
-	ListUserMemoriesWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error)
+	ListUserMemoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error)
 
 	// DeleteUserMemoryWithResponse request
-	DeleteUserMemoryWithResponse(ctx context.Context, id int64, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
+	DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
 
 	// SetUserMemoryWithBodyWithResponse request with any body
-	SetUserMemoryWithBodyWithResponse(ctx context.Context, id int64, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
-	SetUserMemoryWithResponse(ctx context.Context, id int64, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
 	// UpdateUserNotifyIdentityWithBodyWithResponse request with any body
-	UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
+	UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
 
-	UpdateUserNotifyIdentityWithResponse(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
+	UpdateUserNotifyIdentityWithResponse(ctx context.Context, id string, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
 }
 
 type DeleteOAuthProviderConfigResponse struct {
@@ -15049,7 +15049,7 @@ func (c *ClientWithResponses) AssignAgentUserWithResponse(ctx context.Context, i
 }
 
 // RemoveAgentUserWithResponse request returning *RemoveAgentUserResponse
-func (c *ClientWithResponses) RemoveAgentUserWithResponse(ctx context.Context, id string, userId int64, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error) {
+func (c *ClientWithResponses) RemoveAgentUserWithResponse(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error) {
 	rsp, err := c.RemoveAgentUser(ctx, id, userId, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15409,7 +15409,7 @@ func (c *ClientWithResponses) ListAuthUsersWithResponse(ctx context.Context, req
 }
 
 // GetAuthUserWithResponse request returning *GetAuthUserResponse
-func (c *ClientWithResponses) GetAuthUserWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*GetAuthUserResponse, error) {
+func (c *ClientWithResponses) GetAuthUserWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAuthUserResponse, error) {
 	rsp, err := c.GetAuthUser(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15418,7 +15418,7 @@ func (c *ClientWithResponses) GetAuthUserWithResponse(ctx context.Context, id in
 }
 
 // UpdateAuthUserActiveWithBodyWithResponse request with arbitrary body returning *UpdateAuthUserActiveResponse
-func (c *ClientWithResponses) UpdateAuthUserActiveWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserActiveWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error) {
 	rsp, err := c.UpdateAuthUserActiveWithBody(ctx, id, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15426,7 +15426,7 @@ func (c *ClientWithResponses) UpdateAuthUserActiveWithBodyWithResponse(ctx conte
 	return ParseUpdateAuthUserActiveResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateAuthUserActiveWithResponse(ctx context.Context, id int64, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserActiveWithResponse(ctx context.Context, id string, body UpdateAuthUserActiveJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserActiveResponse, error) {
 	rsp, err := c.UpdateAuthUserActive(ctx, id, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15435,7 +15435,7 @@ func (c *ClientWithResponses) UpdateAuthUserActiveWithResponse(ctx context.Conte
 }
 
 // ListAuthUserAgentsWithResponse request returning *ListAuthUserAgentsResponse
-func (c *ClientWithResponses) ListAuthUserAgentsWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*ListAuthUserAgentsResponse, error) {
+func (c *ClientWithResponses) ListAuthUserAgentsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserAgentsResponse, error) {
 	rsp, err := c.ListAuthUserAgents(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15444,7 +15444,7 @@ func (c *ClientWithResponses) ListAuthUserAgentsWithResponse(ctx context.Context
 }
 
 // UpdateAuthUserAgentsWithBodyWithResponse request with arbitrary body returning *UpdateAuthUserAgentsResponse
-func (c *ClientWithResponses) UpdateAuthUserAgentsWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserAgentsWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error) {
 	rsp, err := c.UpdateAuthUserAgentsWithBody(ctx, id, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15452,7 +15452,7 @@ func (c *ClientWithResponses) UpdateAuthUserAgentsWithBodyWithResponse(ctx conte
 	return ParseUpdateAuthUserAgentsResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateAuthUserAgentsWithResponse(ctx context.Context, id int64, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserAgentsWithResponse(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error) {
 	rsp, err := c.UpdateAuthUserAgents(ctx, id, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15461,7 +15461,7 @@ func (c *ClientWithResponses) UpdateAuthUserAgentsWithResponse(ctx context.Conte
 }
 
 // DeleteAuthUserIdentityWithResponse request returning *DeleteAuthUserIdentityResponse
-func (c *ClientWithResponses) DeleteAuthUserIdentityWithResponse(ctx context.Context, id int64, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error) {
+func (c *ClientWithResponses) DeleteAuthUserIdentityWithResponse(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error) {
 	rsp, err := c.DeleteAuthUserIdentity(ctx, id, identityId, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15470,7 +15470,7 @@ func (c *ClientWithResponses) DeleteAuthUserIdentityWithResponse(ctx context.Con
 }
 
 // UpdateAuthUserRoleWithBodyWithResponse request with arbitrary body returning *UpdateAuthUserRoleResponse
-func (c *ClientWithResponses) UpdateAuthUserRoleWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserRoleWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error) {
 	rsp, err := c.UpdateAuthUserRoleWithBody(ctx, id, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -15478,7 +15478,7 @@ func (c *ClientWithResponses) UpdateAuthUserRoleWithBodyWithResponse(ctx context
 	return ParseUpdateAuthUserRoleResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateAuthUserRoleWithResponse(ctx context.Context, id int64, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error) {
+func (c *ClientWithResponses) UpdateAuthUserRoleWithResponse(ctx context.Context, id string, body UpdateAuthUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserRoleResponse, error) {
 	rsp, err := c.UpdateAuthUserRole(ctx, id, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16449,7 +16449,7 @@ func (c *ClientWithResponses) ListToolsWithResponse(ctx context.Context, reqEdit
 }
 
 // UpdateUserDefaultAgentWithBodyWithResponse request with arbitrary body returning *UpdateUserDefaultAgentResponse
-func (c *ClientWithResponses) UpdateUserDefaultAgentWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error) {
+func (c *ClientWithResponses) UpdateUserDefaultAgentWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error) {
 	rsp, err := c.UpdateUserDefaultAgentWithBody(ctx, id, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16457,7 +16457,7 @@ func (c *ClientWithResponses) UpdateUserDefaultAgentWithBodyWithResponse(ctx con
 	return ParseUpdateUserDefaultAgentResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateUserDefaultAgentWithResponse(ctx context.Context, id int64, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error) {
+func (c *ClientWithResponses) UpdateUserDefaultAgentWithResponse(ctx context.Context, id string, body UpdateUserDefaultAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserDefaultAgentResponse, error) {
 	rsp, err := c.UpdateUserDefaultAgent(ctx, id, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16466,7 +16466,7 @@ func (c *ClientWithResponses) UpdateUserDefaultAgentWithResponse(ctx context.Con
 }
 
 // ListUserMemoriesWithResponse request returning *ListUserMemoriesResponse
-func (c *ClientWithResponses) ListUserMemoriesWithResponse(ctx context.Context, id int64, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error) {
+func (c *ClientWithResponses) ListUserMemoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error) {
 	rsp, err := c.ListUserMemories(ctx, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16475,7 +16475,7 @@ func (c *ClientWithResponses) ListUserMemoriesWithResponse(ctx context.Context, 
 }
 
 // DeleteUserMemoryWithResponse request returning *DeleteUserMemoryResponse
-func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id int64, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
+func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
 	rsp, err := c.DeleteUserMemory(ctx, id, agentId, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16484,7 +16484,7 @@ func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, 
 }
 
 // SetUserMemoryWithBodyWithResponse request with arbitrary body returning *SetUserMemoryResponse
-func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id int64, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
 	rsp, err := c.SetUserMemoryWithBody(ctx, id, agentId, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16492,7 +16492,7 @@ func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Cont
 	return ParseSetUserMemoryResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id int64, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
 	rsp, err := c.SetUserMemory(ctx, id, agentId, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16501,7 +16501,7 @@ func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id 
 }
 
 // UpdateUserNotifyIdentityWithBodyWithResponse request with arbitrary body returning *UpdateUserNotifyIdentityResponse
-func (c *ClientWithResponses) UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id int64, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error) {
+func (c *ClientWithResponses) UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error) {
 	rsp, err := c.UpdateUserNotifyIdentityWithBody(ctx, id, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -16509,7 +16509,7 @@ func (c *ClientWithResponses) UpdateUserNotifyIdentityWithBodyWithResponse(ctx c
 	return ParseUpdateUserNotifyIdentityResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateUserNotifyIdentityWithResponse(ctx context.Context, id int64, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error) {
+func (c *ClientWithResponses) UpdateUserNotifyIdentityWithResponse(ctx context.Context, id string, body UpdateUserNotifyIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error) {
 	rsp, err := c.UpdateUserNotifyIdentity(ctx, id, body, reqEditors...)
 	if err != nil {
 		return nil, err

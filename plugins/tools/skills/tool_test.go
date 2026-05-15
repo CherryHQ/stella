@@ -27,7 +27,7 @@ type testSkillStore struct {
 	q  *sqlc.Queries
 }
 
-func newTestSkillStore(t *testing.T) (*testSkillStore, int64, string) {
+func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -55,7 +55,7 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, int64, string) {
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
+		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
-		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
+		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -117,7 +117,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	}
 	switch sk.Scope {
 	case "user":
-		params.UserID = sql.NullInt64{Int64: sk.UserID, Valid: true}
+		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}
@@ -195,7 +195,7 @@ func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 	return pkgplugins.Skill{
 		ID:                     r.ID,
 		Scope:                  r.Scope,
-		UserID:                 r.UserID.Int64,
+		UserID:                 r.UserID.String,
 		AgentID:                r.AgentID.String,
 		Name:                   r.Name,
 		Description:            r.Description,
@@ -206,7 +206,7 @@ func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 }
 
 // ctxWithUser returns a context carrying userID and agentID.
-func ctxWithUser(userID int64, agentID string) context.Context {
+func ctxWithUser(userID string, agentID string) context.Context {
 	ctx := context.Background()
 	ctx = memory.WithUserID(ctx, userID)
 	ctx = memory.WithAgentID(ctx, agentID)

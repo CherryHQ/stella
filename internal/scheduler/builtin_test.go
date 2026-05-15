@@ -57,8 +57,8 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 			if j.ExecScope != ExecScopeAllUsers {
 				t.Errorf("recally-rss ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)
 			}
-			if j.UserID != 0 {
-				t.Errorf("recally-rss should have no UserID, got %d", j.UserID)
+			if j.UserID != "" {
+				t.Errorf("recally-rss should have no UserID, got %q", j.UserID)
 			}
 		}
 	}

@@ -28,7 +28,7 @@ const (
 type FlowStatus struct {
 	Provider        Provider
 	FlowID          string
-	UserID          int64
+	UserID          string
 	VerificationURI string
 	UserCode        string
 	ExpiresAt       time.Time

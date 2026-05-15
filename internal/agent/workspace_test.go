@@ -57,7 +57,7 @@ func TestSetupWorkspaceEmptyID(t *testing.T) {
 
 func TestSetupUserWorkspace(t *testing.T) {
 	base := t.TempDir()
-	userDir, err := SetupUserWorkspace("agent-1", base, 42)
+	userDir, err := SetupUserWorkspace("agent-1", base, "42")
 	if err != nil {
 		t.Fatalf("SetupUserWorkspace: %v", err)
 	}
@@ -84,24 +84,22 @@ func TestSetupUserWorkspace(t *testing.T) {
 }
 
 func TestSetupUserWorkspaceEmptyAgent(t *testing.T) {
-	_, err := SetupUserWorkspace("", t.TempDir(), 1)
+	_, err := SetupUserWorkspace("", t.TempDir(), "1")
 	if err == nil {
 		t.Error("expected error for empty agent ID")
 	}
 }
 
 func TestSetupUserWorkspaceInvalidUser(t *testing.T) {
-	for _, id := range []int64{0, -1, -100} {
-		_, err := SetupUserWorkspace("agent-1", t.TempDir(), id)
-		if err == nil {
-			t.Errorf("expected error for user ID %d", id)
-		}
+	_, err := SetupUserWorkspace("agent-1", t.TempDir(), "")
+	if err == nil {
+		t.Error("expected error for empty user ID")
 	}
 }
 
 func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 	base := t.TempDir()
-	d1, err := SetupUserWorkspace("agent-1", base, 42)
+	d1, err := SetupUserWorkspace("agent-1", base, "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +109,7 @@ func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d2, err := SetupUserWorkspace("agent-1", base, 42)
+	d2, err := SetupUserWorkspace("agent-1", base, "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +123,11 @@ func TestSetupUserWorkspaceIdempotent(t *testing.T) {
 
 func TestSetupUserWorkspaceIsolation(t *testing.T) {
 	base := t.TempDir()
-	d1, err := SetupUserWorkspace("agent-1", base, 1)
+	d1, err := SetupUserWorkspace("agent-1", base, "1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d2, err := SetupUserWorkspace("agent-1", base, 2)
+	d2, err := SetupUserWorkspace("agent-1", base, "2")
 	if err != nil {
 		t.Fatal(err)
 	}

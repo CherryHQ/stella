@@ -17,7 +17,7 @@ RETURNING id, user_id, expires_at, created_at
 
 type CreateAuthSessionParams struct {
 	ID        string `json:"id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	ExpiresAt string `json:"expires_at"`
 }
 
@@ -55,7 +55,7 @@ const deleteUserAuthSessions = `-- name: DeleteUserAuthSessions :exec
 DELETE FROM auth_sessions WHERE user_id = ?
 `
 
-func (q *Queries) DeleteUserAuthSessions(ctx context.Context, userID int64) error {
+func (q *Queries) DeleteUserAuthSessions(ctx context.Context, userID string) error {
 	_, err := q.db.ExecContext(ctx, deleteUserAuthSessions, userID)
 	return err
 }

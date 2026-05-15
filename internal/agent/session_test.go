@@ -66,21 +66,21 @@ func TestBuildUserSessionKey(t *testing.T) {
 	tests := []struct {
 		name           string
 		agentID        string
-		authUserID     int64
+		authUserID     string
 		channelContext string
 		want           string
 	}{
 		{
 			name:           "linked user private",
 			agentID:        "stella",
-			authUserID:     42,
+			authUserID:     "42",
 			channelContext: "private",
 			want:           "stella:user:42:private",
 		},
 		{
 			name:           "different agent",
 			agentID:        "coder",
-			authUserID:     42,
+			authUserID:     "42",
 			channelContext: "private",
 			want:           "coder:user:42:private",
 		},
@@ -97,14 +97,14 @@ func TestBuildUserSessionKey(t *testing.T) {
 
 func TestLinkedUserSessionKeySharedAcrossChannels(t *testing.T) {
 	// Same auth user on different platforms should get the same session key.
-	keyTG := BuildUserSessionKey("stella", 42, "private")
-	keyQQ := BuildUserSessionKey("stella", 42, "private")
+	keyTG := BuildUserSessionKey("stella", "42", "private")
+	keyQQ := BuildUserSessionKey("stella", "42", "private")
 	if keyTG != keyQQ {
 		t.Errorf("linked user keys should match across platforms: %q != %q", keyTG, keyQQ)
 	}
 
 	// But different agents should differ.
-	keyOther := BuildUserSessionKey("coder", 42, "private")
+	keyOther := BuildUserSessionKey("coder", "42", "private")
 	if keyTG == keyOther {
 		t.Error("different agents should produce different keys for same user")
 	}

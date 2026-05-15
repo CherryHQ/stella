@@ -99,7 +99,7 @@ const (
 // skillDirForScope returns the absolute host path to the skill's directory so
 // agents can execute scripts directly. Returns empty string if the path cannot
 // be determined.
-func (t *Tool) skillDirForScope(scope, agentID string, userID int64, skillName string) string {
+func (t *Tool) skillDirForScope(scope, agentID string, userID string, skillName string) string {
 	switch scope {
 	case "system":
 		if t.stellaHome == "" {

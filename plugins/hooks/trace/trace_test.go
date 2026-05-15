@@ -117,7 +117,7 @@ func TestHook_OnPreAgentCall_NoOtel(t *testing.T) {
 	h, _ := newHook()
 	// Should not panic.
 	h.OnPreAgentCall(context.Background(), &hooks.PreAgentCallContext{
-		HookMeta: hooks.HookMeta{SessionID: "s1", AgentID: "a1", UserID: 1},
+		HookMeta: hooks.HookMeta{SessionID: "s1", AgentID: "a1", UserID: "1"},
 		Channel:  "cli",
 	})
 }

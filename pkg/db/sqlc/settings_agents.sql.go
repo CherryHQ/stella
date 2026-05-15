@@ -27,7 +27,7 @@ type CreateAgentParams struct {
 	Sandbox              string `json:"sandbox"`
 	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
 	Scope                string `json:"scope"`
-	CreatorID            int64  `json:"creator_id"`
+	CreatorID            string `json:"creator_id"`
 	Enabled              int64  `json:"enabled"`
 }
 

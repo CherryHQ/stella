@@ -61,7 +61,7 @@ func (s *Service) SetInvalidator(inv RunnerInvalidator) {
 }
 
 // InvalidateUser closes all live runners for userID across all pools.
-func (s *Service) InvalidateUser(userID int64) error {
+func (s *Service) InvalidateUser(userID string) error {
 	if s.invalidator == nil {
 		return nil
 	}
@@ -258,7 +258,7 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
-func (s *Service) saveToken(ctx context.Context, providerID string, userID int64, tok *oauth2.Token) error {
+func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token) error {
 	providerCfg, ok := s.registry.Get(providerID)
 	if !ok {
 		return fmt.Errorf("unknown provider: %s", providerID)
@@ -293,7 +293,7 @@ func (s *Service) saveToken(ctx context.Context, providerID string, userID int64
 // --- vault operations ---
 
 // ListVault returns metadata for all vault entries owned by userID.
-func (s *Service) ListVault(ctx context.Context, userID int64) ([]VaultEntry, error) {
+func (s *Service) ListVault(ctx context.Context, userID string) ([]VaultEntry, error) {
 	if s.vaultSvc == nil {
 		return nil, fmt.Errorf("vault not configured")
 	}
@@ -309,7 +309,7 @@ func (s *Service) ListVault(ctx context.Context, userID int64) ([]VaultEntry, er
 }
 
 // DeleteVaultEntry removes a named vault entry for userID.
-func (s *Service) DeleteVaultEntry(ctx context.Context, userID int64, name string) error {
+func (s *Service) DeleteVaultEntry(ctx context.Context, userID string, name string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
@@ -329,7 +329,7 @@ func (s *Service) AddSecretInstruction(name, purpose string) AddSecretInstructio
 // --- OAuth provider status ---
 
 // GetProviderStatuses returns status for all registered OAuth providers.
-func (s *Service) GetProviderStatuses(ctx context.Context, userID int64) []ProviderStatus {
+func (s *Service) GetProviderStatuses(ctx context.Context, userID string) []ProviderStatus {
 	if s.registry == nil {
 		return nil
 	}
@@ -342,7 +342,7 @@ func (s *Service) GetProviderStatuses(ctx context.Context, userID int64) []Provi
 	return out
 }
 
-func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider string) ProviderStatus {
+func (s *Service) getProviderStatus(ctx context.Context, userID string, provider string) ProviderStatus {
 	ps := ProviderStatus{Provider: provider}
 
 	if s.registry == nil {
@@ -413,7 +413,7 @@ func (s *Service) preferredFlowType(provider string) string {
 
 // StartFlow starts an OAuth flow for the given provider and user.
 // It prefers device_code flows when available, making it suitable for agent/CLI use.
-func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) (FlowStatus, error) {
+func (s *Service) StartFlow(ctx context.Context, userID string, provider string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
@@ -433,7 +433,7 @@ func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) 
 // It uses the provider's preferred flow type (device_code when available,
 // otherwise authorization_code). The callback URL is built from origin so
 // browser redirects land on the correct host.
-func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provider string, origin string) (FlowStatus, error) {
+func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provider string, origin string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
@@ -452,7 +452,7 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provide
 // PollFlow polls an in-flight OAuth flow. For device-code flows it completes and
 // saves the token when authorized. For auth-code flows it returns completed=true
 // once the callback has finalized the flow.
-func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID string) (FlowStatus, bool, error) {
+func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID string) (FlowStatus, bool, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, false, fmt.Errorf("vault not configured")
 	}
@@ -535,7 +535,7 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 }
 
 // Disconnect removes the OAuth bundle for the given provider and user.
-func (s *Service) Disconnect(ctx context.Context, userID int64, provider string) error {
+func (s *Service) Disconnect(ctx context.Context, userID string, provider string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}

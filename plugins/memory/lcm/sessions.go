@@ -30,7 +30,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Archived:   boolToInt(info.Archived),
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
 			AgentID:    sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-			UserID:     sql.NullInt64{Int64: info.UserID, Valid: info.UserID != 0},
+			UserID:     sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -59,13 +59,13 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		}
 	}
 	// Update agent_id/user_id if provided and different.
-	if info.AgentID != "" || info.UserID != 0 {
+	if info.AgentID != "" || info.UserID != "" {
 		agentMatch := conv.AgentID.Valid && conv.AgentID.String == info.AgentID
-		userMatch := conv.UserID.Valid && conv.UserID.Int64 == info.UserID
+		userMatch := conv.UserID.Valid && conv.UserID.String == info.UserID
 		if !agentMatch || !userMatch {
 			if err := p.q.UpdateConversationAgentUser(ctx, sqlc.UpdateConversationAgentUserParams{
 				AgentID:   sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-				UserID:    sql.NullInt64{Int64: info.UserID, Valid: info.UserID != 0},
+				UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 				SessionID: info.ID,
 			}); err != nil {
 				return fmt.Errorf("update agent/user: %w", err)
@@ -109,7 +109,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		if opts.AgentID != "" && info.AgentID != opts.AgentID {
 			continue
 		}
-		if opts.UserID != 0 && info.UserID != opts.UserID {
+		if opts.UserID != "" && info.UserID != opts.UserID {
 			continue
 		}
 		if skipped < opts.Offset {
@@ -155,7 +155,7 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 		info.AgentID = conv.AgentID.String
 	}
 	if conv.UserID.Valid {
-		info.UserID = conv.UserID.Int64
+		info.UserID = conv.UserID.String
 	}
 	if t, err := time.Parse("2006-01-02 15:04:05", conv.CreatedAt); err == nil {
 		info.CreatedAt = t

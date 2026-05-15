@@ -190,7 +190,7 @@ type sessionResponse struct {
 	Channel    string `json:"channel"`
 	Title      string `json:"title"`
 	AgentID    string `json:"agent_id"`
-	UserID     int64  `json:"user_id"`
+	UserID     string `json:"user_id"`
 	CreatedAt  string `json:"created_at"`
 	LastActive string `json:"last_active"`
 	Archived   bool   `json:"archived"`
@@ -287,7 +287,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 
 	// Resolve user name from auth system.
-	if info.UserID != 0 {
+	if info.UserID != "" {
 		authUser, err := s.authStore.GetUser(r.Context(), info.UserID)
 		if err == nil {
 			resp.UserName = authUser.Username
@@ -389,7 +389,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if info.UserID <= 0 || info.AgentID == "" {
+	if info.UserID == "" || info.AgentID == "" {
 		writeData(w, http.StatusOK, workspaceDiskInfo{Root: "", Paths: []string{}})
 		return
 	}
@@ -507,7 +507,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusNotFound, err.Error())
 		return "", err
 	}
-	if info.UserID <= 0 || info.AgentID == "" {
+	if info.UserID == "" || info.AgentID == "" {
 		writeError(w, http.StatusNotFound, "session has no workspace")
 		return "", fmt.Errorf("no workspace")
 	}
@@ -848,7 +848,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		agentCfg, _ = s.store.GetAgent(r.Context(), info.AgentID)
 	}
 	var userRoot string
-	if info.UserID > 0 && info.AgentID != "" {
+	if info.UserID != "" && info.AgentID != "" {
 		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID); err == nil {
 			userRoot = userDir
 		}

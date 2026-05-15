@@ -33,7 +33,7 @@ func BackfillUserKeys(ctx context.Context, db BackfillDB, masterRecipient *age.X
 
 		pubKey, encPrivKey, err := GenerateUserKeys(masterRecipient)
 		if err != nil {
-			return updated, fmt.Errorf("vault: backfill: generate keys for user %d (%s): %w", u.ID, u.Username, err)
+			return updated, fmt.Errorf("vault: backfill: generate keys for user %s (%s): %w", u.ID, u.Username, err)
 		}
 
 		if err := db.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
@@ -41,7 +41,7 @@ func BackfillUserKeys(ctx context.Context, db BackfillDB, masterRecipient *age.X
 			AgePrivateKey: encPrivKey,
 			ID:            u.ID,
 		}); err != nil {
-			return updated, fmt.Errorf("vault: backfill: update keys for user %d (%s): %w", u.ID, u.Username, err)
+			return updated, fmt.Errorf("vault: backfill: update keys for user %s (%s): %w", u.ID, u.Username, err)
 		}
 
 		slog.Info("vault: backfill: provisioned age keys", "user_id", u.ID, "username", u.Username)

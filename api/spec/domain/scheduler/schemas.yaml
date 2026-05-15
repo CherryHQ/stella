@@ -45,7 +45,7 @@ components:
         }
         enabled: { type: boolean }
         agent_id: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         last_run_at: { type: string, format: date-time, nullable: true }
@@ -71,9 +71,8 @@ components:
         enabled: { type: boolean }
         agent_id: { type: string }
         user_id: {
-          type: integer,
-          format: int64,
-          description: "Admin-only: set 0 for system jobs",
+          type: string,
+          description: "Admin-only: set empty for system jobs",
         }
 
     JobRun:
@@ -83,7 +82,7 @@ components:
         id: { type: string }
         job_id: { type: string }
         session_id: { type: string }
-        user_id: { type: integer, format: int64 }
+        user_id: { type: string }
         status: { type: string }
         started_at: { type: string }
         finished_at: { type: string }

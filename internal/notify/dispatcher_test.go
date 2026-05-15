@@ -195,11 +195,11 @@ type mockAuthService struct {
 	identities []pkgplugins.LinkedIdentity
 }
 
-func (m *mockAuthService) GetUser(_ context.Context, _ int64) (pkgplugins.UserInfo, error) {
+func (m *mockAuthService) GetUser(_ context.Context, _ string) (pkgplugins.UserInfo, error) {
 	return m.user, nil
 }
 
-func (m *mockAuthService) ListUserIdentities(_ context.Context, _ int64) ([]pkgplugins.LinkedIdentity, error) {
+func (m *mockAuthService) ListUserIdentities(_ context.Context, _ string) ([]pkgplugins.LinkedIdentity, error) {
 	return m.identities, nil
 }
 
@@ -214,14 +214,14 @@ func TestNotifyUserSendsToFirstLinked(t *testing.T) {
 	d.Register(tg)
 	d.Register(fs)
 	d.SetAuthService(&mockAuthService{
-		user: pkgplugins.UserInfo{ID: 1},
+		user: pkgplugins.UserInfo{ID: "1"},
 		identities: []pkgplugins.LinkedIdentity{
 			{ID: "10", Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 			{ID: "11", Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
 	})
 
-	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{Text: "hello"})
+	err := d.NotifyUser(context.Background(), "1", pkgchannel.Notification{Text: "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,14 +245,14 @@ func TestNotifyUserSendsToPreferred(t *testing.T) {
 
 	preferredID := "11"
 	d.SetAuthService(&mockAuthService{
-		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &preferredID},
+		user: pkgplugins.UserInfo{ID: "1", NotifyIdentityID: &preferredID},
 		identities: []pkgplugins.LinkedIdentity{
 			{ID: "10", Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 			{ID: "11", Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
 	})
 
-	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{Text: "hello"})
+	err := d.NotifyUser(context.Background(), "1", pkgchannel.Notification{Text: "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,13 +274,13 @@ func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
 
 	staleID := "999"
 	d.SetAuthService(&mockAuthService{
-		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &staleID},
+		user: pkgplugins.UserInfo{ID: "1", NotifyIdentityID: &staleID},
 		identities: []pkgplugins.LinkedIdentity{
 			{ID: "10", Platform: "telegram", ExternalID: "tg-123"},
 		},
 	})
 
-	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{Text: "test"})
+	err := d.NotifyUser(context.Background(), "1", pkgchannel.Notification{Text: "test"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -303,13 +303,13 @@ func TestNotifyUserAgentBoundUsesDedicatedChannel(t *testing.T) {
 		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
 	}})
 	d.SetAuthService(&mockAuthService{
-		user: pkgplugins.UserInfo{ID: 1},
+		user: pkgplugins.UserInfo{ID: "1"},
 		identities: []pkgplugins.LinkedIdentity{
 			{ID: "10", Platform: "feishu", ExternalID: "fs-123"},
 		},
 	})
 
-	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{AgentID: "coder", Text: "hello"})
+	err := d.NotifyUser(context.Background(), "1", pkgchannel.Notification{AgentID: "coder", Text: "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,13 +335,13 @@ func TestNotifyUserOtherAgentUsesPlatformChannel(t *testing.T) {
 		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
 	}})
 	d.SetAuthService(&mockAuthService{
-		user: pkgplugins.UserInfo{ID: 1},
+		user: pkgplugins.UserInfo{ID: "1"},
 		identities: []pkgplugins.LinkedIdentity{
 			{ID: "10", Platform: "feishu", ExternalID: "fs-123"},
 		},
 	})
 
-	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{AgentID: "writer", Text: "hello"})
+	err := d.NotifyUser(context.Background(), "1", pkgchannel.Notification{AgentID: "writer", Text: "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

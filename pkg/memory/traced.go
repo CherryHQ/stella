@@ -287,7 +287,7 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 // ProfileStore
 // ---------------------------------------------------------------------------
 
-func (t *tracedProvider) GetProfile(ctx context.Context, userID int64, agentID string) (string, error) {
+func (t *tracedProvider) GetProfile(ctx context.Context, userID string, agentID string) (string, error) {
 	ps, ok := t.inner.(ProfileStore)
 	if !ok {
 		return "", errCapabilityNotSupported("ProfileStore")
@@ -299,13 +299,13 @@ func (t *tracedProvider) GetProfile(ctx context.Context, userID int64, agentID s
 		Op:       hooks.MemoryOpGetProfile,
 		Duration: time.Since(start),
 		Error:    err,
-		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
 			userID, agentID, len(content), truncateStr(content, 300)),
 	})
 	return content, err
 }
 
-func (t *tracedProvider) SetProfile(ctx context.Context, userID int64, agentID string, content string) error {
+func (t *tracedProvider) SetProfile(ctx context.Context, userID string, agentID string, content string) error {
 	ps, ok := t.inner.(ProfileStore)
 	if !ok {
 		return errCapabilityNotSupported("ProfileStore")
@@ -317,13 +317,13 @@ func (t *tracedProvider) SetProfile(ctx context.Context, userID int64, agentID s
 		Op:       hooks.MemoryOpSetProfile,
 		Duration: time.Since(start),
 		Error:    err,
-		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
 			userID, agentID, len(content), truncateStr(content, 300)),
 	})
 	return err
 }
 
-func (t *tracedProvider) GetAgentSoul(ctx context.Context, userID int64, agentID string) (string, error) {
+func (t *tracedProvider) GetAgentSoul(ctx context.Context, userID string, agentID string) (string, error) {
 	ps, ok := t.inner.(ProfileStore)
 	if !ok {
 		return "", errCapabilityNotSupported("ProfileStore")
@@ -335,13 +335,13 @@ func (t *tracedProvider) GetAgentSoul(ctx context.Context, userID int64, agentID
 		Op:       hooks.MemoryOpGetAgentSoul,
 		Duration: time.Since(start),
 		Error:    err,
-		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
 			userID, agentID, len(content), truncateStr(content, 300)),
 	})
 	return content, err
 }
 
-func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
+func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID string, agentID string, content string) error {
 	ps, ok := t.inner.(ProfileStore)
 	if !ok {
 		return errCapabilityNotSupported("ProfileStore")
@@ -353,7 +353,7 @@ func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID int64, agentID
 		Op:       hooks.MemoryOpSetAgentSoul,
 		Duration: time.Since(start),
 		Error:    err,
-		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
 			userID, agentID, len(content), truncateStr(content, 300)),
 	})
 	return err
@@ -371,7 +371,7 @@ func (t *tracedProvider) WriteChangelog(ctx context.Context, entry ChangeEntry) 
 	return cw.WriteChangelog(ctx, entry)
 }
 
-func (t *tracedProvider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]ChangeEntry, error) {
+func (t *tracedProvider) ReadChangelog(ctx context.Context, userID string, agentID string, scope string, limit int) ([]ChangeEntry, error) {
 	cr, ok := t.inner.(ChangelogReader)
 	if !ok {
 		return nil, errCapabilityNotSupported("ChangelogReader")
@@ -383,7 +383,7 @@ func (t *tracedProvider) ReadChangelog(ctx context.Context, userID int64, agentI
 // ConstraintStore
 // ---------------------------------------------------------------------------
 
-func (t *tracedProvider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]ConstraintEntry, error) {
+func (t *tracedProvider) GetConstraints(ctx context.Context, userID string, agentID string) ([]ConstraintEntry, error) {
 	cs, ok := t.inner.(ConstraintStore)
 	if !ok {
 		return nil, errCapabilityNotSupported("ConstraintStore")
@@ -391,7 +391,7 @@ func (t *tracedProvider) GetConstraints(ctx context.Context, userID int64, agent
 	return cs.GetConstraints(ctx, userID, agentID)
 }
 
-func (t *tracedProvider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]ConstraintEntry, error) {
+func (t *tracedProvider) AddConstraint(ctx context.Context, userID string, agentID string, text string) ([]ConstraintEntry, error) {
 	cs, ok := t.inner.(ConstraintStore)
 	if !ok {
 		return nil, errCapabilityNotSupported("ConstraintStore")
@@ -399,7 +399,7 @@ func (t *tracedProvider) AddConstraint(ctx context.Context, userID int64, agentI
 	return cs.AddConstraint(ctx, userID, agentID, text)
 }
 
-func (t *tracedProvider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]ConstraintEntry, error) {
+func (t *tracedProvider) RemoveConstraint(ctx context.Context, userID string, agentID string, id string) ([]ConstraintEntry, error) {
 	cs, ok := t.inner.(ConstraintStore)
 	if !ok {
 		return nil, errCapabilityNotSupported("ConstraintStore")
@@ -459,7 +459,7 @@ func (t *tracedProvider) ListInfo(ctx context.Context, opts ListOptions) ([]Sess
 		Duration:    time.Since(start),
 		Error:       err,
 		ResultCount: len(infos),
-		Detail:      fmt.Sprintf("agent=%s user=%d archived=%v limit=%d → %d results", opts.AgentID, opts.UserID, opts.IncludeArchived, opts.Limit, len(infos)),
+		Detail:      fmt.Sprintf("agent=%s user=%s archived=%v limit=%d → %d results", opts.AgentID, opts.UserID, opts.IncludeArchived, opts.Limit, len(infos)),
 	})
 	return infos, err
 }
@@ -486,7 +486,7 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 // VersionedProfileStore
 // ---------------------------------------------------------------------------
 
-func (t *tracedProvider) GetProfileAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+func (t *tracedProvider) GetProfileAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
 	vp, ok := t.inner.(VersionedProfileStore)
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
@@ -494,7 +494,7 @@ func (t *tracedProvider) GetProfileAt(ctx context.Context, userID int64, agentID
 	return vp.GetProfileAt(ctx, userID, agentID, version)
 }
 
-func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
 	vp, ok := t.inner.(VersionedProfileStore)
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
@@ -506,7 +506,7 @@ func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID int64, agent
 // VersionedConstraintStore
 // ---------------------------------------------------------------------------
 
-func (t *tracedProvider) GetConstraintsAt(ctx context.Context, userID int64, agentID string, version int64) ([]ConstraintEntry, error) {
+func (t *tracedProvider) GetConstraintsAt(ctx context.Context, userID string, agentID string, version int64) ([]ConstraintEntry, error) {
 	vc, ok := t.inner.(VersionedConstraintStore)
 	if !ok {
 		return nil, errCapabilityNotSupported("VersionedConstraintStore")
@@ -518,7 +518,7 @@ func (t *tracedProvider) GetConstraintsAt(ctx context.Context, userID int64, age
 // SessionSnapshotStore
 // ---------------------------------------------------------------------------
 
-func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) (SessionSnapshot, error) {
+func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID string, agentID string) (SessionSnapshot, error) {
 	sss, ok := t.inner.(SessionSnapshotStore)
 	if !ok {
 		return SessionSnapshot{}, errCapabilityNotSupported("SessionSnapshotStore")
@@ -526,7 +526,7 @@ func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, session
 	return sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
 }
 
-func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) error {
+func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID string, agentID string) error {
 	sss, ok := t.inner.(SessionSnapshotStore)
 	if !ok {
 		return errCapabilityNotSupported("SessionSnapshotStore")

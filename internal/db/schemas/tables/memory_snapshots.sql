@@ -1,6 +1,6 @@
 CREATE TABLE memory_snapshots (
     session_id  TEXT NOT NULL,
-    user_id     INTEGER NOT NULL,
+    user_id     TEXT NOT NULL,
     agent_id    TEXT NOT NULL,
     version     INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),

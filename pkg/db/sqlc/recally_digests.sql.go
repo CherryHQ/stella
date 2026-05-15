@@ -36,7 +36,7 @@ const countDigests = `-- name: CountDigests :one
 SELECT COUNT(*) FROM recally_digests WHERE user_id = ?
 `
 
-func (q *Queries) CountDigests(ctx context.Context, userID int64) (int64, error) {
+func (q *Queries) CountDigests(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDigests, userID)
 	var count int64
 	err := row.Scan(&count)
@@ -54,7 +54,7 @@ RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, rea
 
 type CreateDigestParams struct {
 	ID                   string `json:"id"`
-	UserID               int64  `json:"user_id"`
+	UserID               string `json:"user_id"`
 	Date                 string `json:"date"`
 	Narrative            string `json:"narrative"`
 	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
@@ -121,7 +121,7 @@ SELECT id, user_id, date, narrative, saved_yesterday_count, unread_count, read_c
 `
 
 type GetDigestByDateParams struct {
-	UserID int64  `json:"user_id"`
+	UserID string `json:"user_id"`
 	Date   string `json:"date"`
 }
 
@@ -211,9 +211,9 @@ LIMIT ?2 OFFSET ?3
 `
 
 type ListDigestsParams struct {
-	UserID int64 `json:"user_id"`
-	Limit  int64 `json:"limit"`
-	Offset int64 `json:"offset"`
+	UserID string `json:"user_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
 }
 
 func (q *Queries) ListDigests(ctx context.Context, arg ListDigestsParams) ([]RecallyDigest, error) {
@@ -276,7 +276,7 @@ RETURNING id, user_id, date, narrative, saved_yesterday_count, unread_count, rea
 
 type UpsertDigestParams struct {
 	ID                   string `json:"id"`
-	UserID               int64  `json:"user_id"`
+	UserID               string `json:"user_id"`
 	Date                 string `json:"date"`
 	Narrative            string `json:"narrative"`
 	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`

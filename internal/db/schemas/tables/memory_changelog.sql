@@ -1,6 +1,6 @@
 CREATE TABLE memory_changelog (
     id          TEXT PRIMARY KEY,
-    user_id     INTEGER NOT NULL,
+    user_id     TEXT NOT NULL,
     agent_id    TEXT NOT NULL,
     session_id  TEXT,
     entity_id   TEXT,

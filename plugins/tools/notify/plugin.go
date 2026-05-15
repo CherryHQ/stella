@@ -96,7 +96,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 	var err error
 	if ch == "" && chatID == "" {
-		if userID := memory.UserIDFromContext(ctx); userID != 0 {
+		if userID := memory.UserIDFromContext(ctx); userID != "" {
 			err = t.service.NotifyUser(ctx, userID, notification)
 		} else {
 			err = t.service.Notify(ctx, notification)

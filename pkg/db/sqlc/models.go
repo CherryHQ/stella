@@ -22,7 +22,7 @@ type AgentTask struct {
 	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
 	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
 	AgentID        sql.NullString `json:"agent_id"`
-	UserID         int64          `json:"user_id"`
+	UserID         string         `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
 }
@@ -38,7 +38,7 @@ type AgentTaskEvent struct {
 
 type Article struct {
 	ID           string         `json:"id"`
-	UserID       int64          `json:"user_id"`
+	UserID       string         `json:"user_id"`
 	AgentID      sql.NullString `json:"agent_id"`
 	Url          string         `json:"url"`
 	CanonicalUrl string         `json:"canonical_url"`
@@ -60,7 +60,7 @@ type Article struct {
 
 type AuthIdentity struct {
 	ID         string `json:"id"`
-	UserID     int64  `json:"user_id"`
+	UserID     string `json:"user_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
 	Name       string `json:"name"`
@@ -93,13 +93,13 @@ type AuthPolicy struct {
 
 type AuthSession struct {
 	ID        string `json:"id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	ExpiresAt string `json:"expires_at"`
 	CreatedAt string `json:"created_at"`
 }
 
 type AuthUser struct {
-	ID               int64          `json:"id"`
+	ID               string         `json:"id"`
 	Username         string         `json:"username"`
 	PasswordHash     string         `json:"password_hash"`
 	Role             string         `json:"role"`
@@ -113,13 +113,13 @@ type AuthUser struct {
 }
 
 type AuthUserAgent struct {
-	UserID  int64  `json:"user_id"`
+	UserID  string `json:"user_id"`
 	AgentID string `json:"agent_id"`
 }
 
 type AuthUserToken struct {
 	ID            string         `json:"id"`
-	UserID        int64          `json:"user_id"`
+	UserID        string         `json:"user_id"`
 	Name          string         `json:"name"`
 	TokenHash     string         `json:"token_hash"`
 	TokenPrefix   string         `json:"token_prefix"`
@@ -133,7 +133,7 @@ type AuthUserToken struct {
 }
 
 type CtxAgentMemory struct {
-	UserID      int64  `json:"user_id"`
+	UserID      string `json:"user_id"`
 	AgentID     string `json:"agent_id"`
 	Content     string `json:"content"`
 	Soul        string `json:"soul"`
@@ -151,7 +151,7 @@ type CtxConversation struct {
 	LastActive     string         `json:"last_active"`
 	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
 	AgentID        sql.NullString `json:"agent_id"`
-	UserID         sql.NullInt64  `json:"user_id"`
+	UserID         sql.NullString `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
 }
@@ -218,7 +218,7 @@ type CtxSummaryParent struct {
 
 type MemoryChangelog struct {
 	ID                  string         `json:"id"`
-	UserID              int64          `json:"user_id"`
+	UserID              string         `json:"user_id"`
 	AgentID             string         `json:"agent_id"`
 	SessionID           sql.NullString `json:"session_id"`
 	EntityID            sql.NullString `json:"entity_id"`
@@ -235,7 +235,7 @@ type MemoryChangelog struct {
 
 type MemorySnapshot struct {
 	SessionID string `json:"session_id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 	Version   int64  `json:"version"`
 	CreatedAt string `json:"created_at"`
@@ -254,7 +254,7 @@ type PluginStateEntry struct {
 
 type RecallyDigest struct {
 	ID                   string `json:"id"`
-	UserID               int64  `json:"user_id"`
+	UserID               string `json:"user_id"`
 	Date                 string `json:"date"`
 	Narrative            string `json:"narrative"`
 	SavedYesterdayCount  int64  `json:"saved_yesterday_count"`
@@ -278,7 +278,7 @@ type RecallyDigestArticle struct {
 
 type RssFeed struct {
 	ID            string         `json:"id"`
-	UserID        int64          `json:"user_id"`
+	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
 	Url           string         `json:"url"`
 	Title         string         `json:"title"`
@@ -323,7 +323,7 @@ type SchedJob struct {
 	SessionMode   string         `json:"session_mode"`
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
-	UserID        sql.NullInt64  `json:"user_id"`
+	UserID        sql.NullString `json:"user_id"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
@@ -338,7 +338,7 @@ type SchedJobRun struct {
 	StartedAt  string         `json:"started_at"`
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
-	UserID     sql.NullInt64  `json:"user_id"`
+	UserID     sql.NullString `json:"user_id"`
 }
 
 type Setting struct {
@@ -359,7 +359,7 @@ type SettingsAgent struct {
 	Sandbox              string `json:"sandbox"`
 	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
 	Scope                string `json:"scope"`
-	CreatorID            int64  `json:"creator_id"`
+	CreatorID            string `json:"creator_id"`
 	Enabled              int64  `json:"enabled"`
 	CreatedAt            string `json:"created_at"`
 	UpdatedAt            string `json:"updated_at"`
@@ -406,7 +406,7 @@ type SettingsProvider struct {
 type Skill struct {
 	ID                     string         `json:"id"`
 	Scope                  string         `json:"scope"`
-	UserID                 sql.NullInt64  `json:"user_id"`
+	UserID                 sql.NullString `json:"user_id"`
 	AgentID                sql.NullString `json:"agent_id"`
 	Name                   string         `json:"name"`
 	Description            string         `json:"description"`
@@ -425,7 +425,7 @@ type SkillFile struct {
 
 type VaultEntry struct {
 	ID         string `json:"id"`
-	UserID     int64  `json:"user_id"`
+	UserID     string `json:"user_id"`
 	Name       string `json:"name"`
 	Ciphertext string `json:"ciphertext"`
 	CreatedAt  string `json:"created_at"`

@@ -18,7 +18,7 @@ const authInfoKey contextKey = "authInfo"
 
 // AuthInfo carries authenticated user data through request context.
 type AuthInfo struct {
-	UserID   int64  `json:"user_id"`
+	UserID   string `json:"user_id"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	IsAdmin  bool   `json:"is_admin"`

@@ -1356,8 +1356,8 @@ func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
 
 func TestPoolGetOrCreateRunnerSeedsScopeFromContext(t *testing.T) {
 	factory := func(_ context.Context, params RunnerParams) (Runner, error) {
-		if params.UserID != 42 {
-			return nil, fmt.Errorf("UserID = %d, want 42", params.UserID)
+		if params.UserID != "42" {
+			return nil, fmt.Errorf("UserID = %q, want 42", params.UserID)
 		}
 		if params.AgentID != "agent-blue" {
 			return nil, fmt.Errorf("AgentID = %q, want %q", params.AgentID, "agent-blue")
@@ -1368,13 +1368,13 @@ func TestPoolGetOrCreateRunnerSeedsScopeFromContext(t *testing.T) {
 	pool := NewPool(factory, mem, WithAgentID("agent-blue"))
 	defer func() { _ = pool.Close() }()
 
-	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), 42), "agent-blue")
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "42"), "agent-blue")
 	sess, _, err := pool.getOrCreateRunner(ctx, "scoped-sess", "")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner: %v", err)
 	}
-	if sess.Info.UserID != 42 {
-		t.Fatalf("session UserID = %d, want 42", sess.Info.UserID)
+	if sess.Info.UserID != "42" {
+		t.Fatalf("session UserID = %q, want 42", sess.Info.UserID)
 	}
 	if sess.Info.AgentID != "agent-blue" {
 		t.Fatalf("session AgentID = %q, want %q", sess.Info.AgentID, "agent-blue")

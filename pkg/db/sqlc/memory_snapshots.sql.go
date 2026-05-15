@@ -17,7 +17,7 @@ WHERE session_id = ? AND user_id = ? AND agent_id = ?
 type AdvanceMemorySnapshotParams struct {
 	Version   int64  `json:"version"`
 	SessionID string `json:"session_id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 }
 
@@ -39,7 +39,7 @@ RETURNING session_id, user_id, agent_id, version, created_at, updated_at
 
 type CreateMemorySnapshotParams struct {
 	SessionID string `json:"session_id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 	Version   int64  `json:"version"`
 }
@@ -69,7 +69,7 @@ SELECT session_id, user_id, agent_id, version, created_at, updated_at FROM memor
 
 type GetMemorySnapshotParams struct {
 	SessionID string `json:"session_id"`
-	UserID    int64  `json:"user_id"`
+	UserID    string `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 }
 

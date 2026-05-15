@@ -186,7 +186,7 @@ func (p *Provider) Close() error { return nil }
 // --- ProfileStore ---
 
 // getMemoryRow fetches the ctx_agent_memory row, returning nil for non-existent rows.
-func (p *Provider) getMemoryRow(ctx context.Context, userID int64, agentID string) (*sqlc.CtxAgentMemory, error) {
+func (p *Provider) getMemoryRow(ctx context.Context, userID string, agentID string) (*sqlc.CtxAgentMemory, error) {
 	mem, err := p.q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{
 		UserID:  userID,
 		AgentID: agentID,
@@ -200,7 +200,7 @@ func (p *Provider) getMemoryRow(ctx context.Context, userID int64, agentID strin
 	return &mem, nil
 }
 
-func (p *Provider) GetProfile(ctx context.Context, userID int64, agentID string) (string, error) {
+func (p *Provider) GetProfile(ctx context.Context, userID string, agentID string) (string, error) {
 	row, err := p.getMemoryRow(ctx, userID, agentID)
 	if err != nil {
 		return "", fmt.Errorf("get profile: %w", err)
@@ -211,14 +211,14 @@ func (p *Provider) GetProfile(ctx context.Context, userID int64, agentID string)
 	return row.Content, nil
 }
 
-func (p *Provider) SetProfile(ctx context.Context, userID int64, agentID string, content string) error {
+func (p *Provider) SetProfile(ctx context.Context, userID string, agentID string, content string) error {
 	if err := memorywrite.SetProfile(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set profile: %w", err)
 	}
 	return nil
 }
 
-func (p *Provider) GetAgentSoul(ctx context.Context, userID int64, agentID string) (string, error) {
+func (p *Provider) GetAgentSoul(ctx context.Context, userID string, agentID string) (string, error) {
 	row, err := p.getMemoryRow(ctx, userID, agentID)
 	if err != nil {
 		return "", fmt.Errorf("get agent soul: %w", err)
@@ -229,7 +229,7 @@ func (p *Provider) GetAgentSoul(ctx context.Context, userID int64, agentID strin
 	return row.Soul, nil
 }
 
-func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
+func (p *Provider) SetAgentSoul(ctx context.Context, userID string, agentID string, content string) error {
 	if err := memorywrite.SetAgentSoul(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set agent soul: %w", err)
 	}
@@ -237,22 +237,22 @@ func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID strin
 }
 
 // GetConstraints implements memory.ConstraintStore.
-func (p *Provider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+func (p *Provider) GetConstraints(ctx context.Context, userID string, agentID string) ([]memory.ConstraintEntry, error) {
 	return memorywrite.GetConstraints(ctx, p.q, userID, agentID)
 }
 
 // AddConstraint implements memory.ConstraintStore.
-func (p *Provider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+func (p *Provider) AddConstraint(ctx context.Context, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
 	return memorywrite.AddConstraint(ctx, p.db, p.q, userID, agentID, text)
 }
 
 // RemoveConstraint implements memory.ConstraintStore.
-func (p *Provider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+func (p *Provider) RemoveConstraint(ctx context.Context, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
 	return memorywrite.RemoveConstraint(ctx, p.db, p.q, userID, agentID, id)
 }
 
 // GetProfileAt implements memory.VersionedProfileStore.
-func (p *Provider) GetProfileAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
 	if version <= 0 {
 		return p.GetProfile(ctx, userID, agentID)
 	}
@@ -275,7 +275,7 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID int64, agentID strin
 }
 
 // GetAgentSoulAt implements memory.VersionedProfileStore.
-func (p *Provider) GetAgentSoulAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
 	if version <= 0 {
 		return p.GetAgentSoul(ctx, userID, agentID)
 	}
@@ -298,7 +298,7 @@ func (p *Provider) GetAgentSoulAt(ctx context.Context, userID int64, agentID str
 }
 
 // GetConstraintsAt implements memory.VersionedConstraintStore.
-func (p *Provider) GetConstraintsAt(ctx context.Context, userID int64, agentID string, version int64) ([]memory.ConstraintEntry, error) {
+func (p *Provider) GetConstraintsAt(ctx context.Context, userID string, agentID string, version int64) ([]memory.ConstraintEntry, error) {
 	if version <= 0 {
 		return p.GetConstraints(ctx, userID, agentID)
 	}
@@ -321,7 +321,7 @@ func (p *Provider) GetConstraintsAt(ctx context.Context, userID int64, agentID s
 }
 
 // GetOrCreateSessionSnapshot implements memory.SessionSnapshotStore.
-func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) (memory.SessionSnapshot, error) {
+func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID string, agentID string) (memory.SessionSnapshot, error) {
 	snap, err := p.q.GetMemorySnapshot(ctx, sqlc.GetMemorySnapshotParams{
 		SessionID: sessionID,
 		UserID:    userID,
@@ -371,7 +371,7 @@ func parseSnapshotTime(s string) time.Time {
 }
 
 // AdvanceSessionSnapshot implements memory.SessionSnapshotStore.
-func (p *Provider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) error {
+func (p *Provider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID string, agentID string) error {
 	row, err := p.getMemoryRow(ctx, userID, agentID)
 	if err != nil {
 		return fmt.Errorf("advance snapshot: read memory row: %w", err)
@@ -393,7 +393,7 @@ func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry)
 }
 
 // ReadChangelog implements memory.ChangelogReader.
-func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
 	rows, err := p.q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
 		UserID:  userID,
 		AgentID: agentID,
@@ -484,7 +484,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Archived:   boolToInt(info.Archived),
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
 			AgentID:    sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-			UserID:     sql.NullInt64{Int64: info.UserID, Valid: info.UserID != 0},
+			UserID:     sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -511,13 +511,13 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			return fmt.Errorf("update archived: %w", err)
 		}
 	}
-	if info.AgentID != "" || info.UserID != 0 {
+	if info.AgentID != "" || info.UserID != "" {
 		agentMatch := conv.AgentID.Valid && conv.AgentID.String == info.AgentID
-		userMatch := conv.UserID.Valid && conv.UserID.Int64 == info.UserID
+		userMatch := conv.UserID.Valid && conv.UserID.String == info.UserID
 		if !agentMatch || !userMatch {
 			if err := p.q.UpdateConversationAgentUser(ctx, sqlc.UpdateConversationAgentUserParams{
 				AgentID:   sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-				UserID:    sql.NullInt64{Int64: info.UserID, Valid: info.UserID != 0},
+				UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 				SessionID: info.ID,
 			}); err != nil {
 				return fmt.Errorf("update agent/user: %w", err)
@@ -560,7 +560,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		if opts.AgentID != "" && info.AgentID != opts.AgentID {
 			continue
 		}
-		if opts.UserID != 0 && info.UserID != opts.UserID {
+		if opts.UserID != "" && info.UserID != opts.UserID {
 			continue
 		}
 		if skipped < opts.Offset {
@@ -656,7 +656,7 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 		info.AgentID = conv.AgentID.String
 	}
 	if conv.UserID.Valid {
-		info.UserID = conv.UserID.Int64
+		info.UserID = conv.UserID.String
 	}
 	if t, err := time.Parse("2006-01-02 15:04:05", conv.CreatedAt); err == nil {
 		info.CreatedAt = t

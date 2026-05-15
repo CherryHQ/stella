@@ -91,7 +91,7 @@ func cloneMap(m map[string]any) map[string]any {
 func (t *OAuthTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	userID := memory.UserIDFromContext(ctx)
-	if userID == 0 {
+	if userID == "" {
 		return "", fmt.Errorf("oauth tool requires user context")
 	}
 	switch action {
@@ -106,7 +106,7 @@ func (t *OAuthTool) Execute(ctx context.Context, args map[string]any) (string, e
 	}
 }
 
-func (t *OAuthTool) status(ctx context.Context, userID int64) (string, error) {
+func (t *OAuthTool) status(ctx context.Context, userID string) (string, error) {
 	providers := t.svc.GetProviderStatuses(ctx, userID)
 	var b strings.Builder
 	b.WriteString("OAuth providers:\n")
@@ -127,7 +127,7 @@ func (t *OAuthTool) status(ctx context.Context, userID int64) (string, error) {
 	return b.String(), nil
 }
 
-func (t *OAuthTool) connect(ctx context.Context, userID int64, args map[string]any) (string, error) {
+func (t *OAuthTool) connect(ctx context.Context, userID string, args map[string]any) (string, error) {
 	provider, _ := args["provider"].(string)
 	if provider == "" {
 		return "", fmt.Errorf("provider is required for connect action")
@@ -156,7 +156,7 @@ func (t *OAuthTool) connect(ctx context.Context, userID int64, args map[string]a
 	return fmt.Sprintf("Flow status:\n%s\n\nKeep calling connect with the same provider and flow_id until you receive a success message.", out), nil
 }
 
-func (t *OAuthTool) disconnect(ctx context.Context, userID int64, args map[string]any) (string, error) {
+func (t *OAuthTool) disconnect(ctx context.Context, userID string, args map[string]any) (string, error) {
 	provider, _ := args["provider"].(string)
 	if provider == "" {
 		return "", fmt.Errorf("provider is required for disconnect action")

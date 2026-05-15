@@ -17,7 +17,7 @@ type Pool struct {
 	factory          NewRunnerFunc
 	hooksFn          func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	beforeRunFn      BeforeRunBuilder
-	snapshotPromptFn func(ctx context.Context, userID int64, agentID string, snap memory.SessionSnapshot) string
+	snapshotPromptFn func(ctx context.Context, userID string, agentID string, snap memory.SessionSnapshot) string
 	sessions         map[string]*Session
 	mem              memory.Provider // memory provider — sole persistence layer
 	mu               sync.Mutex
@@ -131,7 +131,7 @@ func (p *Pool) ResetRunners() error {
 
 // ResetRunnersForUser closes live runners belonging to a specific user.
 // Other sessions are not affected. The next chat for that user recreates a
-func (p *Pool) ResetRunnersForUser(userID int64) error {
+func (p *Pool) ResetRunnersForUser(userID string) error {
 	p.mu.Lock()
 	var runners []Runner
 	for _, sess := range p.sessions {

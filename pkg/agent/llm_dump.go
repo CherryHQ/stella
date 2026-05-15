@@ -17,7 +17,7 @@ type dumpedLLMRequest struct {
 	CreatedAt string              `json:"created_at"`
 	SessionID string              `json:"session_id,omitempty"`
 	AgentID   string              `json:"agent_id,omitempty"`
-	UserID    int64               `json:"user_id,omitempty"`
+	UserID    string              `json:"user_id,omitempty"`
 	Model     ai.Model            `json:"model"`
 	System    string              `json:"system"`
 	Messages  []dumpedMessage     `json:"messages"`

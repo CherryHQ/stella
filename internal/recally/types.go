@@ -43,7 +43,7 @@ const (
 // Article represents a saved article with its metadata.
 type Article struct {
 	ID           string            `json:"id"`
-	UserID       int64             `json:"user_id"`
+	UserID       string            `json:"user_id"`
 	AgentID      *string           `json:"agent_id,omitempty"`
 	URL          string            `json:"url"`
 	CanonicalURL string            `json:"canonical_url"`
@@ -67,7 +67,7 @@ type Article struct {
 // Feed represents an RSS feed subscription.
 type Feed struct {
 	ID            string     `json:"id"`
-	UserID        int64      `json:"user_id"`
+	UserID        string     `json:"user_id"`
 	AgentID       *string    `json:"agent_id,omitempty"`
 	URL           string     `json:"url"`
 	Title         string     `json:"title"`
@@ -162,7 +162,7 @@ const (
 // StoredDigest is a persisted daily digest snapshot with full article objects.
 type StoredDigest struct {
 	ID                   string     `json:"id"`
-	UserID               int64      `json:"user_id"`
+	UserID               string     `json:"user_id"`
 	Date                 string     `json:"date"`
 	Narrative            string     `json:"narrative"`
 	SavedYesterday       []Article  `json:"saved_yesterday"`
@@ -192,7 +192,7 @@ type StoredDigestSummary struct {
 
 // Digest contains daily reading statistics and summaries.
 type Digest struct {
-	UserID               int64      `json:"user_id"`
+	UserID               string     `json:"user_id"`
 	Date                 time.Time  `json:"date"`
 	SavedYesterday       []Article  `json:"saved_yesterday"`
 	SavedYesterdayCount  int        `json:"saved_yesterday_count"`

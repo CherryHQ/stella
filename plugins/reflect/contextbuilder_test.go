@@ -16,7 +16,7 @@ func TestBuildReviewContext_PrefersReviewer(t *testing.T) {
 	svc := &Service{memory: fake, log: testLogger()}
 
 	ctx := context.Background()
-	sess := memory.Session{ID: "s1", AgentID: "a", UserID: 1}
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
 	if err := fake.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestBuildReviewContext_FallbackWithTimestamps(t *testing.T) {
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
 
 	ctx := context.Background()
-	sess := memory.Session{ID: "s1", AgentID: "a", UserID: 1}
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
 	if err := fake.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestBuildReviewContext_FallbackZeroTimestamps(t *testing.T) {
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
 
 	ctx := context.Background()
-	sess := memory.Session{ID: "s1", AgentID: "a", UserID: 1}
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
 	if err := fake.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestBuildReviewContext_EmptySession(t *testing.T) {
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
 
 	ctx := context.Background()
-	sess := memory.Session{ID: "empty", AgentID: "a", UserID: 1}
+	sess := memory.Session{ID: "empty", AgentID: "a", UserID: "1"}
 	if err := fake.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)
 	}

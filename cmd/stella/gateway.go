@@ -232,12 +232,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	if s.schedulerSvc != nil {
-		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]int64, error) {
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
 			users, err := as.ListUsers(ctx)
 			if err != nil {
 				return nil, err
 			}
-			ids := make([]int64, 0, len(users))
+			ids := make([]string, 0, len(users))
 			for _, u := range users {
 				if u.IsActive {
 					ids = append(ids, u.ID)
@@ -305,7 +305,7 @@ func schedulerPool(job scheduler.Job, poolMgr *agent.PoolManager, defaultPool *a
 }
 
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
-	if job.UserID != 0 {
+	if job.UserID != "" {
 		ctx = memory.WithUserID(ctx, job.UserID)
 	}
 	if pool.AgentID() != "" {

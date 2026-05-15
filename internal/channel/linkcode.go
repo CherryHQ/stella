@@ -39,7 +39,7 @@ func TryLinkCodeWithCandidates(ctx context.Context, authStore auth.AuthStore, li
 			return "Failed to link account. Please try again.", true
 		}
 		if existing.UserID != userID {
-			return fmt.Sprintf("This %s account is already linked to user #%d. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
+			return fmt.Sprintf("This %s account is already linked to user #%s. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
 		}
 		if err := maybeCanonicalizeIdentity(ctx, authStore, platform, senderID, identityMatch{Identity: existing, Matched: candidate}); err != nil {
 			slog.Error("link code: canonicalize identity failed", "platform", platform, "sender", candidate, "preferred_sender", senderID, "user_id", userID, "error", err)

@@ -29,22 +29,22 @@ func SetupWorkspace(agentID, basePath string) (string, error) {
 //
 // Returns the absolute path to the user's workspace directory
 // (basePath/workspaces/{agentID}/users/{userID}/).
-func SetupUserWorkspace(agentID, basePath string, userID int64) (string, error) {
+func SetupUserWorkspace(agentID, basePath string, userID string) (string, error) {
 	if agentID == "" {
 		return "", fmt.Errorf("agent ID must not be empty")
 	}
-	if userID <= 0 {
-		return "", fmt.Errorf("user ID must be positive")
+	if userID == "" {
+		return "", fmt.Errorf("user ID must not be empty")
 	}
-	userDir := filepath.Join(basePath, "workspaces", agentID, "users", fmt.Sprintf("%d", userID))
+	userDir := filepath.Join(basePath, "workspaces", agentID, "users", userID)
 	if err := os.MkdirAll(filepath.Join(userDir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create user workspace for agent %q user %d: %w", agentID, userID, err)
+		return "", fmt.Errorf("create user workspace for agent %q user %s: %w", agentID, userID, err)
 	}
 	if err := os.MkdirAll(filepath.Join(userDir, "data"), 0o755); err != nil {
-		return "", fmt.Errorf("create user data dir for agent %q user %d: %w", agentID, userID, err)
+		return "", fmt.Errorf("create user data dir for agent %q user %s: %w", agentID, userID, err)
 	}
 	if err := os.MkdirAll(filepath.Join(userDir, "assets"), 0o755); err != nil {
-		return "", fmt.Errorf("create user assets dir for agent %q user %d: %w", agentID, userID, err)
+		return "", fmt.Errorf("create user assets dir for agent %q user %s: %w", agentID, userID, err)
 	}
 	return userDir, nil
 }

@@ -46,5 +46,5 @@ type AddSecretInstruction struct {
 
 // RunnerInvalidator invalidates live runners for a user across all pools.
 type RunnerInvalidator interface {
-	InvalidateUser(userID int64) error
+	InvalidateUser(userID string) error
 }

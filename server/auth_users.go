@@ -11,7 +11,7 @@ import (
 
 // authUserResponse is the response shape for auth user endpoints.
 type authUserResponse struct {
-	ID         int64           `json:"id"`
+	ID         string          `json:"id"`
 	Username   string          `json:"username"`
 	Role       string          `json:"role"`
 	IsActive   bool            `json:"is_active"`
@@ -62,7 +62,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetAuthUser handles GET /api/auth/users/{id}.
-func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -82,7 +82,7 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id int64) {
 }
 
 // UpdateAuthUserRole handles PUT /api/auth/users/{id}/role.
-func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -115,7 +115,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id i
 }
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
-func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -129,7 +129,7 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id i
 }
 
 // UpdateAuthUserAgents handles PUT /api/auth/users/{id}/agents.
-func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -187,7 +187,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 }
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
-func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId string) {
+func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -216,7 +216,7 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 }
 
 // UpdateAuthUserActive handles PUT /api/auth/users/{id}/active.
-func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}

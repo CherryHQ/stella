@@ -7,7 +7,7 @@ import (
 
 // UserInfo is the host-owned user record exposed to plugins.
 type UserInfo struct {
-	ID               int64
+	ID               string
 	Username         string
 	Role             string
 	IsActive         bool
@@ -20,7 +20,7 @@ type UserInfo struct {
 // LinkedIdentity is the host-owned linked identity record exposed to plugins.
 type LinkedIdentity struct {
 	ID         string
-	UserID     int64
+	UserID     string
 	Platform   string
 	ExternalID string
 	Name       string
@@ -29,7 +29,7 @@ type LinkedIdentity struct {
 
 // Auth exposes narrow user and identity lookups without leaking auth internals.
 type Auth interface {
-	GetUser(ctx context.Context, userID int64) (UserInfo, error)
-	ListUserIdentities(ctx context.Context, userID int64) ([]LinkedIdentity, error)
+	GetUser(ctx context.Context, userID string) (UserInfo, error)
+	ListUserIdentities(ctx context.Context, userID string) ([]LinkedIdentity, error)
 	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (LinkedIdentity, error)
 }

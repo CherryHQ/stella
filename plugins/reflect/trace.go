@@ -39,7 +39,7 @@ func startConversationSpan(ctx context.Context, c candidate) (context.Context, t
 		trace.WithAttributes(
 			attribute.String("gen_ai.conversation.id", c.session.ID),
 			attribute.String("agent_id", c.session.AgentID),
-			attribute.Int64("user_id", c.session.UserID),
+			attribute.String("user_id", c.session.UserID),
 			attribute.String("stella.chat.channel", c.session.Channel),
 		),
 	)

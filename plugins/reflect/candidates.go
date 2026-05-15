@@ -41,7 +41,7 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 }
 
 func (s *Service) unreviewedCandidate(ctx context.Context, sess memory.SessionInfo) (candidate, bool) {
-	if sess.UserID <= 0 {
+	if sess.UserID == "" {
 		return candidate{}, false
 	}
 
