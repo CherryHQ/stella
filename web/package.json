@@ -31,6 +31,7 @@
     "remark-gfm": "^4.0.1",
     "remark-mdx-frontmatter": "^5.2.0",
     "shiki": "^4.0.2",
+    "simple-icons": "^16.19.0",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.4"

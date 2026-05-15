@@ -1,10 +1,21 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
+import {
+  Check,
+  FileText,
+  LogOut,
+  Menu as MenuIcon,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
+} from "lucide-react";
+import { siGithub } from "simple-icons";
 import { useEffect, useState } from "react";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -62,30 +73,31 @@ export function SiteHeader() {
 
       <div className="flex-1" />
 
-      {/* Right side — utility nav, locale selector, GitHub, auth */}
+      {/* Right side */}
       <div className="flex items-center gap-1">
-        <nav className="hidden sm:flex items-center h-full">
-          {utilNavItems.map((item) => (
-            <HeaderNavLink
-              key={item.href}
-              href={item.href}
-              label={item.label}
-              pathname={pathname}
-            />
-          ))}
-        </nav>
-        <LocaleSelector />
+        {!me && (
+          <>
+            <nav className="hidden sm:flex items-center h-full">
+              {utilNavItems.map((item) => (
+                <HeaderNavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  pathname={pathname}
+                />
+              ))}
+            </nav>
+            <GithubLink />
+            <LocaleSelector />
+          </>
+        )}
         <ThemeSelector />
-        <GithubLink />
         {me ? (
           <UserMenu />
         ) : (
-          <Link
-            to="/login"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5"
-          >
+          <Button render={<Link to="/login" />} size="sm" className="ml-1">
             {t("header.login")}
-          </Link>
+          </Button>
         )}
 
         {/* Mobile hamburger → Sheet */}
@@ -290,8 +302,8 @@ function GithubLink() {
       className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
       aria-label="GitHub"
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+      <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="currentColor" aria-hidden="true">
+        <path d={siGithub.path} />
       </svg>
     </a>
   );
@@ -301,27 +313,35 @@ function UserMenu() {
   const { data: me } = useQuery(meQueryOptions);
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
 
   if (!me) return null;
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
     qc.clear();
     void navigate({ to: "/login" });
   }
 
+  function toggleLocale() {
+    void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale);
+  }
+
+  const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
+
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="cursor-pointer flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent text-sm font-medium transition-colors outline-none">
+      <DropdownMenuTrigger className="cursor-pointer flex items-center p-1 rounded-lg hover:bg-accent transition-colors outline-none ml-1">
         <Avatar className="size-7">
           <AvatarFallback className="text-xs font-mono font-semibold">
             {me.username[0]?.toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <span className="hidden md:inline text-sm text-muted-foreground">{me.username}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+      <DropdownMenuContent align="end" sideOffset={8} className="w-52">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             <div className="flex flex-col gap-0.5">
@@ -332,17 +352,48 @@ function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link to={"/sessions" as never} />}>
-            {t("header.dashboard")}
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<Link to={"/settings/account" as never} />}>
-            {t("header.accountSettings")}
+          <DropdownMenuItem render={<Link to={"/settings" as never} />}>
+            <Settings className="size-4" />
+            {t("nav.settings")}
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={logout}>
-          {t("header.logout")}
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem render={<Link to={"/docs" as never} />}>
+            <FileText className="size-4" />
+            {t("nav.docs")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            render={
+              <a
+                href="https://github.com/CherryHQ/stella"
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            }
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="size-4 shrink-0"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d={siGithub.path} />
+            </svg>
+            GitHub
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={toggleLocale}>
+            <span className="size-4 flex items-center justify-center text-xs font-medium">文</span>
+            {nextLocaleLabel}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+            <LogOut className="size-4" />
+            {t("header.logout")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -16,21 +16,32 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { siTelegram, siQq, siWechat } from "simple-icons";
 import { useI18n } from "@/lib/i18n";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+
+function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
 type PlatformDefaults = Record<string, string | boolean>;
 
-const platformMeta: Record<string, { label: string; defaults: PlatformDefaults }> = {
+const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; icon?: string }> = {
   telegram: {
     label: "Telegram",
     defaults: { token: "", channel_id: "", group_mode: "" },
+    icon: siTelegram.path,
   },
   qq: {
     label: "QQ",
     defaults: { app_id: "", app_secret: "", group_mode: "" },
+    icon: siQq.path,
   },
   feishu: {
     label: "Feishu",
@@ -44,7 +55,7 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults }
       auto_provision: false,
     },
   },
-  weixin: { label: "Weixin", defaults: {} },
+  weixin: { label: "Weixin", defaults: {}, icon: siWechat.path },
 };
 
 const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }));
@@ -306,7 +317,12 @@ function ChannelDetail({
         {/* Panel header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-serif text-xl tracking-tight">{platformLabel}</h2>
+            <h2 className="font-serif text-xl tracking-tight flex items-center gap-2">
+              {platformMeta[channel.type]?.icon && (
+                <BrandIcon path={platformMeta[channel.type].icon!} className="size-5 shrink-0" />
+              )}
+              {platformLabel}
+            </h2>
             <p className="text-xs font-mono text-muted-foreground mt-1">{channel.id}</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -1074,12 +1090,18 @@ export function ChannelsPage() {
                 isSelected ? "bg-primary/8" : ""
               }`}
             >
-              {/* Status dot */}
-              <span
-                className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                  ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-                }`}
-              />
+              {platformMeta[ch.type]?.icon ? (
+                <BrandIcon
+                  path={platformMeta[ch.type].icon!}
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+              ) : (
+                <span
+                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                    ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                  }`}
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
                 <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.id}</p>
@@ -1190,11 +1212,18 @@ export function ChannelsPage() {
               isSelected ? "bg-primary/8" : ""
             }`}
           >
-            <span
-              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                linked ? "bg-green-500" : "bg-muted-foreground/40"
-              }`}
-            />
+            {platformMeta[ch.type]?.icon ? (
+              <BrandIcon
+                path={platformMeta[ch.type].icon!}
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+            ) : (
+              <span
+                className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                  linked ? "bg-green-500" : "bg-muted-foreground/40"
+                }`}
+              />
+            )}
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
               {linked && (
