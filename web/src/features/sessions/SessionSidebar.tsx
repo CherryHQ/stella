@@ -124,7 +124,7 @@ export function SessionSidebar({
       {/* Header */}
       <div className="flex-shrink-0 bg-background">
         <div className="flex h-11 items-center justify-between px-4 border-b border-border">
-          <span className="text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground/60">
+          <span className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground/60">
             {t("sessions.title")}
           </span>
           <DropdownMenu>

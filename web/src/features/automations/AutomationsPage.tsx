@@ -376,7 +376,7 @@ export function AutomationsPage() {
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-background">
-      <div className="mx-auto flex max-w-[90rem] flex-col gap-4 px-5 py-4">
+      <div className="flex flex-col gap-4 px-5 py-4">
         <header className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-baseline gap-3">
@@ -388,7 +388,7 @@ export function AutomationsPage() {
               </div>
             </div>
           </div>
-          <div className="grid h-10 grid-cols-3 rounded-xl border border-border bg-card/70 p-1 sm:flex sm:w-auto">
+          <div className="grid h-10 grid-cols-3 rounded-xl border border-border bg-muted p-1 sm:flex sm:w-auto">
             <TabButton
               active={tab === "work"}
               onClick={() => setTab("work")}
@@ -407,7 +407,7 @@ export function AutomationsPage() {
           </div>
         </header>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_32rem]">
-          <section className="rounded-3xl border border-border bg-card/70 p-4 shadow-sm">
+          <section className="p-4">
             {tab === "work" && (
               <>
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -568,7 +568,7 @@ export function AutomationsPage() {
             )}
           </section>
 
-          <aside className="hidden rounded-3xl border border-border bg-card/70 p-5 shadow-sm xl:sticky xl:top-5 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          <aside className="hidden border-l border-border p-5 xl:sticky xl:top-5 xl:block xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
             {selectedTask ? (
               <DetailShell
                 title={t("automations.detail.task")}
@@ -608,7 +608,7 @@ export function AutomationsPage() {
                 }
               />
             ) : (
-              <div className="flex min-h-[30rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/60 p-6 text-center">
+              <div className="flex min-h-[30rem] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
                 <h2 className="font-serif text-2xl italic tracking-tight">
                   {t("automations.select.title")}
                 </h2>
@@ -791,7 +791,7 @@ function DetailShell({
   return (
     <div>
       <div className="mb-5 flex items-center justify-between gap-3 pr-10 xl:pr-0">
-        <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
           {title}
         </div>
         <Button
@@ -812,12 +812,12 @@ function SchedulerRunDetail({ job, run }: { job: SchedulerJob; run: SchedulerJob
   return (
     <div>
       <div className="mb-5">
-        <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
           Scheduler run
         </div>
         <h2 className="mt-2 font-serif text-2xl italic tracking-tight">{job.name}</h2>
       </div>
-      <div className="rounded-2xl border border-border bg-background/60 p-4">
+      <div className="rounded-xl border border-border bg-muted/30 p-4">
         <div className="mb-4 flex flex-wrap gap-2">
           <Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>
           <Badge variant="outline">{jobScheduleText(job)}</Badge>
@@ -892,7 +892,7 @@ function ScheduleDetail({
     <div>
       <div className="mb-5 flex items-start justify-between gap-3 pr-10 xl:pr-0">
         <div>
-          <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
             {isNew ? "New schedule" : "Schedule runs"}
           </div>
           <h2 className="mt-2 font-serif text-2xl italic tracking-tight">
@@ -923,10 +923,7 @@ function ScheduleDetail({
       {readOnly && <PluginSchedule job={job} />}
 
       {!readOnly && (
-        <details
-          className="mt-6 rounded-2xl border border-border bg-background/60 p-4"
-          open={isNew}
-        >
+        <details className="mt-6 rounded-xl border border-border bg-muted/30 p-4" open={isNew}>
           <summary className="cursor-pointer text-sm font-semibold">
             {isNew ? "Schedule settings" : "Edit schedule settings"}
           </summary>
@@ -1047,7 +1044,7 @@ function ScheduleDetail({
 
 function ScheduleSummary({ job }: { job: SchedulerJob }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/60 p-4">
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
       <div className="mb-3 flex flex-wrap gap-2">
         <Badge variant={job.enabled ? "success" : "outline"}>
           {job.enabled ? "enabled" : "disabled"}
@@ -1062,7 +1059,7 @@ function ScheduleSummary({ job }: { job: SchedulerJob }) {
 
 function PluginSchedule({ job }: { job: SchedulerJob }) {
   return (
-    <details className="mt-6 rounded-2xl border border-border bg-background/60 p-4">
+    <details className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
       <summary className="cursor-pointer text-sm font-semibold">Schedule definition</summary>
       <div className="mt-4 space-y-3">
         <p className="text-sm text-muted-foreground">
@@ -1087,7 +1084,7 @@ function PluginSchedule({ job }: { job: SchedulerJob }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+      <span className="block text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       {children}
@@ -1108,9 +1105,9 @@ function LaneColumn({
 }) {
   return (
     <div
-      className={`min-h-[18rem] rounded-2xl border p-2 2xl:min-h-[30rem] ${hidden ? "hidden 2xl:block" : ""} ${active ? "border-primary/40 bg-primary/[0.03]" : "border-border bg-background/60"}`}
+      className={`min-h-[18rem] rounded-xl border p-2 2xl:min-h-[30rem] ${hidden ? "hidden 2xl:block" : ""} ${active ? "border-primary/40 bg-primary/[0.03]" : "border-border bg-muted/30"}`}
     >
-      <div className="px-2 py-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      <div className="px-2 py-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </div>
       <div className="space-y-2">{children}</div>
