@@ -24,10 +24,8 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 	}
 	info := UserFromContext(r.Context())
 	var userID int64
-	isAdmin := false
 	if info != nil {
 		userID = info.UserID
-		isAdmin = info.IsAdmin
 	}
 
 	var statusFilter string
@@ -35,7 +33,7 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		statusFilter = *params.Status
 	}
 
-	list, err := s.tasksSvc.ListTasks(r.Context(), userID, isAdmin, statusFilter)
+	list, err := s.tasksSvc.ListTasks(r.Context(), userID, false, statusFilter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

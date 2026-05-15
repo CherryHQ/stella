@@ -29,13 +29,11 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		if info != nil && !info.IsAdmin {
-			if row.OwnerKind == scheduler.JobOwnerPlugin {
-				continue
-			}
-			if !row.UserID.Valid || row.UserID.Int64 != info.UserID {
-				continue
-			}
+		if row.OwnerKind == scheduler.JobOwnerPlugin {
+			continue
+		}
+		if info != nil && (!row.UserID.Valid || row.UserID.Int64 != info.UserID) {
+			continue
 		}
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}

@@ -234,8 +234,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	}
 
 	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
-	// Push user-scoped filtering into the provider for correct limit application.
-	if info != nil && !info.IsAdmin {
+	if info != nil {
 		opts.UserID = info.UserID
 	}
 	sessions, err := sm.ListInfo(r.Context(), opts)
