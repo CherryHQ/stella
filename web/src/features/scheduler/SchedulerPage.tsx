@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Streamdown } from "streamdown";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { api } from "@/lib/api";
@@ -65,11 +66,11 @@ export function SchedulerPage() {
   const isAdmin = me?.is_admin ?? false;
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-  const [editingJobId, setEditingJobId] = useState<number | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [triggeringJobId, setTriggeringJobId] = useState<number | null>(null);
-  const [runHistories, setRunHistories] = useState<Record<number, SchedulerJobRun[]>>({});
+  const [triggeringJobId, setTriggeringJobId] = useState<string | null>(null);
+  const [runHistories, setRunHistories] = useState<Record<string, SchedulerJobRun[]>>({});
   const [jobForm, setJobForm] = useState<JobForm>(emptyForm());
   const [toast, setToast] = useState<Toast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -101,7 +102,7 @@ export function SchedulerPage() {
     void Promise.all([loadJobs(), loadAgents()]);
   }, [loadJobs, loadAgents]);
 
-  const loadRuns = useCallback(async (jobId: number) => {
+  const loadRuns = useCallback(async (jobId: string) => {
     try {
       const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
       setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
@@ -125,7 +126,7 @@ export function SchedulerPage() {
     (j: SchedulerJob) => {
       setSelectedJobId(j.id);
       setCreatingNew(false);
-      if (j.owner_kind !== "plugin") {
+      if (j.owner_kind === "user") {
         setEditingJobId(j.id);
         setJobForm({
           name: j.name,
@@ -179,9 +180,9 @@ export function SchedulerPage() {
   }, [jobForm, isAdmin, editingJobId, resetForm, loadJobs, showToast]);
 
   const doDeleteJob = useCallback(
-    async (id: number) => {
+    async (id: string) => {
       const job = jobs.find((item) => item.id === id);
-      if (job?.owner_kind === "plugin") return;
+      if (job?.owner_kind !== "user") return;
       try {
         await api("DELETE", "/api/scheduler/jobs/" + id);
         if (selectedJobId === id) {
@@ -261,6 +262,10 @@ export function SchedulerPage() {
                   <Badge size="sm" variant="info">
                     plugin:{j.plugin_id}
                   </Badge>
+                ) : j.owner_kind === "system" ? (
+                  <Badge size="sm" variant="secondary">
+                    system
+                  </Badge>
                 ) : (
                   <>
                     {j.agent_id && <span>{j.agent_id}</span>}
@@ -293,7 +298,7 @@ export function SchedulerPage() {
                 >
                   {t("scheduler.runNow")}
                 </Button>
-                {selectedJob.owner_kind !== "plugin" && (
+                {selectedJob.owner_kind === "user" && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -311,7 +316,7 @@ export function SchedulerPage() {
               </div>
             </div>
 
-            {selectedJob.owner_kind !== "plugin" ? (
+            {selectedJob.owner_kind === "user" ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
                   <div className="space-y-1.5">
@@ -451,19 +456,29 @@ export function SchedulerPage() {
               </>
             ) : (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {selectedJob.description || "Plugin-owned scheduled job"}
-                </p>
+                <div className="prose prose-sm max-w-none text-foreground [&_ol]:pl-5 [&_ul]:pl-5">
+                  <Streamdown>{selectedJob.description || selectedJob.message || ""}</Streamdown>
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Badge size="sm" variant="info">
-                    plugin:{selectedJob.plugin_id}
-                  </Badge>
-                  <Badge size="sm" variant="outline">
-                    key:{selectedJob.job_key}
-                  </Badge>
-                  <Badge size="sm" variant="outline">
-                    runtime:{selectedJob.runtime_name}
-                  </Badge>
+                  {selectedJob.owner_kind === "plugin" ? (
+                    <Badge size="sm" variant="info">
+                      plugin:{selectedJob.plugin_id}
+                    </Badge>
+                  ) : (
+                    <Badge size="sm" variant="secondary">
+                      system
+                    </Badge>
+                  )}
+                  {selectedJob.owner_kind === "plugin" && selectedJob.job_key && (
+                    <Badge size="sm" variant="outline">
+                      key:{selectedJob.job_key}
+                    </Badge>
+                  )}
+                  {selectedJob.owner_kind === "plugin" && selectedJob.runtime_name && (
+                    <Badge size="sm" variant="outline">
+                      runtime:{selectedJob.runtime_name}
+                    </Badge>
+                  )}
                   <Badge size="sm" variant={selectedJob.enabled ? "success" : "outline"}>
                     {selectedJob.enabled ? "on" : "off"}
                   </Badge>

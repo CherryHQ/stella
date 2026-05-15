@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Streamdown } from "streamdown";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { meQueryOptions } from "@/lib/queries/me";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -23,11 +25,12 @@ import { SessionConversation } from "@/features/sessions/SessionConversation";
 import { TaskDetail } from "@/features/tasks/TaskDetail";
 
 type ViewTab = "work" | "schedules" | "history";
+type AutomationsRoute = { tab: ViewTab; selection: Selection } | { redirect: string };
 type WorkLaneKey = "attention" | "running" | "pending" | "failed";
 type Selection =
   | { type: "task"; id: string }
-  | { type: "job"; id: number }
-  | { type: "run"; jobId: number; runId: number }
+  | { type: "job"; id: string }
+  | { type: "run"; jobId: string; runId: string }
   | { type: "new-job" }
   | null;
 type TimelineKind = "task" | "schedule" | "run";
@@ -117,14 +120,59 @@ function isFailedJob(job: SchedulerJob): boolean {
   return Boolean(job.last_error);
 }
 
+function parseAutomationsRoute(splat?: string): AutomationsRoute {
+  const segments = splat?.split("/").filter(Boolean) ?? [];
+  const [section, kind, id, runId] = segments;
+
+  if (!section) return { redirect: "/automations/tasks" };
+  if (section === "tasks") {
+    return kind
+      ? { tab: "work", selection: { type: "task", id: kind } }
+      : { tab: "work", selection: null };
+  }
+  if (section === "scheduler") {
+    if (kind === "new") return { tab: "schedules", selection: { type: "new-job" } };
+    if (kind === "jobs" && id) return { tab: "schedules", selection: { type: "job", id } };
+    return { tab: "schedules", selection: null };
+  }
+  if (section === "logs") {
+    if (kind === "tasks" && id) return { tab: "history", selection: { type: "task", id } };
+    if (kind === "runs" && id && runId) {
+      return {
+        tab: "history",
+        selection: { type: "run", jobId: id, runId },
+      };
+    }
+    return { tab: "history", selection: null };
+  }
+  return { redirect: "/automations/tasks" };
+}
+
+function selectionPath(tab: ViewTab, selection: Selection): string {
+  if (selection?.type === "task")
+    return tab === "history"
+      ? `/automations/logs/tasks/${selection.id}`
+      : `/automations/tasks/${selection.id}`;
+  if (selection?.type === "job") return `/automations/scheduler/jobs/${selection.id}`;
+  if (selection?.type === "run")
+    return `/automations/logs/runs/${selection.jobId}/${selection.runId}`;
+  if (selection?.type === "new-job") return "/automations/scheduler/new";
+  if (tab === "schedules") return "/automations/scheduler";
+  if (tab === "history") return "/automations/logs";
+  return "/automations/tasks";
+}
+
 export function AutomationsPage() {
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { _splat?: string };
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
+  const [detailTask, setDetailTask] = useState<ComponentsAgentTask | null>(null);
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [runsByJob, setRunsByJob] = useState<Record<number, SchedulerJobRun[]>>({});
+  const [runsByJob, setRunsByJob] = useState<Record<string, SchedulerJobRun[]>>({});
   const [tab, setTab] = useState<ViewTab>("work");
   const [workLane, setWorkLane] = useState<WorkLaneKey>("attention");
   const [selection, setSelection] = useState<Selection>(null);
@@ -133,16 +181,33 @@ export function AutomationsPage() {
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskForm, setTaskForm] = useState<TaskForm>(emptyTaskForm());
   const [jobForm, setJobForm] = useState<JobForm>(emptyJobForm());
-  const [triggeringJobId, setTriggeringJobId] = useState<number | null>(null);
+  const [triggeringJobId, setTriggeringJobId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+
+  const routeTo = useCallback(
+    (nextTab: ViewTab, nextSelection: Selection = null) => {
+      void navigate({ to: selectionPath(nextTab, nextSelection) });
+    },
+    [navigate],
+  );
+
+  useEffect(() => {
+    const route = parseAutomationsRoute(params._splat);
+    if ("redirect" in route) {
+      void navigate({ to: route.redirect, replace: true });
+      return;
+    }
+    setTab(route.tab);
+    setSelection(route.selection);
+  }, [navigate, params._splat]);
 
   const showToast = useCallback((msg: string, kind: "success" | "error" = "success") => {
     setToast({ msg, kind });
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const loadRuns = useCallback(async (jobId: number) => {
+  const loadRuns = useCallback(async (jobId: string) => {
     try {
       const runs = await api<SchedulerJobRun[]>("GET", `/api/scheduler/jobs/${jobId}/runs`);
       setRunsByJob((prev) => ({ ...prev, [jobId]: runs || [] }));
@@ -185,7 +250,7 @@ export function AutomationsPage() {
 
   const selectJob = useCallback(
     (job: SchedulerJob) => {
-      setSelection({ type: "job", id: job.id });
+      routeTo("schedules", { type: "job", id: job.id });
       setJobForm({
         name: job.name,
         message: job.message,
@@ -199,13 +264,13 @@ export function AutomationsPage() {
       });
       void loadRuns(job.id);
     },
-    [loadRuns],
+    [loadRuns, routeTo],
   );
 
   const startNewJob = useCallback(() => {
-    setSelection({ type: "new-job" });
+    routeTo("schedules", { type: "new-job" });
     setJobForm(emptyJobForm());
-  }, []);
+  }, [routeTo]);
 
   const createTask = useCallback(async () => {
     try {
@@ -216,13 +281,13 @@ export function AutomationsPage() {
       });
       setCreatingTask(false);
       setTaskForm(emptyTaskForm());
-      setSelection({ type: "task", id: created.id });
+      routeTo("work", { type: "task", id: created.id });
       await load();
       showToast("Task created");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Request failed", "error");
     }
-  }, [load, showToast, taskForm]);
+  }, [load, routeTo, showToast, taskForm]);
 
   const saveJob = useCallback(async () => {
     const payload: Record<string, unknown> = {
@@ -256,28 +321,28 @@ export function AutomationsPage() {
     async (id: string) => {
       try {
         await api("DELETE", `/api/tasks/${id}`);
-        setSelection(null);
+        routeTo(tab);
         await load();
         showToast("Task deleted");
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Request failed", "error");
       }
     },
-    [load, showToast],
+    [load, routeTo, showToast, tab],
   );
 
   const deleteJob = useCallback(
-    async (id: number) => {
+    async (id: string) => {
       try {
         await api("DELETE", `/api/scheduler/jobs/${id}`);
-        setSelection(null);
+        routeTo(tab);
         await load();
         showToast("Schedule deleted");
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Request failed", "error");
       }
     },
-    [load, showToast],
+    [load, routeTo, showToast, tab],
   );
 
   const triggerJob = useCallback(
@@ -300,12 +365,26 @@ export function AutomationsPage() {
     setTasks((prev) => prev.map((task) => (task.id === updated.id ? updated : task)));
   }, []);
 
+  useEffect(() => {
+    if (selection?.type !== "task") {
+      setDetailTask(null);
+      return;
+    }
+    if (detailTask?.id === selection.id || tasks.some((task) => task.id === selection.id)) return;
+    api<ComponentsAgentTask>("GET", `/api/tasks/${encodeURIComponent(selection.id)}`)
+      .then(setDetailTask)
+      .catch(console.error);
+  }, [selection, detailTask?.id, tasks]);
+
   const attentionTasks = tasks.filter(taskNeedsAttention);
   const runningTasks = tasks.filter((task) => task.status === "running");
   const pendingTasks = tasks.filter((task) => task.status === "pending");
   const failedTasks = tasks.filter(isFailedTask);
   const selectedTask =
-    selection?.type === "task" ? tasks.find((task) => task.id === selection.id) : null;
+    selection?.type === "task"
+      ? (tasks.find((task) => task.id === selection.id) ??
+        (detailTask?.id === selection.id ? detailTask : null))
+      : null;
   const selectedJob =
     selection?.type === "job" ? jobs.find((job) => job.id === selection.id) : null;
   const selectedRunJob =
@@ -392,17 +471,17 @@ export function AutomationsPage() {
           <div className="grid h-10 grid-cols-3 rounded-xl border border-border bg-muted p-1 sm:flex sm:w-auto">
             <TabButton
               active={tab === "work"}
-              onClick={() => setTab("work")}
+              onClick={() => routeTo("work")}
               label={t("automations.tab.tasks")}
             />
             <TabButton
               active={tab === "schedules"}
-              onClick={() => setTab("schedules")}
+              onClick={() => routeTo("schedules")}
               label={t("automations.tab.scheduler")}
             />
             <TabButton
               active={tab === "history"}
-              onClick={() => setTab("history")}
+              onClick={() => routeTo("history")}
               label={t("automations.tab.log")}
             />
           </div>
@@ -432,7 +511,10 @@ export function AutomationsPage() {
                     <button
                       key={item.key}
                       type="button"
-                      onClick={() => setWorkLane(item.key)}
+                      onClick={() => {
+                        setWorkLane(item.key);
+                        routeTo("work");
+                      }}
                       className={`rounded-xl border p-3 text-left transition-all ${workLane === item.key ? "border-primary bg-primary/[0.04]" : item.key === "attention" && item.count > 0 ? "border-destructive/30 bg-destructive/[0.03]" : "border-border bg-background/60 hover:bg-muted/40"}`}
                     >
                       <div className="text-2xl font-semibold tracking-tight">{item.count}</div>
@@ -454,7 +536,7 @@ export function AutomationsPage() {
                         key={task.id}
                         task={task}
                         tone="attention"
-                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                        onSelect={() => routeTo("work", { type: "task", id: task.id })}
                       />
                     ))}
                     {attentionTasks.length === 0 && (
@@ -471,7 +553,7 @@ export function AutomationsPage() {
                         key={task.id}
                         task={task}
                         tone="running"
-                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                        onSelect={() => routeTo("work", { type: "task", id: task.id })}
                       />
                     ))}
                     {runningTasks.length === 0 && (
@@ -488,7 +570,7 @@ export function AutomationsPage() {
                         key={task.id}
                         task={task}
                         tone="running"
-                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                        onSelect={() => routeTo("work", { type: "task", id: task.id })}
                       />
                     ))}
                     {pendingTasks.length === 0 && (
@@ -505,7 +587,7 @@ export function AutomationsPage() {
                         key={task.id}
                         task={task}
                         tone="failed"
-                        onSelect={() => setSelection({ type: "task", id: task.id })}
+                        onSelect={() => routeTo("work", { type: "task", id: task.id })}
                       />
                     ))}
                     {failedTasks.length === 0 && (
@@ -560,7 +642,7 @@ export function AutomationsPage() {
                     <TimelineRow
                       key={item.id}
                       item={item}
-                      onSelect={() => setSelection(item.selection)}
+                      onSelect={() => routeTo("history", item.selection)}
                     />
                   ))}
                   {timeline.length === 0 && <EmptyCard text={t("automations.log.empty")} />}
@@ -599,7 +681,7 @@ export function AutomationsPage() {
                 onSave={saveJob}
                 onTrigger={selectedJob ? () => triggerJob(selectedJob) : undefined}
                 onDelete={
-                  selectedJob && selectedJob.owner_kind !== "plugin"
+                  selectedJob && selectedJob.owner_kind === "user"
                     ? () =>
                         setConfirm({
                           msg: t("automations.confirm.deleteSchedule"),
@@ -624,7 +706,7 @@ export function AutomationsPage() {
 
       <Dialog
         open={detailModalMode && Boolean(selection)}
-        onOpenChange={(open) => !open && setSelection(null)}
+        onOpenChange={(open) => !open && routeTo(tab)}
       >
         <DialogPopup className="h-[85vh] max-w-3xl xl:hidden" showCloseButton>
           <DialogPanel className="p-4" scrollFade={false}>
@@ -657,7 +739,7 @@ export function AutomationsPage() {
                 onSave={saveJob}
                 onTrigger={selectedJob ? () => triggerJob(selectedJob) : undefined}
                 onDelete={
-                  selectedJob && selectedJob.owner_kind !== "plugin"
+                  selectedJob && selectedJob.owner_kind === "user"
                     ? () =>
                         setConfirm({
                           msg: t("automations.confirm.deleteSchedule"),
@@ -886,8 +968,8 @@ function ScheduleDetail({
   onDelete?: () => void;
 }) {
   const { t } = useI18n();
-  const readOnly = job?.owner_kind === "plugin";
   const isNew = !job;
+  const readOnly = Boolean(job && job.owner_kind !== "user");
 
   return (
     <div>
@@ -921,7 +1003,7 @@ function ScheduleDetail({
 
       {job && <ScheduleSummary job={job} />}
 
-      {readOnly && <PluginSchedule job={job} />}
+      {job && readOnly && <PluginSchedule job={job} />}
 
       {!readOnly && (
         <details className="mt-6 rounded-xl border border-border bg-muted/30 p-4" open={isNew}>
@@ -1063,9 +1145,9 @@ function PluginSchedule({ job }: { job: SchedulerJob }) {
     <details className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
       <summary className="cursor-pointer text-sm font-semibold">Schedule definition</summary>
       <div className="mt-4 space-y-3">
-        <p className="text-sm text-muted-foreground">
-          {job.description || job.message || "Plugin-owned scheduled job"}
-        </p>
+        <div className="prose prose-sm max-w-none text-foreground [&_ol]:pl-5 [&_ul]:pl-5">
+          <Streamdown>{job.description || job.message || ""}</Streamdown>
+        </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="info">plugin:{job.plugin_id}</Badge>
           <Badge variant="outline">key:{job.job_key}</Badge>

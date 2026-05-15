@@ -153,7 +153,7 @@ export interface Workspace {
 }
 
 export interface SchedulerJob {
-  id: number;
+  id: string;
   name: string;
   cron: string;
   every: string;
@@ -174,7 +174,7 @@ export interface SchedulerJob {
 }
 
 export interface SchedulerJobRun {
-  id: number;
+  id: string;
   status: string;
   started_at: string;
   duration: string;

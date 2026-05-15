@@ -29,10 +29,8 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		if row.OwnerKind == scheduler.JobOwnerPlugin {
-			continue
-		}
-		if info != nil && (!row.UserID.Valid || row.UserID.Int64 != info.UserID) {
+		isGlobal := row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem
+		if !isGlobal && info != nil && row.UserID.Valid && row.UserID.Int64 != info.UserID {
 			continue
 		}
 		jobs = append(jobs, dbRowToAPIJob(row))
@@ -319,7 +317,8 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
 		return
 	}
-	if info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
+	isGlobal := existing.OwnerKind == scheduler.JobOwnerSystem
+	if !isGlobal && info != nil && (!existing.UserID.Valid || existing.UserID.Int64 != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
