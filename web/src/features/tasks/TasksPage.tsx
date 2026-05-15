@@ -7,7 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogPopup, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { TaskDetail } from "./TaskDetail";
 
@@ -348,7 +355,7 @@ export function TasksPage({ taskId }: TasksPageProps) {
           <div className="flex-1 overflow-y-auto">
             {attention.length === 0 ? (
               <div className="py-10 text-center">
-                <p className="text-xs text-muted-foreground/60">All clear</p>
+                <p className="text-xs text-muted-foreground/60">{t("tasks.allClear")}</p>
               </div>
             ) : (
               attention.map((task) => (
@@ -420,65 +427,71 @@ export function TasksPage({ taskId }: TasksPageProps) {
       {/* ── Create dialog ── */}
       <Dialog open={creatingNew} onOpenChange={(open) => !open && setCreatingNew(false)}>
         <DialogPopup className="max-w-md">
-          <DialogTitle>{t("tasks.new")}</DialogTitle>
-          <div className="space-y-4 mt-4">
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Title
-              </label>
-              <Input
-                type="text"
-                value={taskForm.title}
-                onChange={(e) => setTaskForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Task title"
-                nativeInput
-              />
+          <DialogHeader>
+            <DialogTitle>{t("tasks.new")}</DialogTitle>
+          </DialogHeader>
+          <DialogPanel>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  {t("tasks.fieldTitle")}
+                </label>
+                <Input
+                  type="text"
+                  value={taskForm.title}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder={t("tasks.fieldTitlePlaceholder")}
+                  nativeInput
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  {t("tasks.fieldDescription")}
+                </label>
+                <Textarea
+                  value={taskForm.description}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder={t("tasks.fieldDescriptionPlaceholder")}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  {t("tasks.fieldPriority")}
+                </label>
+                <select
+                  value={taskForm.priority}
+                  onChange={(e) =>
+                    setTaskForm((f) => ({
+                      ...f,
+                      priority: e.target.value as "routine" | "urgent",
+                    }))
+                  }
+                  className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="routine">{t("tasks.priorityRoutine")}</option>
+                  <option value="urgent">{t("tasks.priorityUrgent")}</option>
+                </select>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Description
-              </label>
-              <Textarea
-                value={taskForm.description}
-                onChange={(e) => setTaskForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Describe what the agent should do…"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Priority
-              </label>
-              <select
-                value={taskForm.priority}
-                onChange={(e) =>
-                  setTaskForm((f) => ({
-                    ...f,
-                    priority: e.target.value as "routine" | "urgent",
-                  }))
-                }
-                className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="routine">Routine</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-3 pt-1">
-              <Button size="sm" disabled={!taskForm.title.trim()} onClick={createTask}>
-                {t("common.create")}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setCreatingNew(false)}>
-                {t("common.cancel")}
-              </Button>
-            </div>
-          </div>
+          </DialogPanel>
+          <DialogFooter variant="bare">
+            <Button size="sm" disabled={!taskForm.title.trim()} onClick={createTask}>
+              {t("common.create")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCreatingNew(false)}>
+              {t("common.cancel")}
+            </Button>
+          </DialogFooter>
         </DialogPopup>
       </Dialog>
 
       {/* ── Confirm dialog ── */}
       <Dialog open={!!confirm} onOpenChange={(open) => !open && setConfirm(null)}>
         <DialogPopup className="max-w-sm">
-          <DialogTitle>{confirm?.msg}</DialogTitle>
-          <div className="flex justify-end gap-2 mt-4">
+          <DialogHeader>
+            <DialogTitle>{confirm?.msg}</DialogTitle>
+          </DialogHeader>
+          <DialogFooter variant="bare">
             <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>
               {t("common.cancel")}
             </Button>
@@ -492,7 +505,7 @@ export function TasksPage({ taskId }: TasksPageProps) {
             >
               {t("common.delete")}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogPopup>
       </Dialog>
 

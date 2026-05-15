@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 function taskStatusVariant(status: string): "success" | "error" | "warning" | "outline" {
   if (status === "done") return "success";
@@ -28,6 +29,21 @@ function eventTypeVariant(type: string): "success" | "error" | "warning" | "outl
   if (type === "started" || type === "progress") return "info";
   return "outline";
 }
+
+const STATUS_KEY: Record<string, MessageKey> = {
+  pending: "tasks.statusPending",
+  running: "tasks.statusRunning",
+  blocked: "tasks.statusBlocked",
+  review_requested: "tasks.statusReview",
+  done: "tasks.statusDone",
+  failed: "tasks.statusFailed",
+  cancelled: "tasks.statusCancelled",
+};
+
+const PRIORITY_KEY: Record<string, MessageKey> = {
+  routine: "tasks.priorityRoutine",
+  urgent: "tasks.priorityUrgent",
+};
 
 interface Props {
   task: ComponentsAgentTask;
@@ -98,10 +114,10 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
             </a>
           )}
           <Badge size="sm" variant={taskStatusVariant(task.status)}>
-            {task.status}
+            {STATUS_KEY[task.status] ? t(STATUS_KEY[task.status]) : task.status}
           </Badge>
           <Badge size="sm" variant={task.priority === "urgent" ? "error" : "outline"}>
-            {task.priority}
+            {PRIORITY_KEY[task.priority] ? t(PRIORITY_KEY[task.priority]) : task.priority}
           </Badge>
         </div>
       </div>
@@ -113,7 +129,7 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       {task.context && Object.keys(task.context).length > 0 && (
         <div className="mb-6">
           <h3 className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2">
-            Context
+            {t("tasks.sectionContext")}
           </h3>
           <div className="space-y-1 text-xs">
             {Object.entries(task.context).map(([k, v]) => (
@@ -130,10 +146,10 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       {task.status === "review_requested" && task.review_request && (
         <div className="mb-6 rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Review Request</h3>
+            <h3 className="text-sm font-semibold">{t("tasks.sectionReviewRequest")}</h3>
             {task.review_request.risk && (
               <Badge size="sm" variant={riskVariant(task.review_request.risk)}>
-                risk: {task.review_request.risk}
+                {t("tasks.labelRisk")}: {task.review_request.risk}
               </Badge>
             )}
           </div>
@@ -152,7 +168,7 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
           )}
           {task.review_request.recommendation && (
             <p className="text-xs text-muted-foreground">
-              Recommendation: {task.review_request.recommendation}
+              {t("tasks.labelRecommendation")}: {task.review_request.recommendation}
             </p>
           )}
           {task.review_request.details && (
@@ -177,11 +193,11 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
       {/* Respond form when blocked */}
       {task.status === "blocked" && (
         <div className="mb-6 rounded-lg border border-border p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Task is blocked — provide a response</h3>
+          <h3 className="text-sm font-semibold">{t("tasks.blockedMessage")}</h3>
           <Textarea
             value={respondText}
             onChange={(e) => setRespondText(e.target.value)}
-            placeholder="Enter your response…"
+            placeholder={t("tasks.respondPlaceholder")}
           />
           <Button
             size="sm"
@@ -214,9 +230,9 @@ export function TaskDetail({ task, onAction, onToast }: Props) {
 
       {/* Event timeline */}
       <div className="pt-4 border-t border-border">
-        <h3 className="text-[13px] font-semibold mb-3">Event Timeline</h3>
+        <h3 className="text-[13px] font-semibold mb-3">{t("tasks.eventTimeline")}</h3>
         {events.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No events yet.</p>
+          <p className="text-xs text-muted-foreground">{t("tasks.noEvents")}</p>
         ) : (
           <div className="space-y-0">
             {events.map((ev) => (
