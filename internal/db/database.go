@@ -113,22 +113,35 @@ func migrate(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", f, err)
 		}
+		// PRAGMA foreign_keys cannot be changed inside a transaction in SQLite
+		// (the statement is silently ignored). Disable it on the connection
+		// before the transaction so Atlas-style table-rebuild migrations work,
+		// then re-enable it after commit.
+		if _, err := db.Exec("PRAGMA foreign_keys = off"); err != nil {
+			return fmt.Errorf("disable fk for %s: %w", f, err)
+		}
 		tx, err := db.Begin()
 		if err != nil {
 			return fmt.Errorf("begin tx for %s: %w", f, err)
 		}
 		if _, err := tx.Exec(string(data)); err != nil {
 			_ = tx.Rollback()
+			_, _ = db.Exec("PRAGMA foreign_keys = on")
 			return fmt.Errorf("exec %s: %w", f, err)
 		}
 		if _, err := tx.Exec(
 			"INSERT INTO schema_migrations (version) VALUES (?)", version,
 		); err != nil {
 			_ = tx.Rollback()
+			_, _ = db.Exec("PRAGMA foreign_keys = on")
 			return fmt.Errorf("record %s: %w", f, err)
 		}
 		if err := tx.Commit(); err != nil {
+			_, _ = db.Exec("PRAGMA foreign_keys = on")
 			return fmt.Errorf("commit %s: %w", f, err)
+		}
+		if _, err := db.Exec("PRAGMA foreign_keys = on"); err != nil {
+			return fmt.Errorf("re-enable fk after %s: %w", f, err)
 		}
 	}
 
