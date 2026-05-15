@@ -1,6 +1,6 @@
 CREATE TABLE ctx_message_parts (
     id TEXT PRIMARY KEY,
-    message_id INTEGER NOT NULL REFERENCES ctx_messages(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL REFERENCES ctx_messages(id) ON DELETE CASCADE,
     part_type TEXT NOT NULL CHECK (part_type IN ('text', 'reasoning', 'tool')),
     ordinal INTEGER NOT NULL,
     text_content TEXT,

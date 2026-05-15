@@ -347,7 +347,7 @@ func TestExecute_Expand(t *testing.T) {
 		ID:   "sum_xyz",
 		Kind: "leaf",
 		SourceMessages: []memory.ExpandMessage{
-			{MessageID: 1, Role: "user", Content: "msg1"},
+			{MessageID: "1", Role: "user", Content: "msg1"},
 		},
 	})
 

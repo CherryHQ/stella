@@ -187,7 +187,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 }
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
-func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId int64) {
+func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId string) {
 	if !requireAdmin(w, r) {
 		return
 	}

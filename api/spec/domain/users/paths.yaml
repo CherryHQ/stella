@@ -295,7 +295,7 @@ paths:
           name: identityId,
           in: path,
           required: true,
-          schema: { type: integer, format: int64 },
+          schema: { type: string },
         }
     delete:
       tags: [auth-users]

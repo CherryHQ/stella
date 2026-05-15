@@ -26,7 +26,7 @@ func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
 // assemble builds a context window from context_items, respecting the token budget.
 // It protects the freshTail most recent raw messages from being excluded.
 // Returns ai.Messages for direct use by the runner pipeline.
-func (a *assembler) assemble(ctx context.Context, convID int64, budget int, freshTail int) ([]ai.Message, error) {
+func (a *assembler) assemble(ctx context.Context, convID string, budget int, freshTail int) ([]ai.Message, error) {
 	items, err := a.q.GetContextItems(ctx, convID)
 	if err != nil {
 		return nil, fmt.Errorf("get context items: %w", err)
@@ -191,9 +191,9 @@ func (a *assembler) resolveItem(ctx context.Context, item sqlc.CtxItem) ([]ai.Me
 		if !item.MessageID.Valid {
 			return nil, nil
 		}
-		msg, err := a.q.GetMessage(ctx, item.MessageID.Int64)
+		msg, err := a.q.GetMessage(ctx, item.MessageID.String)
 		if err != nil {
-			return nil, fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
+			return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, err)
 		}
 		// Use rowsToMessages for single-row slices to get proper type reconstruction.
 		return rowsToMessages([]sqlc.CtxMessage{msg}), nil

@@ -14,7 +14,7 @@ const (
 
 // ChangeEntry represents one changelog record.
 type ChangeEntry struct {
-	ID                  int64
+	ID                  string
 	UserID              int64
 	AgentID             string
 	SessionID           string

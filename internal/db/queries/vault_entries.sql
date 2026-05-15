@@ -10,8 +10,8 @@ FROM vault_entries
 WHERE user_id = ? AND name = ?;
 
 -- name: UpsertVaultEntry :exec
-INSERT INTO vault_entries (user_id, name, ciphertext)
-VALUES (?, ?, ?)
+INSERT INTO vault_entries (id, user_id, name, ciphertext)
+VALUES (?, ?, ?, ?)
 ON CONFLICT(user_id, name) DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = datetime('now');

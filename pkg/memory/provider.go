@@ -179,7 +179,7 @@ type ExpandResult struct {
 
 // ExpandMessage is a source message in an expand result.
 type ExpandMessage struct {
-	MessageID int64
+	MessageID string
 	Role      string
 	Content   string
 	CreatedAt time.Time

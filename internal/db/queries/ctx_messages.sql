@@ -1,6 +1,6 @@
 -- name: CreateMessage :one
-INSERT INTO ctx_messages (conversation_id, seq, role, event_type, content, token_count)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_messages (id, conversation_id, seq, role, event_type, content, token_count)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetMessage :one

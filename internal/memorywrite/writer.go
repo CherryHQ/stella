@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
 )
@@ -53,6 +55,7 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, 
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		ID:                  uuid.NewString(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -106,6 +109,7 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		ID:                  uuid.NewString(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "soul",
@@ -144,6 +148,7 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int6
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		ID:                  uuid.NewString(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "profile",
@@ -234,6 +239,7 @@ func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int6
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		ID:                  uuid.NewString(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",
@@ -302,6 +308,7 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID i
 
 	source := string(memory.ChangeSourceFromContext(ctx))
 	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		ID:                  uuid.NewString(),
 		UserID:              userID,
 		AgentID:             agentID,
 		Scope:               "constraint",

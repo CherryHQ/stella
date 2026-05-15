@@ -12,14 +12,14 @@ type UserInfo struct {
 	Role             string
 	IsActive         bool
 	DefaultAgentID   string
-	NotifyIdentityID *int64
+	NotifyIdentityID *string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
 
 // LinkedIdentity is the host-owned linked identity record exposed to plugins.
 type LinkedIdentity struct {
-	ID         int64
+	ID         string
 	UserID     int64
 	Platform   string
 	ExternalID string

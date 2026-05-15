@@ -252,7 +252,7 @@ func (s provisionStubStore) UpdateUserDefaultAgent(context.Context, int64, strin
 	panic("unused")
 }
 
-func (s provisionStubStore) UpdateUserNotifyIdentity(context.Context, int64, *int64) error {
+func (s provisionStubStore) UpdateUserNotifyIdentity(context.Context, int64, *string) error {
 	panic("unused")
 }
 
@@ -268,7 +268,7 @@ func (s provisionStubStore) CreateIdentity(ctx context.Context, i auth.Identity)
 	return s.createIdentity(ctx, i)
 }
 
-func (s provisionStubStore) GetIdentity(context.Context, int64) (auth.Identity, error) {
+func (s provisionStubStore) GetIdentity(context.Context, string) (auth.Identity, error) {
 	panic("unused")
 }
 
@@ -276,14 +276,14 @@ func (s provisionStubStore) GetIdentityByPlatform(ctx context.Context, platform,
 	return s.getIdentityByPlatform(ctx, platform, externalID)
 }
 
-func (s provisionStubStore) UpdateIdentityExternalID(context.Context, int64, string) error {
+func (s provisionStubStore) UpdateIdentityExternalID(context.Context, string, string) error {
 	panic("unused")
 }
 
 func (s provisionStubStore) ListIdentitiesByUser(context.Context, int64) ([]auth.Identity, error) {
 	panic("unused")
 }
-func (s provisionStubStore) DeleteIdentity(context.Context, int64) error { panic("unused") }
+func (s provisionStubStore) DeleteIdentity(context.Context, string) error { panic("unused") }
 func (s provisionStubStore) CreatePolicy(context.Context, auth.Policy) (auth.Policy, error) {
 	panic("unused")
 }
@@ -334,15 +334,15 @@ func (s provisionStubStore) GetActiveAutoUserToken(context.Context, int64) (auth
 	panic("unused")
 }
 
-func (s provisionStubStore) RotateUserToken(context.Context, int64) (int64, error) {
+func (s provisionStubStore) RotateUserToken(context.Context, string) (int64, error) {
 	panic("unused")
 }
 
-func (s provisionStubStore) RevokeUserToken(context.Context, int64) (int64, error) {
+func (s provisionStubStore) RevokeUserToken(context.Context, string) (int64, error) {
 	panic("unused")
 }
 
-func (s provisionStubStore) UpdateUserTokenLastUsed(context.Context, int64) (int64, error) {
+func (s provisionStubStore) UpdateUserTokenLastUsed(context.Context, string) (int64, error) {
 	panic("unused")
 }
 

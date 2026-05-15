@@ -35,7 +35,7 @@ func newCompactionEngine(db *sql.DB, q *sqlc.Queries, summarizer memory.Summariz
 }
 
 // compact runs compaction on a conversation based on the given mode.
-func (c *compactionEngine) compact(ctx context.Context, convID int64, mode memory.CompactionMode) (*memory.CompactionResult, error) {
+func (c *compactionEngine) compact(ctx context.Context, convID string, mode memory.CompactionMode) (*memory.CompactionResult, error) {
 	start := time.Now()
 	result := &memory.CompactionResult{}
 
@@ -76,7 +76,7 @@ func (c *compactionEngine) compact(ctx context.Context, convID int64, mode memor
 }
 
 // runPasses fetches context items once and runs both leaf and condensed passes.
-func (c *compactionEngine) runPasses(ctx context.Context, convID int64, result *memory.CompactionResult) error {
+func (c *compactionEngine) runPasses(ctx context.Context, convID string, result *memory.CompactionResult) error {
 	items, err := c.q.GetContextItems(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("get context items: %w", err)
@@ -96,7 +96,7 @@ func (c *compactionEngine) runPasses(ctx context.Context, convID int64, result *
 }
 
 // leafPass finds eligible message chunks outside the fresh tail and creates leaf summaries.
-func (c *compactionEngine) leafPass(ctx context.Context, convID int64, items []sqlc.CtxItem, result *memory.CompactionResult) error {
+func (c *compactionEngine) leafPass(ctx context.Context, convID string, items []sqlc.CtxItem, result *memory.CompactionResult) error {
 	_, older := splitFreshTail(items, c.freshTail)
 
 	runs := findMessageRuns(older, defaultLeafChunkSize)
@@ -186,7 +186,7 @@ func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 }
 
 // compactMessageRun creates a leaf summary from a message run.
-func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, run messageRun, result *memory.CompactionResult) error {
+func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string, run messageRun, result *memory.CompactionResult) error {
 	// Load source messages before opening a transaction. The summarizer may call
 	// back into the database to resolve model/provider settings, and Stella's SQLite
 	// handle intentionally uses a single connection. Holding a transaction while
@@ -201,9 +201,9 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 		if !item.MessageID.Valid {
 			continue
 		}
-		msg, err := c.q.GetMessage(ctx, item.MessageID.Int64)
+		msg, err := c.q.GetMessage(ctx, item.MessageID.String)
 		if err != nil {
-			return fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
+			return fmt.Errorf("get message %s: %w", item.MessageID.String, err)
 		}
 		messages = append(messages, msg)
 		textParts = append(textParts, formatMessageForSummarizer(msg))
@@ -267,7 +267,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 			Ordinal:   int64(i),
 		})
 		if err != nil {
-			return fmt.Errorf("link message %d: %w", msg.ID, err)
+			return fmt.Errorf("link message %s: %w", msg.ID, err)
 		}
 	}
 
@@ -302,7 +302,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 }
 
 // condensedPass finds eligible same-depth summaries and creates condensed summaries.
-func (c *compactionEngine) condensedPass(ctx context.Context, convID int64, items []sqlc.CtxItem, result *memory.CompactionResult) error {
+func (c *compactionEngine) condensedPass(ctx context.Context, convID string, items []sqlc.CtxItem, result *memory.CompactionResult) error {
 	// Pre-fetch all summary items so we can group by depth and avoid re-fetching.
 	sumCache := make(map[string]sqlc.CtxSummary)
 	depthOf := make(map[string]int64)
@@ -380,7 +380,7 @@ func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64
 }
 
 // condenseSummaryRun creates a condensed summary from a run of summary context items.
-func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *memory.CompactionResult) error {
+func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *memory.CompactionResult) error {
 	// Load summaries from cache before opening a transaction; see
 	// compactMessageRun for why LLM work must not happen while holding Stella's
 	// single SQLite connection in a transaction.

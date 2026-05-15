@@ -17,7 +17,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 type CreateSummaryParams struct {
 	ID                      string         `json:"id"`
-	ConversationID          int64          `json:"conversation_id"`
+	ConversationID          string         `json:"conversation_id"`
 	Kind                    string         `json:"kind"`
 	Depth                   int64          `json:"depth"`
 	Content                 string         `json:"content"`
@@ -50,7 +50,7 @@ const getSummariesByConversation = `-- name: GetSummariesByConversation :many
 SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summaries WHERE conversation_id = ? ORDER BY created_at ASC
 `
 
-func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID int64) ([]CtxSummary, error) {
+func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID string) ([]CtxSummary, error) {
 	rows, err := q.db.QueryContext(ctx, getSummariesByConversation, conversationID)
 	if err != nil {
 		return nil, err
@@ -93,8 +93,8 @@ ORDER BY created_at ASC
 `
 
 type GetSummariesByDepthParams struct {
-	ConversationID int64 `json:"conversation_id"`
-	Depth          int64 `json:"depth"`
+	ConversationID string `json:"conversation_id"`
+	Depth          int64  `json:"depth"`
 }
 
 func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDepthParams) ([]CtxSummary, error) {
@@ -289,7 +289,7 @@ VALUES (?, ?, ?)
 
 type LinkSummaryToMessageParams struct {
 	SummaryID string `json:"summary_id"`
-	MessageID int64  `json:"message_id"`
+	MessageID string `json:"message_id"`
 	Ordinal   int64  `json:"ordinal"`
 }
 
@@ -322,7 +322,7 @@ LIMIT ?
 `
 
 type SearchSummariesParams struct {
-	ConversationID int64  `json:"conversation_id"`
+	ConversationID string `json:"conversation_id"`
 	Content        string `json:"content"`
 	Limit          int64  `json:"limit"`
 }

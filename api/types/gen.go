@@ -1217,7 +1217,7 @@ type UpdateFeedRequest struct {
 
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest struct {
-	NotifyIdentityId *int64 `json:"notify_identity_id,omitempty"`
+	NotifyIdentityId *string `json:"notify_identity_id,omitempty"`
 }
 
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.

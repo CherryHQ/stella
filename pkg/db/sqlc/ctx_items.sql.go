@@ -16,10 +16,10 @@ VALUES (?, ?, ?, ?, ?)
 `
 
 type AppendContextItemParams struct {
-	ConversationID int64          `json:"conversation_id"`
+	ConversationID string         `json:"conversation_id"`
 	Ordinal        int64          `json:"ordinal"`
 	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullInt64  `json:"message_id"`
+	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
 }
 
@@ -38,7 +38,7 @@ const deleteAllContextItems = `-- name: DeleteAllContextItems :exec
 DELETE FROM ctx_items WHERE conversation_id = ?
 `
 
-func (q *Queries) DeleteAllContextItems(ctx context.Context, conversationID int64) error {
+func (q *Queries) DeleteAllContextItems(ctx context.Context, conversationID string) error {
 	_, err := q.db.ExecContext(ctx, deleteAllContextItems, conversationID)
 	return err
 }
@@ -49,9 +49,9 @@ WHERE conversation_id = ? AND ordinal >= ? AND ordinal <= ?
 `
 
 type DeleteContextItemsInRangeParams struct {
-	ConversationID int64 `json:"conversation_id"`
-	Ordinal        int64 `json:"ordinal"`
-	Ordinal_2      int64 `json:"ordinal_2"`
+	ConversationID string `json:"conversation_id"`
+	Ordinal        int64  `json:"ordinal"`
+	Ordinal_2      int64  `json:"ordinal_2"`
 }
 
 func (q *Queries) DeleteContextItemsInRange(ctx context.Context, arg DeleteContextItemsInRangeParams) error {
@@ -63,7 +63,7 @@ const getContextItemCount = `-- name: GetContextItemCount :one
 SELECT COUNT(*) FROM ctx_items WHERE conversation_id = ?
 `
 
-func (q *Queries) GetContextItemCount(ctx context.Context, conversationID int64) (int64, error) {
+func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getContextItemCount, conversationID)
 	var count int64
 	err := row.Scan(&count)
@@ -76,7 +76,7 @@ WHERE conversation_id = ?
 ORDER BY ordinal ASC
 `
 
-func (q *Queries) GetContextItems(ctx context.Context, conversationID int64) ([]CtxItem, error) {
+func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([]CtxItem, error) {
 	rows, err := q.db.QueryContext(ctx, getContextItems, conversationID)
 	if err != nil {
 		return nil, err
@@ -115,16 +115,16 @@ ORDER BY ci.ordinal ASC
 `
 
 type GetContextMessageItemsRow struct {
-	ConversationID int64          `json:"conversation_id"`
+	ConversationID string         `json:"conversation_id"`
 	Ordinal        int64          `json:"ordinal"`
 	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullInt64  `json:"message_id"`
+	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
 	CreatedAt      string         `json:"created_at"`
 	MsgTokenCount  int64          `json:"msg_token_count"`
 }
 
-func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID int64) ([]GetContextMessageItemsRow, error) {
+func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID string) ([]GetContextMessageItemsRow, error) {
 	rows, err := q.db.QueryContext(ctx, getContextMessageItems, conversationID)
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ LEFT JOIN ctx_summaries s ON ci.summary_id = s.id
 WHERE ci.conversation_id = ?
 `
 
-func (q *Queries) GetContextTokenCount(ctx context.Context, conversationID int64) (int64, error) {
+func (q *Queries) GetContextTokenCount(ctx context.Context, conversationID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getContextTokenCount, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)
@@ -186,19 +186,19 @@ LIMIT ?
 `
 
 type GetFreshTailMessageIDsParams struct {
-	ConversationID int64 `json:"conversation_id"`
-	Limit          int64 `json:"limit"`
+	ConversationID string `json:"conversation_id"`
+	Limit          int64  `json:"limit"`
 }
 
-func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMessageIDsParams) ([]sql.NullInt64, error) {
+func (q *Queries) GetFreshTailMessageIDs(ctx context.Context, arg GetFreshTailMessageIDsParams) ([]sql.NullString, error) {
 	rows, err := q.db.QueryContext(ctx, getFreshTailMessageIDs, arg.ConversationID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []sql.NullInt64{}
+	items := []sql.NullString{}
 	for rows.Next() {
-		var message_id sql.NullInt64
+		var message_id sql.NullString
 		if err := rows.Scan(&message_id); err != nil {
 			return nil, err
 		}
@@ -217,7 +217,7 @@ const getMaxContextOrdinal = `-- name: GetMaxContextOrdinal :one
 SELECT CAST(COALESCE(MAX(ordinal), 0) AS INTEGER) FROM ctx_items WHERE conversation_id = ?
 `
 
-func (q *Queries) GetMaxContextOrdinal(ctx context.Context, conversationID int64) (int64, error) {
+func (q *Queries) GetMaxContextOrdinal(ctx context.Context, conversationID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getMaxContextOrdinal, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)

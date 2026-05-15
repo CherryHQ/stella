@@ -1,5 +1,5 @@
 CREATE TABLE auth_user_tokens (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             TEXT PRIMARY KEY,
     user_id        INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
     name           TEXT NOT NULL DEFAULT '',
     token_hash     TEXT NOT NULL UNIQUE,

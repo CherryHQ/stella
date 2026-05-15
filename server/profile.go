@@ -125,7 +125,7 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 }
 
 // UnlinkProfileIdentity handles DELETE /api/auth/profile/identities/{id}.
-func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")

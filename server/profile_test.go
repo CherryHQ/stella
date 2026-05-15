@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -164,7 +163,7 @@ func TestUnlinkIdentity(t *testing.T) {
 		t.Fatalf("CreateIdentity: %v", err)
 	}
 
-	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+itoa(identity.ID), nil)
+	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -202,7 +201,7 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 	}
 
 	// Try to unlink it as the admin — should fail (not your identity).
-	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+itoa(identity.ID), nil)
+	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
@@ -243,8 +242,4 @@ func TestCredentialsPageRoute(t *testing.T) {
 	if ct := rr.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
 		t.Errorf("Content-Type = %q, want %q", ct, "text/html; charset=utf-8")
 	}
-}
-
-func itoa(i int64) string {
-	return strconv.FormatInt(i, 10)
 }

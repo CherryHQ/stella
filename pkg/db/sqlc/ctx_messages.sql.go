@@ -12,13 +12,14 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO ctx_messages (conversation_id, seq, role, event_type, content, token_count)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_messages (id, conversation_id, seq, role, event_type, content, token_count)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at
 `
 
 type CreateMessageParams struct {
-	ConversationID int64  `json:"conversation_id"`
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
 	Seq            int64  `json:"seq"`
 	Role           string `json:"role"`
 	EventType      string `json:"event_type"`
@@ -28,6 +29,7 @@ type CreateMessageParams struct {
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (CtxMessage, error) {
 	row := q.db.QueryRowContext(ctx, createMessage,
+		arg.ID,
 		arg.ConversationID,
 		arg.Seq,
 		arg.Role,
@@ -56,7 +58,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 type CreateMessagePartParams struct {
 	ID          string         `json:"id"`
-	MessageID   int64          `json:"message_id"`
+	MessageID   string         `json:"message_id"`
 	PartType    string         `json:"part_type"`
 	Ordinal     int64          `json:"ordinal"`
 	TextContent sql.NullString `json:"text_content"`
@@ -87,7 +89,7 @@ const getMaxSeq = `-- name: GetMaxSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM ctx_messages WHERE conversation_id = ?
 `
 
-func (q *Queries) GetMaxSeq(ctx context.Context, conversationID int64) (int64, error) {
+func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getMaxSeq, conversationID)
 	var column_1 int64
 	err := row.Scan(&column_1)
@@ -98,7 +100,7 @@ const getMessage = `-- name: GetMessage :one
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_messages WHERE id = ?
 `
 
-func (q *Queries) GetMessage(ctx context.Context, id int64) (CtxMessage, error) {
+func (q *Queries) GetMessage(ctx context.Context, id string) (CtxMessage, error) {
 	row := q.db.QueryRowContext(ctx, getMessage, id)
 	var i CtxMessage
 	err := row.Scan(
@@ -118,7 +120,7 @@ const getMessageCount = `-- name: GetMessageCount :one
 SELECT COUNT(*) FROM ctx_messages WHERE conversation_id = ?
 `
 
-func (q *Queries) GetMessageCount(ctx context.Context, conversationID int64) (int64, error) {
+func (q *Queries) GetMessageCount(ctx context.Context, conversationID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, getMessageCount, conversationID)
 	var count int64
 	err := row.Scan(&count)
@@ -129,7 +131,7 @@ const getMessageParts = `-- name: GetMessageParts :many
 SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_parts WHERE message_id = ? ORDER BY ordinal ASC
 `
 
-func (q *Queries) GetMessageParts(ctx context.Context, messageID int64) ([]CtxMessagePart, error) {
+func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxMessagePart, error) {
 	rows, err := q.db.QueryContext(ctx, getMessageParts, messageID)
 	if err != nil {
 		return nil, err
@@ -167,7 +169,7 @@ const getMessagePartsByMessages = `-- name: GetMessagePartsByMessages :many
 SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata FROM ctx_message_parts WHERE message_id IN (/*SLICE:message_ids*/?) ORDER BY message_id, ordinal ASC
 `
 
-func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []int64) ([]CtxMessagePart, error) {
+func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
 	query := getMessagePartsByMessages
 	var queryParams []interface{}
 	if len(messageIds) > 0 {
@@ -215,7 +217,7 @@ const getMessagesByConversation = `-- name: GetMessagesByConversation :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_messages WHERE conversation_id = ? ORDER BY seq ASC
 `
 
-func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID int64) ([]CtxMessage, error) {
+func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
 	rows, err := q.db.QueryContext(ctx, getMessagesByConversation, conversationID)
 	if err != nil {
 		return nil, err
@@ -254,9 +256,9 @@ ORDER BY seq ASC
 `
 
 type GetMessagesByConversationRangeParams struct {
-	ConversationID int64 `json:"conversation_id"`
-	Seq            int64 `json:"seq"`
-	Seq_2          int64 `json:"seq_2"`
+	ConversationID string `json:"conversation_id"`
+	Seq            int64  `json:"seq"`
+	Seq_2          int64  `json:"seq_2"`
 }
 
 func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMessagesByConversationRangeParams) ([]CtxMessage, error) {
@@ -298,7 +300,7 @@ ORDER BY seq ASC
 `
 
 type GetMessagesSinceParams struct {
-	ConversationID int64  `json:"conversation_id"`
+	ConversationID string `json:"conversation_id"`
 	CreatedAt      string `json:"created_at"`
 }
 
@@ -342,7 +344,7 @@ LIMIT ?
 `
 
 type SearchMessagesParams struct {
-	ConversationID int64  `json:"conversation_id"`
+	ConversationID string `json:"conversation_id"`
 	Content        string `json:"content"`
 	Limit          int64  `json:"limit"`
 }

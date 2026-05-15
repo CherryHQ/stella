@@ -1,12 +1,13 @@
 -- name: CreateAuthUserToken :one
 INSERT INTO auth_user_tokens (
+    id,
     user_id,
     name,
     token_hash,
     token_prefix,
     auto_generated,
     expires_at
-) VALUES (?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthUserTokenByHash :one

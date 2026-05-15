@@ -738,7 +738,7 @@ type ServerInterface interface {
 	ListProfileIdentities(w http.ResponseWriter, r *http.Request)
 	// Unlink an identity from the current user
 	// (DELETE /api/auth/profile/identities/{id})
-	UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id int64)
+	UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id string)
 	// Generate a short-lived link code for a platform
 	// (POST /api/auth/profile/link-code)
 	GenerateLinkCode(w http.ResponseWriter, r *http.Request)
@@ -831,7 +831,7 @@ type ServerInterface interface {
 	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id int64)
 	// Delete an identity linked to an auth user (admin only)
 	// (DELETE /api/auth/users/{id}/identities/{identityId})
-	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId int64)
+	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id int64, identityId string)
 	// Update the role of an auth user (admin only)
 	// (PUT /api/auth/users/{id}/role)
 	UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id int64)
@@ -1899,9 +1899,9 @@ func (siw *ServerInterfaceWrapper) UnlinkProfileIdentity(w http.ResponseWriter, 
 	_ = err
 
 	// ------------- Path parameter "id" -------------
-	var id int64
+	var id string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
 		return
@@ -2838,9 +2838,9 @@ func (siw *ServerInterfaceWrapper) DeleteAuthUserIdentity(w http.ResponseWriter,
 	}
 
 	// ------------- Path parameter "identityId" -------------
-	var identityId int64
+	var identityId string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "identityId", r.PathValue("identityId"), &identityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "identityId", r.PathValue("identityId"), &identityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "identityId", Err: err})
 		return

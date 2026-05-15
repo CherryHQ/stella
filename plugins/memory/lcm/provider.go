@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
@@ -38,7 +40,7 @@ type Provider struct {
 	retrieval  *retrievalEngine
 	summarizer memory.Summarizer
 	sessionMu  map[string]*sync.Mutex
-	convCache  map[string]int64
+	convCache  map[string]string
 	globalMu   sync.Mutex
 	freshTail  int
 	log        *slog.Logger
@@ -71,7 +73,7 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 		assembler: newAssembler(q, slog.Default()),
 		retrieval: newRetrievalEngine(q),
 		sessionMu: make(map[string]*sync.Mutex),
-		convCache: make(map[string]int64),
+		convCache: make(map[string]string),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
@@ -122,6 +124,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			for _, row := range rows {
 				seq++
 				dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+					ID:             uuid.NewString(),
 					ConversationID: convID,
 					Seq:            seq,
 					Role:           row.role,
@@ -138,7 +141,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 					ConversationID: convID,
 					Ordinal:        ordinal,
 					ItemType:       itemTypeMessage,
-					MessageID:      sql.NullInt64{Int64: dbMsg.ID, Valid: true},
+					MessageID:      sql.NullString{String: dbMsg.ID, Valid: true},
 				})
 				if err != nil {
 					return fmt.Errorf("append context item: %w", err)

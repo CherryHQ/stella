@@ -1,5 +1,5 @@
 CREATE TABLE auth_identities (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          TEXT PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
     platform    TEXT NOT NULL,
     external_id TEXT NOT NULL,

@@ -34,7 +34,7 @@ func (p *Provider) Search(ctx context.Context, session memory.Session, query mem
 	return p.retrieval.search(ctx, conv.ID, query)
 }
 
-func (r *retrievalEngine) search(ctx context.Context, convID int64, query memory.SearchQuery) ([]memory.SearchResult, error) {
+func (r *retrievalEngine) search(ctx context.Context, convID string, query memory.SearchQuery) ([]memory.SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = defaultSearchLimit
