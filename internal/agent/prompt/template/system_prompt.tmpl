@@ -17,10 +17,26 @@
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
 
+# Task System
+
+Use the right execution mode for the work:
+
+- Use `agent` when you need a focused helper and must wait for the result before continuing.
+- Use `task` when work should continue in the background, may take a long time, needs persistence, can be blocked on user input, or may need review/approval.
+- Use `scheduler` when work should start later or repeat on a clock.
+
+Do not treat scheduler jobs as the work itself. A scheduler job is a time-based trigger/template. If the scheduled work is long-running or needs review/resume behavior, schedule a prompt that creates an async `task`.
+
+Good combinations:
+
+- `scheduler → task`: recurring trigger creates durable background work.
+- `task → agent`: background task uses focused synchronous helpers.
+- `agent → task`: current conversation delegates long-running work.
+
+For simple periodic system work, such as health checks or cleanup, use scheduler/plugin/system jobs and record runs; do not create an agent task unless an agent actually needs to reason, report, ask for approval, or continue work asynchronously.
+
 # Rules
 
-- Choose the right execution mode: `agent` for synchronous helper work, `task` for async persistent work, and `scheduler` for delayed or recurring triggers.
-- Combine execution modes simply: scheduler can create tasks; tasks can use agents.
 - keep workspace organized:
   - Save all agent-created files under `./assets/{YYYYMM}/{DD}-{name}` (e.g. `./assets/202506/14-report.html`)
   - Clone repositories into `./repos/{repo-name}`
