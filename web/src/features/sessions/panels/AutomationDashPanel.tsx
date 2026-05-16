@@ -11,8 +11,12 @@ import { ResizableSidePanel } from "./ResizableSidePanel";
 interface Props {
   agentId: string;
   schedulerJobs: SchedulerJob[];
+  selectedJobId?: string;
+  selectedRunId?: string;
+  onSelectJob: (jobId: string | null) => void;
+  onSelectRun: (jobId: string, runId: string | null) => void;
+  onEditJob: (jobId: string) => void;
   onCreateJob: () => void;
-  onSelectJob: (jobId: string) => void;
 }
 
 type RunWithMeta = SchedulerJobRun & {
@@ -33,15 +37,44 @@ function schedulerRunSessionId(
   return "";
 }
 
-export function AutomationDashPanel({ schedulerJobs, onCreateJob, onSelectJob }: Props) {
+export function AutomationDashPanel({
+  schedulerJobs,
+  selectedJobId,
+  selectedRunId,
+  onSelectJob,
+  onSelectRun,
+  onEditJob,
+  onCreateJob,
+}: Props) {
   const { t } = useI18n();
   const [tab, setTab] = useState<"schedules" | "runs">("schedules");
   const [runs, setRuns] = useState<RunWithMeta[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
-  const [selectedRun, setSelectedRun] = useState<RunWithMeta | null>(null);
-  const [selectedJob, setSelectedJob] = useState<SchedulerJob | null>(null);
   const [jobRuns, setJobRuns] = useState<SchedulerJobRun[]>([]);
   const [jobRunsLoading, setJobRunsLoading] = useState(false);
+
+  const selectedJob = selectedJobId
+    ? (schedulerJobs.find((j) => j.id === selectedJobId) ?? null)
+    : null;
+
+  const selectedRunFromRuns = selectedRunId
+    ? (runs.find((r) => r.id === selectedRunId) ?? null)
+    : null;
+  const selectedRunFromJobRuns =
+    selectedRunId && selectedJob && !selectedRunFromRuns
+      ? (jobRuns.find((r) => r.id === selectedRunId) ?? null)
+      : null;
+  const selectedRun: RunWithMeta | null =
+    selectedRunFromRuns ??
+    (selectedRunFromJobRuns
+      ? {
+          ...selectedRunFromJobRuns,
+          job_name: selectedJob?.name,
+          job_id: selectedJob?.id,
+          job_agent_id: selectedJob?.agent_id,
+          job_session_mode: selectedJob?.session_mode,
+        }
+      : null);
 
   const loadRuns = useCallback(async () => {
     setRunsLoading(true);
@@ -94,28 +127,24 @@ export function AutomationDashPanel({ schedulerJobs, onCreateJob, onSelectJob }:
     }
   }, []);
 
+  useEffect(() => {
+    if (selectedJobId) void loadJobRuns(selectedJobId);
+  }, [selectedJobId, loadJobRuns]);
+
   const handleSelectJob = useCallback(
     (job: SchedulerJob) => {
-      setSelectedJob(job);
-      setSelectedRun(null);
+      onSelectJob(job.id);
       void loadJobRuns(job.id);
     },
-    [loadJobRuns],
+    [onSelectJob, loadJobRuns],
   );
 
   const handleSelectRunFromJob = useCallback(
     (run: SchedulerJobRun) => {
       if (!selectedJob) return;
-      setSelectedRun({
-        ...run,
-        job_name: selectedJob.name,
-        job_id: selectedJob.id,
-        job_agent_id: selectedJob.agent_id,
-        job_session_mode: selectedJob.session_mode,
-      });
-      setSelectedJob(null);
+      onSelectRun(selectedJob.id, run.id);
     },
-    [selectedJob],
+    [selectedJob, onSelectRun],
   );
 
   const userJobs = schedulerJobs.filter((j) => j.owner_kind !== "system");
@@ -232,8 +261,7 @@ export function AutomationDashPanel({ schedulerJobs, onCreateJob, onSelectJob }:
                   <div
                     key={run.id}
                     onClick={() => {
-                      setSelectedRun(run);
-                      setSelectedJob(null);
+                      onSelectRun(run.job_id ?? "", run.id);
                     }}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-card hover:shadow-sm transition-all duration-150 cursor-pointer",
@@ -286,16 +314,18 @@ export function AutomationDashPanel({ schedulerJobs, onCreateJob, onSelectJob }:
           job={selectedJob}
           runs={jobRuns}
           runsLoading={jobRunsLoading}
-          onClose={() => setSelectedJob(null)}
+          onClose={() => onSelectJob(null)}
           onSelectRun={handleSelectRunFromJob}
           onEditJob={() => {
-            onSelectJob(selectedJob.id);
-            setSelectedJob(null);
+            onEditJob(selectedJob.id);
           }}
         />
       )}
       {selectedRun && !selectedJob && (
-        <RunDetailPanel run={selectedRun} onClose={() => setSelectedRun(null)} />
+        <RunDetailPanel
+          run={selectedRun}
+          onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
+        />
       )}
     </div>
   );

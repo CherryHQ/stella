@@ -350,7 +350,9 @@ export function SessionsPage() {
             agentId={selectedAgentId}
             schedulerJobs={schedulerJobs}
             onCreateJob={() => setPanelSel({ kind: "auto", id: "new" })}
-            onSelectJob={(id) => setPanelSel({ kind: "auto", id })}
+            onSelectJob={(id) => setPanelSel({ kind: "auto", id: id ?? "dash" })}
+            onSelectRun={() => {}}
+            onEditJob={(id) => setPanelSel({ kind: "auto", id })}
           />
         ) : panelSel.kind === "auto" ? (
           <AutomationPanel

@@ -18,7 +18,7 @@ export function SessionView() {
   });
   const navigate = useNavigate();
   const { data: me } = useQuery(meQueryOptions);
-  const currentUserID = Number(me?.id ?? 0);
+  const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [rightOpen, setRightOpen] = useState(true);

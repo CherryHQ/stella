@@ -10,6 +10,8 @@ import { ResizableSidePanel } from "./ResizableSidePanel";
 
 interface Props {
   agentId: string;
+  selectedTaskId?: string;
+  onSelectTask?: (taskId: string | null) => void;
   onOpenTaskSession: (sessionId: string) => void;
 }
 
@@ -32,14 +34,20 @@ function taskLane(task: ComponentsAgentTask): Lane {
   return "pending";
 }
 
-export function TaskBoardPanel({ agentId, onOpenTaskSession }: Props) {
+export function TaskBoardPanel({
+  agentId,
+  selectedTaskId,
+  onSelectTask,
+  onOpenTaskSession,
+}: Props) {
   const { t } = useI18n();
   const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"board" | "timeline">("board");
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
-  const [selectedTask, setSelectedTask] = useState<ComponentsAgentTask | null>(null);
+
+  const selectedTask = selectedTaskId ? (tasks.find((t) => t.id === selectedTaskId) ?? null) : null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,9 +81,12 @@ export function TaskBoardPanel({ agentId, onOpenTaskSession }: Props) {
     }
   }, [newTitle, agentId, load]);
 
-  const selectTask = useCallback((task: ComponentsAgentTask) => {
-    setSelectedTask(task);
-  }, []);
+  const selectTask = useCallback(
+    (task: ComponentsAgentTask) => {
+      onSelectTask?.(task.id ?? null);
+    },
+    [onSelectTask],
+  );
 
   const laneData = LANES.map((lane) => ({
     ...lane,
@@ -244,7 +255,7 @@ export function TaskBoardPanel({ agentId, onOpenTaskSession }: Props) {
       {selectedTask && (
         <TaskDetailPanel
           task={selectedTask}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => onSelectTask?.(null)}
           onOpenSession={() => {
             if (selectedTask.session_id) onOpenTaskSession(selectedTask.session_id);
           }}
