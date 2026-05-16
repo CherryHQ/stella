@@ -18,10 +18,12 @@ import { SessionSidebar, type PanelSel } from "./SessionSidebar";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { AgentSettingsPanel } from "./panels/AgentSettingsPanel";
+import { AutomationDashPanel } from "./panels/AutomationDashPanel";
 import { AutomationPanel } from "./panels/AutomationPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
 import { SkillPanel } from "./panels/SkillPanel";
 import { SoulPanel } from "./panels/SoulPanel";
+import { TaskBoardPanel } from "./panels/TaskBoardPanel";
 import { TaskPanel } from "./panels/TaskPanel";
 
 const RIGHT_MIN = 240;
@@ -289,7 +291,8 @@ export function SessionsPage() {
 
   // ── derived ──────────────────────────────────────────────────────────────
   const isChatPanel =
-    panelSel.kind === "chat" || (panelSel.kind === "task" && panelSel.id !== "new");
+    panelSel.kind === "chat" ||
+    (panelSel.kind === "task" && panelSel.id !== "new" && panelSel.id !== "board");
   const showWorkspace = isChatPanel && rightOpen;
 
   return (
@@ -335,6 +338,20 @@ export function SessionsPage() {
             onToggleLeft={() => {}}
             onToggleRight={() => setRightOpen((v) => !v)}
           />
+        ) : panelSel.kind === "task" && panelSel.id === "board" ? (
+          <TaskBoardPanel
+            agentId={selectedAgentId}
+            onOpenTaskSession={(sessionId) => {
+              void navigate({ to: "/sessions/$", params: { _splat: sessionId } });
+            }}
+          />
+        ) : panelSel.kind === "auto" && panelSel.id === "dash" ? (
+          <AutomationDashPanel
+            agentId={selectedAgentId}
+            schedulerJobs={schedulerJobs}
+            onCreateJob={() => setPanelSel({ kind: "auto", id: "new" })}
+            onSelectJob={(id) => setPanelSel({ kind: "auto", id })}
+          />
         ) : panelSel.kind === "auto" ? (
           <AutomationPanel
             key={panelSel.id}
@@ -342,11 +359,11 @@ export function SessionsPage() {
             agentId={selectedAgentId}
             onSaved={() => {
               refreshAgentData();
-              if (panelSel.id === "new") setPanelSel({ kind: "auto", id: "" });
+              if (panelSel.id === "new") setPanelSel({ kind: "auto", id: "dash" });
             }}
             onDeleted={() => {
               refreshAgentData();
-              setPanelSel({ kind: "auto", id: "" });
+              setPanelSel({ kind: "auto", id: "dash" });
             }}
           />
         ) : panelSel.kind === "skill" ? (
@@ -373,7 +390,7 @@ export function SessionsPage() {
               if (task.session_id) {
                 void navigate({ to: "/sessions/$", params: { _splat: task.session_id } });
               } else {
-                setPanelSel({ kind: "task", id: "" });
+                setPanelSel({ kind: "task", id: "board" });
               }
             }}
           />

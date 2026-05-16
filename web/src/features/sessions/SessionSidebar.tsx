@@ -175,29 +175,51 @@ function SectionHeader({
   label,
   count,
   open,
+  active,
   onToggle,
   onAdd,
 }: {
   icon: React.ReactNode;
   label: string;
   count: number;
-  open: boolean;
+  open?: boolean;
+  active?: boolean;
   onToggle: () => void;
   onAdd?: () => void;
 }) {
+  const expandable = open !== undefined;
   return (
     <div
-      className="flex items-center gap-1.5 px-3.5 pt-4 pb-1.5 cursor-pointer select-none group"
+      className={cn(
+        "flex items-center gap-1.5 px-3.5 pt-3 pb-1.5 cursor-pointer select-none group",
+        active && "bg-sidebar-accent rounded-lg mx-2 px-3",
+      )}
       onClick={onToggle}
     >
-      <ChevRight
+      {expandable ? (
+        <ChevRight
+          className={cn(
+            "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
+            open && "rotate-90",
+          )}
+        />
+      ) : (
+        <span className="w-2.5 h-2.5 flex-shrink-0" />
+      )}
+      <span
         className={cn(
-          "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
-          open && "rotate-90",
+          "flex-shrink-0 transition-colors",
+          active ? "text-primary" : "text-muted-foreground/60",
         )}
-      />
-      <span className="text-muted-foreground/60 flex-shrink-0">{icon}</span>
-      <span className="flex-1 text-[10px] font-mono font-medium uppercase tracking-widest text-muted-foreground/70 group-hover:text-muted-foreground transition-colors">
+      >
+        {icon}
+      </span>
+      <span
+        className={cn(
+          "flex-1 text-[10px] font-mono font-medium uppercase tracking-widest transition-colors",
+          active ? "text-foreground" : "text-muted-foreground/70 group-hover:text-muted-foreground",
+        )}
+      >
         {label}
       </span>
       <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
@@ -251,34 +273,21 @@ function NavRow({
       <div className="flex-1 min-w-0">
         <p
           className={cn(
-            "text-[13px] truncate leading-snug",
+            "text-[12px] truncate leading-snug",
             active ? "text-foreground font-medium" : "text-foreground/80",
           )}
         >
           {title}
         </p>
         {sub && (
-          <p className="text-[11px] font-mono text-muted-foreground/60 truncate mt-0.5">{sub}</p>
+          <p className="text-[10px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
         )}
       </div>
       {meta && (
-        <span className="flex-shrink-0 text-[11px] font-mono text-muted-foreground/60">{meta}</span>
+        <span className="flex-shrink-0 text-[10px] font-mono text-muted-foreground/50">{meta}</span>
       )}
       {badge}
     </div>
-  );
-}
-
-function StatusBadge({ on }: { on: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center h-4 px-1.5 rounded-full text-[9.5px] font-mono font-medium flex-shrink-0",
-        on ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground/70",
-      )}
-    >
-      {on ? "on" : "off"}
-    </span>
   );
 }
 
@@ -418,15 +427,6 @@ export function SessionSidebar({
   const systemSkills = useMemo(
     () => filteredSkills.filter((s) => s.scope === "system"),
     [filteredSkills],
-  );
-
-  const userJobs = useMemo(
-    () => filteredJobs.filter((j) => j.owner_kind !== "system"),
-    [filteredJobs],
-  );
-  const systemJobs = useMemo(
-    () => filteredJobs.filter((j) => j.owner_kind === "system"),
-    [filteredJobs],
   );
 
   const userMemory = useMemo(
@@ -617,92 +617,23 @@ export function SessionSidebar({
           </div>
         )}
 
-        {/* Automations */}
-        {(filteredJobs.length > 0 || !search) && (
-          <div>
-            <SectionHeader
-              icon={<IconClock />}
-              label={t("sessions.sidebar.automations")}
-              count={filteredJobs.length}
-              open={isOpen("auto")}
-              onToggle={() => onToggleSection("auto")}
-              onAdd={() => onSelect({ kind: "auto", id: "new" })}
-            />
-            {isOpen("auto") && (
-              <>
-                {userJobs.map((j) => (
-                  <NavRow
-                    key={j.id}
-                    active={panelSel.kind === "auto" && panelSel.id === j.id}
-                    icon={<IconClock />}
-                    title={j.name}
-                    sub={j.cron || (j.every ? "every " + j.every : "")}
-                    badge={<StatusBadge on={j.enabled} />}
-                    onClick={() => onSelect({ kind: "auto", id: j.id })}
-                  />
-                ))}
-                {userJobs.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                    {t("sessions.sidebar.noAutomations")}
-                  </p>
-                )}
-                {systemJobs.length > 0 && (
-                  <>
-                    <SubFolder
-                      label={t("sessions.sidebar.system")}
-                      count={systemJobs.length}
-                      open={isFolderOpen("auto:system")}
-                      onToggle={() => toggleFolder("auto:system")}
-                    />
-                    {isFolderOpen("auto:system") &&
-                      systemJobs.map((j) => (
-                        <NavRow
-                          key={j.id}
-                          active={panelSel.kind === "auto" && panelSel.id === j.id}
-                          icon={<IconClock />}
-                          title={j.name}
-                          sub={j.description || j.cron || (j.every ? "every " + j.every : "")}
-                          badge={<StatusBadge on={j.enabled} />}
-                          onClick={() => onSelect({ kind: "auto", id: j.id })}
-                        />
-                      ))}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Tasks */}
-        {(taskSessions.length > 0 || !search) && (
+        {/* Workspace nav */}
+        {!search && (
           <div>
             <SectionHeader
               icon={<IconTask />}
               label={t("sessions.sidebar.tasks")}
               count={taskSessions.length}
-              open={isOpen("task")}
-              onToggle={() => onToggleSection("task")}
-              onAdd={() => onSelect({ kind: "task", id: "new" })}
+              active={panelSel.kind === "task" && panelSel.id === "board"}
+              onToggle={() => onSelect({ kind: "task", id: "board" })}
             />
-            {isOpen("task") && (
-              <>
-                {taskSessions.map((s) => (
-                  <NavRow
-                    key={s.id}
-                    active={panelSel.kind === "task" && panelSel.id === s.id}
-                    icon={<IconTask />}
-                    title={sessionTitle(s)}
-                    meta={formatTime(s.last_active)}
-                    onClick={() => onSelect({ kind: "task", id: s.id })}
-                  />
-                ))}
-                {taskSessions.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                    {t("sessions.sidebar.noTasks")}
-                  </p>
-                )}
-              </>
-            )}
+            <SectionHeader
+              icon={<IconClock />}
+              label={t("sessions.sidebar.automations")}
+              count={filteredJobs.length}
+              active={panelSel.kind === "auto" && panelSel.id === "dash"}
+              onToggle={() => onSelect({ kind: "auto", id: "dash" })}
+            />
           </div>
         )}
 
