@@ -201,20 +201,20 @@ function SectionHeader({
 }) {
   return (
     <div
-      className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 cursor-pointer select-none group"
+      className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 cursor-pointer select-none group"
       onClick={onToggle}
     >
       <ChevRight
         className={cn(
-          "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/40 transition-transform duration-150",
+          "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/60 transition-transform duration-150",
           open && "rotate-90",
         )}
       />
-      <span className="text-muted-foreground/60 flex-shrink-0">{icon}</span>
-      <span className="flex-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 group-hover:text-muted-foreground transition-colors">
+      <span className="text-muted-foreground flex-shrink-0">{icon}</span>
+      <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
         {label}
       </span>
-      <span className="text-[10px] font-mono text-muted-foreground/40 tabular-nums">{count}</span>
+      <span className="text-[11px] font-mono text-muted-foreground/70 tabular-nums">{count}</span>
       {onAdd && (
         <button
           type="button"
@@ -222,7 +222,7 @@ function SectionHeader({
             e.stopPropagation();
             onAdd();
           }}
-          className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:bg-muted hover:text-muted-foreground transition-colors"
+          className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/60 hover:bg-muted hover:text-foreground transition-colors"
           title={`New ${label.toLowerCase().replace(/s$/, "")}`}
         >
           <IconPlus />
@@ -253,14 +253,14 @@ function NavRow({
     <div
       onClick={onClick}
       className={cn(
-        "relative flex items-center gap-2 px-7 py-1.5 cursor-pointer transition-colors",
-        active ? "bg-primary/5" : "hover:bg-muted/60",
+        "relative flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors",
+        active ? "bg-primary/8" : "hover:bg-muted/50",
       )}
     >
-      {active && <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-primary" />}
+      {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-primary" />}
       {icon && (
         <span
-          className={cn("flex-shrink-0", active ? "text-primary/80" : "text-muted-foreground/50")}
+          className={cn("flex-shrink-0 ml-4", active ? "text-primary" : "text-muted-foreground/70")}
         >
           {icon}
         </span>
@@ -268,18 +268,16 @@ function NavRow({
       <div className="flex-1 min-w-0">
         <p
           className={cn(
-            "text-[12.5px] truncate leading-snug",
-            active ? "text-foreground font-medium" : "text-muted-foreground",
+            "text-sm truncate leading-snug",
+            active ? "text-foreground font-medium" : "text-foreground/80",
           )}
         >
           {title}
         </p>
-        {sub && (
-          <p className="text-[10px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
-        )}
+        {sub && <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{sub}</p>}
       </div>
       {meta && (
-        <span className="flex-shrink-0 text-[10px] font-mono text-muted-foreground/40">{meta}</span>
+        <span className="flex-shrink-0 text-xs font-mono text-muted-foreground/80">{meta}</span>
       )}
       {badge}
     </div>
@@ -291,7 +289,7 @@ function StatusBadge({ on }: { on: boolean }) {
     <span
       className={cn(
         "inline-flex items-center h-4 px-1.5 rounded-full text-[9.5px] font-mono font-medium flex-shrink-0",
-        on ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground/50",
+        on ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground/70",
       )}
     >
       {on ? "on" : "off"}
@@ -411,7 +409,7 @@ export function SessionSidebar({
               <p className="text-[13px] font-semibold truncate leading-snug">
                 {selectedAgent?.name ?? "Select agent"}
               </p>
-              <p className="text-[10.5px] font-mono text-muted-foreground truncate">
+              <p className="text-xs font-mono text-muted-foreground truncate">
                 {(selectedAgent as { model?: string })?.model ?? ""}
               </p>
             </div>
@@ -449,7 +447,7 @@ export function SessionSidebar({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-medium truncate">{ag.name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground/60 truncate">
+                      <p className="text-xs font-mono text-muted-foreground truncate">
                         {(ag as { model?: string }).model ?? ""}
                       </p>
                     </div>
@@ -477,7 +475,7 @@ export function SessionSidebar({
         <button
           type="button"
           onClick={onCreateSession}
-          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-foreground/70 hover:bg-muted/60 hover:text-foreground transition-colors"
         >
           <svg
             className="w-3.5 h-3.5"
@@ -496,10 +494,10 @@ export function SessionSidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search…"
-            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md bg-transparent border border-transparent hover:border-border focus:border-border focus:outline-none transition-colors text-foreground placeholder:text-muted-foreground/40"
+            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md bg-transparent border border-transparent hover:border-border focus:border-border focus:outline-none transition-colors text-foreground placeholder:text-muted-foreground/70"
           />
           <svg
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/40 pointer-events-none"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/70 pointer-events-none"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -535,14 +533,12 @@ export function SessionSidebar({
                 />
               ))}
             {isOpen("chat") && chatSessions.length === 0 && (
-              <p className="px-7 py-2 text-[11px] text-muted-foreground/40 font-mono">
-                No chats yet.
-              </p>
+              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No chats yet.</p>
             )}
             {isOpen("chat") && sessionsLoading && (
               <div className="px-7 py-1.5 flex items-center gap-2">
                 <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
-                <span className="text-[10px] font-mono text-muted-foreground/40">Loading…</span>
+                <span className="text-xs font-mono text-muted-foreground">Loading…</span>
               </div>
             )}
           </div>
@@ -572,7 +568,7 @@ export function SessionSidebar({
                 />
               ))}
             {isOpen("auto") && filteredJobs.length === 0 && (
-              <p className="px-7 py-2 text-[11px] text-muted-foreground/40 font-mono">
+              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
                 No automations yet.
               </p>
             )}
@@ -640,9 +636,7 @@ export function SessionSidebar({
                 />
               ))}
             {isOpen("skill") && filteredSkills.length === 0 && (
-              <p className="px-7 py-2 text-[11px] text-muted-foreground/40 font-mono">
-                No skills yet.
-              </p>
+              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No skills yet.</p>
             )}
           </div>
         )}
@@ -680,7 +674,7 @@ export function SessionSidebar({
           type="button"
           onClick={() => onSelect({ kind: "settings", id: selectedAgentId })}
           className={cn(
-            "w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[12.5px] transition-colors",
+            "w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors",
             panelSel.kind === "settings"
               ? "text-primary bg-primary/5"
               : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -692,7 +686,7 @@ export function SessionSidebar({
         <button
           type="button"
           onClick={onNavigateSettings}
-          className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[12.5px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+          className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-foreground/70 hover:bg-muted/60 hover:text-foreground transition-colors"
         >
           <svg
             className="w-3.5 h-3.5"
