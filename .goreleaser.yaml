@@ -48,7 +48,7 @@ brews:
     install: |
       bin.install "stella"
     service: |
-      run [opt_bin/"stella"]
+      run [opt_bin/"stella", "server"]
       keep_alive crashed: true
       log_path var/"log/stella.log"
       error_log_path var/"log/stella.log"

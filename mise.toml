@@ -84,7 +84,7 @@ run = 'portless stella vp dev'
 [tasks."dev:api"]
 description = "Start stella API server"
 depends = ["build"]
-run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY'
+run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY server'
 
 # ============================================================================
 # Code Quality

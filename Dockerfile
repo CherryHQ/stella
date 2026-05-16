@@ -67,4 +67,4 @@ COPY --from=builder /go/src/app/bin/stella /usr/local/bin/stella
 
 USER 65532:65532
 
-CMD ["stella", "gateway"]
+CMD ["stella", "server"]

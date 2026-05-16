@@ -40,7 +40,7 @@ sudo mv stella /usr/local/bin/
 go install github.com/CherryHQ/stella@latest
 # or
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella .
+cd stella && go build -o stella ./cmd/stella/
 ```
 
 ## Run
