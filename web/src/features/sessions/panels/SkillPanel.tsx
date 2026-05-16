@@ -75,13 +75,19 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const [sk, fileContent] = await Promise.all([
-        api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId)),
-        api<string>("GET", skillFileUrl(scope, agentId, skillId)).catch(() => null),
-      ]);
-      // system skills may embed content in the JSON body; use it as fallback
-      const content =
-        typeof fileContent === "string" && fileContent ? fileContent : (sk.content ?? "");
+      const sk = await api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId));
+      let content = "";
+      if (scope === "system") {
+        // system builtin embeds content directly in the item response
+        content = sk.content ?? "";
+      } else {
+        // user/agent skills: file endpoint returns { content?: string }
+        const res = await api<{ content?: string }>(
+          "GET",
+          skillFileUrl(scope, agentId, skillId),
+        ).catch(() => null);
+        content = res?.content ?? "";
+      }
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
@@ -123,12 +129,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         });
       } else if (skillId) {
         await api("PUT", skillUrl(scope, agentId, skillId), {
-          name: form.name,
           description: form.description,
           status: form.status,
           disable_model_invocation: form.disable_model_invocation,
+          files: { "SKILL.md": form.content },
         });
-        await api("PUT", skillFileUrl(scope, agentId, skillId), form.content);
       }
       setSavedForm(form);
       setEditing(false);
