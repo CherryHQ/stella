@@ -187,20 +187,20 @@ function SectionHeader({
 }) {
   return (
     <div
-      className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 cursor-pointer select-none group"
+      className="flex items-center gap-1.5 px-3.5 pt-4 pb-1.5 cursor-pointer select-none group"
       onClick={onToggle}
     >
       <ChevRight
         className={cn(
-          "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/60 transition-transform duration-150",
+          "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
           open && "rotate-90",
         )}
       />
-      <span className="text-muted-foreground flex-shrink-0">{icon}</span>
-      <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+      <span className="text-muted-foreground/60 flex-shrink-0">{icon}</span>
+      <span className="flex-1 text-[10px] font-mono font-medium uppercase tracking-widest text-muted-foreground/70 group-hover:text-muted-foreground transition-colors">
         {label}
       </span>
-      <span className="text-[11px] font-mono text-muted-foreground/70 tabular-nums">{count}</span>
+      <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
       {onAdd && (
         <button
           type="button"
@@ -208,7 +208,7 @@ function SectionHeader({
             e.stopPropagation();
             onAdd();
           }}
-          className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/60 hover:bg-muted hover:text-foreground transition-colors"
+          className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:bg-muted hover:text-foreground transition-colors"
           title={`New ${label.toLowerCase().replace(/s$/, "")}`}
         >
           <IconPlus />
@@ -239,31 +239,30 @@ function NavRow({
     <div
       onClick={onClick}
       className={cn(
-        "relative flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors",
-        active ? "bg-primary/8" : "hover:bg-muted/50",
+        "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-150",
+        active ? "bg-sidebar-accent" : "hover:bg-muted/50",
       )}
     >
-      {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-primary" />}
       {icon && (
-        <span
-          className={cn("flex-shrink-0 ml-4", active ? "text-primary" : "text-muted-foreground/70")}
-        >
+        <span className={cn("flex-shrink-0", active ? "text-primary" : "text-muted-foreground/60")}>
           {icon}
         </span>
       )}
       <div className="flex-1 min-w-0">
         <p
           className={cn(
-            "text-sm truncate leading-snug",
+            "text-[13px] truncate leading-snug",
             active ? "text-foreground font-medium" : "text-foreground/80",
           )}
         >
           {title}
         </p>
-        {sub && <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{sub}</p>}
+        {sub && (
+          <p className="text-[11px] font-mono text-muted-foreground/60 truncate mt-0.5">{sub}</p>
+        )}
       </div>
       {meta && (
-        <span className="flex-shrink-0 text-xs font-mono text-muted-foreground/80">{meta}</span>
+        <span className="flex-shrink-0 text-[11px] font-mono text-muted-foreground/60">{meta}</span>
       )}
       {badge}
     </div>
@@ -298,18 +297,18 @@ function SubFolder({
 }) {
   return (
     <div
-      className="flex items-center gap-1.5 cursor-pointer select-none group py-1 hover:bg-muted/30 transition-colors"
+      className="flex items-center gap-1.5 cursor-pointer select-none group py-1 mx-2 rounded-md hover:bg-muted/30 transition-colors duration-150"
       style={{ paddingLeft: `${indent * 4}px`, paddingRight: "10px" }}
       onClick={onToggle}
     >
       <ChevRight
         className={cn(
-          "w-2 h-2 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
+          "w-2 h-2 flex-shrink-0 text-muted-foreground/40 transition-transform duration-150",
           open && "rotate-90",
         )}
       />
       <svg
-        className="w-3 h-3 flex-shrink-0 text-muted-foreground/60"
+        className="w-3 h-3 flex-shrink-0 text-muted-foreground/50"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -317,10 +316,10 @@ function SubFolder({
       >
         <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
       </svg>
-      <span className="flex-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors truncate">
+      <span className="flex-1 text-[11px] text-muted-foreground/70 group-hover:text-foreground transition-colors truncate">
         {label}
       </span>
-      <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums">{count}</span>
+      <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
     </div>
   );
 }
@@ -447,17 +446,17 @@ export function SessionSidebar({
   const isOpen = (key: string) => openSections.includes(key);
 
   return (
-    <aside className="flex flex-col overflow-hidden w-full h-full bg-background">
+    <aside className="flex flex-col overflow-hidden w-full h-full">
       {/* Agent card */}
       <div ref={switcherRef} className="flex-shrink-0 mx-2.5 mt-2.5 relative">
         <div
           className={cn(
-            "rounded-lg border border-border bg-card cursor-pointer overflow-hidden",
-            switcherOpen && "border-border",
+            "rounded-xl cursor-pointer overflow-hidden transition-colors",
+            switcherOpen ? "bg-sidebar-accent" : "hover:bg-muted/40",
           )}
         >
           <div
-            className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+            className="flex items-center gap-2.5 px-3 py-2.5 transition-colors"
             onClick={() => setSwitcherOpen((v) => !v)}
           >
             <div
@@ -484,7 +483,7 @@ export function SessionSidebar({
 
           {/* Switcher dropdown */}
           {switcherOpen && (
-            <div className="border-t border-border bg-card/80 p-1.5 flex flex-col gap-0.5">
+            <div className="border-t border-border/50 p-1.5 flex flex-col gap-0.5">
               {agents.map((ag) => {
                 const c = agentColor(ag.id);
                 const isCur = ag.id === selectedAgentId;
@@ -532,18 +531,18 @@ export function SessionSidebar({
       </div>
 
       {/* New chat + search */}
-      <div className="flex-shrink-0 px-2.5 pt-2 space-y-1">
+      <div className="flex-shrink-0 px-2.5 pt-3 space-y-1.5">
         <button
           type="button"
           onClick={onCreateSession}
-          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-foreground/70 hover:bg-muted/60 hover:text-foreground transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-primary-foreground bg-primary hover:bg-primary/90 active:scale-[0.98] transition-all duration-150"
         >
           <svg
             className="w-3.5 h-3.5"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="2.5"
           >
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -555,10 +554,10 @@ export function SessionSidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("sessions.sidebar.search")}
-            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md bg-transparent border border-transparent hover:border-border focus:border-border focus:outline-none transition-colors text-foreground placeholder:text-muted-foreground/70"
+            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
           />
           <svg
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/70 pointer-events-none"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"

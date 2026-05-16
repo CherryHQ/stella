@@ -295,11 +295,11 @@ export function SessionsPage() {
   return (
     <div
       ref={containerRef}
-      className="border-t border-border flex overflow-hidden"
+      className="flex overflow-hidden"
       style={{ height: "calc(100vh - 3.5rem)" }}
     >
       {/* Sidebar */}
-      <div className="w-[268px] min-w-[268px] flex-shrink-0 border-r border-border">
+      <div className="w-[260px] min-w-[260px] flex-shrink-0 border-r border-border/60 bg-sidebar">
         <SessionSidebar
           agents={agents}
           selectedAgentId={selectedAgentId}

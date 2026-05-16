@@ -376,10 +376,10 @@ export function SessionDetail({
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-shrink-0 h-11 px-5 border-b border-border bg-background flex items-center justify-between">
+        <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center justify-between">
           <button
             onClick={onToggleLeft}
-            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
             title="Toggle sessions"
           >
             <svg
@@ -398,7 +398,7 @@ export function SessionDetail({
           </button>
           <button
             onClick={onToggleRight}
-            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
             title="Toggle workspace"
           >
             <svg
@@ -416,9 +416,9 @@ export function SessionDetail({
             </svg>
           </button>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center gap-2">
-          <p className="text-sm text-muted-foreground">Select a session from the sidebar</p>
-          <p className="text-xs text-muted-foreground/50 font-mono">
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <p className="text-sm text-muted-foreground/70">Select a session from the sidebar</p>
+          <p className="text-[11px] text-muted-foreground/40 font-mono">
             or create a new one with + New
           </p>
         </div>
@@ -429,11 +429,11 @@ export function SessionDetail({
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 h-11 px-5 border-b border-border bg-background flex items-center">
-        <div className="flex items-center gap-2 w-full min-w-0">
+      <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center">
+        <div className="flex items-center gap-2.5 w-full min-w-0">
           <button
             onClick={onToggleLeft}
-            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
             title="Toggle sessions"
           >
             <svg
@@ -456,7 +456,7 @@ export function SessionDetail({
           >
             ←
           </button>
-          <h1 className="flex-1 text-lg font-normal tracking-tight truncate min-w-0">
+          <h1 className="flex-1 text-[15px] font-medium tracking-tight truncate min-w-0">
             {session.title || "Untitled session"}
           </h1>
           <div className="flex items-center gap-1 shrink-0">
@@ -484,7 +484,7 @@ export function SessionDetail({
           </div>
           <button
             onClick={onToggleRight}
-            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
             title="Toggle workspace"
           >
             <svg
@@ -516,7 +516,7 @@ export function SessionDetail({
 
           {/* Message input */}
           {session.user_id === currentUserID && (
-            <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-background border-t border-border">
+            <div className="flex-shrink-0 px-4 pb-4 pt-3 bg-background">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -529,10 +529,10 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "relative rounded-2xl border bg-background transition-colors",
+                  "relative rounded-2xl border bg-background transition-all duration-150",
                   isStreaming
-                    ? "border-primary/40"
-                    : "border-border focus-within:border-primary/60",
+                    ? "border-primary/40 shadow-sm"
+                    : "border-border focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(0.642_0.1691_38.5815/0.1)]",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -669,7 +669,7 @@ export function SessionDetail({
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="rounded-xl gap-1.5"
+                        className="rounded-xl gap-1.5 active:scale-[0.98] transition-transform"
                       >
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
