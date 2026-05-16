@@ -1,10 +1,18 @@
 import type { Dispatch, SetStateAction } from "react";
-import { Search, Plus, RefreshCw, AlertCircle } from "lucide-react";
+import { Plus, RefreshCw, AlertCircle } from "lucide-react";
 import type { Feed, ArticleStatus, SourceType } from "@/lib/api-client/types.gen";
 import type { TFunction } from "../constants";
 import { SOURCE_TYPES, SOURCE_LABEL_KEYS } from "../constants";
 import { SidebarNavItem } from "./SidebarNavItem";
 import { FilterChip } from "./FilterChip";
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3.5 pt-3 pb-1.5 text-[10px] font-mono font-medium uppercase tracking-widest text-muted-foreground/70">
+      {children}
+    </div>
+  );
+}
 
 export function RecallySidebar({
   t,
@@ -78,13 +86,34 @@ export function RecallySidebar({
   clearFilters: () => void;
 }) {
   return (
-    <div className="space-y-5 p-3">
-      {/* Views */}
-      <div>
-        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-          {t("recally.section.library")}
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* Search */}
+      <div className="flex-shrink-0 px-2.5 pt-3 pb-1">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder={t("recally.searchPlaceholder")}
+            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
+          />
+          <svg
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
         </div>
-        <nav className="space-y-0.5">
+      </div>
+
+      {/* Library */}
+      <div>
+        <SectionLabel>{t("recally.section.library")}</SectionLabel>
+        <nav className="space-y-0.5 px-1">
           <SidebarNavItem
             label={t("recally.nav.inbox")}
             count={digest?.total_articles}
@@ -132,101 +161,77 @@ export function RecallySidebar({
         </nav>
       </div>
 
-      {/* Refine */}
-      <div className="space-y-3">
-        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-          {t("recally.section.find")}
-        </div>
-        <div className="relative px-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder={t("recally.searchPlaceholder")}
-            className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      {/* Filters */}
+      <div>
+        <SectionLabel>{t("recally.section.status")}</SectionLabel>
+        <div className="flex flex-wrap gap-1.5 px-3">
+          <FilterChip
+            label={t("recally.status.all")}
+            active={statusFilter === null}
+            onClick={() => setStatusFilter(null)}
+          />
+          <FilterChip
+            label={t("recally.status.unread")}
+            active={statusFilter === "unread"}
+            onClick={() => setStatusFilter("unread")}
+          />
+          <FilterChip
+            label={t("recally.status.read")}
+            active={statusFilter === "read"}
+            onClick={() => setStatusFilter("read")}
           />
         </div>
+      </div>
 
-        <div>
-          <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-            {t("recally.section.status")}
-          </div>
-          <div className="flex flex-wrap gap-1.5 px-1">
+      <div>
+        <SectionLabel>{t("recally.section.sources")}</SectionLabel>
+        <div className="flex flex-wrap gap-1.5 px-3">
+          <FilterChip
+            label={t("recally.status.all")}
+            active={sourceTypeFilter === null}
+            onClick={() => setSourceTypeFilter(null)}
+          />
+          {SOURCE_TYPES.map((type) => (
             <FilterChip
-              label={t("recally.status.all")}
-              active={statusFilter === null}
-              onClick={() => setStatusFilter(null)}
+              key={type}
+              label={t(SOURCE_LABEL_KEYS[type])}
+              active={sourceTypeFilter === type}
+              onClick={() => setSourceTypeFilter(sourceTypeFilter === type ? null : type)}
             />
-            <FilterChip
-              label={t("recally.status.unread")}
-              active={statusFilter === "unread"}
-              onClick={() => setStatusFilter("unread")}
-            />
-            <FilterChip
-              label={t("recally.status.read")}
-              active={statusFilter === "read"}
-              onClick={() => setStatusFilter("read")}
-            />
-          </div>
+          ))}
         </div>
+      </div>
 
+      {sortedTags.length > 0 && (
         <div>
-          <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-            {t("recally.section.sources")}
-          </div>
-          <div className="flex flex-wrap gap-1.5 px-1">
-            <FilterChip
-              label={t("recally.status.all")}
-              active={sourceTypeFilter === null}
-              onClick={() => setSourceTypeFilter(null)}
-            />
-            {SOURCE_TYPES.map((type) => (
+          <SectionLabel>{t("recally.section.tags")}</SectionLabel>
+          <div className="flex flex-wrap gap-1 px-3">
+            {visibleTags.map((tag) => (
               <FilterChip
-                key={type}
-                label={t(SOURCE_LABEL_KEYS[type])}
-                active={sourceTypeFilter === type}
-                onClick={() => setSourceTypeFilter(sourceTypeFilter === type ? null : type)}
+                key={tag}
+                label={`${tag} ${tagCounts[tag]}`}
+                active={tagFilter === tag}
+                onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
               />
             ))}
+            {hasMoreTags && (
+              <button
+                onClick={() => setShowAllTags(!showAllTags)}
+                className="rounded-full bg-muted px-2 py-1 text-xs font-mono text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showAllTags
+                  ? t("recally.tags.less")
+                  : t("recally.tags.more", { count: sortedTags.length - 10 })}
+              </button>
+            )}
           </div>
         </div>
-
-        {sortedTags.length > 0 && (
-          <div>
-            <div className="mb-1 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-              {t("recally.section.tags")}
-            </div>
-            <div className="flex flex-wrap gap-1 px-1">
-              {visibleTags.map((tag) => (
-                <FilterChip
-                  key={tag}
-                  label={`${tag} ${tagCounts[tag]}`}
-                  active={tagFilter === tag}
-                  onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
-                />
-              ))}
-              {hasMoreTags && (
-                <button
-                  onClick={() => setShowAllTags(!showAllTags)}
-                  className="rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                >
-                  {showAllTags
-                    ? t("recally.tags.less")
-                    : t("recally.tags.more", { count: sortedTags.length - 10 })}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Feeds */}
       <div>
-        <div className="mb-1.5 px-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-          {t("recally.section.feeds")}
-        </div>
-        <div className="px-1 space-y-1.5">
+        <SectionLabel>{t("recally.section.feeds")}</SectionLabel>
+        <div className="px-3 space-y-1.5">
           <div className="flex items-center gap-1">
             <input
               type="text"
@@ -238,7 +243,7 @@ export function RecallySidebar({
                   createFeedMut.mutate({ body: { url: feedUrl.trim() } });
                 }
               }}
-              className="h-7 flex-1 rounded-md border border-border bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-7 flex-1 rounded-lg bg-muted/50 border border-transparent px-2 text-xs font-mono placeholder:text-muted-foreground/50 hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150"
             />
             <button
               onClick={() => {
@@ -247,31 +252,33 @@ export function RecallySidebar({
                 }
               }}
               disabled={createFeedMut.isPending || !feedUrl.trim()}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors hover:bg-accent disabled:opacity-50"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/50 transition-colors hover:bg-muted disabled:opacity-50"
               title={t("recally.feeds.addFeed")}
             >
               {createFeedMut.isPending ? (
-                <RefreshCw className="size-3 animate-spin" />
+                <RefreshCw className="size-3 animate-spin text-muted-foreground" />
               ) : (
-                <Plus className="size-3" />
+                <Plus className="size-3 text-muted-foreground" />
               )}
             </button>
           </div>
           {feedsQuery.isLoading && (
-            <div className="text-xs text-muted-foreground py-1">{t("common.loading")}</div>
+            <div className="text-xs font-mono text-muted-foreground/50 py-1">
+              {t("common.loading")}
+            </div>
           )}
           {feedsQuery.isError && (
-            <div className="text-xs text-destructive py-1">{t("common.error")}</div>
+            <div className="text-xs font-mono text-destructive py-1">{t("common.error")}</div>
           )}
           {!feedsQuery.isLoading && !feedsQuery.isError && feeds.length === 0 && (
-            <div className="text-xs text-muted-foreground py-1">
+            <div className="text-xs font-mono text-muted-foreground/50 py-1">
               {t("recally.feeds.noFeedsDesc")}
             </div>
           )}
           {feeds.map((feed: Feed) => (
             <div key={feed.id} className="flex items-center justify-between gap-1.5 py-0.5">
               <span
-                className="truncate text-xs text-muted-foreground"
+                className="truncate text-[12px] text-foreground/80"
                 title={feed.title || feed.url}
               >
                 {feed.title || feed.url}
@@ -279,26 +286,26 @@ export function RecallySidebar({
               <button
                 onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
                 disabled={pollFeedMut.isPending}
-                className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-accent disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-muted disabled:opacity-50"
                 title={t("recally.feeds.poll")}
               >
                 {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
-                  <RefreshCw className="size-3 animate-spin" />
+                  <RefreshCw className="size-3 animate-spin text-muted-foreground" />
                 ) : feedPollResults[feed.id]?.error ? (
                   <>
                     <AlertCircle className="size-3 text-destructive" />
                     <span className="text-destructive">{t("recally.feeds.pollError")}</span>
                   </>
                 ) : feedPollResults[feed.id] ? (
-                  <span className="text-success-foreground">
+                  <span className="text-primary">
                     {t("recally.feeds.pollNewEntries", {
                       count: feedPollResults[feed.id].newCount,
                     })}
                   </span>
                 ) : (
                   <>
-                    <RefreshCw className="size-3" />
-                    <span>{t("recally.feeds.poll")}</span>
+                    <RefreshCw className="size-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">{t("recally.feeds.poll")}</span>
                   </>
                 )}
               </button>
@@ -309,7 +316,7 @@ export function RecallySidebar({
 
       {/* Digest note */}
       {digest && (
-        <div className="mx-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs text-muted-foreground">
+        <div className="mx-3 mt-3 rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{t("recally.nav.digest")}: </span>
           {t("recally.digest.savedYesterday", { count: digest.saved_yesterday_count ?? 0 })}
           {(digest.worth_revisiting_count ?? 0) > 0 && (

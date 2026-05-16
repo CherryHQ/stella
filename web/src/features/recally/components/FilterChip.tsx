@@ -10,10 +10,10 @@ export function FilterChip({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-2 py-1 text-xs transition-colors ${
+      className={`rounded-full px-2.5 py-1 text-xs font-mono transition-colors duration-150 ${
         active
-          ? "border-input bg-accent font-medium text-foreground"
-          : "border-border bg-background text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          ? "bg-foreground text-background font-medium"
+          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
       }`}
     >
       {label}

@@ -1,8 +1,10 @@
 export function StatCard({ value, label }: { value: number; label: string }) {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 shadow-sm">
-      <div className="font-mono text-lg font-semibold text-foreground">{value}</div>
-      <div className="text-xs text-muted-foreground">{label}</div>
+    <div className="flex items-baseline gap-1.5">
+      <span className="font-mono text-sm font-semibold tabular-nums text-foreground">{value}</span>
+      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
+        {label}
+      </span>
     </div>
   );
 }

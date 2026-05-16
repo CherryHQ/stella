@@ -1,0 +1,113 @@
+.home-page {
+  font-family: Outfit, system-ui, sans-serif;
+}
+
+.home-page h1,
+.home-page h2,
+.home-page h3 {
+  font-family: Merriweather, Georgia, serif;
+  text-wrap: balance;
+}
+
+/* Hero headline — fluid type, big and confident */
+.hero-headline {
+  font-size: clamp(2.5rem, 5.5vw, 4.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+/* Hero warm background — tinted toward primary */
+.hero-warm-bg {
+  background:
+    radial-gradient(
+      ellipse 80% 60% at 70% 50%,
+      color-mix(in oklch, var(--primary) 8%, transparent),
+      transparent
+    ),
+    var(--background);
+}
+
+/*
+  Conversation section — forced dark scope.
+  Uses .dark token overrides so it always renders as a dark surface
+  regardless of the page theme, creating visual rhythm.
+*/
+.conversation-section {
+  background: var(--background);
+  color: var(--foreground);
+}
+.conversation-body-text {
+  color: var(--muted-foreground);
+}
+.conversation-window {
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.conversation-window-titlebar {
+  border-bottom: 1px solid var(--border);
+}
+.conversation-user-bubble {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.conversation-stella-bubble {
+  color: var(--foreground);
+}
+
+/* Feature decorative numbers */
+.feature-number {
+  font-size: clamp(4rem, 8vw, 7rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+/* Capabilities section */
+.capabilities-section {
+  background: var(--muted);
+}
+
+/* Footer CTA warm background — tinted toward primary */
+.cta-warm-bg {
+  background:
+    radial-gradient(
+      ellipse 90% 70% at 30% 60%,
+      color-mix(in oklch, var(--primary) 10%, transparent),
+      transparent
+    ),
+    var(--background);
+}
+
+/* CTA code blocks */
+.cta-code-block {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+/* Entrance animation */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stagger-2 {
+  animation-delay: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+    opacity: 1;
+  }
+}
