@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, SchedulerJob, Session, Skill, UserMemory } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export type PanelKind = "chat" | "auto" | "task" | "skill" | "memory" | "soul" | "settings";
 export interface PanelSel {
@@ -149,21 +150,6 @@ function IconBrain() {
     >
       <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.44-1.17A2.5 2.5 0 0 1 9.5 2z" />
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.44-1.17A2.5 2.5 0 0 0 14.5 2z" />
-    </svg>
-  );
-}
-
-function IconSettings() {
-  return (
-    <svg
-      className="w-3.5 h-3.5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
@@ -357,8 +343,9 @@ export function SessionSidebar({
   skills,
   memories,
   onCreateSession,
-  onNavigateSettings,
+  onNavigateSettings: _onNavigateSettings,
 }: Props) {
+  const { t } = useI18n();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [openFolders, setOpenFolders] = useState<string[]>([]);
@@ -560,14 +547,14 @@ export function SessionSidebar({
           >
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New chat
+          {t("sessions.sidebar.newChat")}
         </button>
         <div className="relative">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search…"
+            placeholder={t("sessions.sidebar.search")}
             className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-md bg-transparent border border-transparent hover:border-border focus:border-border focus:outline-none transition-colors text-foreground placeholder:text-muted-foreground/70"
           />
           <svg
@@ -590,7 +577,7 @@ export function SessionSidebar({
           <div>
             <SectionHeader
               icon={<IconChat />}
-              label="Chats"
+              label={t("sessions.sidebar.chats")}
               count={chatSessions.length}
               open={isOpen("chat")}
               onToggle={() => onToggleSection("chat")}
@@ -607,12 +594,16 @@ export function SessionSidebar({
                 />
               ))}
             {isOpen("chat") && chatSessions.length === 0 && (
-              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No chats yet.</p>
+              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                {t("sessions.sidebar.noChats")}
+              </p>
             )}
             {isOpen("chat") && sessionsLoading && (
               <div className="px-7 py-1.5 flex items-center gap-2">
                 <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
-                <span className="text-xs font-mono text-muted-foreground">Loading…</span>
+                <span className="text-xs font-mono text-muted-foreground">
+                  {t("common.loading")}
+                </span>
               </div>
             )}
             {isOpen("chat") && sessionsHasMore && !sessionsLoading && (
@@ -621,7 +612,7 @@ export function SessionSidebar({
                 onClick={onLoadMoreSessions}
                 className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
               >
-                Load more…
+                {t("sessions.sidebar.loadMore")}
               </button>
             )}
           </div>
@@ -632,7 +623,7 @@ export function SessionSidebar({
           <div>
             <SectionHeader
               icon={<IconClock />}
-              label="Automations"
+              label={t("sessions.sidebar.automations")}
               count={filteredJobs.length}
               open={isOpen("auto")}
               onToggle={() => onToggleSection("auto")}
@@ -653,13 +644,13 @@ export function SessionSidebar({
                 ))}
                 {userJobs.length === 0 && (
                   <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                    No automations yet.
+                    {t("sessions.sidebar.noAutomations")}
                   </p>
                 )}
                 {systemJobs.length > 0 && (
                   <>
                     <SubFolder
-                      label="System"
+                      label={t("sessions.sidebar.system")}
                       count={systemJobs.length}
                       open={isFolderOpen("auto:system")}
                       onToggle={() => toggleFolder("auto:system")}
@@ -688,7 +679,7 @@ export function SessionSidebar({
           <div>
             <SectionHeader
               icon={<IconTask />}
-              label="Tasks"
+              label={t("sessions.sidebar.tasks")}
               count={taskSessions.length}
               open={isOpen("task")}
               onToggle={() => onToggleSection("task")}
@@ -707,7 +698,9 @@ export function SessionSidebar({
                   />
                 ))}
                 {taskSessions.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No tasks yet.</p>
+                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                    {t("sessions.sidebar.noTasks")}
+                  </p>
                 )}
               </>
             )}
@@ -719,7 +712,7 @@ export function SessionSidebar({
           <div>
             <SectionHeader
               icon={<IconStar />}
-              label="Skills"
+              label={t("sessions.sidebar.skills")}
               count={filteredSkills.length}
               open={isOpen("skill")}
               onToggle={() => onToggleSection("skill")}
@@ -731,7 +724,7 @@ export function SessionSidebar({
                 {(agentSkills.length > 0 || systemSkills.length > 0) && (
                   <>
                     <SubFolder
-                      label="Built-in"
+                      label={t("sessions.sidebar.builtin")}
                       count={agentSkills.length + systemSkills.length}
                       open={isFolderOpen("skill:builtin")}
                       onToggle={() => toggleFolder("skill:builtin")}
@@ -764,7 +757,7 @@ export function SessionSidebar({
                   agentSkills.length === 0 &&
                   systemSkills.length === 0 && (
                     <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                      No skills yet.
+                      {t("sessions.sidebar.noSkills")}
                     </p>
                   )}
               </>
@@ -777,7 +770,7 @@ export function SessionSidebar({
           <div>
             <SectionHeader
               icon={<IconBrain />}
-              label="Memory"
+              label={t("sessions.sidebar.memory")}
               count={memories.length}
               open={isOpen("memory")}
               onToggle={() => onToggleSection("memory")}
@@ -787,18 +780,18 @@ export function SessionSidebar({
                 <NavRow
                   active={panelSel.kind === "soul"}
                   icon={<IconBrain />}
-                  title="Agent Soul"
-                  sub="Personality & behavior"
+                  title={t("sessions.sidebar.agentSoul")}
+                  sub={t("sessions.sidebar.soulSubtitle")}
                   onClick={() => onSelect({ kind: "soul", id: selectedAgentId })}
                 />
                 <NavRow
                   active={panelSel.kind === "memory"}
                   icon={<IconBrain />}
-                  title="User Profile"
+                  title={t("sessions.sidebar.userProfile")}
                   sub={
                     userMemory?.updated_at
-                      ? "Updated " + formatTime(userMemory.updated_at)
-                      : "No memory yet"
+                      ? formatTime(userMemory.updated_at)
+                      : t("sessions.sidebar.noMemory")
                   }
                   onClick={() => onSelect({ kind: "memory", id: selectedAgentId })}
                 />
@@ -809,38 +802,6 @@ export function SessionSidebar({
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 border-t border-border px-2.5 py-1.5 space-y-0.5">
-        <button
-          type="button"
-          onClick={() => onSelect({ kind: "settings", id: selectedAgentId })}
-          className={cn(
-            "w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors",
-            panelSel.kind === "settings"
-              ? "text-primary bg-primary/5"
-              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-          )}
-        >
-          <IconSettings />
-          Agent Settings
-        </button>
-        <button
-          type="button"
-          onClick={onNavigateSettings}
-          className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm text-foreground/70 hover:bg-muted/60 hover:text-foreground transition-colors"
-        >
-          <svg
-            className="w-3.5 h-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-          </svg>
-          App Settings
-        </button>
-      </div>
     </aside>
   );
 }

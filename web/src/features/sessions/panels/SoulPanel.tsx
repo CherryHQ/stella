@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { AgentDetail } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function SoulPanel({ agentId }: Props) {
+  const { t } = useI18n();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [soul, setSoul] = useState("");
   const [draft, setDraft] = useState("");
@@ -62,7 +64,7 @@ export function SoulPanel({ agentId }: Props) {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Loading…
+        {t("common.loading")}
       </div>
     );
   }
@@ -72,14 +74,12 @@ export function SoulPanel({ agentId }: Props) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-base font-semibold">Agent Soul</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Default personality and behavior tone for this agent.
-            </p>
+            <h2 className="text-base font-semibold">{t("sessions.soul.title")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("sessions.soul.subtitle")}</p>
           </div>
           {!editing && (
             <Button variant="outline" size="sm" onClick={startEdit}>
-              Edit
+              {t("common.edit")}
             </Button>
           )}
         </div>
@@ -89,7 +89,7 @@ export function SoulPanel({ agentId }: Props) {
             value={draft}
             onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
             rows={16}
-            placeholder="Describe the agent's personality, tone, and behavior…"
+            placeholder={t("sessions.soul.placeholder")}
             className="text-sm font-mono"
             autoFocus
           />
@@ -98,17 +98,17 @@ export function SoulPanel({ agentId }: Props) {
             {soul}
           </pre>
         ) : (
-          <p className="text-sm text-muted-foreground italic">No soul configured.</p>
+          <p className="text-sm text-muted-foreground italic">{t("sessions.soul.empty")}</p>
         )}
       </div>
 
       {editing && (
         <div className="flex items-center gap-2 px-6 py-4 border-t border-border flex-shrink-0">
           <Button onClick={() => void save()} disabled={saving || draft === soul} size="sm">
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("sessions.soul.saving") : t("common.save")}
           </Button>
           <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
-            Cancel
+            {t("common.cancel")}
           </Button>
         </div>
       )}

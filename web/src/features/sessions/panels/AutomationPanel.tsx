@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
+import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -89,10 +90,10 @@ function ScheduleSummary({ job }: { job: SchedulerJob }) {
   );
 }
 
-function PluginSchedule({ job }: { job: SchedulerJob }) {
+function PluginSchedule({ job, label }: { job: SchedulerJob; label: string }) {
   return (
     <details className="rounded-xl border border-border bg-muted/30 p-4">
-      <summary className="cursor-pointer text-sm font-semibold">Schedule definition</summary>
+      <summary className="cursor-pointer text-sm font-semibold">{label}</summary>
       <div className="mt-4 space-y-3">
         <div className="prose prose-sm max-w-none text-foreground [&_ol]:pl-5 [&_ul]:pl-5">
           <Streamdown>{job.description || job.message || ""}</Streamdown>
@@ -113,18 +114,26 @@ function PluginSchedule({ job }: { job: SchedulerJob }) {
   );
 }
 
-function ConversationPanel({ sessionId }: { sessionId: string }) {
+function ConversationPanel({
+  sessionId,
+  emptyLabel,
+  placeholder,
+}: {
+  sessionId: string;
+  emptyLabel: string;
+  placeholder: string;
+}) {
   if (!sessionId) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-        No persisted session for this job.
+        {emptyLabel}
       </div>
     );
   }
   return (
     <SessionConversation
       sessionId={sessionId}
-      placeholder="Ask about this automation…"
+      placeholder={placeholder}
       className="h-full min-h-0"
       bodyClassName="min-h-0 flex-1"
     />
@@ -132,6 +141,7 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
 }
 
 export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
+  const { t } = useI18n();
   const isNew = jobId === null;
   const [job, setJob] = useState<SchedulerJob | null>(null);
   const [savedForm, setSavedForm] = useState<Form>(emptyForm());
@@ -242,7 +252,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Loading…
+        {t("common.loading")}
       </div>
     );
   }
@@ -261,10 +271,14 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-              {isNew ? "New schedule" : isReadOnly ? "System schedule" : "Schedule"}
+              {isNew
+                ? t("sessions.auto.eyebrowNew")
+                : isReadOnly
+                  ? t("sessions.auto.eyebrowSystem")
+                  : t("sessions.auto.eyebrowUser")}
             </div>
             <h2 className="mt-1.5 font-serif text-2xl italic tracking-tight truncate">
-              {isNew ? "Create a schedule" : form.name}
+              {isNew ? t("sessions.auto.titleNew") : form.name}
             </h2>
             {!isNew && job && (
               <div className="mt-1 font-mono text-xs text-muted-foreground truncate">{job.id}</div>
@@ -273,7 +287,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
           <div className="flex shrink-0 items-center gap-2">
             {!isNew && (
               <Button variant="outline" size="sm" onClick={() => void runNow()} disabled={running}>
-                {running ? "Running…" : "Run now"}
+                {running ? t("sessions.auto.running") : t("sessions.auto.runNow")}
               </Button>
             )}
             {!isNew && !isReadOnly && (
@@ -284,7 +298,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                 disabled={deleting}
                 className="text-destructive hover:text-destructive"
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? t("sessions.auto.deleting") : t("common.delete")}
               </Button>
             )}
           </div>
@@ -294,49 +308,56 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {!isNew && job && <ScheduleSummary job={job} />}
 
         {/* System/plugin job: Streamdown definition */}
-        {!isNew && job && isReadOnly && <PluginSchedule job={job} />}
+        {!isNew && job && isReadOnly && (
+          <PluginSchedule job={job} label={t("sessions.auto.scheduleDefinition")} />
+        )}
 
         {/* User job or new: editable form in collapsible */}
         {!isReadOnly && (
           <details className="rounded-xl border border-border bg-muted/30 p-4" open={isNew}>
             <summary className="cursor-pointer text-sm font-semibold">
-              {isNew ? "Schedule settings" : "Edit schedule settings"}
+              {isNew ? t("sessions.auto.settingsNew") : t("sessions.auto.settingsEdit")}
             </summary>
             <div className="mt-4 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Name">
+                <Field label={t("sessions.auto.fieldName")}>
                   <Input
                     nativeInput
                     value={form.name}
                     onChange={(e) => patchForm({ name: (e.target as HTMLInputElement).value })}
-                    placeholder="Daily standup"
+                    placeholder={t("sessions.auto.namePlaceholder")}
                     className="text-sm"
                   />
                 </Field>
-                <Field label="Session mode">
+                <Field label={t("sessions.auto.fieldSessionMode")}>
                   <select
                     value={form.session_mode}
                     onChange={(e) => patchForm({ session_mode: e.target.value })}
                     className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="reuse">Reuse session</option>
-                    <option value="new">New session each run</option>
+                    <option value="reuse">{t("sessions.auto.reuseSession")}</option>
+                    <option value="new">{t("sessions.auto.newSessionMode")}</option>
                   </select>
                 </Field>
               </div>
 
-              <Field label="Schedule">
+              <Field label={t("sessions.auto.fieldSchedule")}>
                 <div className="mb-2 flex items-center gap-4">
-                  {(["cron", "every"] as const).map((t) => (
-                    <label key={t} className="flex cursor-pointer items-center gap-2 text-sm">
+                  {(["cron", "every"] as const).map((schedType) => (
+                    <label
+                      key={schedType}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
                       <input
                         type="radio"
                         name="schedule_type"
-                        checked={form.schedule_type === t}
-                        onChange={() => patchForm({ schedule_type: t })}
+                        checked={form.schedule_type === schedType}
+                        onChange={() => patchForm({ schedule_type: schedType })}
                         className="accent-primary"
                       />
-                      {t === "cron" ? "Cron" : "Interval"}
+                      {schedType === "cron"
+                        ? t("sessions.auto.tabCron")
+                        : t("sessions.auto.tabInterval")}
                     </label>
                   ))}
                 </div>
@@ -345,7 +366,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                     nativeInput
                     value={form.cron}
                     onChange={(e) => patchForm({ cron: (e.target as HTMLInputElement).value })}
-                    placeholder="0 9 * * 1-5"
+                    placeholder={t("sessions.auto.cronPlaceholder")}
                     className="text-sm font-mono"
                   />
                 ) : (
@@ -353,18 +374,18 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                     nativeInput
                     value={form.every}
                     onChange={(e) => patchForm({ every: (e.target as HTMLInputElement).value })}
-                    placeholder="30m, 2h"
+                    placeholder={t("sessions.auto.intervalPlaceholder")}
                     className="text-sm font-mono"
                   />
                 )}
               </Field>
 
-              <Field label="Message">
+              <Field label={t("sessions.auto.fieldMessage")}>
                 <Textarea
                   value={form.message}
                   onChange={(e) => patchForm({ message: (e.target as HTMLTextAreaElement).value })}
                   rows={4}
-                  placeholder="What should the agent do?"
+                  placeholder={t("sessions.auto.messagePlaceholder")}
                   className="text-sm"
                 />
               </Field>
@@ -381,7 +402,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                       checked={form.enabled}
                       onCheckedChange={(checked) => patchForm({ enabled: checked })}
                     />
-                    Enabled
+                    {t("sessions.auto.fieldEnabled")}
                   </label>
                 )}
                 <div className="flex items-center gap-2">
@@ -390,7 +411,11 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                     disabled={saving || !isValid || (!dirty && !isNew)}
                     onClick={() => void save()}
                   >
-                    {saving ? "Saving…" : isNew ? "Create" : "Save"}
+                    {saving
+                      ? t("sessions.auto.saving")
+                      : isNew
+                        ? t("common.create")
+                        : t("common.save")}
                   </Button>
                   {!isNew && (
                     <Button
@@ -399,7 +424,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                       disabled={saving}
                       onClick={() => setForm(savedForm)}
                     >
-                      Reset
+                      {t("sessions.auto.reset")}
                     </Button>
                   )}
                 </div>
@@ -412,7 +437,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {!isNew && runs.length > 0 && (
           <div className="pt-1">
             <p className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground mb-3">
-              Recent Runs
+              {t("sessions.auto.recentRuns")}
             </p>
             <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
               {runs.map((r) => (
@@ -445,13 +470,17 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {!isNew && (
           <div className="pt-1">
             <p className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground mb-3">
-              Conversation
+              {t("sessions.auto.conversation")}
             </p>
             <div
               className="rounded-xl border border-border overflow-hidden"
               style={{ minHeight: 240 }}
             >
-              <ConversationPanel sessionId={sessionId} />
+              <ConversationPanel
+                sessionId={sessionId}
+                emptyLabel={t("sessions.auto.noSession")}
+                placeholder={t("sessions.auto.askPlaceholder")}
+              />
             </div>
           </div>
         )}

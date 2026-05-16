@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Skill } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,7 @@ function scopeBadgeVariant(scope: string): "outline" | "secondary" | "default" {
 }
 
 export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Props) {
+  const { t } = useI18n();
   const isNew = skillId === null;
   const [skill, setSkill] = useState<Skill | null>(null);
   const [savedForm, setSavedForm] = useState<Form>(emptyForm());
@@ -166,7 +168,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Loading…
+        {t("common.loading")}
       </div>
     );
   }
@@ -179,7 +181,9 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-base font-semibold">{isNew ? "New Skill" : form.name}</h2>
+            <h2 className="text-base font-semibold">
+              {isNew ? t("sessions.skill.newSkill") : form.name}
+            </h2>
             {!isNew && skill && (
               <div className="flex items-center gap-2 mt-1.5">
                 <Badge variant={scopeBadgeVariant(skill.scope)} size="sm">
@@ -190,7 +194,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 </Badge>
                 {isReadOnly && (
                   <Badge variant="outline" size="sm">
-                    read only
+                    {t("sessions.skill.readOnly")}
                   </Badge>
                 )}
               </div>
@@ -199,7 +203,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           <div className="flex items-center gap-2">
             {!isNew && !isReadOnly && !editing && (
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                Edit
+                {t("common.edit")}
               </Button>
             )}
             {!isNew && !isReadOnly && (
@@ -210,7 +214,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 disabled={deleting}
                 className="text-destructive hover:text-destructive"
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? t("sessions.skill.deleting") : t("common.delete")}
               </Button>
             )}
           </div>
@@ -231,13 +235,17 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   {form.content}
                 </pre>
               ) : (
-                <p className="text-sm text-muted-foreground italic">No content.</p>
+                <p className="text-sm text-muted-foreground italic">
+                  {t("sessions.skill.noContent")}
+                </p>
               )}
             </div>
             {!isReadOnly && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>Model invocation:</span>
-                <span>{form.disable_model_invocation ? "disabled" : "enabled"}</span>
+                <span>{t("sessions.skill.modelInvocationLabel")}</span>
+                <span>
+                  {form.disable_model_invocation ? t("common.disable") : t("common.enable")}
+                </span>
               </div>
             )}
           </div>
@@ -248,17 +256,21 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           <>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-mono mb-1">Name</label>
+                <label className="block text-sm font-mono mb-1">
+                  {t("sessions.skill.fieldName")}
+                </label>
                 <Input
                   nativeInput
                   value={form.name}
                   onChange={(e) => patchForm({ name: (e.target as HTMLInputElement).value })}
-                  placeholder="my-skill"
+                  placeholder={t("sessions.skill.namePlaceholder")}
                   className="text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="block text-sm font-mono mb-1">Status</label>
+                <label className="block text-sm font-mono mb-1">
+                  {t("sessions.skill.fieldStatus")}
+                </label>
                 <select
                   value={form.status}
                   onChange={(e) => patchForm({ status: e.target.value as Form["status"] })}
@@ -270,17 +282,21 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 </select>
               </div>
               <div className="col-span-2">
-                <label className="block text-sm font-mono mb-1">Description</label>
+                <label className="block text-sm font-mono mb-1">
+                  {t("sessions.skill.fieldDescription")}
+                </label>
                 <Input
                   nativeInput
                   value={form.description}
                   onChange={(e) => patchForm({ description: (e.target as HTMLInputElement).value })}
-                  placeholder="What does this skill do?"
+                  placeholder={t("sessions.skill.descPlaceholder")}
                   className="text-sm"
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-sm font-mono mb-1">Content (SKILL.md)</label>
+                <label className="block text-sm font-mono mb-1">
+                  {t("sessions.skill.fieldContent")}
+                </label>
                 <Textarea
                   value={form.content}
                   onChange={(e) => patchForm({ content: (e.target as HTMLTextAreaElement).value })}
@@ -296,7 +312,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   checked={!form.disable_model_invocation}
                   onCheckedChange={(checked) => patchForm({ disable_model_invocation: !checked })}
                 />
-                <span className="text-sm">Model invocation enabled</span>
+                <span className="text-sm">{t("sessions.skill.modelInvocation")}</span>
               </label>
             </div>
           </>
@@ -307,11 +323,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       {(editing || isNew) && !isReadOnly && (
         <div className="flex items-center gap-2 px-6 py-4 border-t border-border flex-shrink-0">
           <Button onClick={() => void save()} disabled={saving || (!dirty && !isNew)} size="sm">
-            {saving ? "Saving…" : isNew ? "Create" : "Save"}
+            {saving ? t("sessions.skill.saving") : isNew ? t("common.create") : t("common.save")}
           </Button>
           {!isNew && (
             <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           )}
         </div>
