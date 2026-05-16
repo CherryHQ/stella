@@ -19,6 +19,7 @@ import { AgentSettingsPanel } from "./panels/AgentSettingsPanel";
 import { AutomationPanel } from "./panels/AutomationPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
 import { SkillPanel } from "./panels/SkillPanel";
+import { SoulPanel } from "./panels/SoulPanel";
 
 const RIGHT_MIN = 240;
 const RIGHT_MAX_RATIO = 0.5;
@@ -323,6 +324,8 @@ export function SessionsPage() {
           />
         ) : panelSel.kind === "memory" ? (
           <MemoryPanel key={selectedAgentId} agentId={selectedAgentId} />
+        ) : panelSel.kind === "soul" ? (
+          <SoulPanel key={selectedAgentId} agentId={selectedAgentId} />
         ) : panelSel.kind === "settings" ? (
           <AgentSettingsPanel key={selectedAgentId} agentId={selectedAgentId} />
         ) : (

@@ -3,7 +3,7 @@ import type { Agent, SchedulerJob, Session, Skill, UserMemory } from "@/lib/type
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-export type PanelKind = "chat" | "auto" | "task" | "skill" | "memory" | "settings";
+export type PanelKind = "chat" | "auto" | "task" | "skill" | "memory" | "soul" | "settings";
 export interface PanelSel {
   kind: PanelKind;
   id: string;
@@ -809,11 +809,11 @@ export function SessionSidebar({
             {isOpen("memory") && (
               <>
                 <NavRow
-                  active={panelSel.kind === "settings" && panelSel.id === selectedAgentId}
+                  active={panelSel.kind === "soul"}
                   icon={<IconBrain />}
                   title="Agent Soul"
                   sub="Personality & behavior"
-                  onClick={() => onSelect({ kind: "settings", id: selectedAgentId })}
+                  onClick={() => onSelect({ kind: "soul", id: selectedAgentId })}
                 />
                 <NavRow
                   active={panelSel.kind === "memory"}
