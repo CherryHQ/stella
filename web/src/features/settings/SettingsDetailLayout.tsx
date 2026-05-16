@@ -25,7 +25,7 @@ export function SettingsDetailLayout({
     <div className="flex h-full overflow-hidden">
       {/* Left list panel — full width on mobile when mobileView=list, hidden otherwise */}
       <div
-        className={`${mobileView === "list" ? "flex" : "hidden"} md:flex w-full md:w-[200px] shrink-0 border-r border-border bg-muted/30 overflow-y-auto flex-col`}
+        className={`${mobileView === "list" ? "flex" : "hidden"} md:flex w-full md:w-[200px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col`}
       >
         <div className="shrink-0">{listHeader}</div>
         <div className="flex-1 overflow-y-auto">{list}</div>

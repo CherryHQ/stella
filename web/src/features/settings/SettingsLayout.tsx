@@ -214,7 +214,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-5 pt-6 pb-2 text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="px-3.5 pt-5 pb-1.5 text-[10px] font-mono font-medium uppercase tracking-widest text-muted-foreground/70">
               {group.section}
             </div>
             {visibleItems.map((item) => (
@@ -223,10 +223,10 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 to={item.href as any}
                 onClick={onItemClick}
-                className="group/item flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium transition-colors text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                className="group/item flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150 text-foreground/80 hover:bg-muted/50"
                 activeProps={{
                   className:
-                    "group/item active flex items-center gap-2.5 px-5 py-2 text-[13px] font-medium bg-primary/5 text-primary transition-colors",
+                    "group/item active flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[12px] font-medium bg-sidebar-accent text-foreground transition-all duration-150",
                 }}
               >
                 {item.icon}

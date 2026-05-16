@@ -12,15 +12,15 @@ export function SidebarNavItem({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+      className={`flex w-full items-center justify-between mx-1 rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
         active
-          ? "bg-accent font-medium text-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          ? "bg-sidebar-accent font-medium text-foreground"
+          : "text-foreground/80 hover:bg-muted/50"
       }`}
     >
       <span>{label}</span>
       {count !== undefined && (
-        <span className="font-mono text-xs text-muted-foreground">{count}</span>
+        <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
       )}
     </button>
   );
