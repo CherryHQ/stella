@@ -123,8 +123,16 @@ export function SessionsPage() {
         scope: "system" as const,
         disable_model_invocation: false,
       }));
+      const normalizedAgentSkills = (agentSkills ?? []).map((s) => ({
+        ...s,
+        scope: "agent" as const,
+      }));
+      const normalizedUserSkills = (userSkills ?? []).map((s) => ({
+        ...s,
+        scope: "user" as const,
+      }));
       const scopeOrder: Record<string, number> = { system: 0, agent: 1, user: 2 };
-      const combined = [...systemSkills, ...(agentSkills ?? []), ...(userSkills ?? [])];
+      const combined = [...systemSkills, ...normalizedAgentSkills, ...normalizedUserSkills];
       combined.sort((a, b) => {
         const diff = (scopeOrder[a.scope] ?? 9) - (scopeOrder[b.scope] ?? 9);
         return diff !== 0 ? diff : a.name.localeCompare(b.name);
