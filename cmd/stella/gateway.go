@@ -34,20 +34,27 @@ import (
 
 const defaultAdminPort = 25678
 
-func serverFlags() []ucli.Flag {
-	return []ucli.Flag{
-		&ucli.StringFlag{
-			Name:    "host",
-			Usage:   "Host/interface for admin panel",
-			Value:   "127.0.0.1",
-			EnvVars: []string{"HOST"},
+func serverCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:     "server",
+		Aliases:  []string{"serve"},
+		Usage:    "Start the stella server",
+		Category: "System",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:    "host",
+				Usage:   "Host/interface for admin panel",
+				Value:   "127.0.0.1",
+				EnvVars: []string{"HOST"},
+			},
+			&ucli.IntFlag{
+				Name:    "port",
+				Usage:   "Port for admin panel",
+				Value:   defaultAdminPort,
+				EnvVars: []string{"PORT"},
+			},
 		},
-		&ucli.IntFlag{
-			Name:    "port",
-			Usage:   "Port for admin panel",
-			Value:   defaultAdminPort,
-			EnvVars: []string{"PORT"},
-		},
+		Action: serverAction,
 	}
 }
 

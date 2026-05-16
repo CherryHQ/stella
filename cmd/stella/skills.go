@@ -23,9 +23,10 @@ import (
 
 func skillsCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:     "skills",
-		Usage:    "Manage agent skills",
-		Category: "Configuration",
+		Name:     "skill",
+		Aliases:  []string{"skills"},
+		Usage:    "Search, install, and manage reusable skill bundles",
+		Category: "Feature",
 		Description: `Skills are reusable prompt-and-tool bundles that extend what the agent
 can do. Use this command to search the skill registry, install new
 skills, and manage the ones already installed.`,

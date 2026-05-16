@@ -24,8 +24,8 @@ const emailConfigKey = "EMAIL_CONFIG"
 func emailCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:     "email",
-		Usage:    "Email client",
-		Category: "Content",
+		Usage:    "Read, send, and manage email through configured IMAP/SMTP accounts",
+		Category: "Feature",
 		Description: `Read, send, and manage email through IMAP/SMTP accounts configured in
 the vault. Use "email config" to add an account, then browse folders,
 read messages, and send mail directly from the terminal.`,
