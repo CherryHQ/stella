@@ -28,7 +28,7 @@ func init() {
 			PluginID:    PluginID,
 			Name:        "notify",
 			Description: "Send a notification message to the user.",
-			Required:    true,
+			Required:    false,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				service := ctx.Platform.Notifier()
 				if service == nil {

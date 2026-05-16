@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
@@ -11,18 +12,18 @@ import (
 
 func schedulerCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "scheduler",
-		Usage: "Manage scheduled jobs",
+		Name:     "scheduler",
+		Usage:    "Manage scheduled jobs",
+		Category: "Agent",
+		Description: `Schedule recurring or one-time agent jobs using cron expressions, Go
+durations, or absolute timestamps. The agent runs the job's instruction
+at the specified time and can optionally notify you with the results.`,
 		Subcommands: []*ucli.Command{
 			schedulerAddCommand(),
 			schedulerListCommand(),
 			schedulerRemoveCommand(),
 		},
 	}
-}
-
-func schedulerAPI() (*apiclient.Client, error) {
-	return newAPIClient()
 }
 
 func schedulerAddCommand() *ucli.Command {
@@ -59,11 +60,6 @@ func schedulerAddCommand() *ucli.Command {
 				return fmt.Errorf("only one of --cron, --every, or --at may be set")
 			}
 
-			api, err := schedulerAPI()
-			if err != nil {
-				return err
-			}
-
 			name := c.String("name")
 			msg := c.String("message")
 			mode := c.String("session-mode")
@@ -88,13 +84,10 @@ func schedulerAddCommand() *ucli.Command {
 				body.AgentId = &agentID
 			}
 
-			resp, err := api.CreateSchedulerJob(c.Context, body)
+			job, err := apiCallJSON[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateSchedulerJob(c.Context, body)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var job apiclient.Job
-			if err := decodeJSON(resp, &job); err != nil {
 				return err
 			}
 			return printJSON(job)
@@ -110,17 +103,10 @@ func schedulerListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := schedulerAPI()
+			list, err := apiCallJSON[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListSchedulerJobs(c.Context)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.ListSchedulerJobs(c.Context)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.JobList
-			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -161,16 +147,9 @@ func schedulerRemoveCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella scheduler remove <job-id>")
 			}
-			api, err := schedulerAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DeleteSchedulerJob(c.Context, id)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := apiDoJSON(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteSchedulerJob(c.Context, id)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Job %q removed.\n", id)

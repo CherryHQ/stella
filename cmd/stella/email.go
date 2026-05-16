@@ -21,14 +21,14 @@ import (
 
 const emailConfigKey = "EMAIL_CONFIG"
 
-// ---------------------------------------------------------------------------
-// Top-level command
-// ---------------------------------------------------------------------------
-
 func emailCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "email",
-		Usage: "Email client",
+		Name:     "email",
+		Usage:    "Email client",
+		Category: "Content",
+		Description: `Read, send, and manage email through IMAP/SMTP accounts configured in
+the vault. Use "email config" to add an account, then browse folders,
+read messages, and send mail directly from the terminal.`,
 		Subcommands: []*ucli.Command{
 			emailConfigCommand(),
 			emailFoldersCommand(),
@@ -39,10 +39,6 @@ func emailCommand() *ucli.Command {
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Vault helpers
-// ---------------------------------------------------------------------------
 
 func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Config, error) {
 	resp, err := api.GetVaultEntry(ctx, emailConfigKey)
@@ -108,10 +104,6 @@ func loadEmailConfig(ctx context.Context) (*email.Config, error) {
 	}
 	return loadVaultEmailConfig(ctx, api)
 }
-
-// ---------------------------------------------------------------------------
-// email config
-// ---------------------------------------------------------------------------
 
 func emailConfigCommand() *ucli.Command {
 	return &ucli.Command{
@@ -403,10 +395,6 @@ func emailConfigDefaultCommand() *ucli.Command {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Runtime commands (use EMAIL_CONFIG env var)
-// ---------------------------------------------------------------------------
-
 func emailFoldersCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "folders",
@@ -444,9 +432,9 @@ func emailFoldersCommand() *ucli.Command {
 func emailListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
-		Usage: "List emails",
+		Usage: "List emails in a mailbox folder",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name"},
+			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.IntFlag{Name: "limit", Aliases: []string{"n"}, Usage: "Maximum number of messages", Value: 20},
 			&ucli.BoolFlag{Name: "unread", Aliases: []string{"u"}, Usage: "Show only unread messages"},
@@ -524,7 +512,7 @@ func emailReadCommand() *ucli.Command {
 		Usage:     "Read an email by UID",
 		ArgsUsage: "<uid>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name"},
+			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.BoolFlag{Name: "raw", Usage: "Print full raw message"},
 			&ucli.StringFlag{Name: "save-attachments", Usage: "Directory to save attachments"},
@@ -608,8 +596,8 @@ func emailSendCommand() *ucli.Command {
 		Name:  "send",
 		Usage: "Send an email",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name"},
-			&ucli.StringSliceFlag{Name: "to", Aliases: []string{"t"}, Usage: "Recipient(s)"},
+			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
+			&ucli.StringSliceFlag{Name: "to", Aliases: []string{"t"}, Usage: "Recipient(s)", Required: true},
 			&ucli.StringSliceFlag{Name: "cc", Usage: "CC recipient(s)"},
 			&ucli.StringSliceFlag{Name: "bcc", Usage: "BCC recipient(s)"},
 			&ucli.StringFlag{Name: "subject", Aliases: []string{"s"}, Usage: "Subject (required)", Required: true},
@@ -684,10 +672,10 @@ func emailSendCommand() *ucli.Command {
 func emailMarkCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "mark",
-		Usage:     "Add or remove the \\Seen flag on a message",
+		Usage:     "Mark a message as read or unread",
 		ArgsUsage: "<uid>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name"},
+			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.BoolFlag{Name: "seen", Usage: "Mark message as read"},
 			&ucli.BoolFlag{Name: "unseen", Usage: "Mark message as unread"},
@@ -726,10 +714,6 @@ func emailMarkCommand() *ucli.Command {
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // maskConfigPasswords returns a copy of cfg with passwords replaced by "****".
 func maskConfigPasswords(cfg *email.Config) map[string]any {

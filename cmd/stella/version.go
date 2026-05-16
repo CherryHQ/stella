@@ -53,8 +53,9 @@ type upgradeResult struct {
 
 func versionCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "version",
-		Usage: "Show the current stella version",
+		Name:     "version",
+		Usage:    "Show the current stella version",
+		Category: "System",
 		Action: func(c *ucli.Context) error {
 			fmt.Println(displayVersion())
 			return nil
@@ -64,8 +65,9 @@ func versionCommand() *ucli.Command {
 
 func upgradeCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "upgrade",
-		Usage: "Upgrade stella to the latest stable GitHub release",
+		Name:     "upgrade",
+		Usage:    "Upgrade stella to the latest stable GitHub release",
+		Category: "System",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:  "install-dir",

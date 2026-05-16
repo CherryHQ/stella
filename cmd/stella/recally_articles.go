@@ -30,7 +30,7 @@ func recallySaveCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "published-at", Usage: "Original publication date (RFC3339)"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
+			api, err := newAPIClient()
 			if err != nil {
 				return err
 			}
@@ -108,10 +108,6 @@ func recallyListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
 			params := &apiclient.ListArticlesParams{
 				Limit: ptr(c.Int("limit")),
 			}
@@ -126,13 +122,10 @@ func recallyListCommand() *ucli.Command {
 			if c.IsSet("starred") {
 				params.Starred = ptr(c.Bool("starred"))
 			}
-			resp, err := api.ListArticles(c.Context, params)
+			list, err := apiCallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListArticles(c.Context, params)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.ArticleList
-			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -165,20 +158,13 @@ func recallySearchCommand() *ucli.Command {
 			if query == "" {
 				return fmt.Errorf("usage: stella recally search <query>")
 			}
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.ListArticles(c.Context, &apiclient.ListArticlesParams{
-				Q:     &query,
-				Limit: ptr(c.Int("limit")),
+			list, err := apiCallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
+					Q:     &query,
+					Limit: ptr(c.Int("limit")),
+				})
 			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var list apiclient.ArticleList
-			if err := decodeJSON(resp, &list); err != nil {
 				return err
 			}
 			if c.Bool("json") {
@@ -207,18 +193,11 @@ func recallyReadCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally read <article-id>")
 			}
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
 			include := "content"
-			resp, err := api.GetArticle(c.Context, articleID, &apiclient.GetArticleParams{Include: &include})
+			article, err := apiCallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetArticle(c.Context, articleID, &apiclient.GetArticleParams{Include: &include})
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var article apiclient.Article
-			if err := decodeJSON(resp, &article); err != nil {
 				return err
 			}
 			if article.Content != nil && *article.Content != "" {
@@ -249,10 +228,6 @@ func recallyUpdateCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally update <article-id>")
 			}
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
 			body := apiclient.UpdateArticleJSONRequestBody{}
 			if c.IsSet("status") {
 				st := apiclient.ArticleStatus(c.String("status"))
@@ -271,13 +246,10 @@ func recallyUpdateCommand() *ucli.Command {
 			if body.Status == nil && body.Starred == nil && body.Summary == nil && body.Tags == nil {
 				return fmt.Errorf("no updates specified")
 			}
-			resp, err := api.UpdateArticle(c.Context, articleID, body)
+			updated, err := apiCallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+				return api.UpdateArticle(c.Context, articleID, body)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var updated apiclient.Article
-			if err := decodeJSON(resp, &updated); err != nil {
 				return err
 			}
 			fmt.Printf("Article %s updated successfully.\n", shortID(updated.Id))
@@ -296,16 +268,9 @@ func recallyDeleteCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally delete <article-id>")
 			}
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
-			resp, err := api.DeleteArticle(c.Context, articleID)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			if err := decodeJSON(resp, nil); err != nil {
+			if err := apiDoJSON(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteArticle(c.Context, articleID)
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Article %s deleted.\n", shortID(articleID))
@@ -313,8 +278,6 @@ func recallyDeleteCommand() *ucli.Command {
 		},
 	}
 }
-
-// ----------------------------- shared CLI helpers ---------------------------
 
 // readContentArg reads article content from --content-file, stdin (if piped),
 // or returns "" so the server can decide between create and metadata-only

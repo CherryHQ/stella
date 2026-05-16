@@ -305,7 +305,6 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		},
 		nil,
 		&coreagent.ToolLifecycle{},
-		nil,
 	)
 
 	if err := switchFn("anthropic", "new-model"); err != nil {

@@ -140,8 +140,12 @@ func openStoreAndDefaultSnapshot(ctx context.Context) (config.Store, *config.Sna
 
 func modelsCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "models",
-		Usage: "Manage available models",
+		Name:     "models",
+		Usage:    "Manage available models",
+		Category: "Configuration",
+		Description: `List, search, and switch between LLM providers and models.
+Providers are configured through the admin panel; this command lets you
+inspect what is available and change the active model from the terminal.`,
 		Subcommands: []*ucli.Command{
 			modelsListCommand(),
 			modelsUpdateCommand(),

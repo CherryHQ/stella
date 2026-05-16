@@ -16,8 +16,12 @@ type serviceManager interface {
 
 func serviceCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "service",
-		Usage: "Manage the stella background service",
+		Name:     "service",
+		Usage:    "Manage the stella background service",
+		Category: "System",
+		Description: `Install, start, stop, and monitor stella as a background service
+(launchd on macOS, systemd on Linux). Logs can be streamed with
+"service logs --follow".`,
 		Subcommands: []*ucli.Command{
 			{
 				Name:  "install",

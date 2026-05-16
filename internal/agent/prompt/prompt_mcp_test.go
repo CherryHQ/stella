@@ -11,8 +11,8 @@ import (
 
 func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
 	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", PromptTools: []pkgplugins.PromptToolInfo{{Name: "mcp__github__searchrepos", Description: "Search repositories", Metadata: map[string]any{"server_name": "github"}}}})
-	if !strings.Contains(p, "`skills`: Load, search, install, list, remove, create, and update local skills") {
-		t.Fatalf("expected builtin skills tool in prompt: %s", p)
+	if !strings.Contains(p, "`memory`: Manage persistent knowledge") {
+		t.Fatalf("expected builtin memory tool in prompt: %s", p)
 	}
 	if !strings.Contains(p, "`mcp`: Proxy configured MCP tools") {
 		t.Fatalf("expected MCP tool section in prompt: %s", p)
@@ -27,8 +27,8 @@ func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
 
 func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
 	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella."})
-	if !strings.Contains(p, "`skills`: Load, search, install, list, remove, create, and update local skills") {
-		t.Fatalf("expected builtin skills tool in prompt: %s", p)
+	if !strings.Contains(p, "`memory`: Manage persistent knowledge") {
+		t.Fatalf("expected builtin memory tool in prompt: %s", p)
 	}
 	if strings.Contains(p, "Proxy configured MCP tools") {
 		t.Fatalf("did not expect MCP prompt section when manager disabled: %s", p)

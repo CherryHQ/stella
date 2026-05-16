@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -29,7 +28,6 @@ type RunnerFactoryConfig struct {
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	ToolLifecycle            *coreagent.ToolLifecycle
-	SkillStore               pkgplugins.SkillStore
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenService             *auth.TokenService
@@ -133,13 +131,6 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 			}
 
 			runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
-			runnerTools = append(runnerTools, skillstool.NewTool(
-				cfg.SkillStore,
-				config.StellaHome(),
-				cfg.Snap.Workspace,
-				"",
-				filepath.Join(userRoot, ".agents", "skills"),
-			))
 			runnerTools = append(runnerTools, params.ExtraTools...)
 
 			return newRunner(ctx, runnerConfig{

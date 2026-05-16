@@ -7,7 +7,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // --- helpers ---
@@ -16,10 +15,6 @@ func newService(t *testing.T) *credentials.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
 	return credentials.NewService(nil, nil, flowStore, "http://localhost:8080")
-}
-
-func ctxWithUser(userID string) context.Context {
-	return memory.WithUserID(context.Background(), userID)
 }
 
 func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
@@ -183,150 +178,5 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error when DB is nil")
-	}
-}
-
-// --- OAuthTool tests ---
-
-func newOAuthTool(t *testing.T) *credentials.OAuthTool {
-	t.Helper()
-	return credentials.NewOAuthTool(newService(t))
-}
-
-func TestOAuthToolNoUserContext(t *testing.T) {
-	tool := newOAuthTool(t)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "status"})
-	if err == nil {
-		t.Error("expected error when no user in context")
-	}
-}
-
-func TestOAuthToolUnknownAction(t *testing.T) {
-	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "invalid"})
-	if err == nil {
-		t.Error("expected error for unknown action")
-	}
-}
-
-func TestOAuthToolStatus(t *testing.T) {
-	tool := newOAuthTool(t)
-	out, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "status"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "OAuth providers:") {
-		t.Errorf("status output missing providers section: %q", out)
-	}
-}
-
-func TestOAuthToolConnectMissingProvider(t *testing.T) {
-	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "connect"})
-	if err == nil {
-		t.Error("expected error when provider missing for connect")
-	}
-}
-
-func TestOAuthToolConnectPollMissingFlowID(t *testing.T) {
-	// Providing an unknown flow_id should error, not silently start a new flow.
-	svc := newService(t)
-	tool := credentials.NewOAuthTool(svc)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "connect", "provider": "github", "flow_id": "bad-id"})
-	if err == nil {
-		t.Error("expected error for unknown flow_id")
-	}
-}
-
-func TestOAuthToolDisconnectMissingProvider(t *testing.T) {
-	tool := newOAuthTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "disconnect"})
-	if err == nil {
-		t.Error("expected error when provider missing for disconnect")
-	}
-}
-
-func TestOAuthDefinition(t *testing.T) {
-	def := credentials.OAuthDefinition()
-	if def.Name != "oauth" {
-		t.Errorf("OAuthDefinition.Name = %q; want oauth", def.Name)
-	}
-	if def.InputSchema == nil {
-		t.Error("OAuthDefinition.InputSchema is nil")
-	}
-}
-
-// --- VaultTool tests ---
-
-func newVaultTool(t *testing.T) *credentials.VaultTool {
-	t.Helper()
-	return credentials.NewVaultTool(newService(t))
-}
-
-func TestVaultToolNoUserContext(t *testing.T) {
-	tool := newVaultTool(t)
-	_, err := tool.Execute(context.Background(), map[string]any{"action": "list"})
-	if err == nil {
-		t.Error("expected error when no user in context")
-	}
-}
-
-func TestVaultToolUnknownAction(t *testing.T) {
-	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "invalid"})
-	if err == nil {
-		t.Error("expected error for unknown action")
-	}
-}
-
-func TestVaultToolListNoVault(t *testing.T) {
-	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "list"})
-	if err == nil {
-		t.Error("expected error listing when vault is nil")
-	}
-}
-
-func TestVaultToolRemoveMissingName(t *testing.T) {
-	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "remove"})
-	if err == nil {
-		t.Error("expected error when name is missing for remove")
-	}
-}
-
-func TestVaultToolAddMissingName(t *testing.T) {
-	tool := newVaultTool(t)
-	_, err := tool.Execute(ctxWithUser("1"), map[string]any{"action": "add"})
-	if err == nil {
-		t.Error("expected error when name missing for add")
-	}
-}
-
-func TestVaultToolAddInstruction(t *testing.T) {
-	tool := newVaultTool(t)
-	out, err := tool.Execute(ctxWithUser("1"), map[string]any{
-		"action":  "add",
-		"name":    "STRIPE_KEY",
-		"purpose": "process payments",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "/config STRIPE_KEY") {
-		t.Errorf("add_secret output missing /config instruction: %q", out)
-	}
-	if !strings.Contains(out, "process payments") {
-		t.Errorf("add_secret output missing purpose: %q", out)
-	}
-}
-
-func TestVaultDefinition(t *testing.T) {
-	def := credentials.VaultDefinition()
-	if def.Name != "vault" {
-		t.Errorf("VaultDefinition.Name = %q; want vault", def.Name)
-	}
-	if def.InputSchema == nil {
-		t.Error("VaultDefinition.InputSchema is nil")
 	}
 }

@@ -40,15 +40,18 @@ import (
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
-	tasktool "github.com/CherryHQ/stella/plugins/tools/task"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 func newApp() *ucli.App {
 	return &ucli.App{
-		Name:    "stella",
-		Usage:   "A local AI assistant",
+		Name:  "stella",
+		Usage: "A local AI assistant",
+		Description: `Stella is a self-hosted AI agent that connects to your favourite LLMs,
+messaging channels, and local tools. Run "stella" (or "stella serve") to
+start the server, then use the subcommands below to manage models,
+content, schedules, and more.`,
 		Version: displayVersion(),
 		Flags:   serverFlags(),
 		Action:  serverAction,
@@ -61,6 +64,9 @@ func newApp() *ucli.App {
 			recallyCommand(),
 			schedulerCommand(),
 			emailCommand(),
+			vaultCommand(),
+			oauthCommand(),
+			taskCommand(),
 			serviceCommand(),
 		},
 	}
@@ -368,7 +374,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
 	// Create PoolManager with builtin tools and external plugin tools.
-	// WithBuiltinTools sets the always-on builtin tools (scheduler, memory).
+	// WithBuiltinTools sets the always-on builtin tools (memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable external tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	toolLifecycle := &coreagent.ToolLifecycle{
@@ -423,9 +429,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	// Build tasks service before NewPoolManager so the task tool is in builtinTools
-	// from the start. The RunnerFactory closure captures poolMgr by reference —
-	// it is nil here but populated before any task is dispatched.
+	// Build tasks service before NewPoolManager. The RunnerFactory closure
+	// captures poolMgr by reference — it is nil here but populated before
+	// any task is dispatched.
 	var tasksSvc *tasks.Service
 	{
 		runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
@@ -450,8 +456,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			Memory:        memProvider,
 			RunnerFactory: runnerFactory,
 		})
-		tt := tasktool.New(tasktool.Config{Service: tasksSvc})
-		builtinTools = append(builtinTools, tt)
 	}
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
@@ -579,7 +583,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -603,7 +607,6 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			PromptSectionsBuilder:    promptSectionsFn,
 			SessionPluginViewBuilder: sessionPluginViewFn,
 			ToolLifecycle:            toolLifecycle,
-			SkillStore:               skillStore,
 		})
 		if err != nil {
 			return err
@@ -645,6 +648,5 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.promptSectionsBuilder,
 		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
-		s.skillStore,
 	)
 }

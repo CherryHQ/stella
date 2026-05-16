@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
@@ -20,17 +22,10 @@ func recallyDigestCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON (default)", Value: true},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
+			digest, err := apiCallJSON[apiclient.Digest](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetDigest(c.Context)
+			})
 			if err != nil {
-				return err
-			}
-			resp, err := api.GetDigest(c.Context)
-			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var digest apiclient.Digest
-			if err := decodeJSON(resp, &digest); err != nil {
 				return err
 			}
 			return printJSON(digest)
@@ -55,22 +50,15 @@ func recallyDigestSaveCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := recallyAPI()
-			if err != nil {
-				return err
-			}
 			narrative := c.String("narrative")
 			body := apiclient.SaveDigestJSONRequestBody{Narrative: narrative}
 			if d := c.String("date"); d != "" {
 				body.Date = &d
 			}
-			resp, err := api.SaveDigest(c.Context, body)
+			stored, err := apiCallJSON[apitypes.StoredDigest](func(api *apiclient.Client) (*http.Response, error) {
+				return api.SaveDigest(c.Context, body)
+			})
 			if err != nil {
-				return wrapServerErr(err)
-			}
-			defer resp.Body.Close() //nolint:errcheck
-			var stored apitypes.StoredDigest
-			if err := decodeJSON(resp, &stored); err != nil {
 				return err
 			}
 			return printJSON(stored)
