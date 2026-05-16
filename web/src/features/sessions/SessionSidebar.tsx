@@ -720,63 +720,37 @@ export function SessionSidebar({
             />
             {isOpen("skill") && (
               <>
-                {/* Agent-scoped skills */}
-                {agentSkills.length > 0 && (
-                  <>
-                    <SubFolder
-                      label="Agent"
-                      count={agentSkills.length}
-                      open={isFolderOpen("skill:agent")}
-                      onToggle={() => toggleFolder("skill:agent")}
-                    />
-                    {isFolderOpen("skill:agent") &&
-                      agentSkills.map((s) => (
-                        <NavRow
-                          key={s.id}
-                          active={panelSel.kind === "skill" && panelSel.id === s.id}
-                          icon={<IconStar />}
-                          title={s.name}
-                          sub={s.description}
-                          onClick={() => onSelect({ kind: "skill", id: s.id })}
-                        />
-                      ))}
-                  </>
-                )}
-                {/* User-scoped skills */}
-                {userSkills.length > 0 && (
-                  <>
-                    <SubFolder
-                      label="User"
-                      count={userSkills.length}
-                      open={isFolderOpen("skill:user")}
-                      onToggle={() => toggleFolder("skill:user")}
-                    />
-                    {isFolderOpen("skill:user") &&
-                      userSkills.map((s) => (
-                        <NavRow
-                          key={s.id}
-                          active={panelSel.kind === "skill" && panelSel.id === s.id}
-                          icon={<IconStar />}
-                          title={s.name}
-                          sub={s.description}
-                          onClick={() => onSelect({ kind: "skill", id: s.id })}
-                        />
-                      ))}
-                  </>
-                )}
-                {/* System built-in skills */}
-                {systemSkills.length > 0 && (
+                {/* User skills — top level, editable */}
+                {userSkills.map((s) => (
+                  <NavRow
+                    key={s.id}
+                    active={panelSel.kind === "skill" && panelSel.id === s.id}
+                    icon={<IconStar />}
+                    title={s.name}
+                    sub={s.description}
+                    onClick={() => onSelect({ kind: "skill", id: s.id })}
+                  />
+                ))}
+                {userSkills.length === 0 &&
+                  agentSkills.length === 0 &&
+                  systemSkills.length === 0 && (
+                    <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                      No skills yet.
+                    </p>
+                  )}
+                {/* Built-in folder — system + agent skills, read-only */}
+                {(agentSkills.length > 0 || systemSkills.length > 0) && (
                   <>
                     <SubFolder
                       label="Built-in"
-                      count={systemSkills.length}
-                      open={isFolderOpen("skill:system")}
-                      onToggle={() => toggleFolder("skill:system")}
+                      count={agentSkills.length + systemSkills.length}
+                      open={isFolderOpen("skill:builtin")}
+                      onToggle={() => toggleFolder("skill:builtin")}
                     />
-                    {isFolderOpen("skill:system") &&
-                      systemSkills.map((s) => (
+                    {isFolderOpen("skill:builtin") &&
+                      [...agentSkills, ...systemSkills].map((s) => (
                         <NavRow
-                          key={s.id}
+                          key={`${s.scope}:${s.id}`}
                           active={panelSel.kind === "skill" && panelSel.id === s.id}
                           icon={<IconStar />}
                           title={s.name}
@@ -785,11 +759,6 @@ export function SessionSidebar({
                         />
                       ))}
                   </>
-                )}
-                {filteredSkills.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                    No skills yet.
-                  </p>
                 )}
               </>
             )}
