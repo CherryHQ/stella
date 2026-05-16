@@ -179,6 +179,19 @@ export function SessionsPage() {
     }
   }, [selectedAgentId, loadAgentData]);
 
+  // ── auto-select first session when agent loads with no session chosen ───
+  useEffect(() => {
+    if (
+      panelSel.kind === "chat" &&
+      panelSel.id === "" &&
+      !sessionsQuery.isLoading &&
+      sessions.length > 0 &&
+      !params._splat
+    ) {
+      void navigate({ to: "/sessions/$", params: { _splat: sessions[0].id } });
+    }
+  }, [sessions, panelSel.kind, panelSel.id, sessionsQuery.isLoading, params._splat, navigate]);
+
   // ── URL → session detail ─────────────────────────────────────────────────
   const loadSession = useCallback(
     async (sessionID: string) => {
