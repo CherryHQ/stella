@@ -2,11 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
-import type { Agent, Session, Workspace } from "@/lib/types";
+import type {
+  Agent,
+  SchedulerJob,
+  SchedulerJobList,
+  Session,
+  Skill,
+  UserMemory,
+  Workspace,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { SessionSidebar } from "./SessionSidebar";
+import { SessionSidebar, type PanelSel } from "./SessionSidebar";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { AgentSettingsPanel } from "./panels/AgentSettingsPanel";
+import { AutomationPanel } from "./panels/AutomationPanel";
+import { MemoryPanel } from "./panels/MemoryPanel";
+import { SkillPanel } from "./panels/SkillPanel";
 
 const RIGHT_MIN = 240;
 const RIGHT_MAX_RATIO = 0.5;
@@ -17,17 +29,27 @@ export function SessionsPage() {
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { _splat?: string };
 
-  const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
+  // ── agent + panel state ──────────────────────────────────────────────────
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [currentUserID, setCurrentUserID] = useState<number>(0);
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [panelSel, setPanelSel] = useState<PanelSel>({ kind: "chat", id: "" });
+  const [openSections, setOpenSections] = useState<string[]>([]);
 
-  // Workspace state
+  // ── per-agent data ───────────────────────────────────────────────────────
+  const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [memories, setMemories] = useState<UserMemory[]>([]);
+
+  // ── session detail (for chat panel) ─────────────────────────────────────
+  const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
+  const [currentUserID, setCurrentUserID] = useState<number>(0);
+
+  // ── workspace (right panel, chat only) ──────────────────────────────────
+  const [rightOpen, setRightOpen] = useState(true);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
 
-  // Resizable right panel
+  // ── resizable right panel ────────────────────────────────────────────────
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,46 +84,54 @@ export function SessionsPage() {
     [rightWidth],
   );
 
+  // ── sessions query (per agent) ───────────────────────────────────────────
   const sessionsQuery = useInfiniteQuery({
-    queryKey: ["sessions"],
+    queryKey: ["sessions", selectedAgentId],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => api<Session[]>("GET", `/api/sessions?limit=10&offset=${pageParam}`),
+    queryFn: ({ pageParam }) => {
+      const agentParam = selectedAgentId ? `&agent_id=${encodeURIComponent(selectedAgentId)}` : "";
+      return api<Session[]>("GET", `/api/sessions?limit=20&offset=${pageParam}${agentParam}`);
+    },
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 10 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+      lastPage.length === 20 ? allPages.reduce((sum, p) => sum + p.length, 0) : undefined,
+    enabled: true,
   });
 
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const loadSession = useCallback(async (sessionID: string) => {
+  // ── load per-agent data ──────────────────────────────────────────────────
+  const loadAgentData = useCallback(async (agentId: string) => {
+    if (!agentId) return;
     try {
-      const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionID)}`);
-      setSessionDetail(detail);
+      const [jobs, agentSkills, allMemories] = await Promise.all([
+        api<SchedulerJobList>("GET", "/api/scheduler/jobs").catch(() => ({ items: [] })),
+        api<Skill[]>("GET", `/api/agents/${encodeURIComponent(agentId)}/skills`).catch(() => []),
+        api<UserMemory[]>("GET", "/api/auth/profile/memories").catch(() => []),
+      ]);
+      setSchedulerJobs((jobs.items ?? []).filter((j) => !agentId || j.agent_id === agentId));
+      setSkills(agentSkills ?? []);
+      setMemories((allMemories ?? []).filter((m) => m.agent_id === agentId));
     } catch (e) {
       console.error(e);
     }
   }, []);
 
-  const openSession = useCallback(
-    async (sessionID: string) => {
-      await navigate({ to: "/sessions/$", params: { _splat: sessionID } });
-    },
-    [navigate],
-  );
+  const refreshAgentData = useCallback(() => {
+    void loadAgentData(selectedAgentId);
+  }, [selectedAgentId, loadAgentData]);
 
-  const createSession = useCallback(
-    async (agentID: string) => {
-      const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentID });
-      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      await openSession(sess.id);
-    },
-    [openSession, queryClient],
-  );
-
+  // ── init ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
       await Promise.all([
         api<Agent[]>("GET", "/api/agents")
-          .then((r) => setAgents(r ?? []))
+          .then((r) => {
+            const list = r ?? [];
+            setAgents(list);
+            if (list.length > 0 && !selectedAgentId) {
+              setSelectedAgentId(list[0].id);
+            }
+          })
           .catch(() => {}),
         api<{ id: number }>("GET", "/api/auth/me")
           .then((r) => {
@@ -111,7 +141,33 @@ export function SessionsPage() {
       ]);
     };
     void init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // load per-agent data when agent changes
+  useEffect(() => {
+    if (selectedAgentId) {
+      void loadAgentData(selectedAgentId);
+    }
+  }, [selectedAgentId, loadAgentData]);
+
+  // ── URL → session detail ─────────────────────────────────────────────────
+  const loadSession = useCallback(
+    async (sessionID: string) => {
+      try {
+        const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionID)}`);
+        setSessionDetail(detail);
+        // sync agent to session's agent when navigating via URL
+        if (detail.agent_id && detail.agent_id !== selectedAgentId) {
+          setSelectedAgentId(detail.agent_id);
+        }
+        setPanelSel({ kind: "chat", id: sessionID });
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [selectedAgentId],
+  );
 
   useEffect(() => {
     const sessionID = params._splat ? decodeURIComponent(params._splat) : "";
@@ -122,6 +178,47 @@ export function SessionsPage() {
     }
   }, [loadSession, params._splat]);
 
+  // ── agent switch ─────────────────────────────────────────────────────────
+  const handleAgentChange = useCallback(
+    (id: string) => {
+      if (id === selectedAgentId) return;
+      setSelectedAgentId(id);
+      setOpenSections([]);
+      setPanelSel({ kind: "chat", id: "" });
+      setSessionDetail(null);
+      void queryClient.invalidateQueries({ queryKey: ["sessions", id] });
+      void navigate({ to: "/sessions" });
+    },
+    [selectedAgentId, queryClient, navigate],
+  );
+
+  // ── panel selection ──────────────────────────────────────────────────────
+  const handleSelect = useCallback(
+    (sel: PanelSel) => {
+      setPanelSel(sel);
+      if (sel.kind === "chat" || sel.kind === "task") {
+        void navigate({ to: "/sessions/$", params: { _splat: sel.id } });
+      }
+    },
+    [navigate],
+  );
+
+  const handleToggleSection = useCallback((key: string) => {
+    setOpenSections((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }, []);
+
+  // ── create session ───────────────────────────────────────────────────────
+  const createSession = useCallback(async () => {
+    if (!selectedAgentId) return;
+    const sess = await api<Session>("POST", "/api/sessions", { agent_id: selectedAgentId });
+    await queryClient.invalidateQueries({ queryKey: ["sessions", selectedAgentId] });
+    await navigate({ to: "/sessions/$", params: { _splat: sess.id } });
+    setPanelSel({ kind: "chat", id: sess.id });
+  }, [selectedAgentId, queryClient, navigate]);
+
+  // ── workspace ────────────────────────────────────────────────────────────
   const loadWorkspace = useCallback(async (sid: string) => {
     setWorkspaceLoading(true);
     try {
@@ -138,13 +235,18 @@ export function SessionsPage() {
   }, []);
 
   useEffect(() => {
-    if (rightOpen && sessionDetail) {
-      loadWorkspace(sessionDetail.id).catch(console.error);
+    const isChatKind = panelSel.kind === "chat" || panelSel.kind === "task";
+    if (rightOpen && isChatKind && sessionDetail) {
+      void loadWorkspace(sessionDetail.id);
     }
     if (!sessionDetail) {
       setWorkspace(null);
     }
-  }, [rightOpen, sessionDetail?.id, loadWorkspace, sessionDetail]);
+  }, [rightOpen, sessionDetail?.id, panelSel.kind, loadWorkspace, sessionDetail]);
+
+  // ── derived ──────────────────────────────────────────────────────────────
+  const isChatPanel = panelSel.kind === "chat" || panelSel.kind === "task";
+  const showWorkspace = isChatPanel && rightOpen;
 
   return (
     <div
@@ -152,52 +254,93 @@ export function SessionsPage() {
       className="border-t border-border flex overflow-hidden"
       style={{ height: "calc(100vh - 3.5rem)" }}
     >
-      {/* Left sidebar */}
-      <div
-        className={cn(
-          "flex-shrink-0 transition-all duration-200 ease-out",
-          leftOpen
-            ? "w-[272px] min-w-[272px]"
-            : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
-        )}
-      >
+      {/* Sidebar */}
+      <div className="w-[268px] min-w-[268px] flex-shrink-0 border-r border-border">
         <SessionSidebar
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onAgentChange={handleAgentChange}
+          panelSel={panelSel}
+          onSelect={handleSelect}
+          openSections={openSections}
+          onToggleSection={handleToggleSection}
           sessions={sessions}
           sessionsLoading={sessionsQuery.isFetchingNextPage || sessionsQuery.isLoading}
           sessionsHasMore={!!sessionsQuery.hasNextPage}
-          selectedID={sessionDetail?.id}
-          agents={agents}
-          onSelect={openSession}
-          onLoadMore={() => sessionsQuery.fetchNextPage()}
-          onCreateSession={createSession}
+          onLoadMoreSessions={() => sessionsQuery.fetchNextPage()}
+          schedulerJobs={schedulerJobs}
+          skills={skills}
+          memories={memories}
+          onCreateSession={() => void createSession()}
+          onNavigateSettings={() => void navigate({ to: "/settings/agents" })}
         />
       </div>
 
       {/* Center panel */}
-      <SessionDetail
-        session={sessionDetail}
-        currentUserID={currentUserID}
-        onBack={() => {
-          setSessionDetail(null);
-          void navigate({ to: "/sessions" });
-        }}
-        onSessionUpdate={(s) => setSessionDetail(s)}
-        onToggleLeft={() => setLeftOpen((v) => !v)}
-        onToggleRight={() => setRightOpen((v) => !v)}
-      />
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        {isChatPanel ? (
+          <SessionDetail
+            session={sessionDetail}
+            currentUserID={currentUserID}
+            onBack={() => {
+              setSessionDetail(null);
+              setPanelSel({ kind: "chat", id: "" });
+              void navigate({ to: "/sessions" });
+            }}
+            onSessionUpdate={(s) => setSessionDetail(s)}
+            onToggleLeft={() => {}}
+            onToggleRight={() => setRightOpen((v) => !v)}
+          />
+        ) : panelSel.kind === "auto" ? (
+          <AutomationPanel
+            key={panelSel.id}
+            jobId={panelSel.id === "new" ? null : panelSel.id}
+            agentId={selectedAgentId}
+            onSaved={() => {
+              refreshAgentData();
+              if (panelSel.id === "new") setPanelSel({ kind: "auto", id: "" });
+            }}
+            onDeleted={() => {
+              refreshAgentData();
+              setPanelSel({ kind: "auto", id: "" });
+            }}
+          />
+        ) : panelSel.kind === "skill" ? (
+          <SkillPanel
+            key={panelSel.id}
+            skillId={panelSel.id === "new" ? null : panelSel.id}
+            agentId={selectedAgentId}
+            onSaved={() => {
+              refreshAgentData();
+              if (panelSel.id === "new") setPanelSel({ kind: "skill", id: "" });
+            }}
+            onDeleted={() => {
+              refreshAgentData();
+              setPanelSel({ kind: "skill", id: "" });
+            }}
+          />
+        ) : panelSel.kind === "memory" ? (
+          <MemoryPanel key={selectedAgentId} agentId={selectedAgentId} />
+        ) : panelSel.kind === "settings" ? (
+          <AgentSettingsPanel key={selectedAgentId} agentId={selectedAgentId} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+            Select a conversation or item from the sidebar.
+          </div>
+        )}
+      </div>
 
-      {/* Right sidebar (workspace) — resizable */}
+      {/* Workspace (chat only) */}
       <div
         className={cn(
           "flex-shrink-0 relative transition-[width,min-width,opacity] duration-200 ease-out",
-          rightOpen
+          showWorkspace
             ? "border-l border-border"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
-        style={rightOpen ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
+        style={showWorkspace ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
       >
-        {/* Drag handle */}
-        {rightOpen && (
+        {showWorkspace && (
           <div
             onMouseDown={onResizeStart}
             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-primary/10 active:bg-primary/20 transition-colors"
