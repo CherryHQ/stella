@@ -24,12 +24,7 @@ Two built-in memory plugins ship with Stella:
 
 ### Switching Plugins
 
-Memory plugins are managed like other plugins. In the admin panel or via `stella plugin`:
-
-```bash
-stella plugin disable memory/lcm
-stella plugin enable memory/simple
-```
+Memory plugins are managed through the admin panel. Navigate to the Plugins section to enable or disable memory plugins.
 
 Only one memory plugin should be enabled at a time. Both use the same underlying `ctx_messages` table, so switching preserves stored messages.
 

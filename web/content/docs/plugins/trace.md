@@ -25,10 +25,10 @@ Log mode is always active when the plugin is enabled. Control verbosity with `LO
 
 ```bash
 # Default -- LLM/tool/memory events at INFO
-stella serve
+stella server
 
 # Verbose -- includes memory detail fields
-LOG_LEVEL=TRACE stella serve
+LOG_LEVEL=TRACE stella server
 ```
 
 Example log output:
@@ -76,7 +76,7 @@ docker run -d --name jaeger \
 # Start stella with tracing over OTLP/gRPC
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
-stella serve
+stella server
 ```
 
 Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations.
@@ -89,31 +89,31 @@ Any OTLP-compatible backend works. Examples:
 # Grafana Tempo over OTLP/gRPC
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.internal:4317 \
-stella serve
+stella server
 
 # SigNoz over OTLP/gRPC
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz.internal:4317 \
-stella serve
+stella server
 
 # OTel Collector over OTLP/gRPC
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
-stella serve
+stella server
 
 # Cloud OTLP/gRPC with TLS and auth header
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com:443 \
 OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Bearer <token>" \
 OTEL_EXPORTER_OTLP_INSECURE=false \
-stella serve
+stella server
 
 # Cloud OTLP/HTTP with TLS and auth header
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com/api/default \
 OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Basic <base64>,organization=default,stream-name=default" \
 OTEL_EXPORTER_OTLP_INSECURE=false \
-stella serve
+stella server
 ```
 
 If your provider gives you an OTLP/HTTP endpoint such as `https://collector.example.com/api/default`, use that exact base URL and let the exporter append `/v1/traces`.
@@ -235,12 +235,6 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 ## Managing the Plugin
 
-The trace plugin is enabled by default.
-
-```bash
-stella plugin list                   # Check status
-stella plugin disable hook/trace     # Disable all tracing
-stella plugin enable hook/trace      # Re-enable
-```
+The trace plugin is enabled by default. Use the admin panel (Plugins section) to enable or disable the trace plugin.
 
 Disabling the trace plugin turns off both log mode and OTel mode. LLM calls, tool executions, and memory operations will no longer be logged or exported.

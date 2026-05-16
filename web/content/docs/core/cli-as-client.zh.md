@@ -4,7 +4,7 @@ title: CLI 作为 REST 客户端
 
 ## 概述
 
-stella CLI 被有意做成轻量 REST 客户端。运行中的 `stella serve` 进程是**唯一**会
+stella CLI 被有意做成轻量 REST 客户端。运行中的 `stella server` 进程是**唯一**会
 打开 SQLite 数据库、写 Markdown 库、抓 RSS 订阅、或者做任何状态变更的进程。
 
 这是项目的 **API-first** 原则：每个能力首先通过 HTTP 暴露，CLI 只是众多客户端

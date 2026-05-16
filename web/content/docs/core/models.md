@@ -30,22 +30,11 @@ Environment variables serve as fallbacks when a provider's `api_key` field is em
 
 The OpenAI-Compatible provider (`openai-response`) supports any service that implements the OpenAI Responses API, such as Perplexity or Together.ai.
 
-## CLI Commands
+## Managing Models
 
-```bash
-stella models             # List available models (alias for list)
-stella models list        # List all models grouped by provider
-stella models update      # Fetch models from provider APIs and update cache
-stella models current     # Show active provider/model
-stella models set <p/m>   # Switch default agent's model (e.g. stella models set openai/gpt-4o)
-stella models search <q>  # Search models by name
-```
+Models are managed through the admin panel (web UI). You can browse available models, switch the active model, and refresh the model cache from the Models page.
 
-### Model Cache
-
-`stella models update` queries all configured provider APIs and saves results to the `settings` table under the `models_cache` key. The cache is used by `list`, `search`, and the Telegram model picker.
-
-You can also refresh the cache from the admin panel.
+The model cache is stored in the `settings` table under the `models_cache` key and is used by the Telegram model picker and other UI components.
 
 ## Runtime Switching
 
@@ -53,11 +42,11 @@ Models can be switched at runtime without restarting:
 
 - **CLI**: `/model` command during a chat session
 - **Telegram**: Inline keyboard model picker
-- **CLI command**: `stella models set provider/model` updates the default agent's model in the database
+- **Admin panel**: Switch the active model from the Models page
 
 ## Model Metadata
 
-When the model cache is populated (via `stella models update` or the admin panel), each model entry includes metadata fetched from the provider API:
+When the model cache is populated (via the admin panel), each model entry includes metadata fetched from the provider API:
 
 - Model ID
 - Reasoning capability

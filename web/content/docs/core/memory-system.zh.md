@@ -24,12 +24,7 @@ Stella 内置两个记忆插件：
 
 ### 切换插件
 
-记忆插件的管理方式与其他插件相同。在管理面板或通过 `stella plugin` 命令：
-
-```bash
-stella plugin disable memory/lcm
-stella plugin enable memory/simple
-```
+记忆插件通过管理面板管理。在插件页面中启用或禁用记忆插件。
 
 同时只能启用一个记忆插件。两者使用相同的底层 `ctx_messages` 表，因此切换插件会保留已存储的消息。
 

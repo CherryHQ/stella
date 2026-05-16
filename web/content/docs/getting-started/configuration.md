@@ -152,7 +152,7 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 
 - **stella.db** is the single source of truth for all configuration, memory, and scheduler data.
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
-- **cache/** contains regenerable data. Run `stella models update` to rebuild.
+- **cache/** contains regenerable data. Refresh from the admin panel to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). The agent form edits network policy; backend can also be set in the stored JSON.
   - `backend`: `auto` (default), `local`, or `docker`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
@@ -231,4 +231,4 @@ Subprocess plugin bindings are stored separately under the `runtime_plugins` key
 }
 ```
 
-These bindings control which runtime plugin ID handles each built-in tool or channel slot. If a slot has no explicit override, stella falls back to the bundled first-party plugin for that slot. Use `stella plugin runtime list` to inspect the effective bindings and `stella plugin runtime bind ...` to change them.
+These bindings control which runtime plugin ID handles each built-in tool or channel slot. If a slot has no explicit override, stella falls back to the bundled first-party plugin for that slot. Manage runtime bindings through the admin panel.

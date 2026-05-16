@@ -19,7 +19,7 @@ Recally 是 Stella 的阅读助手 —— 一个用于保存、组织和回顾�
 
 ## 架构
 
-recally CLI 是一个轻量的 REST 客户端。运行中的 stella server（`stella serve`）
+recally CLI 是一个轻量的 REST 客户端。运行中的 stella server（`stella server`）
 是唯一直接读写 recally 数据库和磁盘 Markdown 文件的进程；CLI、Web UI 以及 SDK
 消费者都走 HTTP。
 
@@ -45,7 +45,7 @@ stella server: 写入 Markdown 文件 + 数据库索引行
 
 执行任何 `stella recally …` 命令之前：
 
-1. stella server 必须在本机或可经 HTTP 访问的远端启动（`stella serve`）。
+1. stella server 必须在本机或可经 HTTP 访问的远端启动（`stella server`）。
 2. 设置 `STELLA_TOKEN` 为账号生成的 token（server 需开启 `STELLA_VAULT_KEY` 才能启用 token 认证）。
 3. 可选：设置 `STELLA_SERVER_URL` 指向远端 server，默认 `http://127.0.0.1:25678`。
 

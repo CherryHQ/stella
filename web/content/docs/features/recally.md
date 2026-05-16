@@ -19,7 +19,7 @@ Unlike simple bookmarks, Recally stores full article content as markdown files w
 
 ## Architecture
 
-The recally CLI is a thin REST client. The running stella server (`stella serve`)
+The recally CLI is a thin REST client. The running stella server (`stella server`)
 is the only process that touches the recally database and the markdown library
 on disk; CLI, web UI, and SDK consumers all talk HTTP.
 
@@ -45,7 +45,7 @@ Library: $STELLA_HOME/library/{userID}/articles/{year}/{month}/{day}-{slug}.md
 
 Before running any `stella recally …` command:
 
-1. The stella server must be running (`stella serve`) on the same host or reachable
+1. The stella server must be running (`stella server`) on the same host or reachable
    over HTTP.
 2. Set `STELLA_TOKEN` to a token issued by your account (the server requires
    `STELLA_VAULT_KEY` for token-based auth to be available).

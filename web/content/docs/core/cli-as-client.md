@@ -4,7 +4,7 @@ title: CLI as a REST client
 
 ## Overview
 
-Stella's CLI is intentionally a thin REST client. The running `stella serve`
+Stella's CLI is intentionally a thin REST client. The running `stella server`
 process is the **only** thing that opens the SQLite database, writes to the
 markdown library, fetches RSS feeds, or makes any other state change.
 

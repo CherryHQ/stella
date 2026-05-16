@@ -152,7 +152,7 @@ title: 配置
 
 - **stella.db** 是所有配置、记忆和调度器数据的唯一真实来源。
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
-- **cache/** 包含可重新生成的数据。运行 `stella models update` 来重建。
+- **cache/** 包含可重新生成的数据。从管理面板刷新来重建。
 - **agent 沙箱配置**存储在每个 agent 记录（`settings_agents.sandbox`）上。管理面板可编辑网络策略；也可以直接在存储的 JSON 中设置 backend。
   - `backend`：`auto`（默认）、`local` 或 `docker`
   - `network.mode`：`disabled`（默认）、`allow_all` 或 `whitelist`
@@ -231,4 +231,4 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 }
 ```
 
-这些绑定控制哪个运行时插件 ID 处理每个内置工具或通道槽。如果某个槽没有显式覆盖，stella 将回退到该槽的捆绑第一方插件。使用 `stella plugin runtime list` 检查有效绑定，使用 `stella plugin runtime bind ...` 更改它们。
+这些绑定控制哪个运行时插件 ID 处理每个内置工具或通道槽。如果某个槽没有显式覆盖，stella 将回退到该槽的捆绑第一方插件。通过管理面板管理运行时绑定。

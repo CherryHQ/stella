@@ -28,22 +28,11 @@ stella 中的每个代理都有三个模型字段，存储在数据库（`settin
 
 OpenAI-Compatible 提供商（`openai-response`）支持任何实现 OpenAI Responses API 的服务，例如 Perplexity 或 Together.ai。
 
-## CLI 命令
+## 管理模型
 
-```bash
-stella models             # 列出可用模型（list 的别名）
-stella models list        # 列出按提供商分组的所有模型
-stella models update      # 从提供商 API 获取模型并更新缓存
-stella models current     # 显示活动的 provider/model
-stella models set <p/m>   # 切换默认代理的模型（例如 stella models set openai/gpt-4o）
-stella models search <q>  # 按名称搜索模型
-```
+模型通过管理面板（Web UI）管理。您可以在模型页面浏览可用模型、切换活动模型和刷新模型缓存。
 
-### 模型缓存
-
-`stella models update` 查询所有配置的提供商 API 并将结果保存到 `settings` 表中的 `models_cache` 键下。缓存被 `list`、`search` 和 Telegram 模型选择器使用。
-
-您也可以从 admin 面板刷新缓存。
+模型缓存存储在 `settings` 表的 `models_cache` 键下，被 Telegram 模型选择器和其他 UI 组件使用。
 
 ## 运行时切换
 
@@ -51,11 +40,11 @@ stella models search <q>  # 按名称搜索模型
 
 - **CLI**：聊天会话期间的 `/model` 命令
 - **Telegram**：内联键盘模型选择器
-- **CLI 命令**：`stella models set provider/model` 更新数据库中默认代理的模型
+- **管理面板**：在模型页面切换活动模型
 
 ## 模型元数据
 
-当填充模型缓存时（通过 `stella models update` 或 admin 面板），每个模型条目都包含从提供商 API 获取的元数据：
+当填充模型缓存时（通过管理面板），每个模型条目都包含从提供商 API 获取的元数据：
 
 - 模型 ID
 - 推理能力

@@ -138,10 +138,10 @@ The heartbeat system uses the fast model to decide "skip or run" and only calls 
 Stella connects to the [skills.sh](https://skills.sh) ecosystem:
 
 ```bash
-stella skills search "web scraping"
-stella skills install owner/repo@skill-name
-stella skills list
-stella skills remove skill-name
+stella skill search "web scraping"
+stella skill install owner/repo@skill-name
+stella skill list
+stella skill remove skill-name
 ```
 
 Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.stella/workspaces/{agent-id}/.agents/skills/`.
@@ -198,45 +198,47 @@ stella --port 8080                 # Start daemon with web UI on custom port
 stella --host 0.0.0.0 --port 8080 # Bind web UI to all interfaces
 ```
 
-`stella` (bare command) starts all your configured channels, the scheduler, and the web UI. Use `--port` to change the port; `--host` to bind to a specific interface. `HOST` and `PORT` environment variables are also supported.
+`stella server` starts all your configured channels, the scheduler, and the web UI. Use `--port` to change the port; `--host` to bind to a specific interface. `HOST` and `PORT` environment variables are also supported.
 
 ## CLI reference
 
 ```bash
-stella                               # Start daemon (bots + scheduler); web UI at http://localhost:25678
-stella --port <port>                 # Start daemon with web UI on custom port
-stella --host <host> --port <port>   # Bind web UI to a specific host/interface
-stella models list           # List available models
-stella models set <p/m>      # Switch model (e.g. openai/gpt-4o)
-stella models search <q>     # Search models
-stella skills search <q>     # Search skills.sh
-stella skills install <s>    # Install a skill
-stella plugin list           # List all plugins with status
-stella plugin add <path>     # Install a plugin
-stella plugin remove <name>  # Remove an installed plugin
-stella version               # Print version
-stella upgrade               # Self-update to latest release
+stella                                  # Show help
+stella server                           # Start server (channels + scheduler); web UI at http://localhost:25678
+stella server --port <port>             # Start server with web UI on custom port
+stella server --host <host> --port <p>  # Bind web UI to a specific host/interface
+stella skill search <q>        # Search skills.sh
+stella skill install <s>       # Install a skill
+stella skill list              # List installed skills
+stella scheduler list          # List scheduled jobs
+stella task list               # List agent tasks
+stella vault list              # List stored secrets
+stella oauth providers         # List OAuth providers
+stella recally list            # List saved articles
+stella email folders           # List email folders
+stella version                 # Print version
+stella upgrade                 # Self-update to latest release
 ```
 
 ## Documentation
 
-| Document                                                                 | Description                                                                                                                 |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| [Configuration](docs/content/docs/getting-started/configuration.md)      | Full config reference, admin panel, defaults                                                                                |
-| [Deployment](docs/content/docs/getting-started/deployment.md)            | Binary install, Docker, systemd, compose                                                                                    |
-| [Architecture](docs/content/docs/core/architecture.md)                   | System design, packages, providers, tools                                                                                   |
-| [Models](docs/content/docs/core/models.md)                               | Tiers, CLI commands, provider setup                                                                                         |
-| [Memory System](docs/content/docs/core/memory-system.md)                 | LCM deep dive, DAG structure, retrieval tools                                                                               |
-| [Session Compaction](docs/content/docs/core/session-compaction.md)       | How context compression works                                                                                               |
-| [Telegram](docs/content/docs/channels/telegram.md)                       | Bot setup, streaming, groups, access control                                                                                |
-| [QQ Bot](docs/content/docs/channels/qq.md)                               | Bot setup, webhook, streaming                                                                                               |
-| [Feishu Bot](docs/content/docs/channels/feishu.md)                       | Bot setup, WebSocket, streaming                                                                                             |
-| [WeChat Bot](docs/content/docs/channels/weixin.md)                       | iLink Bot setup, QR login, DM                                                                                               |
-| [Scheduler System](docs/content/docs/features/scheduler-system.md)       | Scheduler system, heartbeat, persistence                                                                                    |
-| [Recally](docs/content/docs/features/recally.md)                         | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `stella serve`; needs `STELLA_TOKEN`) |
-| [CLI as REST client](docs/content/docs/core/cli-as-client.md)            | API-first model — every CLI command is a thin HTTP client of `stella serve`                                                 |
-| [Plugin System](docs/content/docs/features/plugin-system.md)             | Unified subprocess plugin model for tools and channels                                                                      |
-| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing                                                                                               |
+| Document                                                                 | Description                                                                                                                  |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| [Configuration](docs/content/docs/getting-started/configuration.md)      | Full config reference, admin panel, defaults                                                                                 |
+| [Deployment](docs/content/docs/getting-started/deployment.md)            | Binary install, Docker, systemd, compose                                                                                     |
+| [Architecture](docs/content/docs/core/architecture.md)                   | System design, packages, providers, tools                                                                                    |
+| [Models](docs/content/docs/core/models.md)                               | Tiers, CLI commands, provider setup                                                                                          |
+| [Memory System](docs/content/docs/core/memory-system.md)                 | LCM deep dive, DAG structure, retrieval tools                                                                                |
+| [Session Compaction](docs/content/docs/core/session-compaction.md)       | How context compression works                                                                                                |
+| [Telegram](docs/content/docs/channels/telegram.md)                       | Bot setup, streaming, groups, access control                                                                                 |
+| [QQ Bot](docs/content/docs/channels/qq.md)                               | Bot setup, webhook, streaming                                                                                                |
+| [Feishu Bot](docs/content/docs/channels/feishu.md)                       | Bot setup, WebSocket, streaming                                                                                              |
+| [WeChat Bot](docs/content/docs/channels/weixin.md)                       | iLink Bot setup, QR login, DM                                                                                                |
+| [Scheduler System](docs/content/docs/features/scheduler-system.md)       | Scheduler system, heartbeat, persistence                                                                                     |
+| [Recally](docs/content/docs/features/recally.md)                         | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `stella server`; needs `STELLA_TOKEN`) |
+| [CLI as REST client](docs/content/docs/core/cli-as-client.md)            | API-first model — every CLI command is a thin HTTP client of `stella server`                                                 |
+| [Plugin System](docs/content/docs/features/plugin-system.md)             | Unified subprocess plugin model for tools and channels                                                                       |
+| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing                                                                                                |
 
 ## Development
 

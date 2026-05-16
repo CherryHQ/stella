@@ -15,18 +15,9 @@ model_strong: claude-opus-4-6 # optional
 model_fast: claude-haiku-4-5 # optional
 ```
 
-## CLI commands
+## Managing models
 
-```bash
-stella models             # List available models
-stella models list        # List all models grouped by provider
-stella models update      # Fetch from provider APIs, update cache
-stella models current     # Show active provider/model
-stella models set <p/m>   # Switch (e.g. stella models set openai/gpt-4o)
-stella models search <q>  # Search by name
-```
-
-The cache at `$STELLA_HOME/cache/models.json` is populated by `stella models update`. Without it, only models in config are shown.
+Models are managed through the admin panel (web UI). You can browse available models, switch the active model, and refresh the model cache from the Models page.
 
 ## Provider setup
 
@@ -68,4 +59,4 @@ Uses same `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars.
 
 - **CLI**: `/model` in-chat command
 - **Telegram**: inline keyboard model picker
-- **Persistent**: `stella models set provider/model` writes to state.yaml
+- **Admin panel**: switch the active model from the Models page
