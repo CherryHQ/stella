@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 
 interface Props {
   skillId: string | null;
+  scope?: string;
   agentId: string;
   onSaved: () => void;
   onDeleted: () => void;
@@ -32,11 +33,17 @@ function emptyForm(): Form {
   };
 }
 
-function skillUrl(agentId: string, skillId: string) {
+function skillUrl(scope: string | undefined, agentId: string, skillId: string) {
+  if (scope === "system") return `/api/builtin/skill/${encodeURIComponent(skillId)}`;
+  if (scope === "user") return `/api/auth/profile/skills/${encodeURIComponent(skillId)}`;
   return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`;
 }
 
-function skillFileUrl(agentId: string, skillId: string) {
+function skillFileUrl(scope: string | undefined, agentId: string, skillId: string) {
+  if (scope === "system")
+    return `/api/builtin/skill/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
+  if (scope === "user")
+    return `/api/auth/profile/skills/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
   return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
 }
 
@@ -50,7 +57,7 @@ function scopeBadgeVariant(scope: string): "outline" | "secondary" | "default" {
   return "outline";
 }
 
-export function SkillPanel({ skillId, agentId, onSaved, onDeleted }: Props) {
+export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Props) {
   const isNew = skillId === null;
   const [skill, setSkill] = useState<Skill | null>(null);
   const [savedForm, setSavedForm] = useState<Form>(emptyForm());
@@ -69,8 +76,8 @@ export function SkillPanel({ skillId, agentId, onSaved, onDeleted }: Props) {
     setLoading(true);
     try {
       const [sk, content] = await Promise.all([
-        api<Skill>("GET", skillUrl(agentId, skillId)),
-        api<string>("GET", skillFileUrl(agentId, skillId)).catch(() => ""),
+        api<Skill>("GET", skillUrl(scope, agentId, skillId)),
+        api<string>("GET", skillFileUrl(scope, agentId, skillId)).catch(() => ""),
       ]);
       const f: Form = {
         name: sk.name,
@@ -88,7 +95,7 @@ export function SkillPanel({ skillId, agentId, onSaved, onDeleted }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [skillId, agentId]);
+  }, [skillId, scope, agentId]);
 
   useEffect(() => {
     if (isNew) {
@@ -112,13 +119,13 @@ export function SkillPanel({ skillId, agentId, onSaved, onDeleted }: Props) {
           disable_model_invocation: form.disable_model_invocation,
         });
       } else if (skillId) {
-        await api("PUT", skillUrl(agentId, skillId), {
+        await api("PUT", skillUrl(scope, agentId, skillId), {
           name: form.name,
           description: form.description,
           status: form.status,
           disable_model_invocation: form.disable_model_invocation,
         });
-        await api("PUT", skillFileUrl(agentId, skillId), form.content);
+        await api("PUT", skillFileUrl(scope, agentId, skillId), form.content);
       }
       setSavedForm(form);
       setEditing(false);
@@ -128,20 +135,20 @@ export function SkillPanel({ skillId, agentId, onSaved, onDeleted }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [isNew, skillId, agentId, form, onSaved]);
+  }, [isNew, skillId, scope, agentId, form, onSaved]);
 
   const remove = useCallback(async () => {
     if (!skillId) return;
     setDeleting(true);
     try {
-      await api("DELETE", skillUrl(agentId, skillId));
+      await api("DELETE", skillUrl(scope, agentId, skillId));
       onDeleted();
     } catch (e) {
       console.error(e);
     } finally {
       setDeleting(false);
     }
-  }, [skillId, agentId, onDeleted]);
+  }, [skillId, scope, agentId, onDeleted]);
 
   const cancelEdit = () => {
     setForm(savedForm);

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import type {
   Agent,
+  BuiltinItem,
   SchedulerJob,
   SchedulerJobList,
   Session,
@@ -104,15 +105,31 @@ export function SessionsPage() {
   const loadAgentData = useCallback(async (agentId: string) => {
     if (!agentId) return;
     try {
-      const [jobs, agentSkills, allMemories] = await Promise.all([
+      const [jobs, agentSkills, userSkills, builtinSkills, allMemories] = await Promise.all([
         api<SchedulerJobList>("GET", "/api/scheduler/jobs").catch(() => ({ items: [] })),
         api<Skill[]>("GET", `/api/agents/${encodeURIComponent(agentId)}/skills`).catch(() => []),
+        api<Skill[]>("GET", "/api/auth/profile/skills").catch(() => []),
+        api<BuiltinItem[]>("GET", "/api/builtin/skill").catch(() => []),
         api<UserMemory[]>("GET", "/api/auth/profile/memories").catch(() => []),
       ]);
       setSchedulerJobs(
         (jobs.items ?? []).filter((j) => j.owner_kind === "system" || j.agent_id === agentId),
       );
-      setSkills(agentSkills ?? []);
+      const systemSkills: Skill[] = (builtinSkills ?? []).map((b) => ({
+        id: b.id,
+        name: b.name,
+        description: b.description ?? "",
+        status: "active" as const,
+        scope: "system" as const,
+        disable_model_invocation: false,
+      }));
+      const scopeOrder: Record<string, number> = { system: 0, agent: 1, user: 2 };
+      const combined = [...systemSkills, ...(agentSkills ?? []), ...(userSkills ?? [])];
+      combined.sort((a, b) => {
+        const diff = (scopeOrder[a.scope] ?? 9) - (scopeOrder[b.scope] ?? 9);
+        return diff !== 0 ? diff : a.name.localeCompare(b.name);
+      });
+      setSkills(combined);
       setMemories((allMemories ?? []).filter((m) => m.agent_id === agentId));
     } catch (e) {
       console.error(e);
@@ -312,6 +329,7 @@ export function SessionsPage() {
           <SkillPanel
             key={panelSel.id}
             skillId={panelSel.id === "new" ? null : panelSel.id}
+            scope={skills.find((s) => s.id === panelSel.id)?.scope}
             agentId={selectedAgentId}
             onSaved={() => {
               refreshAgentData();
