@@ -109,8 +109,8 @@ export function AutomationDashPanel({
   }, [schedulerJobs]);
 
   useEffect(() => {
-    if (tab === "runs") void loadRuns();
-  }, [tab, loadRuns]);
+    if (tab === "runs" || selectedRunId) void loadRuns();
+  }, [tab, selectedRunId, loadRuns]);
 
   const loadJobRuns = useCallback(async (jobId: string) => {
     setJobRunsLoading(true);
@@ -308,8 +308,14 @@ export function AutomationDashPanel({
         )}
       </div>
 
-      {/* Side panel: job detail or run detail */}
-      {selectedJob && (
+      {/* Side panel: run detail takes priority over job detail */}
+      {selectedRun && (
+        <RunDetailPanel
+          run={selectedRun}
+          onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
+        />
+      )}
+      {selectedJob && !selectedRun && (
         <JobDetailPanel
           job={selectedJob}
           runs={jobRuns}
@@ -319,12 +325,6 @@ export function AutomationDashPanel({
           onEditJob={() => {
             onEditJob(selectedJob.id);
           }}
-        />
-      )}
-      {selectedRun && !selectedJob && (
-        <RunDetailPanel
-          run={selectedRun}
-          onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
         />
       )}
     </div>
