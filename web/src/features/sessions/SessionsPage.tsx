@@ -108,7 +108,9 @@ export function SessionsPage() {
         api<Skill[]>("GET", `/api/agents/${encodeURIComponent(agentId)}/skills`).catch(() => []),
         api<UserMemory[]>("GET", "/api/auth/profile/memories").catch(() => []),
       ]);
-      setSchedulerJobs((jobs.items ?? []).filter((j) => !agentId || j.agent_id === agentId));
+      setSchedulerJobs(
+        (jobs.items ?? []).filter((j) => j.owner_kind === "system" || j.agent_id === agentId),
+      );
       setSkills(agentSkills ?? []);
       setMemories((allMemories ?? []).filter((m) => m.agent_id === agentId));
     } catch (e) {

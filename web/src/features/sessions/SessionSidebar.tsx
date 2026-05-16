@@ -297,6 +297,48 @@ function StatusBadge({ on }: { on: boolean }) {
   );
 }
 
+function SubFolder({
+  label,
+  count,
+  open,
+  onToggle,
+  indent = 6,
+}: {
+  label: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  indent?: number;
+}) {
+  return (
+    <div
+      className="flex items-center gap-1.5 cursor-pointer select-none group py-1 hover:bg-muted/30 transition-colors"
+      style={{ paddingLeft: `${indent * 4}px`, paddingRight: "10px" }}
+      onClick={onToggle}
+    >
+      <ChevRight
+        className={cn(
+          "w-2 h-2 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
+          open && "rotate-90",
+        )}
+      />
+      <svg
+        className="w-3 h-3 flex-shrink-0 text-muted-foreground/60"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
+        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
+      </svg>
+      <span className="flex-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors truncate">
+        {label}
+      </span>
+      <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums">{count}</span>
+    </div>
+  );
+}
+
 // ── main component ────────────────────────────────────────────────────────────
 
 export function SessionSidebar({
@@ -319,7 +361,12 @@ export function SessionSidebar({
 }: Props) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [openFolders, setOpenFolders] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const isFolderOpen = (key: string) => openFolders.includes(key);
+  const toggleFolder = (key: string) =>
+    setOpenFolders((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const color = selectedAgent ? agentColor(selectedAgent.id) : "#888";
@@ -373,6 +420,33 @@ export function SessionSidebar({
         s.description.toLowerCase().includes(search.toLowerCase()),
     );
   }, [skills, search]);
+
+  const agentSkills = useMemo(
+    () => filteredSkills.filter((s) => s.scope === "agent"),
+    [filteredSkills],
+  );
+  const userSkills = useMemo(
+    () => filteredSkills.filter((s) => s.scope === "user"),
+    [filteredSkills],
+  );
+  const systemSkills = useMemo(
+    () => filteredSkills.filter((s) => s.scope === "system"),
+    [filteredSkills],
+  );
+
+  const userJobs = useMemo(
+    () => filteredJobs.filter((j) => j.owner_kind !== "system"),
+    [filteredJobs],
+  );
+  const systemJobs = useMemo(
+    () => filteredJobs.filter((j) => j.owner_kind === "system"),
+    [filteredJobs],
+  );
+
+  const userMemory = useMemo(
+    () => memories.find((m) => m.agent_id === selectedAgentId),
+    [memories, selectedAgentId],
+  );
 
   // infinite scroll
   const handleScroll = useCallback(() => {
@@ -541,6 +615,15 @@ export function SessionSidebar({
                 <span className="text-xs font-mono text-muted-foreground">Loading…</span>
               </div>
             )}
+            {isOpen("chat") && sessionsHasMore && !sessionsLoading && (
+              <button
+                type="button"
+                onClick={onLoadMoreSessions}
+                className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
+              >
+                Load more…
+              </button>
+            )}
           </div>
         )}
 
@@ -555,22 +638,47 @@ export function SessionSidebar({
               onToggle={() => onToggleSection("auto")}
               onAdd={() => onSelect({ kind: "auto", id: "new" })}
             />
-            {isOpen("auto") &&
-              filteredJobs.map((j) => (
-                <NavRow
-                  key={j.id}
-                  active={panelSel.kind === "auto" && panelSel.id === j.id}
-                  icon={<IconClock />}
-                  title={j.name}
-                  sub={j.cron || (j.every ? "every " + j.every : "")}
-                  badge={<StatusBadge on={j.enabled} />}
-                  onClick={() => onSelect({ kind: "auto", id: j.id })}
-                />
-              ))}
-            {isOpen("auto") && filteredJobs.length === 0 && (
-              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                No automations yet.
-              </p>
+            {isOpen("auto") && (
+              <>
+                {userJobs.map((j) => (
+                  <NavRow
+                    key={j.id}
+                    active={panelSel.kind === "auto" && panelSel.id === j.id}
+                    icon={<IconClock />}
+                    title={j.name}
+                    sub={j.cron || (j.every ? "every " + j.every : "")}
+                    badge={<StatusBadge on={j.enabled} />}
+                    onClick={() => onSelect({ kind: "auto", id: j.id })}
+                  />
+                ))}
+                {userJobs.length === 0 && (
+                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                    No automations yet.
+                  </p>
+                )}
+                {systemJobs.length > 0 && (
+                  <>
+                    <SubFolder
+                      label="System"
+                      count={systemJobs.length}
+                      open={isFolderOpen("auto:system")}
+                      onToggle={() => toggleFolder("auto:system")}
+                    />
+                    {isFolderOpen("auto:system") &&
+                      systemJobs.map((j) => (
+                        <NavRow
+                          key={j.id}
+                          active={panelSel.kind === "auto" && panelSel.id === j.id}
+                          icon={<IconClock />}
+                          title={j.name}
+                          sub={j.description || j.cron || (j.every ? "every " + j.every : "")}
+                          badge={<StatusBadge on={j.enabled} />}
+                          onClick={() => onSelect({ kind: "auto", id: j.id })}
+                        />
+                      ))}
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
@@ -610,33 +718,80 @@ export function SessionSidebar({
               onToggle={() => onToggleSection("skill")}
               onAdd={() => onSelect({ kind: "skill", id: "new" })}
             />
-            {isOpen("skill") &&
-              filteredSkills.map((s) => (
-                <NavRow
-                  key={s.id}
-                  active={panelSel.kind === "skill" && panelSel.id === s.id}
-                  icon={<IconStar />}
-                  title={s.name}
-                  sub={s.scope}
-                  badge={
-                    <span
-                      className={cn(
-                        "inline-flex items-center h-4 px-1.5 rounded-full text-[9.5px] font-mono font-medium flex-shrink-0",
-                        s.scope === "agent"
-                          ? "bg-blue-500/10 text-blue-500"
-                          : s.scope === "user"
-                            ? "bg-green-500/10 text-green-500"
-                            : "bg-muted text-muted-foreground/60",
-                      )}
-                    >
-                      {s.scope === "system" ? "built-in" : s.scope}
-                    </span>
-                  }
-                  onClick={() => onSelect({ kind: "skill", id: s.id })}
-                />
-              ))}
-            {isOpen("skill") && filteredSkills.length === 0 && (
-              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No skills yet.</p>
+            {isOpen("skill") && (
+              <>
+                {/* Agent-scoped skills */}
+                {agentSkills.length > 0 && (
+                  <>
+                    <SubFolder
+                      label="Agent"
+                      count={agentSkills.length}
+                      open={isFolderOpen("skill:agent")}
+                      onToggle={() => toggleFolder("skill:agent")}
+                    />
+                    {isFolderOpen("skill:agent") &&
+                      agentSkills.map((s) => (
+                        <NavRow
+                          key={s.id}
+                          active={panelSel.kind === "skill" && panelSel.id === s.id}
+                          icon={<IconStar />}
+                          title={s.name}
+                          sub={s.description}
+                          onClick={() => onSelect({ kind: "skill", id: s.id })}
+                        />
+                      ))}
+                  </>
+                )}
+                {/* User-scoped skills */}
+                {userSkills.length > 0 && (
+                  <>
+                    <SubFolder
+                      label="User"
+                      count={userSkills.length}
+                      open={isFolderOpen("skill:user")}
+                      onToggle={() => toggleFolder("skill:user")}
+                    />
+                    {isFolderOpen("skill:user") &&
+                      userSkills.map((s) => (
+                        <NavRow
+                          key={s.id}
+                          active={panelSel.kind === "skill" && panelSel.id === s.id}
+                          icon={<IconStar />}
+                          title={s.name}
+                          sub={s.description}
+                          onClick={() => onSelect({ kind: "skill", id: s.id })}
+                        />
+                      ))}
+                  </>
+                )}
+                {/* System built-in skills */}
+                {systemSkills.length > 0 && (
+                  <>
+                    <SubFolder
+                      label="Built-in"
+                      count={systemSkills.length}
+                      open={isFolderOpen("skill:system")}
+                      onToggle={() => toggleFolder("skill:system")}
+                    />
+                    {isFolderOpen("skill:system") &&
+                      systemSkills.map((s) => (
+                        <NavRow
+                          key={s.id}
+                          active={panelSel.kind === "skill" && panelSel.id === s.id}
+                          icon={<IconStar />}
+                          title={s.name}
+                          sub={s.description}
+                          onClick={() => onSelect({ kind: "skill", id: s.id })}
+                        />
+                      ))}
+                  </>
+                )}
+                {filteredSkills.length === 0 && (
+                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                    No skills yet.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -652,17 +807,26 @@ export function SessionSidebar({
               onToggle={() => onToggleSection("memory")}
             />
             {isOpen("memory") && (
-              <NavRow
-                active={panelSel.kind === "memory"}
-                icon={<IconBrain />}
-                title="Agent memory"
-                sub={
-                  memories[0]?.updated_at
-                    ? "Updated " + formatTime(memories[0].updated_at)
-                    : "No memory yet"
-                }
-                onClick={() => onSelect({ kind: "memory", id: selectedAgentId })}
-              />
+              <>
+                <NavRow
+                  active={panelSel.kind === "settings" && panelSel.id === selectedAgentId}
+                  icon={<IconBrain />}
+                  title="Agent Soul"
+                  sub="Personality & behavior"
+                  onClick={() => onSelect({ kind: "settings", id: selectedAgentId })}
+                />
+                <NavRow
+                  active={panelSel.kind === "memory"}
+                  icon={<IconBrain />}
+                  title="User Profile"
+                  sub={
+                    userMemory?.updated_at
+                      ? "Updated " + formatTime(userMemory.updated_at)
+                      : "No memory yet"
+                  }
+                  onClick={() => onSelect({ kind: "memory", id: selectedAgentId })}
+                />
+              </>
             )}
           </div>
         )}
