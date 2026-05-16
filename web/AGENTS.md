@@ -67,7 +67,12 @@ Tailwind utility classes map to those tokens via `@theme inline`.
 
 ### URL state
 
-Use TanStack Router search params instead of `history.pushState` directly.
+**All navigable UI state MUST be represented in the URL.** Every panel, selected item, and view mode must have its own addressable route or search param. Never use React state (`useState`) for navigation or selection that should be bookmarkable, shareable, or work with browser back/forward.
+
+- Use TanStack Router file-based routes for resource selection (e.g., `/agents/{id}/tasks/{taskId}`).
+- Use TanStack Router search params for secondary state (filters, tabs) when a full route is overkill.
+- Never use `history.pushState` directly.
+- Derive selected items from URL params, not internal component state.
 
 ### Commands
 
