@@ -1,0 +1,60 @@
+---
+title: Models
+---
+
+Stella works with multiple AI providers and lets you choose which model powers your conversations. You can switch models on the fly without restarting.
+
+## Supported providers
+
+Stella supports three types of providers:
+
+- **Anthropic** -- Claude models (Sonnet, Opus, Haiku)
+- **OpenAI** -- GPT and o-series models
+- **OpenAI-compatible** -- any service that implements the OpenAI API, such as Perplexity, Together.ai, or a local model server
+
+You can configure multiple providers at the same time and mix models from different providers across your agents.
+
+## Setting up a provider
+
+1. Open the admin panel.
+2. Go to the **Providers** section.
+3. Click **Add provider** and choose the provider type.
+4. Enter your API key and any required settings (such as a custom base URL for OpenAI-compatible providers).
+5. Save the provider.
+
+Once saved, Stella fetches the available models from that provider automatically.
+
+## Model tiers
+
+Each agent in Stella uses up to three model tiers:
+
+| Tier        | When Stella uses it                                   |
+| ----------- | ----------------------------------------------------- |
+| **Default** | Everyday conversations and general tasks              |
+| **Strong**  | Hard problems, complex reasoning, multi-step analysis |
+| **Fast**    | Quick checks, simple lookups, lightweight subtasks    |
+
+If you only set the default model, Stella uses it for everything. The strong and fast tiers are optional -- set them when you want Stella to pick the right tool for the job automatically.
+
+Configure model tiers per agent in the admin panel on the agent settings page.
+
+## Switching models
+
+You can switch models mid-conversation without losing context:
+
+- **In any channel** -- type `/model` to see available models and pick a different one. On Telegram, this shows an inline keyboard for quick selection.
+- **In the admin panel** -- go to the **Models** page to browse available models and switch the active model.
+
+The change takes effect on the next message.
+
+## Environment variable fallbacks
+
+If you prefer not to store API keys in the admin panel, you can set them as environment variables. Stella checks these when a provider does not have a key configured:
+
+| Provider          | Environment variable | Optional          |
+| ----------------- | -------------------- | ----------------- |
+| Anthropic         | `ANTHROPIC_API_KEY`  |                   |
+| OpenAI            | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
+| OpenAI-compatible | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
+
+Add these to your shell profile or deployment environment so they persist across restarts. Provider keys configured in the admin panel take priority over environment variables.

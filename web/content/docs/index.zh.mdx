@@ -6,44 +6,73 @@ icon: Bot
 
 import { Cards, Card } from "@/components/docs/mdx-components";
 
-stella 是一个自托管的 AI 助手，具备无损上下文管理能力。原生 Go 二进制文件调用 LLM 提供商，提供终端 TUI 和多平台机器人网关（Telegram、QQ、飞书、微信）。开箱即用支持多代理和多用户。内置调度器、心跳监控和跨渠道通知。
+Stella 是一个自托管的 AI 助手，能记住每一次对话，连接你常用的通讯渠道，并在你不在时替你工作。在你自己的机器上运行，使用你自己的 API 密钥，数据始终保存在本地。
 
 ## 快速开始
 
 ```bash
 # 安装
-go install github.com/CherryHQ/stella@latest
+brew install CherryHQ/tap/stella
 
-# 启动 stella —— 管理面板访问地址：http://localhost:25678
-stella
+# 启动服务器 —— 管理面板：http://localhost:25678
+stella server
 ```
 
-## 探索
+## 入门
 
 <Cards>
   <Card
-    title="配置"
-    description="数据库配置、管理面板、默认值"
-    href="/docs/getting-started/configuration"
+    title="快速开始"
+    description="5 分钟内完成安装、配置并开始第一次对话"
+    href="/docs/getting-started/quickstart"
   />
   <Card
     title="部署"
-    description="二进制文件、Docker、systemd、compose"
+    description="后台服务、Docker、systemd"
     href="/docs/getting-started/deployment"
   />
-  <Card title="架构" description="系统设计、多代理路由、包结构" href="/docs/core/architecture" />
-  <Card title="记忆系统" description="无损上下文管理深入解析" href="/docs/core/memory-system" />
-  <Card title="模型" description="分层、提供商、缓存" href="/docs/core/models" />
-  <Card title="渠道" description="Telegram、QQ、飞书、微信机器人" href="/docs/channels/telegram" />
   <Card
-    title="插件"
-    description="使用 JavaScript 插件扩展 stella"
-    href="/docs/features/plugin-system"
+    title="配置"
+    description="管理面板设置、提供商、代理"
+    href="/docs/getting-started/configuration"
+  />
+</Cards>
+
+## 使用指南
+
+<Cards>
+  <Card title="记忆" description="Stella 如何记住你的对话和偏好" href="/docs/guides/memory" />
+  <Card title="定时任务" description="设置提醒和周期性任务" href="/docs/guides/scheduling" />
+  <Card title="模型" description="提供商、模型分层和切换模型" href="/docs/guides/models" />
+  <Card title="技能" description="浏览和安装可复用的技能包" href="/docs/guides/skills" />
+  <Card
+    title="阅读助手"
+    description="保存文章、RSS 订阅和每日摘要"
+    href="/docs/guides/reading-assistant"
   />
   <Card
-    title="调度系统"
-    description="定时任务、心跳监控、持久化"
-    href="/docs/features/scheduler-system"
+    title="密钥管理"
+    description="安全存储 API 密钥和令牌"
+    href="/docs/guides/secrets-and-keys"
   />
-  <Card title="通知" description="分发器、后端、路由" href="/docs/features/notification-system" />
+</Cards>
+
+## 渠道
+
+<Cards>
+  <Card title="Telegram" description="长轮询、流式响应、群组" href="/docs/channels/telegram" />
+  <Card title="QQ" description="WebSocket、原生流式" href="/docs/channels/qq" />
+  <Card title="飞书" description="WebSocket、自动配置" href="/docs/channels/feishu" />
+  <Card title="微信" description="iLink Bot、扫码登录" href="/docs/channels/weixin" />
+</Cards>
+
+## 开发
+
+<Cards>
+  <Card
+    title="架构"
+    description="系统设计、包结构、内部实现"
+    href="/docs/development/architecture"
+  />
+  <Card title="插件系统" description="构建和扩展插件" href="/docs/development/plugin-system" />
 </Cards>

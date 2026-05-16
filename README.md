@@ -2,260 +2,99 @@
   <img src="avatar.png" width="200" alt="stella" />
 </p>
 
-# stella
+# stella — Your AI assistant that never forgets
 
 > **⚠️ Under Heavy Development** — Stella is not stable. APIs, config formats, and behavior may change without notice. Not recommended for production use.
 
-**Your AI assistant that never forgets.**
+Stella is a self-hosted AI assistant that runs on your machine and talks to you through Telegram, QQ, Feishu, WeChat, or your terminal. She remembers every conversation — even weeks later — because she compresses old context automatically and can pull up the details whenever she needs them. Your data stays local in a SQLite database. Your API keys, your machine, nothing leaves your network.
 
-Stella is a self-hosted AI assistant that runs on your machine and talks to you through your terminal, Telegram, QQ, Feishu, or WeChat. She keeps every conversation in a local SQLite database, compresses old context automatically so the LLM never hits its limit, and can recover the original detail whenever she needs it.
+## What you can do with Stella
 
-She supports multiple agents running simultaneously, each with their own personality, model, and provider. Multiple users are handled automatically -- each person gets isolated per-agent memory that persists across sessions.
+- **Chat from anywhere.** Talk to Stella from Telegram, QQ, Feishu, WeChat, or the terminal — all sharing the same memory. Start a conversation on your laptop, pick it up on your phone.
+- **Never lose context.** Stella uses Lossless Context Management (LCM) to compress old messages into summaries while keeping the originals. She can search her history and drill into any summary to recall exactly what you said, even thousands of messages later.
+- **Run multiple agents.** Set up a coding assistant, a writing partner, and a daily planner — each with its own model, personality, and memory. Switch between them with `/agent` in Telegram or `--agent` on the CLI.
+- **Schedule tasks and reminders.** Tell Stella "remind me every morning at 9am to check my email" and she will. Jobs persist across restarts.
+- **Extend with skills.** Browse and install community skills from [skills.sh](https://skills.sh) to teach Stella new abilities — web scraping, file monitoring, workspace automation, and more.
 
-She also schedules tasks, monitors files, and sends you notifications across channels without waiting for you to ask.
+## Quick start
 
-## Why stella
+```bash
+# 1. Install
+brew install CherryHQ/tap/stella
 
-Most AI assistants lose your context. You hit the token limit, the old messages get truncated, and the assistant forgets what you were working on. Start a new chat, re-explain everything, repeat.
+# 2. Set your API key
+export ANTHROPIC_API_KEY="sk-ant-..."
 
-Stella solves this with LCM (Lossless Context Management). As conversations grow, older messages get compressed into summaries organized in a DAG. Summaries get condensed into higher-level summaries. But the originals stay in the database. The agent has tools to search its history and drill back into any summary to pull up the full text. You can talk to Stella for weeks and she'll still know what you said on day one.
+# 3. Start the server
+stella server
 
-Beyond memory, there are a few other things worth calling out.
+# 4. Open the admin panel at http://localhost:25678
+#    Add your provider and API key under Providers
 
-Stella meets you where you are. Terminal, Telegram, QQ, Feishu, WeChat, all sharing the same session pool and memory. Chat from your laptop in the morning, pick it up on Telegram from your phone in the evening.
-
-She does things on her own. Tell her "remind me every morning at 9am to check my email" and she will. Built-in scheduler, heartbeat file monitoring, push notifications across whatever channels you have connected.
-
-Run multiple agents at once. A coding assistant, a writing partner, a daily planner -- each with its own model, provider, system prompt, and isolated workspace. Switch between them with `/agent` in Telegram or `--agent` on the CLI.
-
-Multiple users out of the box. Users are auto-created from platform identity (Telegram user ID, QQ ID, etc). Each user gets per-agent memory stored in the database, so Stella remembers different things about different people.
-
-And the whole thing is a Go CLI with a SQLite database. Your machine, your API keys, nothing leaves your network.
-
-Extensibility uses a unified subprocess plugin model: all built-in tools and channels are plugins that can be replaced or extended without recompiling.
-
-## How it works
-
-```
-Users (Telegram / QQ / Feishu / WeChat / Terminal)
- |
- |  /agent to switch agents
- v
-stella (single binary, your machine)
- |
- |- Agents (multiple, each with own model/provider/personality)
- |   |- Workspace (~/.stella/workspaces/{agent-id}/.agents/skills/)
- |   |- 3-layer system prompt (SYSTEM.md -> SOUL.md -> user memory)
- |   '- LCM Memory (DAG-based context compression)
- |
- |- Admin Panel (web UI for all configuration)
- |- Scheduler (jobs, reminders, heartbeat)
- |- Skills (extensible via skills.sh)
- '- Notifications (pushes results back to you)
- |
- v
-LLM Provider (Anthropic / OpenAI / any compatible API)
+# 5. Open Chat and start talking
 ```
 
-## Memory: how LCM works
+You can also install with `go install github.com/CherryHQ/stella@latest` or download a binary from [Releases](https://github.com/CherryHQ/stella/releases).
 
-The memory system stores every message in SQLite and organizes summaries into a directed acyclic graph. When the conversation gets long, older messages are grouped and summarized into leaf nodes. Groups of leaf nodes get condensed into higher-level nodes. This happens automatically.
+See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps.
 
-The agent carries a unified `memory` tool with four actions:
+## Connect your channels
 
-- `grep` -- search messages and summaries by keyword
-- `describe` -- inspect a summary node's metadata and lineage
-- `expand` -- drill into a summary to retrieve the source content
-- `user_memory_update` -- update persistent per-user notes across sessions (write-only, injected into system prompt automatically)
+All channels share the same memory. Chat from one, switch to another, and Stella picks up where you left off.
 
-When the context window fills up, Stella isn't working with truncated history. She's working with compressed summaries and can pull up specifics on demand. A conversation can be a thousand messages long and she'll still find what she needs.
+| Channel  | How to connect             | Streaming support |
+| -------- | -------------------------- | ----------------- |
+| Terminal | Built-in TUI               | Token-by-token    |
+| Telegram | Long polling, no public IP | Yes               |
+| QQ       | WebSocket                  | Yes               |
+| Feishu   | WebSocket, no public IP    | Edit-in-place     |
+| WeChat   | Long polling (iLink Bot)   | No                |
 
-## Multi-agent and multi-user
-
-Stella supports running multiple agents simultaneously. Each agent has:
-
-- Its own model and provider configuration
-- An isolated workspace at `~/.stella/workspaces/{agent-id}/.agents/skills/`
-- A system prompt defined in the DB (`settings_agents.system_prompt`), overridable by placing a `SOUL.md` in the workspace
-- A 3-layer system prompt: basic system prompt (overridable by `SYSTEM.md`), then agent soul (overridable by `SOUL.md`), then per-user memory from the database
-
-Users are auto-created from platform identity. Each user gets per-agent memory stored in the `ctx_agent_memory` table, which is injected into the system prompt and updated via the `user_memory_update` action on the `memory` tool. Stella remembers different things about different people, per agent.
-
-In Telegram, use `/agent` to switch between agents. In DMs, your default agent is remembered. In groups, the agent is set per-group. On the CLI, use `stella --agent <name>`.
-
-## Channels
-
-Five channels, all sharing the same memory:
-
-| Channel  | Connection                 | Streaming         | Groups                      |
-| -------- | -------------------------- | ----------------- | --------------------------- |
-| Terminal | Local TUI (Bubble Tea)     | Token-by-token    | n/a                         |
-| Telegram | Long polling, no public IP | Draft API         | Mention / always / disabled |
-| QQ       | WebSocket                  | Native Stream API | Mention support             |
-| Feishu   | WebSocket, no public IP    | Edit-in-place     | Mention support             |
-| WeChat   | Long polling (iLink Bot)   | Non-streaming     | DM only                     |
-
-You can run multiple bot instances for the same platform. Leave a channel unbound to let users switch agents with `/agent`, or bind a channel instance to a dedicated agent so that bot always routes to that agent.
-
-Every channel supports `/new`, `/compact`, `/abort`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input. Channel messages are processed one-at-a-time per session, so later messages wait for the current turn to finish or be aborted.
-
-Lark workspace automation is no longer built in as `feishu_*` tools. Instead, stella now models `mise`, `tap-web`, `gh`, and `lark-cli` as plugin-managed CLI integrations. `tap-web` and `lark` ship as generated builtin system skills, while `gh` and `lark-cli` also own their OAuth config and injected runtime env. Their binaries resolve directly from Stella-managed `PATH` entries rooted at `$STELLA_HOME/bin`. Use the builtin `lark` skill with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
-
-## Scheduler
-
-You don't write cron expressions by hand. You just tell Stella what you need.
-
-"Check the weather in Beijing every morning at 8am" creates a recurring job. "Remind me at 2:30 PM to call the dentist" creates a one-shot timer that cleans up after it fires. Jobs persist across restarts.
-
-There's also a heartbeat mode. Stella polls a markdown file on an interval, uses a cheap fast model to decide if anything needs attention, and only spins up the main model when there's real work. Results get pushed to whatever channels you have connected.
-
-## Identity
-
-Stella's identity system is DB-backed. No more markdown files to manage by hand.
-
-- **Agent soul**: stored in `settings_agents.system_prompt`, overridable by placing a `SOUL.md` in the agent's workspace (`~/.stella/workspaces/{agent-id}/`)
-- **System prompt**: base instructions overridable by `SYSTEM.md` in the workspace
-- **User memory**: per-user per-agent notes stored in the `ctx_agent_memory` table, injected into the system prompt automatically
-
-The 3-layer system prompt builds up as: base system prompt, then agent soul, then user memory. Stella updates user memory over time as she learns your name, timezone, and preferences.
-
-## Providers and models
-
-Works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc). Provider configuration is managed through the admin panel.
-
-Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` still work as fallbacks.
-
-Three model tiers:
-
-- `model_strong` for hard problems
-- `model` for everyday use (the default)
-- `model_fast` for cheap checks and gate decisions
-
-The heartbeat system uses the fast model to decide "skip or run" and only calls the default model when there's actual work. Keeps costs down without you having to think about it.
+You can bind a channel to a specific agent, or let users switch agents with `/agent`.
 
 ## Skills
 
-Stella connects to the [skills.sh](https://skills.sh) ecosystem:
+Search, install, and manage skills from the CLI:
 
 ```bash
 stella skill search "web scraping"
 stella skill install owner/repo@skill-name
 stella skill list
-stella skill remove skill-name
-```
-
-Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.stella/workspaces/{agent-id}/.agents/skills/`.
-
-## Security and Sandboxing
-
-Stella uses Docker for local agent code execution on all platforms (Linux, macOS, Windows). Docker is required; Stella fails closed when the Docker daemon is unavailable. The `bash`, `read`, `write`, and `edit` tools run inside a Docker container that isolates each session:
-
-- Each agent session gets its own ephemeral container
-- File modifications don't affect the underlying source workspace
-- Path traversal outside the sandbox is blocked
-- Network access is disabled by default
-
-Per-agent network policy can be configured through the admin panel:
-
-| Mode        | Description                   |
-| ----------- | ----------------------------- |
-| `disabled`  | No outbound network (default) |
-| `allow_all` | Unrestricted outbound access  |
-
-Runner startup fails closed when Docker is unavailable. Remote MCP servers are a separate trust boundary: local MCP stdio transport is runtime-mediated via `Session.StartProcess`, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
-
-See [Architecture](/docs/core/architecture) for the session interface, execution-time mediation details, and the explicit MCP transport exception.
-
-## Quick start
-
-### Install
-
-```bash
-# Homebrew (macOS and Linux)
-brew install CherryHQ/tap/stella
-
-# Go
-go install github.com/CherryHQ/stella@latest
-```
-
-Or grab a binary from [Releases](https://github.com/CherryHQ/stella/releases), or self-update with `stella upgrade`.
-
-To run stella as a background service (launchd on macOS, systemd on Linux), see the [Deployment guide](web/content/docs/getting-started/deployment.md).
-
-### Set up
-
-```bash
-stella
-```
-
-This starts the daemon and serves the web UI at `http://localhost:25678` where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu, WeChat), users, scheduled jobs, and settings. All configuration is stored in `~/.stella/stella.db`. There are no YAML config files.
-
-### Use
-
-```bash
-stella                             # Start daemon (bots + scheduler); web UI at http://localhost:25678
-stella --port 8080                 # Start daemon with web UI on custom port
-stella --host 0.0.0.0 --port 8080 # Bind web UI to all interfaces
-```
-
-`stella server` starts all your configured channels, the scheduler, and the web UI. Use `--port` to change the port; `--host` to bind to a specific interface. `HOST` and `PORT` environment variables are also supported.
-
-## CLI reference
-
-```bash
-stella                                  # Show help
-stella server                           # Start server (channels + scheduler); web UI at http://localhost:25678
-stella server --port <port>             # Start server with web UI on custom port
-stella server --host <host> --port <p>  # Bind web UI to a specific host/interface
-stella skill search <q>        # Search skills.sh
-stella skill install <s>       # Install a skill
-stella skill list              # List installed skills
-stella scheduler list          # List scheduled jobs
-stella task list               # List agent tasks
-stella vault list              # List stored secrets
-stella oauth providers         # List OAuth providers
-stella recally list            # List saved articles
-stella email folders           # List email folders
-stella version                 # Print version
-stella upgrade                 # Self-update to latest release
 ```
 
 ## Documentation
 
-| Document                                                                 | Description                                                                                                                  |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| [Configuration](docs/content/docs/getting-started/configuration.md)      | Full config reference, admin panel, defaults                                                                                 |
-| [Deployment](docs/content/docs/getting-started/deployment.md)            | Binary install, Docker, systemd, compose                                                                                     |
-| [Architecture](docs/content/docs/core/architecture.md)                   | System design, packages, providers, tools                                                                                    |
-| [Models](docs/content/docs/core/models.md)                               | Tiers, CLI commands, provider setup                                                                                          |
-| [Memory System](docs/content/docs/core/memory-system.md)                 | LCM deep dive, DAG structure, retrieval tools                                                                                |
-| [Session Compaction](docs/content/docs/core/session-compaction.md)       | How context compression works                                                                                                |
-| [Telegram](docs/content/docs/channels/telegram.md)                       | Bot setup, streaming, groups, access control                                                                                 |
-| [QQ Bot](docs/content/docs/channels/qq.md)                               | Bot setup, webhook, streaming                                                                                                |
-| [Feishu Bot](docs/content/docs/channels/feishu.md)                       | Bot setup, WebSocket, streaming                                                                                              |
-| [WeChat Bot](docs/content/docs/channels/weixin.md)                       | iLink Bot setup, QR login, DM                                                                                                |
-| [Scheduler System](docs/content/docs/features/scheduler-system.md)       | Scheduler system, heartbeat, persistence                                                                                     |
-| [Recally](docs/content/docs/features/recally.md)                         | Reading assistant for saved articles, RSS feeds, and daily digests (CLI talks HTTP to `stella server`; needs `STELLA_TOKEN`) |
-| [CLI as REST client](docs/content/docs/core/cli-as-client.md)            | API-first model — every CLI command is a thin HTTP client of `stella server`                                                 |
-| [Plugin System](docs/content/docs/features/plugin-system.md)             | Unified subprocess plugin model for tools and channels                                                                       |
-| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing                                                                                                |
+| Section         | What's inside                             | Link                                            |
+| --------------- | ----------------------------------------- | ----------------------------------------------- |
+| Getting Started | Install, deploy, configure                | [Quick Start](/docs/getting-started/quickstart) |
+| Guides          | Memory, scheduling, skills, notifications | [Guides](/docs/guides/memory)                   |
+| Channels        | Telegram, QQ, Feishu, WeChat setup        | [Channels](/docs/channels/telegram)             |
+| Development     | Architecture, plugins, contributing       | [Development](/docs/development/architecture)   |
+
+## CLI reference
+
+```bash
+stella server                           # Start server; admin panel at http://localhost:25678
+stella server --port 8080               # Custom port
+stella skill search <query>             # Search skills.sh
+stella skill install <name>             # Install a skill
+stella skill list                       # List installed skills
+stella scheduler list                   # List scheduled jobs
+stella vault list                       # List stored secrets
+stella version                          # Print version
+stella upgrade                          # Self-update to latest release
+```
 
 ## Development
 
-Development requires [mise](https://mise.jdx.dev/). On a fresh clone, run setup once to install the development hooks:
+Development requires [mise](https://mise.jdx.dev/). On a fresh clone:
 
 ```bash
-mise run setup             # Set up dev environment and install pre-commit hooks
-mise run build             # Build binary -> bin/stella
-mise run generate          # Generate code and embedded resources
-mise run test              # Run tests
-mise run format            # golangci-lint run --fix
-mise run hooks:install     # Install prek hooks that run mise run format
-mise run release:check     # Validate GoReleaser config
-mise run release:snapshot  # Build a host-only snapshot artifact
+mise run setup    # Set up dev environment and pre-commit hooks
+mise run build    # Build binary
+mise run test     # Run tests
+mise run format   # Lint and format
 ```
-
-If you bypass `mise`, run `go run ./cmd/builddeps sync --skills --tools` before `go build` so embedded binaries and generated system skills are up to date.
 
 ## License
 

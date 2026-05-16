@@ -1,0 +1,11 @@
+{
+  "title": "开发",
+  "pages": [
+    "architecture",
+    "cli-as-client",
+    "sandbox",
+    "memory-internals",
+    "session-compaction",
+    "plugin-system"
+  ]
+}

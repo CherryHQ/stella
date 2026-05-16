@@ -2,44 +2,55 @@
 title: QQ 机器人
 ---
 
-stella 包含一个通过 WebSocket 连接的 QQ 机器人（持久连接，无需公网 URL）。
+Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连接，无需公网 URL。你可以直接在 QQ 中与 AI 助手对话、发送图片和文件进行分析，也可以在群聊中使用。
+
+## 前提条件
+
+开始之前，请确保你已具备：
+
+- 一个正在运行的 Stella 服务器（`stella server`）
+- 至少在管理面板中配置了一个 AI 提供商（如 Anthropic、OpenAI）
+- 在 [QQ 开放平台](https://q.qq.com/) 注册的 QQ 机器人，并获取了 AppID 和 AppSecret
 
 ## 设置
 
-1. 在 [QQ 开放平台](https://q.qq.com/) 注册一个 QQ 机器人并获取你的 AppID 和 AppSecret
-2. 启动 stella（`stella`），通过 `http://localhost:25678` 打开 Web UI
-3. 在管理面板中：添加一个 AI 提供商，然后使用你的 AppID 和 AppSecret 配置 QQ 频道
-4. 启动网关：
+1. 在 [QQ 开放平台](https://q.qq.com/) 注册一个 QQ 机器人，记录你的 AppID 和 AppSecret。
+2. 如果尚未启动，先启动 Stella 服务器：
 
-```bash
-stella
-```
+   ```bash
+   stella server
+   ```
+
+3. 打开管理面板 `http://localhost:25678`。
+4. 进入 **Channels** 页面，添加一个新的 QQ 频道实例。
+5. 输入你的 AppID 和 AppSecret，然后保存。
+6. 重启 `stella server` 以激活新频道。
 
 所有频道配置（凭据、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
-每个 QQ 用户会从其平台身份自动解析。会话按用户和代理分别管理。无需手动设置用户。QQ 频道当前使用默认代理（`/agent` 命令暂未支持 QQ）。
+每个 QQ 用户会从其平台身份自动识别。会话按用户和 agent 分别管理。无需手动设置用户。QQ 频道当前使用默认 agent（`/agent` 命令暂未支持 QQ）。
 
 ## 流式响应
 
-机器人使用 QQ 的原生 Stream API 进行渐进式响应传递。随着 LLM 生成令牌，更新会实时发送，无需编辑之前的消息。
+机器人使用 QQ 的原生 Stream API 进行渐进式响应传递。随着模型生成令牌，更新会实时发送给你，无需编辑之前的消息。
 
 ### 工具指示器
 
-在工具执行期间，流式消息会显示带有表情符号的状态指示器：
+当助手执行工具时，你会在流式消息中看到状态指示器：
 
-| 工具     | 表情符号 |
-| -------- | -------- |
-| `bash`   | 闪电     |
-| `read`   | 书本     |
-| `write`  | 铅笔     |
-| `edit`   | 扳手     |
-| `search` | 放大镜   |
+| 工具     | 指示器 |
+| -------- | ------ |
+| `bash`   | 闪电   |
+| `read`   | 书本   |
+| `write`  | 铅笔   |
+| `edit`   | 扳手   |
+| `search` | 放大镜 |
 
 ## 群组支持
 
-QQ 群组消息作为 @提及事件（`GROUP_AT_MESSAGE_CREATE`）接收。在管理面板中设置群组模式：
+QQ 群组消息作为 @提及事件接收。你可以在管理面板中设置群组模式：
 
 - `mention` -- 响应 @提及（默认）
 - `always` -- 对于 QQ 与 mention 相同（AT 事件始终是提及）
@@ -47,23 +58,23 @@ QQ 群组消息作为 @提及事件（`GROUP_AT_MESSAGE_CREATE`）接收。在�
 
 ## 访问控制
 
-通过在管理面板中添加允许的 OpenID 来限制哪些 QQ 用户可以与机器人交互。留空则允许所有用户。使用 `/whoami` 命令获取你的 OpenID。
+你可以在管理面板中添加允许的 OpenID 来限制哪些 QQ 用户可以与机器人交互。留空则允许所有用户。使用 `/whoami` 命令获取你的 OpenID。
 
 ## 图片支持
 
-用户可以向机器人发送图片进行分析。机器人会下载图片附件，对其进行编码，并将其作为多模态内容与任何说明文本一起传递给 AI 模型。
+你可以向机器人发送图片进行分析。机器人会下载图片附件，对其进行编码，并将其作为多模态内容与说明文本一起传递给 AI 模型。
 
 ## 文件支持
 
-用户可以向机器人发送文件附件（非图片、非视频）。收到文件时：
+你可以向机器人发送文件附件（非图片、非视频）。当你发送文件时：
 
 1. 机器人从 QQ 附件 URL 下载文件
-2. 将其保存到用户的私有 assets 目录
-3. 附带 kreuzberg 提取提示传递给 Agent，以便读取文件内容
+2. 将其保存到你的私有 assets 目录
+3. 附带 kreuzberg 提取提示传递给 agent，以便读取文件内容
 
 Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
-> **注意：** 文件上传需要激活 kreuzberg skill。
+> **注意：** 文件上传需要为活跃 agent 启用 kreuzberg skill。
 
 ## 命令
 
@@ -74,6 +85,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 | `/start` 或 `/help` | 欢迎和帮助信息           |
 | `/new`              | 开始新的会话             |
 | `/compact`          | 压缩对话历史             |
+| `/abort`            | 取消正在进行的响应       |
 | `/model`            | 列出可用模型             |
 | `/model <number>`   | 按编号切换模型           |
 | `/model <query>`    | 按名称过滤模型           |
@@ -81,7 +93,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过 Web UI 管理。
+以下所有设置都通过管理面板管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |
@@ -89,3 +101,25 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 | `app_secret`  | QQ Bot AppSecret                          | （必需）  |
 | `group_mode`  | 群组行为：`mention`、`always`、`disabled` | `mention` |
 | `allowed_ids` | 允许的用户 OpenID（空 = 所有人）          | `[]`      |
+
+## 故障排除
+
+**机器人不响应消息？**
+
+- 确保 `stella server` 正在运行，且 QQ 频道已在管理面板中配置。
+- 确认你的 AppID 和 AppSecret 是否正确。
+- 如果设置了访问控制，请确认你的 QQ OpenID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
+
+**机器人在群组中不响应？**
+
+- 检查管理面板中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
+- QQ 群消息需要 @提及才能触发机器人，即使在 `always` 模式下也是如此。
+
+**文件未被分析？**
+
+- 确保为活跃 agent 启用了 kreuzberg skill。
+
+**连接问题？**
+
+- 机器人使用持久 WebSocket 连接。如果连接断开，请重启 `stella server`。
+- 检查你的网络连接，确保 QQ 开放平台凭据有效。

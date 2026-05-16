@@ -1,0 +1,15 @@
+{
+  "title": "Guides",
+  "pages": [
+    "memory",
+    "scheduling",
+    "reading-assistant",
+    "secrets-and-keys",
+    "skills",
+    "models",
+    "agent-templates",
+    "tasks",
+    "notifications",
+    "oauth-connections"
+  ]
+}

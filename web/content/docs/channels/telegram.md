@@ -2,43 +2,56 @@
 title: Telegram Bot
 ---
 
-stella includes a Telegram bot that runs via long polling -- no webhook or public IP needed.
+Stella includes a Telegram bot that connects via long polling -- no webhook or public IP needed. You can chat with your AI assistant directly in Telegram, send images and documents for analysis, and use it in group chats.
+
+## Prerequisites
+
+Before you start, make sure you have:
+
+- A running Stella server (`stella server`)
+- At least one AI provider configured in the admin panel (e.g. Anthropic, OpenAI)
+- A Telegram account
 
 ## Setup
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
-2. Start stella (`stella`) and open the web UI at `http://localhost:25678`
-3. In the admin panel: add an AI provider, then go to the Channels page and configure a Telegram channel instance with your bot token
-4. Start the daemon:
+1. Open Telegram and message [@BotFather](https://t.me/BotFather) to create a new bot. Save the bot token it gives you.
+2. Start your Stella server if it is not already running:
 
-```bash
-stella
-```
+   ```bash
+   stella server
+   ```
 
-All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. You can create multiple Telegram channel instances if you have multiple bots. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+3. Open the admin panel at `http://localhost:25678`.
+4. Go to the **Channels** page and add a new Telegram channel instance.
+5. Paste your bot token into the configuration and save.
+6. Restart `stella server` to activate the new channel.
+
+You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the admin panel.
+
+All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
-Each Telegram user is automatically resolved from their platform identity. Sessions are scoped per user per agent, with session keys in the form `{agentID}:tg:{userID}:{context}`. No manual user setup is required.
+Each Telegram user is automatically identified from their platform identity. Sessions are scoped per user per agent, so different users keep separate conversation histories. No manual user setup is required.
 
 ## Agent Switching
 
-The `/agent` command lets users switch between available agents:
+You can switch between available agents using the `/agent` command:
 
 - `/agent` -- list all available agents
 - `/agent <name>` -- switch to a specific agent
 
-In DMs, this sets the user's default agent. In groups, it sets the active agent for the entire group.
+In DMs, this sets your default agent. In groups, it sets the active agent for the entire group.
 
-If a channel instance is bound to a dedicated agent in the admin panel, all chats on that bot use the bound agent and `/agent` switching is disabled for that channel.
+If a channel instance is bound to a dedicated agent in the admin panel, all chats on that bot use the bound agent and `/agent` switching is disabled.
 
 ## Streaming Responses
 
-The bot streams LLM responses in real time with two strategies:
+The bot streams LLM responses in real time using two strategies:
 
 ### Private Chats: Draft API (Bot API 9.3+)
 
-Uses `sendMessageDraft` for smooth animated streaming without rate-limiting issues. If the API is not available, automatically falls back to edit mode.
+Uses `sendMessageDraft` for smooth animated streaming without rate-limiting issues. If the API is not available, the bot automatically falls back to edit mode.
 
 ### Group Chats: Edit-in-Place
 
@@ -46,9 +59,9 @@ Sends an initial message and edits it periodically (every ~1 second) as tokens a
 
 ### Tool Indicators
 
-During tool execution, the stream shows status with emoji indicators:
+While the assistant runs tools, you will see status indicators in the stream:
 
-| Tool     | Emoji            |
+| Tool     | Indicator        |
 | -------- | ---------------- |
 | `bash`   | lightning        |
 | `read`   | book             |
@@ -58,11 +71,11 @@ During tool execution, the stream shows status with emoji indicators:
 
 ## Image Support
 
-The bot accepts photo messages in private chats. When you send an image:
+You can send photos to the bot in private chats. When you send an image:
 
-1. The bot downloads the highest-resolution version from Telegram's file API
-2. Detects the MIME type and base64-encodes the image
-3. Sends it as a multimodal message (image + optional caption text) to the model
+1. The bot downloads the highest-resolution version from Telegram
+2. Detects the MIME type and encodes the image
+3. Sends it as a multimodal message (image + optional caption) to the model
 4. The model analyzes the image and responds with text
 
 Use cases: describe screenshots, analyze diagrams, read documents from photos, etc.
@@ -73,11 +86,11 @@ If the model returns images (e.g. from tool results), they are sent back as Tele
 
 ## File/Document Support
 
-Users can send documents (PDF, DOCX, XLSX, and other file types) to the bot. When a document is received:
+You can send documents (PDF, DOCX, XLSX, and other file types) to the bot. When you send a document:
 
-1. The bot saves the file to the user's private assets directory on disk
+1. The bot saves the file to your private assets directory on disk
 2. A kreuzberg extraction hint is passed to the agent so it can read the file content
-3. Any caption attached to the document is included as the user's text message
+3. Any caption you attached to the document is included as your text message
 
 The agent can then use the `kreuzberg extract` command to parse the file.
 
@@ -93,22 +106,20 @@ The bot supports group chats with configurable response behavior. Set the group 
 
 ## Access Control
 
-Restrict which Telegram users can interact with the bot by adding allowed user IDs in the admin panel. Leave empty to allow all users. Use the `/whoami` command in Telegram to get your user ID.
+You can restrict which Telegram users can interact with your bot by adding allowed user IDs in the admin panel. Leave the list empty to allow all users. Use the `/whoami` command in Telegram to find your user ID.
 
 ## Notifications
 
-The bot doubles as a notification backend. Configure a default notification chat and optional broadcast channel in the admin panel.
+The bot doubles as a notification backend. You can configure a default notification chat and optional broadcast channel in the admin panel.
 
 Used by:
 
 - The `notify` agent tool (in server mode)
 - Scheduler job result broadcasting
 
-See [notification-system.md](/docs/features/notification-system) for the full notification architecture.
-
 ## Model Switching
 
-Users can switch models mid-conversation via an inline keyboard triggered by the `/model` command. The model list is paginated with text filtering support.
+You can switch models mid-conversation using the `/model` command, which opens an inline keyboard. The model list is paginated with text filtering support.
 
 ## Commands
 
@@ -127,7 +138,7 @@ Users can switch models mid-conversation via an inline keyboard triggered by the
 
 ## Configuration Reference
 
-All settings below are managed through the web UI.
+All settings below are managed through the admin panel.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |
@@ -136,3 +147,26 @@ All settings below are managed through the web UI.
 | `channel_id`  | Broadcast channel (@name or numeric ID)         |            |
 | `group_mode`  | Group behavior: `mention`, `always`, `disabled` | `mention`  |
 | `allowed_ids` | User IDs allowed to use bot (empty = all)       | `[]`       |
+
+## Troubleshooting
+
+**Bot not responding to messages?**
+
+- Make sure `stella server` is running and the Telegram channel is configured in the admin panel.
+- Double-check that your bot token is correct. You can verify it by messaging [@BotFather](https://t.me/BotFather) and checking your bot list.
+- If you set up access control, confirm your Telegram user ID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
+
+**Bot not responding in groups?**
+
+- Check the `group_mode` setting in the admin panel. The default is `mention`, which means you need to @mention the bot.
+- Make sure the bot has been added to the group and has permission to read messages.
+
+**Images or files not being analyzed?**
+
+- Ensure you are using a vision-capable model (e.g. Claude 3+, GPT-4o).
+- For file uploads, the kreuzberg skill must be enabled for the active agent.
+
+**Notifications not working?**
+
+- Set the `notify_chat` field in the admin panel to the chat ID where you want to receive notifications.
+- Make sure the bot has already had a conversation in that chat.

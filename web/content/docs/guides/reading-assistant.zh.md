@@ -1,0 +1,134 @@
+---
+title: 阅读助手
+---
+
+## 功能介绍
+
+Stella 的阅读助手让你可以将文章、论文、推文、视频和其他网页内容保存到个人库中。她会抓取内容、生成摘要、提取元数据，并整理好一切，方便你日后搜索和回顾。
+
+你可以把它想象成一个内置在 AI 助手里的稍后阅读服务——你保存一个链接，Stella 就会让它可搜索并附上摘要。
+
+## 保存内容
+
+只需把 URL 分享给 Stella 并让她保存：
+
+- **"保存这篇文章：https://example.com/go-concurrency-patterns"**
+- **"帮我总结并保存这个链接：[URL]"**
+- **"收藏这条推文：[URL]"**
+
+Stella 会检测内容类型（网页文章、推文、YouTube 视频、GitHub 仓库、PDF），并使用最合适的方式来抓取和提取内容。她会生成标题、摘要和标签，然后将所有内容存入你的库中。
+
+支持的内容类型：
+
+| 类型    | Stella 提取的内容               |
+| ------- | ------------------------------- |
+| Web     | 完整文章文本、标题、作者        |
+| Twitter | 推文文本和媒体                  |
+| YouTube | 元数据和字幕                    |
+| GitHub  | 仓库信息、Issues、Pull Requests |
+| PDF     | 提取的文本内容                  |
+| RSS     | 订阅条目（见下方 RSS 部分）     |
+
+如果你保存同一个 URL 两次，Stella 会更新已有条目而不是创建重复项。
+
+## 搜索你的库
+
+保存内容后，你可以随时搜索：
+
+- **"我读过哪些关于 Go 并发的内容？"**
+- **"找一下我保存的关于 Rust 的文章。"**
+- **"看看我上周保存了什么。"**
+- **"我有没有收藏过关于数据库迁移的内容？"**
+
+Stella 会搜索标题、摘要、标签和作者。找到匹配项后，她可以读取完整内容来回答你的具体问题。
+
+你还可以浏览你的库：
+
+- **"列出我未读的文章。"**
+- **"显示我加星的文章。"**
+- **"我的阅读归档里有什么？"**
+
+### 文章状态
+
+每篇保存的文章都有一个状态：
+
+- **未读** — 新保存的，还没有查看
+- **已读** — 你已经读过了
+- **已归档** — 读完并归档
+- **加星** — 标记为快速访问（独立于状态）
+
+你可以让 Stella 更新这些状态："把那篇 Go 文章标记为已读"或"给关于 Rust 内存安全的文章加星"。
+
+## RSS 订阅
+
+你可以订阅 RSS 源，Stella 会自动将新条目收集到你的库中。
+
+### 订阅源
+
+- **"订阅这个 RSS 源：https://example.com/feed.xml"**
+- **"把这个博客的 RSS 源加到我的阅读列表。"**
+
+Stella 会获取订阅源，展示可用的内容，并开始跟踪更新。
+
+### 自动轮询
+
+订阅后，Stella 可以设置一个定时任务来定期检查你的订阅源。她会轮询新条目，抓取并总结每一篇，然后自动添加到你的库中。
+
+### 管理订阅源
+
+- **"列出我的 RSS 订阅源。"**
+- **"移除 [博客名称] 的订阅源。"**
+- **"现在检查一下我的订阅源有没有新文章。"**
+
+## 每日摘要
+
+Stella 可以给你一份每日阅读总结：
+
+- **"给我看看阅读摘要。"**
+- **"我的阅读列表有什么新内容？"**
+
+摘要包括：
+
+- 昨天保存的文章
+- 你的未读、已读、已归档和加星数量
+- 值得重新查看的文章（未读超过3天的）
+- 你本周使用最多的标签
+
+你可以把它安排为每天早上的自动简报——直接让 Stella "每天早上8点给我一份阅读摘要"。
+
+## CLI 参考
+
+所有阅读助手命令都通过 `stella recally` 子命令使用。你通常通过对话交互，但 CLI 也可用于脚本。
+
+```bash
+# 保存文章
+stella recally save --url "https://example.com/article" \
+  --title "Article Title" \
+  --summary "Brief summary" \
+  --tags "go,concurrency"
+
+# 列出文章
+stella recally list
+stella recally list --status unread --json
+
+# 搜索文章
+stella recally search "concurrency patterns"
+
+# 读取完整文章内容
+stella recally read <article-id>
+
+# 更新文章
+stella recally update <article-id> --status read --starred
+
+# 删除文章
+stella recally delete <article-id>
+
+# RSS 订阅源管理
+stella recally feed add <feed-url>
+stella recally feed list
+stella recally feed remove <feed-id>
+stella recally feed poll
+
+# 每日摘要
+stella recally digest
+```

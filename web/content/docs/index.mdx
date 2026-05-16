@@ -6,60 +6,97 @@ icon: Bot
 
 import { Cards, Card } from "@/components/docs/mdx-components";
 
-stella is a self-hosted AI assistant with lossless context management. Native Go binary calling LLM providers, with a terminal TUI and multi-platform bot gateway (Telegram, QQ, Feishu, WeChat). Supports multiple agents and multiple users out of the box. Built-in scheduler, heartbeat monitoring, and cross-channel notifications.
+Stella is a self-hosted AI assistant that remembers every conversation, connects to your favorite messaging channels, and works on your behalf — even when you're not watching. Run it on your machine with your own API keys. Your data stays local.
 
 ## Quick Start
 
 ```bash
 # Install
-go install github.com/CherryHQ/stella@latest
+brew install CherryHQ/tap/stella
 
-# Start stella — admin panel at http://localhost:25678
-stella
+# Start the server — admin panel at http://localhost:25678
+stella server
 ```
 
-## Explore
+## Getting Started
 
 <Cards>
   <Card
-    title="Configuration"
-    description="DB-backed config, admin panel, defaults"
-    href="/docs/getting-started/configuration"
+    title="Quick Start"
+    description="Install, configure, and have your first conversation in 5 minutes"
+    href="/docs/getting-started/quickstart"
   />
   <Card
     title="Deployment"
-    description="Binary, Docker, systemd, compose"
+    description="Run as a service, Docker, systemd"
     href="/docs/getting-started/deployment"
   />
   <Card
-    title="Architecture"
-    description="System design, multi-agent routing, packages"
-    href="/docs/core/architecture"
+    title="Configuration"
+    description="Admin panel settings, providers, agents"
+    href="/docs/getting-started/configuration"
+  />
+</Cards>
+
+## Guides
+
+<Cards>
+  <Card
+    title="Memory"
+    description="How Stella remembers your conversations and preferences"
+    href="/docs/guides/memory"
   />
   <Card
-    title="Memory System"
-    description="Lossless context management deep dive"
-    href="/docs/core/memory-system"
+    title="Scheduling"
+    description="Set up reminders and recurring tasks"
+    href="/docs/guides/scheduling"
   />
-  <Card title="Models" description="Tiers, providers, caching" href="/docs/core/models" />
   <Card
-    title="Channels"
-    description="Telegram, QQ, Feishu, WeChat bots"
+    title="Models"
+    description="Providers, model tiers, and switching models"
+    href="/docs/guides/models"
+  />
+  <Card
+    title="Skills"
+    description="Browse and install reusable skill bundles"
+    href="/docs/guides/skills"
+  />
+  <Card
+    title="Reading Assistant"
+    description="Save articles, RSS feeds, and daily digests"
+    href="/docs/guides/reading-assistant"
+  />
+  <Card
+    title="Secrets & Keys"
+    description="Store API keys and tokens securely"
+    href="/docs/guides/secrets-and-keys"
+  />
+</Cards>
+
+## Channels
+
+<Cards>
+  <Card
+    title="Telegram"
+    description="Long polling, streaming, groups"
     href="/docs/channels/telegram"
   />
+  <Card title="QQ" description="WebSocket, native streaming" href="/docs/channels/qq" />
+  <Card title="Feishu" description="WebSocket, auto-provisioning" href="/docs/channels/feishu" />
+  <Card title="WeChat" description="iLink Bot, QR login" href="/docs/channels/weixin" />
+</Cards>
+
+## Development
+
+<Cards>
   <Card
-    title="Plugins"
-    description="Extend stella with JavaScript plugins"
-    href="/docs/features/plugin-system"
+    title="Architecture"
+    description="System design, packages, internals"
+    href="/docs/development/architecture"
   />
   <Card
-    title="Scheduler System"
-    description="Scheduled tasks, heartbeat, persistence"
-    href="/docs/features/scheduler-system"
-  />
-  <Card
-    title="Notifications"
-    description="Dispatcher, backends, routing"
-    href="/docs/features/notification-system"
+    title="Plugin System"
+    description="Build and extend with plugins"
+    href="/docs/development/plugin-system"
   />
 </Cards>

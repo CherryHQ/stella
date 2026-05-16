@@ -45,17 +45,17 @@ cd stella && go build -o stella .
 
 ## Run
 
-Start stella — the web UI is available at `http://localhost:25678`:
+Start the server — the admin panel is available at `http://localhost:25678`:
 
 ```bash
-stella
+stella server
 ```
 
-This starts the daemon and the web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
+This starts the server and the admin panel where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
 
 ```bash
-stella --port 8080             # custom port
-stella --host 0.0.0.0 --port 8080  # bind to all interfaces
+stella server --port 8080             # custom port
+stella server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```
 
 ### Version and Self-Upgrade
@@ -135,7 +135,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Quick Start
 
-First, run stella with `--port 8080` to configure it via the web UI:
+First, run stella with `--port 8080` to configure it via the admin panel:
 
 ```bash
 docker run -it --rm \
@@ -143,10 +143,10 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --port 8080
+  stella server --port 8080
 ```
 
-Then start the daemon:
+Then start the server:
 
 ```bash
 docker run -d \
@@ -154,7 +154,8 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
-  ghcr.io/cherryhq/stella:latest
+  ghcr.io/cherryhq/stella:latest \
+  stella server
 ```
 
 The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
@@ -180,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, start the daemon with `--port 8080` and configure via the web UI at `http://localhost:8080`, or use `docker compose exec stella stella --port 8080`.
+To run initial setup, start with `--port 8080` and configure via the admin panel at `http://localhost:8080`, or use `docker compose exec stella stella server --port 8080`.
 
 ### Build Locally
 
@@ -225,7 +226,7 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 ## Environment Variables
 
-Configuration is managed through the web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
+Configuration is managed through the admin panel (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |
@@ -234,7 +235,7 @@ Configuration is managed through the web UI (default `http://localhost:25678`; u
 | `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
 | `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
 
-\* At least one provider key is required. API keys can also be configured via the web UI.
+\* At least one provider key is required. API keys can also be configured via the admin panel.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 

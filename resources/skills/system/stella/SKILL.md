@@ -19,9 +19,9 @@ stella is a self-hosted AI assistant with multi-user and multi-agent support. Sh
 
 Run mode:
 
-- **Gateway daemon**: `stella` (Telegram, QQ, Feishu, WeChat bots + scheduler)
+- **Server**: `stella server` (Telegram, QQ, Feishu, WeChat bots + scheduler + admin panel)
 
-Setup: run `stella` and open `http://localhost:25678` to configure everything via the web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
+Setup: run `stella server` and open `http://localhost:25678` to configure everything via the admin panel. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
 
 ## Architecture
 

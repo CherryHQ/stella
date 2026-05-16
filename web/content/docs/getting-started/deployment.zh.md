@@ -45,17 +45,17 @@ cd stella && go build -o stella .
 
 ## 运行
 
-启动 stella —— Web UI 访问地址：`http://localhost:25678`：
+启动服务器 —— 管理面板访问地址：`http://localhost:25678`：
 
 ```bash
-stella
+stella server
 ```
 
-这会启动守护进程并提供 Web UI 服务，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
+这会启动服务器并提供管理面板，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
 ```bash
-stella --port 8080                  # 自定义端口
-stella --host 0.0.0.0 --port 8080   # 绑定所有网络接口
+stella server --port 8080                  # 自定义端口
+stella server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ```
 
 ### 版本和自动升级
@@ -135,7 +135,7 @@ Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ### 快速开始
 
-首先，使用 `--port 8080` 运行 stella 通过 Web UI 进行配置：
+首先，使用 `--port 8080` 运行 stella 通过管理面板进行配置：
 
 ```bash
 docker run -it --rm \
@@ -143,10 +143,10 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella --port 8080
+  stella server --port 8080
 ```
 
-然后启动网关：
+然后启动服务器：
 
 ```bash
 docker run -d \
@@ -154,7 +154,8 @@ docker run -d \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
-  ghcr.io/cherryhq/stella:latest
+  ghcr.io/cherryhq/stella:latest \
+  stella server
 ```
 
 容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
@@ -180,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `--port 8080` 启动守护进程，通过 `http://localhost:8080` 的 Web UI 进行配置，或使用 `docker compose exec stella stella --port 8080`。
+要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的管理面板进行配置，或使用 `docker compose exec stella stella server --port 8080`。
 
 ### 本地构建
 
@@ -225,7 +226,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 环境变量
 
-配置通过 Web UI 管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
+配置通过管理面板管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                                                            |
 | ------------------- | ---- | --------------------------------------------------------------- |
@@ -234,7 +235,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
 | `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
 
-\* 至少需要一个提供商密钥。API 密钥也可以通过 Web UI 配置。
+\* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
