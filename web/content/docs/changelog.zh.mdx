@@ -11,6 +11,31 @@ icon: History
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-05-17
+
+### ✨ 功能
+
+- **CLI**：新增 vault、oauth、tasks 完整命令行支持；精简 Agent 工具接口 ([#182](https://github.com/CherryHQ/stella/pull/182))
+- **UI**：Agent 优先的侧边栏重新设计，包含完整面板套件 ([#183](https://github.com/CherryHQ/stella/pull/183))
+- **UI**：统一 agents/recally 设计语言并重新设计着陆页 ([#184](https://github.com/CherryHQ/stella/pull/184))
+
+### 🐛 修复
+
+- **Docker**：修正 Dockerfile、goreleaser 和 mise 中的 stella server 子命令
+
+### ♻️ 重构
+
+- **CLI**：将 CLI 重构为 server 子命令，划分功能/系统类别
+- **API**：将 API 客户端辅助函数从 cmd/stella 移至 api/client
+
+### 📝 文档
+
+- 将所有文档和代码中的「管理面板」统一更名为「Web UI」
+- 使用 Diataxis 框架重新组织文档结构
+- 同步文档与 CLI 重构
+
+**完整变更日志**：[v0.31.0...v0.32.0](https://github.com/CherryHQ/stella/compare/v0.31.0...v0.32.0)
+
 ## [0.31.0] - 2026-05-15
 
 ### ✨ 功能

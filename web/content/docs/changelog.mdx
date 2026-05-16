@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-05-17
+
+### ✨ Features
+
+- **CLI**: Add full CLI for vault, oauth, tasks; slim agent tool surface ([#182](https://github.com/CherryHQ/stella/pull/182))
+- **UI**: Agent-first sidebar redesign with full panel suite ([#183](https://github.com/CherryHQ/stella/pull/183))
+- **UI**: Unify agents/recally design and redesign landing page ([#184](https://github.com/CherryHQ/stella/pull/184))
+
+### 🐛 Bug Fixes
+
+- **Docker**: Use correct stella server subcommand in Dockerfile, goreleaser, and mise
+
+### ♻️ Refactoring
+
+- **CLI**: Restructure CLI into server subcommand with Feature/System categories
+- **API**: Move API client helpers from cmd/stella to api/client
+
+### 📝 Documentation
+
+- Rename "admin panel" to "Web UI" across all docs and code
+- Restructure documentation with Diataxis framework
+- Sync documentation with CLI restructure
+
+**Full Changelog**: [v0.31.0...v0.32.0](https://github.com/CherryHQ/stella/compare/v0.31.0...v0.32.0)
+
 ## [0.31.0] - 2026-05-15
 
 ### ✨ Features
