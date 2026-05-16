@@ -684,7 +684,7 @@ export function SessionSidebar({
         )}
 
         {/* Tasks */}
-        {taskSessions.length > 0 && (
+        {(taskSessions.length > 0 || !search) && (
           <div>
             <SectionHeader
               icon={<IconTask />}
@@ -692,18 +692,25 @@ export function SessionSidebar({
               count={taskSessions.length}
               open={isOpen("task")}
               onToggle={() => onToggleSection("task")}
+              onAdd={() => onSelect({ kind: "task", id: "new" })}
             />
-            {isOpen("task") &&
-              taskSessions.map((s) => (
-                <NavRow
-                  key={s.id}
-                  active={panelSel.kind === "task" && panelSel.id === s.id}
-                  icon={<IconTask />}
-                  title={sessionTitle(s)}
-                  meta={formatTime(s.last_active)}
-                  onClick={() => onSelect({ kind: "task", id: s.id })}
-                />
-              ))}
+            {isOpen("task") && (
+              <>
+                {taskSessions.map((s) => (
+                  <NavRow
+                    key={s.id}
+                    active={panelSel.kind === "task" && panelSel.id === s.id}
+                    icon={<IconTask />}
+                    title={sessionTitle(s)}
+                    meta={formatTime(s.last_active)}
+                    onClick={() => onSelect({ kind: "task", id: s.id })}
+                  />
+                ))}
+                {taskSessions.length === 0 && (
+                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">No tasks yet.</p>
+                )}
+              </>
+            )}
           </div>
         )}
 

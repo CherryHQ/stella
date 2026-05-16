@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
+import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import type {
   Agent,
   BuiltinItem,
@@ -21,6 +22,7 @@ import { AutomationPanel } from "./panels/AutomationPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
 import { SkillPanel } from "./panels/SkillPanel";
 import { SoulPanel } from "./panels/SoulPanel";
+import { TaskPanel } from "./panels/TaskPanel";
 
 const RIGHT_MIN = 240;
 const RIGHT_MAX_RATIO = 0.5;
@@ -237,7 +239,7 @@ export function SessionsPage() {
   const handleSelect = useCallback(
     (sel: PanelSel) => {
       setPanelSel(sel);
-      if (sel.kind === "chat" || sel.kind === "task") {
+      if (sel.kind === "chat" || (sel.kind === "task" && sel.id !== "new")) {
         void navigate({ to: "/sessions/$", params: { _splat: sel.id } });
       }
     },
@@ -286,7 +288,8 @@ export function SessionsPage() {
   }, [rightOpen, sessionDetail?.id, panelSel.kind, loadWorkspace, sessionDetail]);
 
   // ── derived ──────────────────────────────────────────────────────────────
-  const isChatPanel = panelSel.kind === "chat" || panelSel.kind === "task";
+  const isChatPanel =
+    panelSel.kind === "chat" || (panelSel.kind === "task" && panelSel.id !== "new");
   const showWorkspace = isChatPanel && rightOpen;
 
   return (
@@ -359,6 +362,19 @@ export function SessionsPage() {
             onDeleted={() => {
               refreshAgentData();
               setPanelSel({ kind: "skill", id: "" });
+            }}
+          />
+        ) : panelSel.kind === "task" && panelSel.id === "new" ? (
+          <TaskPanel
+            key="task-new"
+            agentId={selectedAgentId}
+            onCreated={(task: ComponentsAgentTask) => {
+              void queryClient.invalidateQueries({ queryKey: ["sessions", selectedAgentId] });
+              if (task.session_id) {
+                void navigate({ to: "/sessions/$", params: { _splat: task.session_id } });
+              } else {
+                setPanelSel({ kind: "task", id: "" });
+              }
             }}
           />
         ) : panelSel.kind === "memory" ? (
