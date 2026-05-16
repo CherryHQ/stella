@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AutomationsPage } from "@/features/automations/AutomationsPage";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/automations/$")({
-  component: AutomationsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/agents" });
+  },
 });

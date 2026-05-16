@@ -43,8 +43,7 @@ export function SiteHeader() {
   const { t } = useI18n();
 
   const appNavItems = [
-    { label: t("nav.sessions"), href: "/sessions" },
-    { label: t("nav.automations"), href: "/automations" },
+    { label: t("nav.sessions"), href: "/agents" },
     { label: t("nav.recally"), href: "/recally" },
     { label: t("nav.settings"), href: "/settings" },
   ];
