@@ -2,18 +2,21 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { t } from "@/lib/docs/translations";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useI18n } from "@/lib/i18n";
+import "./index.css";
 
 export const Route = createFileRoute("/")({ component: Home });
 
-const terminalLines = [
-  { prompt: true, text: "stella --open" },
-  { prompt: false, text: "Admin panel running at http://localhost:8787" },
-  { prompt: true, text: "stella" },
-  { prompt: false, text: "Daemon started (bots + scheduler)" },
-  { prompt: false, text: 'you: "summarize yesterday\'s conversation"' },
-  { prompt: false, text: "stella: Yesterday you discussed migrating the" },
-  { prompt: false, text: "      auth service to JWT tokens. Key decisions:" },
-  { prompt: false, text: "      1. RS256 signing with key rotation ..." },
+const conversationLines = [
+  { role: "user" as const, text: "summarize yesterday's conversation" },
+  {
+    role: "stella" as const,
+    text: "Yesterday you discussed migrating the auth service to JWT tokens. Key decisions: RS256 signing with key rotation, 7-day refresh window. You asked me to remember that staging uses the old session cookies until March.",
+  },
+  { role: "user" as const, text: "what was the refresh window again?" },
+  {
+    role: "stella" as const,
+    text: "7 days. You chose that over 30 days because the security team flagged long-lived tokens in the Q3 audit.",
+  },
 ];
 
 function Home() {
@@ -24,73 +27,131 @@ function Home() {
       <SiteHeader />
       <main className="flex-1 home-page">
         <HeroSection lang={lang} />
+        <ConversationSection lang={lang} />
         <FeaturesSection lang={lang} />
-        <MeetStellaSection lang={lang} />
+        <CapabilitiesSection lang={lang} />
         <FooterCTA lang={lang} />
       </main>
     </div>
   );
 }
 
+/* ─── Hero ─── */
+
 function HeroSection({ lang }: { lang: string }) {
   const tr = t(lang);
   return (
-    <section className="px-6 pt-28 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
-        <div>
-          <div className="animate-fade-up stagger-1">
-            <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary mb-8 font-[family-name:var(--font-mono)]">
+    <section className="hero-warm-bg relative overflow-hidden">
+      {/* Decorative gold radial behind the avatar */}
+      <div className="absolute top-1/2 right-[10%] -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[100px] pointer-events-none dark:bg-primary/5" />
+
+      <div className="relative px-6 pt-28 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_auto] gap-16 lg:gap-24 items-center">
+          {/* Text column */}
+          <div className="animate-fade-up">
+            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-8 font-mono">
               {tr.heroTag}
             </p>
-          </div>
-          <h1 className="animate-fade-up stagger-2 text-5xl md:text-6xl lg:text-[4.5rem] tracking-tight text-foreground leading-[0.92] mb-10">
-            {tr.heroTitle1}
-            <br />
-            {tr.heroTitle2}
-            <br />
-            <span className="italic text-primary">{tr.heroTitle3}</span>
-          </h1>
-          <div className="animate-fade-up stagger-3 max-w-md">
-            <p className="text-muted-foreground text-base leading-relaxed mb-12">
+            <h1 className="hero-headline text-foreground mb-8">
+              {tr.heroTitle1}
+              <br />
+              {tr.heroTitle2} <span className="italic text-primary">{tr.heroTitle3}</span>
+            </h1>
+            <p className="text-muted-foreground text-lg leading-relaxed max-w-[52ch] mb-12">
               {tr.heroDescription}
             </p>
+            <div className="flex flex-wrap items-center gap-5">
+              <Link
+                to="/docs/$"
+                params={{ _splat: "" }}
+                className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-primary text-primary-foreground text-sm font-semibold rounded-xl hover:bg-primary/90 active:scale-[0.98] transition-all shadow-md"
+              >
+                {tr.readTheDocs}
+                <span aria-hidden="true" className="text-primary-foreground/70">
+                  &rarr;
+                </span>
+              </Link>
+              <a
+                href="https://github.com/CherryHQ/stella"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-3.5 text-muted-foreground text-sm font-medium rounded-xl border border-border hover:bg-accent hover:text-foreground transition-colors"
+              >
+                {tr.sourceOnGithub}
+              </a>
+            </div>
           </div>
-          <div className="animate-fade-up stagger-4 flex items-center gap-5">
-            <Link
-              to="/docs/$"
-              params={{ _splat: "" }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-md hover:bg-primary/90 transition-colors"
-            >
-              {tr.readTheDocs}
-              <span aria-hidden="true">&rarr;</span>
-            </Link>
-            <a
-              href="https://github.com/CherryHQ/stella"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-muted-foreground text-sm font-medium underline underline-offset-4 decoration-border hover:text-foreground hover:decoration-foreground transition-colors"
-            >
-              {tr.sourceOnGithub}
-            </a>
+
+          {/* Avatar column */}
+          <div className="animate-fade-up stagger-2 flex justify-center lg:justify-end">
+            <div className="relative">
+              <div className="absolute -inset-6 rounded-3xl bg-primary/12 blur-3xl dark:bg-primary/8" />
+              <div className="absolute -inset-1 rounded-2xl bg-primary/20 dark:bg-primary/10" />
+              <img
+                src="/avatar.png"
+                alt="Stella"
+                className="relative w-56 h-56 md:w-68 md:h-68 lg:w-80 lg:h-80 rounded-2xl object-cover"
+              />
+            </div>
           </div>
         </div>
-        <div className="animate-fade-up stagger-5 lg:pt-8">
-          <div className="bg-neutral-900 rounded-lg overflow-hidden ring-1 ring-white/[0.08]">
-            <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/[0.06]">
-              <div className="w-2.5 h-2.5 rounded-full bg-white/15" />
-              <div className="w-2.5 h-2.5 rounded-full bg-white/15" />
-              <div className="w-2.5 h-2.5 rounded-full bg-white/15" />
-              <span className="ml-3 text-xs text-white/30 font-[family-name:var(--font-mono)]">
-                terminal
+      </div>
+    </section>
+  );
+}
+
+/* ─── Conversation (dark inverted section) ─── */
+
+function ConversationSection({ lang }: { lang: string }) {
+  const tr = t(lang);
+  return (
+    <section className="conversation-section dark relative overflow-hidden">
+      <div className="absolute top-0 left-[20%] w-[400px] h-[400px] rounded-full bg-primary/6 blur-[80px] pointer-events-none" />
+
+      <div className="relative px-6 py-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-16 lg:gap-24 items-center">
+          <div>
+            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
+              {tr.memoryLabel}
+            </p>
+            <h2 className="text-3xl md:text-4xl tracking-tight mb-5 leading-tight">
+              {tr.memoryTitle}
+            </h2>
+            <p className="conversation-body-text text-base leading-relaxed max-w-md">
+              {tr.memoryBody}
+            </p>
+          </div>
+
+          {/* Conversation mock */}
+          <div className="conversation-window rounded-2xl overflow-hidden shadow-xl">
+            <div className="flex items-center gap-2 px-5 py-3 conversation-window-titlebar">
+              <div className="w-2.5 h-2.5 rounded-full opacity-30 bg-current" />
+              <div className="w-2.5 h-2.5 rounded-full opacity-20 bg-current" />
+              <div className="w-2.5 h-2.5 rounded-full opacity-15 bg-current" />
+              <span className="ml-3 text-[11px] opacity-40 font-mono tracking-wider uppercase">
+                {tr.conversationLabel}
               </span>
             </div>
-            <div className="p-6 font-[family-name:var(--font-mono)] text-[13px] leading-7">
-              {terminalLines.map((line, i) => (
-                <div key={i} className={line.prompt ? "mt-3 first:mt-0" : ""}>
-                  {line.prompt && <span className="text-primary select-none">$ </span>}
-                  <span className={line.prompt ? "text-white/90" : "text-white/50"}>
+            <div className="px-5 py-6 space-y-5">
+              {conversationLines.map((line, i) => (
+                <div
+                  key={i}
+                  className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-xl px-4 py-3 text-[13px] leading-relaxed ${
+                      line.role === "user"
+                        ? "conversation-user-bubble"
+                        : "conversation-stella-bubble"
+                    }`}
+                  >
+                    {line.role === "stella" && (
+                      <span className="text-primary font-semibold text-[11px] tracking-wide uppercase block mb-1.5">
+                        stella
+                      </span>
+                    )}
                     {line.text}
-                  </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -101,6 +162,8 @@ function HeroSection({ lang }: { lang: string }) {
   );
 }
 
+/* ─── Features ─── */
+
 function FeaturesSection({ lang }: { lang: string }) {
   const tr = t(lang);
   const features = [
@@ -108,86 +171,124 @@ function FeaturesSection({ lang }: { lang: string }) {
     { label: "02", title: tr.feature2Title, body: tr.feature2Body },
     { label: "03", title: tr.feature3Title, body: tr.feature3Body },
     { label: "04", title: tr.feature4Title, body: tr.feature4Body },
+    { label: "05", title: tr.feature5Title, body: tr.feature5Body },
   ];
 
   return (
-    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
-      <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-20">
+    <section className="px-6 py-28 md:px-12 lg:px-20 max-w-7xl mx-auto">
+      <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
         {tr.featuresTitle}
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-20 gap-y-16">
-        {features.map((f) => (
-          <FeatureItem key={f.label} {...f} />
+      </p>
+      <div className="h-px bg-border mb-20" />
+
+      <div className="space-y-24 md:space-y-32">
+        {features.map((f, i) => (
+          <div
+            key={f.label}
+            className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-start"
+          >
+            {/* Large decorative number */}
+            <div
+              className={`hidden md:block md:col-span-2 ${i % 2 === 1 ? "md:col-start-11 md:text-right" : ""}`}
+            >
+              <span className="feature-number font-mono text-primary/10 dark:text-primary/8 select-none leading-none">
+                {f.label}
+              </span>
+            </div>
+
+            {/* Content */}
+            <div className={`md:col-span-6 ${i % 2 === 1 ? "md:col-start-3" : "md:col-start-4"}`}>
+              <span className="md:hidden text-[11px] font-medium tracking-[0.15em] text-primary uppercase mb-3 block font-mono">
+                {f.label}
+              </span>
+              <h3 className="text-2xl md:text-3xl tracking-tight text-foreground mb-4">
+                {f.title}
+              </h3>
+              <p className="text-muted-foreground text-base leading-relaxed max-w-lg">{f.body}</p>
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
-function FeatureItem({ label, title, body }: { label: string; title: string; body: string }) {
-  return (
-    <div>
-      <span className="text-[11px] font-medium tracking-[0.15em] text-primary uppercase mb-3 block font-[family-name:var(--font-mono)]">
-        {label}
-      </span>
-      <h3 className="text-xl md:text-2xl tracking-tight text-foreground mb-3">{title}</h3>
-      <p className="text-muted-foreground text-sm leading-relaxed">{body}</p>
-    </div>
-  );
-}
+/* ─── Capabilities ─── */
 
-function MeetStellaSection({ lang }: { lang: string }) {
+function CapabilitiesSection({ lang }: { lang: string }) {
   const tr = t(lang);
+  const capabilities = [
+    { title: tr.capSkills, desc: tr.capSkillsDesc },
+    { title: tr.capAgents, desc: tr.capAgentsDesc },
+    { title: tr.capReading, desc: tr.capReadingDesc },
+    { title: tr.capEmail, desc: tr.capEmailDesc },
+    { title: tr.capVault, desc: tr.capVaultDesc },
+    { title: tr.capOAuth, desc: tr.capOAuthDesc },
+    { title: tr.capPlugins, desc: tr.capPluginsDesc },
+    { title: tr.capMCP, desc: tr.capMCPDesc },
+    { title: tr.capModels, desc: tr.capModelsDesc },
+    { title: tr.capNotifications, desc: tr.capNotificationsDesc },
+  ];
+
   return (
-    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-border">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
-        <div>
-          <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary mb-6 font-[family-name:var(--font-mono)]">
-            {tr.meetStella}
-          </p>
-          <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-6">
-            {tr.meetStellaTitle}
-          </h2>
-          <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-4">
-            {tr.meetStellaBody1}
-          </p>
-          <p className="text-muted-foreground text-base leading-relaxed max-w-lg mb-8">
-            {tr.meetStellaBody2}
-          </p>
-          <Link
-            to="/docs/$"
-            className="inline-flex items-center gap-2 text-primary text-sm font-medium hover:text-primary/80 transition-colors"
-          >
-            {tr.learnMoreAboutStella}
-            <span aria-hidden="true">&rarr;</span>
-          </Link>
-        </div>
-        <div className="flex justify-center lg:justify-end">
-          <img
-            src="/avatar.png"
-            alt="Stella — AI assistant"
-            className="w-48 h-48 md:w-56 md:h-56 rounded-2xl object-cover ring-1 ring-border"
-          />
+    <section className="capabilities-section">
+      <div className="px-6 py-28 md:px-12 lg:px-20 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-12 lg:gap-24">
+          {/* Left: sticky heading */}
+          <div className="lg:sticky lg:top-24 lg:self-start">
+            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
+              {tr.capabilitiesTitle}
+            </p>
+            <h2 className="text-3xl md:text-4xl tracking-tight text-foreground leading-tight">
+              {tr.capabilitiesSubtitle}
+            </h2>
+          </div>
+
+          {/* Right: capabilities list */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-10">
+            {capabilities.map((cap) => (
+              <div key={cap.title}>
+                <h3 className="font-sans text-base font-semibold text-foreground mb-1.5">
+                  {cap.title}
+                </h3>
+                <p className="text-muted-foreground text-sm leading-relaxed">{cap.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
+/* ─── Footer CTA ─── */
+
 function FooterCTA({ lang }: { lang: string }) {
   const tr = t(lang);
   return (
-    <section className="px-6 pt-16 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-      <div className="border-t border-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-2xl md:text-3xl tracking-tight text-foreground mb-3">
-            {tr.getStarted}
-          </h2>
-          <p className="text-muted-foreground text-sm">{tr.getStartedBody}</p>
+    <section className="cta-warm-bg">
+      <div className="px-6 py-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20 items-end">
+          <div>
+            <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-4">
+              {tr.getStarted}
+            </h2>
+            <p className="text-muted-foreground text-base">{tr.getStartedBody}</p>
+          </div>
+          <div>
+            <div className="space-y-3">
+              <div className="cta-code-block rounded-xl px-5 py-4 font-mono text-sm">
+                <span className="text-primary select-none">$ </span>
+                brew install CherryHQ/tap/stella
+              </div>
+              <div className="cta-code-block rounded-xl px-5 py-4 font-mono text-sm">
+                <span className="text-primary select-none">$ </span>
+                stella server
+              </div>
+            </div>
+            <p className="text-muted-foreground text-xs mt-4">{tr.getStartedAlt}</p>
+          </div>
         </div>
-        <code className="text-[13px] font-[family-name:var(--font-mono)] bg-muted px-4 py-2.5 rounded-md text-foreground whitespace-nowrap shrink-0">
-          go install github.com/CherryHQ/stella@latest
-        </code>
       </div>
     </section>
   );
