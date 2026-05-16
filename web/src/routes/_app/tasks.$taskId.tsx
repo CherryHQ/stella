@@ -1,11 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { TasksPage } from "@/features/tasks/TasksPage";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/tasks/$taskId")({
-  component: TaskRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/agents" });
+  },
 });
-
-function TaskRoute() {
-  const { taskId } = Route.useParams();
-  return <TasksPage taskId={taskId} />;
-}

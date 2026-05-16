@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-16T00:00:00Z",
+  "title": "Design System: Stella",
+  "extensions": {
+    "colorMeta": {
+      "ember-gold": {
+        "role": "primary",
+        "displayName": "Ember Gold",
+        "canonical": "oklch(0.642 0.1691 38.5815)",
+        "tonalRamp": [
+          "oklch(0.25 0.08 38)",
+          "oklch(0.35 0.10 38)",
+          "oklch(0.45 0.13 38)",
+          "oklch(0.55 0.15 38)",
+          "oklch(0.642 0.17 38)",
+          "oklch(0.73 0.14 38)",
+          "oklch(0.82 0.10 38)",
+          "oklch(0.92 0.05 38)"
+        ]
+      },
+      "constellation-blue": {
+        "role": "secondary",
+        "displayName": "Constellation Blue",
+        "canonical": "oklch(0.414 0.085 259.9)",
+        "tonalRamp": [
+          "oklch(0.20 0.05 260)",
+          "oklch(0.30 0.07 260)",
+          "oklch(0.414 0.085 260)",
+          "oklch(0.52 0.08 260)",
+          "oklch(0.62 0.07 260)",
+          "oklch(0.72 0.05 260)",
+          "oklch(0.82 0.03 260)",
+          "oklch(0.92 0.01 260)"
+        ]
+      },
+      "deep-ink": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "canonical": "oklch(0.321 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.22 0 0)",
+          "oklch(0.321 0 0)",
+          "oklch(0.42 0 0)",
+          "oklch(0.55 0 0)",
+          "oklch(0.68 0 0)",
+          "oklch(0.80 0 0)",
+          "oklch(0.92 0 0)"
+        ]
+      },
+      "soft-cloud": {
+        "role": "neutral",
+        "displayName": "Soft Cloud",
+        "canonical": "oklch(0.985 0.002 248)",
+        "tonalRamp": [
+          "oklch(0.80 0.002 248)",
+          "oklch(0.85 0.002 248)",
+          "oklch(0.90 0.002 248)",
+          "oklch(0.93 0.002 248)",
+          "oklch(0.95 0.002 248)",
+          "oklch(0.97 0.002 248)",
+          "oklch(0.985 0.002 248)",
+          "oklch(0.995 0.001 248)"
+        ]
+      },
+      "warm-paper": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(0.938 0.004 236.5)",
+        "tonalRamp": [
+          "oklch(0.75 0.004 236)",
+          "oklch(0.80 0.004 236)",
+          "oklch(0.85 0.004 236)",
+          "oklch(0.88 0.004 236)",
+          "oklch(0.91 0.004 236)",
+          "oklch(0.938 0.004 236)",
+          "oklch(0.96 0.003 236)",
+          "oklch(0.98 0.002 236)"
+        ]
+      },
+      "signal-red": {
+        "role": "destructive",
+        "displayName": "Signal Red",
+        "canonical": "oklch(0.637 0.208 25.3)",
+        "tonalRamp": [
+          "oklch(0.25 0.10 25)",
+          "oklch(0.35 0.14 25)",
+          "oklch(0.45 0.17 25)",
+          "oklch(0.55 0.19 25)",
+          "oklch(0.637 0.208 25)",
+          "oklch(0.72 0.16 25)",
+          "oklch(0.82 0.10 25)",
+          "oklch(0.92 0.04 25)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page-level titles only. Tight tracking for density at scale."
+      },
+      "headline": { "displayName": "Headline", "purpose": "Section headers, panel titles." },
+      "title": { "displayName": "Title", "purpose": "Card headers, list item labels, navigation items." },
+      "body": { "displayName": "Body", "purpose": "All running text, messages, descriptions. Max 70ch." },
+      "label": { "displayName": "Label", "purpose": "Metadata, timestamps, section eyebrows, status indicators." }
+    },
+    "shadows": [
+      {
+        "name": "ambient",
+        "value": "0px 1px 3px 0px hsl(0 0% 10% / 0.05)",
+        "purpose": "Cards at rest, subtle separation."
+      },
+      {
+        "name": "lifted",
+        "value": "0px 1px 3px 0px hsl(0 0% 10% / 0.1), 0px 4px 6px -1px hsl(0 0% 10% / 0.1)",
+        "purpose": "Hover state on interactive cards, floating panels."
+      },
+      {
+        "name": "elevated",
+        "value": "0px 1px 3px 0px hsl(0 0% 10% / 0.1), 0px 8px 10px -1px hsl(0 0% 10% / 0.1)",
+        "purpose": "Modals, command palette, focused popovers."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Default easing for state transitions. Expo-out feel."
+      },
+      { "name": "duration-fast", "value": "150ms", "purpose": "Hover, focus, and micro-interactions." },
+      { "name": "duration-normal", "value": "250ms", "purpose": "Panel transitions, content reveals." },
+      {
+        "name": "fade-up",
+        "value": "translateY(12px) -> translateY(0) with opacity",
+        "purpose": "Staggered entrance animation for lists and sections."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action. Ember Gold, generous radius, tactile press feedback.",
+      "html": "<button class=\"ds-btn-primary\">Save Changes</button>",
+      "css": ".ds-btn-primary { background: oklch(0.642 0.1691 38.5815); color: #fff; padding: 10px 20px; font-family: Outfit, sans-serif; font-size: 0.875rem; font-weight: 500; border: none; border-radius: 12px; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 100ms ease; } .ds-btn-primary:hover { background: oklch(0.55 0.15 38); } .ds-btn-primary:active { transform: scale(0.98); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(0.642 0.1691 38.5815 / 0.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary actions. Transparent at rest, fills on hover.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: oklch(0.321 0 0); padding: 10px 16px; font-family: Outfit, sans-serif; font-size: 0.875rem; font-weight: 500; border: none; border-radius: 12px; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-ghost:hover { background: oklch(0.985 0.002 248); } .ds-btn-ghost:focus-visible { outline: 2px solid oklch(0.642 0.1691 38.5815 / 0.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Standard text field. Warm Paper background, gold focus ring.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Type something...\" />",
+      "css": ".ds-input { background: oklch(0.938 0.004 236.5); color: oklch(0.321 0 0); padding: 10px 14px; font-family: Outfit, sans-serif; font-size: 0.875rem; border: 1px solid oklch(0.845 0 0); border-radius: 12px; outline: none; width: 100%; transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-input::placeholder { color: oklch(0.551 0.023 264.4); } .ds-input:focus { border-color: oklch(0.642 0.1691 38.5815); box-shadow: 0 0 0 2px oklch(0.642 0.1691 38.5815 / 0.15); }"
+    },
+    {
+      "name": "Active Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "Selected filter or status indicator. Pill-shaped, solid fill.",
+      "html": "<span class=\"ds-chip-active\">Active</span>",
+      "css": ".ds-chip-active { display: inline-flex; align-items: center; background: oklch(0.321 0 0); color: #fff; padding: 4px 12px; font-family: Outfit, sans-serif; font-size: 0.75rem; font-weight: 500; border-radius: 9999px; transition: background 150ms ease; }"
+    },
+    {
+      "name": "Inactive Chip",
+      "kind": "chip",
+      "refersTo": "chip-inactive",
+      "description": "Unselected filter option. Muted, invites interaction.",
+      "html": "<span class=\"ds-chip-inactive\">Draft</span>",
+      "css": ".ds-chip-inactive { display: inline-flex; align-items: center; background: oklch(0.985 0.002 248); color: oklch(0.551 0.023 264.4); padding: 4px 12px; font-family: Outfit, sans-serif; font-size: 0.75rem; font-weight: 500; border-radius: 9999px; cursor: pointer; transition: background 150ms ease, color 150ms ease; } .ds-chip-inactive:hover { background: oklch(0.93 0.004 248); color: oklch(0.321 0 0); }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Navigation list item in the session sidebar. Compact, scannable.",
+      "html": "<div class=\"ds-nav-item ds-nav-item--active\"><span class=\"ds-nav-label\">Morning Conversation</span><span class=\"ds-nav-meta\">2m ago</span></div>",
+      "css": ".ds-nav-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: background 150ms ease; } .ds-nav-item:hover { background: oklch(0.912 0.022 243.8); } .ds-nav-item--active { background: oklch(0.912 0.022 243.8); } .ds-nav-label { font-family: Outfit, sans-serif; font-size: 0.875rem; font-weight: 400; color: oklch(0.321 0 0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-nav-item--active .ds-nav-label { font-weight: 500; } .ds-nav-meta { font-family: 'Fira Code', monospace; font-size: 0.6875rem; color: oklch(0.551 0.023 264.4); flex-shrink: 0; margin-left: 8px; }"
+    },
+    {
+      "name": "Card Container",
+      "kind": "card",
+      "refersTo": null,
+      "description": "Standard content container. Flat at rest, lifts on hover when interactive.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Daily Summary</h3><p class=\"ds-card-body\">Your assistant handled 3 tasks today.</p></div>",
+      "css": ".ds-card { background: oklch(1 0 0); border: 1px solid oklch(0.845 0 0); border-radius: 12px; padding: 20px; transition: box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-card:hover { box-shadow: 0px 1px 3px 0px hsl(0 0% 10% / 0.1), 0px 4px 6px -1px hsl(0 0% 10% / 0.1); } .ds-card-title { font-family: Outfit, sans-serif; font-size: 1rem; font-weight: 500; color: oklch(0.321 0 0); margin: 0 0 8px 0; } .ds-card-body { font-family: Outfit, sans-serif; font-size: 0.875rem; color: oklch(0.551 0.023 264.4); margin: 0; line-height: 1.6; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Constellation Desk",
+    "overview": "A smart workspace where nodes of thought connect naturally. The interface feels like a personal desk that's been organized by someone who knows you: warm materials, clear sight lines, everything reachable without clutter. Not a dashboard. Not a chat window. A place where conversation and configuration coexist without competing.\n\nThe system rejects messaging-app anxiety (Slack), generic AI-product sameness (ChatGPT's empty center-chat), and enterprise admin-panel energy. It draws instead from Arc Browser's opinionated confidence, iA Writer's typographic clarity, and the warmth of a well-curated personal tool.",
+    "keyCharacteristics": [
+      "Conversation-first: chat is the anchor; panels serve it, never compete",
+      "Progressive disclosure: simple surface, depth on demand",
+      "Warm neutrals with a single golden accent that appears sparingly",
+      "Monospace labels and serif accents create intellectual texture without pretension",
+      "Tactile interactivity: elements respond visibly, transitions acknowledge action"
+    ],
+    "rules": [
+      {
+        "name": "The Ember Rule",
+        "body": "The primary gold appears on no more than 10% of any given screen. One button, one active indicator, one highlighted element. Its rarity creates hierarchy.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Pure Black Rule",
+        "body": "Neither #000 nor oklch(0 0 0) appears anywhere. The darkest value is Deep Ink; the lightest is never #fff. Every extreme carries a whisper of warmth.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Family Rule",
+        "body": "At most two font families appear on any single screen: Outfit + Fira Code. Merriweather is home-page-only. Three families on one screen creates visual noise.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Surfaces are flat at rest. Shadows appear only as response to state (hover, focus, active). A shadow that's always visible is a shadow that means nothing.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use Ember Gold exclusively for primary actions and active states. Its scarcity creates meaning.",
+      "Do let conversation occupy the majority of screen real estate. Panels compress; chat expands.",
+      "Do use Fira Code labels as structural anchors (section headers, metadata, timestamps). They provide rhythm.",
+      "Do transition interactive elements on hover/focus (150ms ease-out). The interface should feel alive and responsive to touch.",
+      "Do use progressive disclosure. Hide configuration behind explicit Edit actions; show read-only summaries by default.",
+      "Do maintain tonal hierarchy: background < muted < card < popover. Depth through color, not shadow."
+    ],
+    "donts": [
+      "Don't create messaging-app anxiety. No unread counts, no notification badges, no channel-list overwhelm. This is Stella, not Slack.",
+      "Don't use the centered-empty-chat pattern with floating suggestion chips. That's ChatGPT's generic energy.",
+      "Don't use border-left or border-right greater than 1px as colored accent stripes.",
+      "Don't apply gradient text (background-clip: text + gradient background) anywhere.",
+      "Don't use glassmorphism (blur + transparency) decoratively.",
+      "Don't create identical card grids (icon + heading + text, repeated). Vary rhythm and density.",
+      "Don't reach for a modal as the first thought. Inline editing, slide-over panels, and progressive reveals come first.",
+      "Don't show admin-panel energy: grey-on-grey data tables, dense configuration forms without context. This is personal, not enterprise."
+    ]
+  }
+}

@@ -31,9 +31,9 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
           <p className="text-xs text-muted-foreground font-mono">Empty session.</p>
         </div>
       )}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {processed.map((msg, idx) => (
-          <div key={idx} className={cn(msg.sameRoleAsPrev ? "-mt-2" : "")}>
+          <div key={idx} className={cn(msg.sameRoleAsPrev ? "-mt-1" : "")}>
             {msg.role === "user" && <UserMessage msg={msg} />}
             {msg.role === "assistant" && <AssistantMessage msg={msg} />}
           </div>
@@ -45,33 +45,15 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
 
 function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
-    <div className="flex gap-3 items-start">
-      <div
-        className={cn(
-          "w-6 h-6 rounded-full shrink-0 mt-0.5 flex items-center justify-center bg-muted",
-          msg.sameRoleAsPrev ? "invisible" : "",
-        )}
-      >
-        <svg
-          className="w-3.5 h-3.5 text-muted-foreground/60"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth="2"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
-          />
-        </svg>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="prose prose-sm max-w-none text-foreground">
-          <Streamdown>{extractUserText(msg)}</Streamdown>
+    <div className="flex justify-end">
+      <div className="max-w-[80%] min-w-0">
+        <div className="bg-muted rounded-2xl rounded-tr-md px-4 py-2.5">
+          <div className="prose prose-sm max-w-none text-foreground">
+            <Streamdown>{extractUserText(msg)}</Streamdown>
+          </div>
         </div>
         {msg.showTimestamp && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/40 mt-1">
+          <div className="flex items-center justify-end gap-2 text-[10px] font-mono text-muted-foreground/40 mt-1 pr-1">
             <span>{formatTime(msg.timestamp)}</span>
             {(msg.token_count ?? 0) > 0 && (
               <span className="text-primary/40">{msg.token_count!.toLocaleString()} tok</span>
@@ -85,18 +67,15 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
 
 function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
   return (
-    <div className="flex gap-3">
-      <div
-        className={cn(
-          "w-6 h-6 rounded-full shrink-0 mt-0.5 flex items-center justify-center bg-primary/10",
-          msg.sameRoleAsPrev ? "invisible" : "",
-        )}
-      >
-        <svg className="w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z" />
-        </svg>
-      </div>
-      <div className="flex-1 min-w-0 space-y-2">
+    <div className="flex gap-2.5 items-start">
+      {!msg.sameRoleAsPrev && (
+        <div className="w-6 h-6 rounded-full shrink-0 mt-0.5 flex items-center justify-center bg-primary/10">
+          <svg className="w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z" />
+          </svg>
+        </div>
+      )}
+      <div className={cn("flex-1 min-w-0 space-y-2", msg.sameRoleAsPrev && "pl-[34px]")}>
         {(msg.blocks ?? []).map((block, bi) => (
           <BlockRenderer key={bi} block={block} />
         ))}
@@ -129,7 +108,7 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
 function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="pl-3 border-l border-border">
+    <div className="pl-3 rounded-md bg-muted/30">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1 py-0.5"
@@ -158,7 +137,7 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
   const colorClass = toolColor(block.name);
 
   return (
-    <div className="pl-3 border-l-2 border-primary/20">
+    <div className="pl-3 rounded-lg bg-muted/20">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="text-xs font-mono cursor-pointer flex items-center gap-1.5 py-0.5 w-full min-w-0"
