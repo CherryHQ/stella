@@ -235,6 +235,6 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 ## Managing the Plugin
 
-The trace plugin is enabled by default. Use the admin panel (Plugins section) to enable or disable the trace plugin.
+The trace plugin is enabled by default. Use the Web UI (Plugins section) to enable or disable the trace plugin.
 
 Disabling the trace plugin turns off both log mode and OTel mode. LLM calls, tool executions, and memory operations will no longer be logged or exported.

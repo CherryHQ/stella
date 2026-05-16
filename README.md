@@ -28,7 +28,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # 3. Start the server
 stella server
 
-# 4. Open the admin panel at http://localhost:25678
+# 4. Open the Web UI at http://localhost:25678
 #    Add your provider and API key under Providers
 
 # 5. Open Chat and start talking
@@ -74,7 +74,7 @@ stella skill list
 ## CLI reference
 
 ```bash
-stella server                           # Start server; admin panel at http://localhost:25678
+stella server                           # Start server; Web UI at http://localhost:25678
 stella server --port 8080               # Custom port
 stella skill search <query>             # Search skills.sh
 stella skill install <name>             # Install a skill

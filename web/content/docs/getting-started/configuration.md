@@ -2,21 +2,21 @@
 title: Configuration
 ---
 
-All configuration is managed through the admin panel. Start the server with `stella server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in a single SQLite database at `~/.stella/stella.db` — there are no config files to edit.
+All configuration is managed through the Web UI. Start the server with `stella server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in a single SQLite database at `~/.stella/stella.db` — there are no config files to edit.
 
 The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
 ## Providers
 
-Open the **Providers** page in the admin panel to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
+Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
 
-Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are supported as fallbacks when the admin panel credentials are empty.
+Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are supported as fallbacks when the Web UI credentials are empty.
 
 ## Agents
 
 Open the **Agents** page to create and configure agents. Each agent has:
 
-- **Name** — display name shown in channels and the admin panel
+- **Name** — display name shown in channels and the Web UI
 - **Model** — the default model (in `provider/model` format, e.g. `anthropic/claude-sonnet-4-6`)
 - **Strong model** — optional, for complex reasoning tasks (falls back to the default model)
 - **Fast model** — optional, for quick checks and gate decisions (falls back to the default model)
@@ -40,11 +40,11 @@ See the channel guides for setup instructions:
 
 ## Users
 
-Users are created automatically when someone messages a connected channel. Each user gets isolated per-agent memory. You can manage users, roles, and permissions from the **Users** page in the admin panel.
+Users are created automatically when someone messages a connected channel. Each user gets isolated per-agent memory. You can manage users, roles, and permissions from the **Users** page in the Web UI.
 
 ## Runner Settings
 
-The runner controls how the agent processes messages. You can configure these from the admin panel **Settings** page:
+The runner controls how the agent processes messages. You can configure these from the Web UI **Settings** page:
 
 | Setting              | Default       | Description                                               |
 | -------------------- | ------------- | --------------------------------------------------------- |
@@ -55,7 +55,7 @@ The runner controls how the agent processes messages. You can configure these fr
 
 ## Heartbeat
 
-Heartbeat lets Stella watch a file and act when something changes. Configure it from the admin panel **Settings** page:
+Heartbeat lets Stella watch a file and act when something changes. Configure it from the Web UI **Settings** page:
 
 - **Enabled** — turn heartbeat polling on or off
 - **Interval** — how often to check (e.g. `10m`)
@@ -87,4 +87,4 @@ Only a small set of environment variables is recognized:
 | `OPENAI_API_KEY`    | Fallback API key for OpenAI                                                                                       |
 | `STELLA_VAULT_KEY`  | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
 
-All other configuration is managed through the admin panel.
+All other configuration is managed through the Web UI.

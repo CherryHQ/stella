@@ -24,9 +24,9 @@ GitHub works out of the box -- no admin setup needed.
 3. Open the URL in your browser, enter the code, and authorize.
 4. Stella detects the authorization and confirms the connection.
 
-### Option 2: Use the admin panel
+### Option 2: Use the Web UI
 
-1. Open the admin panel and go to your **Credentials** page.
+1. Open the Web UI and go to your **Credentials** page.
 2. Find **OAuth CLI Credentials** and click **Connect** next to GitHub.
 3. Stella shows you a URL and a one-time code.
 4. Open the URL in your browser, enter the code, and authorize.
@@ -40,7 +40,7 @@ Feishu and Lark require an admin to configure app credentials before users can c
 
 ### Admin setup (one-time)
 
-An admin must configure the Lark CLI plugin in the admin panel with:
+An admin must configure the Lark CLI plugin in the Web UI with:
 
 - **App ID** and **App Secret** from your Feishu/Lark app
 - **Brand** -- choose `feishu` for domestic Feishu or `lark` for international Lark
@@ -49,7 +49,7 @@ Once configured, all users can connect their accounts.
 
 ### Connecting your account
 
-Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the admin panel. Stella walks you through the same device authorization flow.
+Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
 
 ## Using connected services
 
@@ -73,4 +73,4 @@ If Stella restarts while you are in the middle of authorizing (you have the URL 
 
 ### GitHub commands not working
 
-Make sure your GitHub account is connected by checking the Credentials page in the admin panel. If the status shows disconnected, connect again. GitHub tokens do not expire, so once connected they should work indefinitely.
+Make sure your GitHub account is connected by checking the Credentials page in the Web UI. If the status shows disconnected, connect again. GitHub tokens do not expire, so once connected they should work indefinitely.

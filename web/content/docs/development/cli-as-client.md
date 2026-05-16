@@ -11,7 +11,7 @@ process is the **only** thing that opens the SQLite database, writes to the
 markdown library, fetches RSS feeds, or makes any other state change.
 
 This is the project's **API-first** principle: every feature is reachable via
-HTTP first, and the CLI is just one of several clients (CLI, admin panel, future
+HTTP first, and the CLI is just one of several clients (CLI, Web UI, future
 SDKs and integrations all consume the same contract).
 
 ```

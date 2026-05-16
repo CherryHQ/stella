@@ -9,7 +9,7 @@ Stella includes a Telegram bot that connects via long polling -- no webhook or p
 Before you start, make sure you have:
 
 - A running Stella server (`stella server`)
-- At least one AI provider configured in the admin panel (e.g. Anthropic, OpenAI)
+- At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A Telegram account
 
 ## Setup
@@ -21,14 +21,14 @@ Before you start, make sure you have:
    stella server
    ```
 
-3. Open the admin panel at `http://localhost:25678`.
+3. Open the Web UI at `http://localhost:25678`.
 4. Go to the **Channels** page and add a new Telegram channel instance.
 5. Paste your bot token into the configuration and save.
 6. Restart `stella server` to activate the new channel.
 
-You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the admin panel.
+You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the Web UI.
 
-All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -43,7 +43,7 @@ You can switch between available agents using the `/agent` command:
 
 In DMs, this sets your default agent. In groups, it sets the active agent for the entire group.
 
-If a channel instance is bound to a dedicated agent in the admin panel, all chats on that bot use the bound agent and `/agent` switching is disabled.
+If a channel instance is bound to a dedicated agent in the Web UI, all chats on that bot use the bound agent and `/agent` switching is disabled.
 
 ## Streaming Responses
 
@@ -98,7 +98,7 @@ The agent can then use the `kreuzberg extract` command to parse the file.
 
 ## Group Support
 
-The bot supports group chats with configurable response behavior. Set the group mode in the admin panel:
+The bot supports group chats with configurable response behavior. Set the group mode in the Web UI:
 
 - `mention` -- only respond when @mentioned (default)
 - `always` -- respond to all messages
@@ -106,11 +106,11 @@ The bot supports group chats with configurable response behavior. Set the group 
 
 ## Access Control
 
-You can restrict which Telegram users can interact with your bot by adding allowed user IDs in the admin panel. Leave the list empty to allow all users. Use the `/whoami` command in Telegram to find your user ID.
+You can restrict which Telegram users can interact with your bot by adding allowed user IDs in the Web UI. Leave the list empty to allow all users. Use the `/whoami` command in Telegram to find your user ID.
 
 ## Notifications
 
-The bot doubles as a notification backend. You can configure a default notification chat and optional broadcast channel in the admin panel.
+The bot doubles as a notification backend. You can configure a default notification chat and optional broadcast channel in the Web UI.
 
 Used by:
 
@@ -138,7 +138,7 @@ You can switch models mid-conversation using the `/model` command, which opens a
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel.
+All settings below are managed through the Web UI.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |
@@ -152,13 +152,13 @@ All settings below are managed through the admin panel.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the Telegram channel is configured in the admin panel.
+- Make sure `stella server` is running and the Telegram channel is configured in the Web UI.
 - Double-check that your bot token is correct. You can verify it by messaging [@BotFather](https://t.me/BotFather) and checking your bot list.
 - If you set up access control, confirm your Telegram user ID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the admin panel. The default is `mention`, which means you need to @mention the bot.
+- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
 - Make sure the bot has been added to the group and has permission to read messages.
 
 **Images or files not being analyzed?**
@@ -168,5 +168,5 @@ All settings below are managed through the admin panel.
 
 **Notifications not working?**
 
-- Set the `notify_chat` field in the admin panel to the chat ID where you want to receive notifications.
+- Set the `notify_chat` field in the Web UI to the chat ID where you want to receive notifications.
 - Make sure the bot has already had a conversation in that chat.

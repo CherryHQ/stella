@@ -9,7 +9,7 @@ Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not 
 Before you start, make sure you have:
 
 - A running Stella server (`stella server`)
-- At least one AI provider configured in the admin panel (e.g. Anthropic, OpenAI)
+- At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A Feishu app created at [Feishu Open Platform](https://open.feishu.cn/) with the **Bot** capability enabled
 
 ## Setup
@@ -26,12 +26,12 @@ Before you start, make sure you have:
    stella server
    ```
 
-6. Open the admin panel at `http://localhost:25678`.
+6. Open the Web UI at `http://localhost:25678`.
 7. Go to the **Channels** page and add a new Feishu channel instance.
 8. Enter your credentials and save.
 9. Restart `stella server` to activate the new channel.
 
-You can create multiple Feishu channel instances in the admin panel. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
+You can create multiple Feishu channel instances in the Web UI. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
 
 ## Lark Workspace Automation
 
@@ -64,7 +64,7 @@ When you enable auto-provisioning for a Feishu channel instance, Stella automati
 4. If the message event includes a `tenant_key` that does not match the bot tenant, Stella skips auto-provision for that sender.
 5. Stella calls the Feishu Contact API to retrieve the user's `union_id`, display name, and email.
 6. A new Stella user is created with the email local-part as username (`alice` from `alice@corp.com`), falling back to `feishu-<union_id[:8]>` if no email is available. Username collisions get a `-2`, `-3`, ... suffix.
-7. The provisioned user has no password -- they can chat with the bot immediately but cannot log into the admin panel until an admin sets a password for them.
+7. The provisioned user has no password -- they can chat with the bot immediately but cannot log into the Web UI until an admin sets a password for them.
 8. Provisioned users are assigned the `user` role and the system default agent.
 
 Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created.
@@ -95,7 +95,7 @@ Setting `tenant_key` explicitly is recommended because it removes one failure mo
 
 > **Warning:** External guests in shared groups are not auto-provisioned. If their tenant key differs from the bot tenant, Stella skips account creation for them. This is by design.
 
-> **Note:** If no admin user exists yet, auto-provisioning is refused until the first admin registers via the admin panel. This prevents stranding a fresh deployment with zero admins.
+> **Note:** If no admin user exists yet, auto-provisioning is refused until the first admin registers via the Web UI. This prevents stranding a fresh deployment with zero admins.
 
 ## Multi-User Support
 
@@ -194,13 +194,13 @@ Feishu supports the standard chat commands:
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the Feishu channel is configured in the admin panel.
+- Make sure `stella server` is running and the Feishu channel is configured in the Web UI.
 - Verify your App ID and App Secret are correct.
 - Check that you added the `im.message.receive_v1` event subscription to your Feishu app.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the admin panel. The default is `mention`, which means you need to @mention the bot.
+- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
 
 **Auto-provisioning not creating users?**
 

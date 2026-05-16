@@ -9,7 +9,7 @@ Stella includes a WeChat bot that connects via the iLink Bot API using long-poll
 Before you start, make sure you have:
 
 - A running Stella server (`stella server`)
-- At least one AI provider configured in the admin panel (e.g. Anthropic, OpenAI)
+- At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A WeChat account to authorize the bot via QR code login
 
 ## Setup
@@ -20,14 +20,14 @@ Before you start, make sure you have:
    stella server
    ```
 
-2. Open the admin panel at `http://localhost:25678`.
+2. Open the Web UI at `http://localhost:25678`.
 3. Go to the **Channels** page and find the WeChat section.
 4. Click **Scan QR to Login** to generate a QR code.
 5. Open WeChat on your phone and scan the QR code to authorize the bot.
 6. Once confirmed, your credentials are saved automatically.
 7. Restart `stella server` to activate the channel.
 
-All channel configuration is managed through the admin panel. The QR login flow is admin-panel-only and must be re-done if the session expires.
+All channel configuration is managed through the Web UI. The QR login flow is only available through the Web UI and must be re-done if the session expires.
 
 ## How It Works
 
@@ -35,7 +35,7 @@ The WeChat channel uses the iLink Bot protocol. After QR login, Stella receives 
 
 ### Session Expiry
 
-If the iLink session expires, Stella clears all credentials and stops the WeChat channel. You will need to re-scan the QR code from the admin panel to re-authorize.
+If the iLink session expires, Stella clears all credentials and stops the WeChat channel. You will need to re-scan the QR code from the Web UI to re-authorize.
 
 ## Multi-User Support
 
@@ -61,7 +61,7 @@ While the assistant processes your message, you will see a typing indicator. The
 
 ## Access Control
 
-You can restrict which WeChat users can interact with the bot by adding their iLink user IDs in the admin panel's "Allowed IDs" field. Leave the list empty to allow all users. Use the `/whoami` command to find your user ID.
+You can restrict which WeChat users can interact with the bot by adding their iLink user IDs in the Web UI's "Allowed IDs" field. Leave the list empty to allow all users. Use the `/whoami` command to find your user ID.
 
 ## Commands
 
@@ -81,13 +81,13 @@ Send these commands as text messages to the bot:
 
 ## Notifications
 
-The WeChat channel supports notifications (scheduler results, notify tool). Set "Enable Notify" and configure "Notify Chat" with a user ID in the admin panel.
+The WeChat channel supports notifications (scheduler results, notify tool). Set "Enable Notify" and configure "Notify Chat" with a user ID in the Web UI.
 
 **Important limitation**: Notifications require a cached token which is in-memory only. After restarting `stella server`, notifications to WeChat users will fail until they send a new message. This is a known limitation of the iLink protocol.
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel.
+All settings below are managed through the Web UI.
 
 | Field         | Description                                | Default    |
 | ------------- | ------------------------------------------ | ---------- |
@@ -102,12 +102,12 @@ All settings below are managed through the admin panel.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the WeChat channel is configured in the admin panel.
-- Your session may have expired. Go to the admin panel and re-scan the QR code to re-authorize.
+- Make sure `stella server` is running and the WeChat channel is configured in the Web UI.
+- Your session may have expired. Go to the Web UI and re-scan the QR code to re-authorize.
 
 **Session expired?**
 
-- When the iLink session expires, Stella automatically stops the WeChat channel. Go to the admin panel, click **Scan QR to Login** again, and scan with WeChat.
+- When the iLink session expires, Stella automatically stops the WeChat channel. Go to the Web UI, click **Scan QR to Login** again, and scan with WeChat.
 
 **Notifications not being delivered?**
 

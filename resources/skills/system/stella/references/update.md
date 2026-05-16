@@ -49,5 +49,5 @@ Tags: `latest` (stable), `vX.Y.Z` (specific release).
 ## After updating
 
 - Config format is backward-compatible; no migration needed
-- Refresh the model cache from the admin panel if new models are available
+- Refresh the model cache from the Web UI if new models are available
 - Builtin skills update automatically with the binary

@@ -10,7 +10,7 @@ stella CLI 被有意做成轻量 REST 客户端。运行中的 `stella server` �
 打开 SQLite 数据库、写 Markdown 库、抓 RSS 订阅、或者做任何状态变更的进程。
 
 这是项目的 **API-first** 原则：每个能力首先通过 HTTP 暴露，CLI 只是众多客户端
-之一（CLI、管理面板、未来的 SDK 与外部集成都消费同一份契约）。
+之一（CLI、Web UI、未来的 SDK 与外部集成都消费同一份契约）。
 
 ```
 ┌──────────┐         HTTP          ┌──────────────────────┐

@@ -183,7 +183,7 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 | `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
 | `oauth.brand`        | Injects the connected provider bundle's brand, when present |
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the admin panel.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the Web UI.
 
 ## State and caching
 

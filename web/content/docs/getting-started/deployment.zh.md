@@ -45,13 +45,13 @@ cd stella && go build -o stella .
 
 ## 运行
 
-启动服务器 —— 管理面板访问地址：`http://localhost:25678`：
+启动服务器 —— Web UI访问地址：`http://localhost:25678`：
 
 ```bash
 stella server
 ```
 
-这会启动服务器并提供管理面板，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
 ```bash
 stella server --port 8080                  # 自定义端口
@@ -135,7 +135,7 @@ Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ### 快速开始
 
-首先，使用 `--port 8080` 运行 stella 通过管理面板进行配置：
+首先，使用 `--port 8080` 运行 stella 通过Web UI进行配置：
 
 ```bash
 docker run -it --rm \
@@ -181,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的管理面板进行配置，或使用 `docker compose exec stella stella server --port 8080`。
+要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的Web UI进行配置，或使用 `docker compose exec stella stella server --port 8080`。
 
 ### 本地构建
 
@@ -226,7 +226,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 ## 环境变量
 
-配置通过管理面板管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
+配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                                                            |
 | ------------------- | ---- | --------------------------------------------------------------- |
@@ -235,7 +235,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 | `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
 | `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
 
-\* 至少需要一个提供商密钥。API 密钥也可以通过管理面板配置。
+\* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 

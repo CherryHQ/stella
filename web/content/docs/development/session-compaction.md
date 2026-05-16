@@ -120,7 +120,7 @@ history — it never blocks the user's message.
 ## Configuration
 
 Compaction settings are stored in the database settings table under the
-`compaction` key as JSON. They can be configured through the admin panel or
+`compaction` key as JSON. They can be configured through the Web UI or
 the settings API.
 
 Fields:

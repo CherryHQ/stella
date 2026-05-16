@@ -2,21 +2,21 @@
 title: 配置
 ---
 
-所有配置都通过管理面板进行管理。使用 `stella server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 `~/.stella/stella.db` 这个 SQLite 数据库中，无需编辑任何配置文件。
+所有配置都通过Web UI进行管理。使用 `stella server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 `~/.stella/stella.db` 这个 SQLite 数据库中，无需编辑任何配置文件。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
 ## 提供商
 
-在管理面板中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
+在Web UI中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
 
-环境变量 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY` 在管理面板中未填写凭证时可作为备用。
+环境变量 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY` 在Web UI中未填写凭证时可作为备用。
 
 ## 代理
 
 打开 **代理** 页面来创建和配置代理。每个代理包含：
 
-- **名称** — 在渠道和管理面板中显示的名称
+- **名称** — 在渠道和Web UI中显示的名称
 - **模型** — 默认模型（格式为 `provider/model`，如 `anthropic/claude-sonnet-4-6`）
 - **强力模型** — 可选，用于复杂推理任务（未设置时回退到默认模型）
 - **快速模型** — 可选，用于快速检查和判断（未设置时回退到默认模型）
@@ -40,11 +40,11 @@ title: 配置
 
 ## 用户
 
-当有人通过已连接的渠道发送消息时，用户会自动创建。每个用户获得独立的每代理记忆。你可以在管理面板的 **用户** 页面管理用户、角色和权限。
+当有人通过已连接的渠道发送消息时，用户会自动创建。每个用户获得独立的每代理记忆。你可以在Web UI的 **用户** 页面管理用户、角色和权限。
 
 ## Runner 设置
 
-Runner 控制代理如何处理消息。你可以在管理面板的 **设置** 页面进行配置：
+Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面进行配置：
 
 | 设置         | 默认值        | 描述                           |
 | ------------ | ------------- | ------------------------------ |
@@ -55,7 +55,7 @@ Runner 控制代理如何处理消息。你可以在管理面板的 **设置** �
 
 ## 心跳
 
-心跳让 Stella 能够监视文件并在内容变化时采取行动。在管理面板的 **设置** 页面进行配置：
+心跳让 Stella 能够监视文件并在内容变化时采取行动。在Web UI的 **设置** 页面进行配置：
 
 - **启用** — 开启或关闭心跳轮询
 - **间隔** — 检查频率（例如 `10m`）
@@ -87,4 +87,4 @@ Runner 控制代理如何处理消息。你可以在管理面板的 **设置** �
 | `OPENAI_API_KEY`    | OpenAI 的备用 API 密钥                                                                   |
 | `STELLA_VAULT_KEY`  | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
 
-所有其他配置通过管理面板进行管理。
+所有其他配置通过Web UI进行管理。

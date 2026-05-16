@@ -1,6 +1,6 @@
 # Channel setup
 
-All channel configuration is stored in the database and managed via the admin panel (`http://localhost:25678` by default). Each channel row is a bot instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. Multiple instances can share the same type, such as two Feishu bots bound to different agents.
+All channel configuration is stored in the database and managed via the Web UI (`http://localhost:25678` by default). Each channel row is a bot instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. Multiple instances can share the same type, such as two Feishu bots bound to different agents.
 
 ## Agent routing
 
@@ -21,7 +21,7 @@ Commands available in all channels:
 
 1. Create a bot via @BotFather on Telegram
 2. Copy the token
-3. Open the admin panel and add it in the Channels tab
+3. Open the Web UI and add it in the Channels tab
 
 Telegram channel config (JSON):
 
@@ -55,7 +55,7 @@ Set `group_mode` in the channel config:
 
 ### Access control
 
-Access control is handled by the RBAC system (auth_identities + policy engine). Use the admin panel to manage user roles and permissions.
+Access control is handled by the RBAC system (auth_identities + policy engine). Use the Web UI to manage user roles and permissions.
 
 ### Notifications
 
@@ -65,7 +65,7 @@ Set `enable_notify: true` for proactive messages (scheduler results, notify tool
 
 1. Register at https://q.qq.com/
 2. Get AppID and AppSecret
-3. Open the admin panel and add it in the Channels tab
+3. Open the Web UI and add it in the Channels tab
 
 QQ channel config (JSON):
 
@@ -94,7 +94,7 @@ Connects via WebSocket (no public URL needed). QQ supports the same channel inst
 1. Create an app at the Feishu Developer Console
 2. Get AppID and AppSecret
 3. Enable the Bot capability and subscribe to message events
-4. Open the admin panel and add it in the Channels tab
+4. Open the Web UI and add it in the Channels tab
 
 Feishu channel config (JSON):
 
@@ -122,7 +122,7 @@ Connects via WebSocket (no public URL or webhook needed).
 
 ## WeChat bot (iLink)
 
-1. Open the admin panel and go to the Channels tab
+1. Open the Web UI and go to the Channels tab
 2. Click "Scan QR to Login" in the WeChat section
 3. Scan the QR code with your WeChat account
 4. Credentials are saved automatically on confirmation
@@ -148,11 +148,11 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 - Text messaging with 2000-char smart splitting
 - Image input/output with AES-128-ECB encryption
 - Typing indicators while processing
-- QR-code-based login via admin panel
+- QR-code-based login via Web UI
 - Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 
 ### WeChat limitations
 
 - Notifications require a cached `context_token` (in-memory only, lost on restart)
 - No group chat support (DM only)
-- Session expiry requires manual QR re-scan from admin panel
+- Session expiry requires manual QR re-scan from Web UI

@@ -31,13 +31,13 @@ That is all the setup you need. Stella automatically handles per-user encryption
 
 ## Adding Secrets
 
-### From the Admin Panel
+### From the Web UI
 
-1. Open the admin panel and go to your Credentials page.
+1. Open the Web UI and go to your Credentials page.
 2. In the Vault section, enter a secret name (for example, `GITHUB_TOKEN`) and its value.
 3. Click Save.
 
-Secret values are write-only — once saved, the plaintext is never shown in the admin panel again. You can see the list of secret names, but not their values.
+Secret values are write-only — once saved, the plaintext is never shown in the Web UI again. You can see the list of secret names, but not their values.
 
 ### From a Chat Session
 
@@ -77,5 +77,5 @@ Secret names must follow these rules:
 
 - **One secret per service.** Store `GITHUB_TOKEN`, `OPENAI_API_KEY`, and similar keys as individual vault entries.
 - **Secrets persist across restarts.** You only need to set them once.
-- **Use the admin panel to audit.** The Credentials page shows all secret names, so you can see what is stored without exposing values.
+- **Use the Web UI to audit.** The Credentials page shows all secret names, so you can see what is stored without exposing values.
 - **Rotate secrets by overwriting.** To update a secret, save a new value with the same name — it replaces the old one.

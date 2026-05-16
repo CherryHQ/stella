@@ -285,7 +285,7 @@ type SessionManager interface {
 	ListInfo(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
 
 	// LoadHistory returns the complete raw message history for a session
-	// in chronological order. Used by the admin panel viewer and export.
+	// in chronological order. Used by the Web UI viewer and export.
 	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
 }
 

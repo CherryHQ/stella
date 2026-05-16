@@ -23,11 +23,11 @@ The notification goes to the account you used to connect with Stella. If you sta
 
 ## Configuring notifications
 
-Channel configuration is managed in the admin panel. Each channel you set up for conversations also serves as a notification target. Once a channel is connected and running, it can receive notifications automatically.
+Channel configuration is managed in the Web UI. Each channel you set up for conversations also serves as a notification target. Once a channel is connected and running, it can receive notifications automatically.
 
 To set up a channel:
 
-1. Open the admin panel.
+1. Open the Web UI.
 2. Go to the channel settings (for example, Telegram).
 3. Configure the channel with the required credentials (bot token, etc.).
 4. Start using the channel -- once Stella knows your account, notifications route to you.

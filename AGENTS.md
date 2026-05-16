@@ -79,7 +79,7 @@ User-facing docs (`getting-started/`, `guides/`, `channels/`, `README.md`) follo
 - **No unexplained acronyms.** Spell out on first use or avoid entirely. "LCM (Lossless Context Management)" on first mention, then "LCM" after.
 - **Use "you" language.** "You can store API keys in the vault" not "The vault subsystem provides encrypted credential storage."
 - **Step-by-step over architecture diagrams.** Users want "do this, then this." Save system diagrams for developer docs.
-- **Consistent terminology.** Say "admin panel" not "web UI." Say `stella server` not `stella serve`. Say "secret" not "vault entry."
+- **Consistent terminology.** Say "Web UI" not "admin panel." Say `stella server` not `stella serve`. Say "secret" not "vault entry."
 - **Include troubleshooting** in getting-started and channel docs. What if the server won't start? What if Telegram doesn't respond?
 
 ### Writing for developers

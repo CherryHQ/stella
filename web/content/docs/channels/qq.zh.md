@@ -9,7 +9,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 开始之前，请确保你已具备：
 
 - 一个正在运行的 Stella 服务器（`stella server`）
-- 至少在管理面板中配置了一个 AI 提供商（如 Anthropic、OpenAI）
+- 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 在 [QQ 开放平台](https://q.qq.com/) 注册的 QQ 机器人，并获取了 AppID 和 AppSecret
 
 ## 设置
@@ -21,12 +21,12 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
    stella server
    ```
 
-3. 打开管理面板 `http://localhost:25678`。
+3. 打开Web UI `http://localhost:25678`。
 4. 进入 **Channels** 页面，添加一个新的 QQ 频道实例。
 5. 输入你的 AppID 和 AppSecret，然后保存。
 6. 重启 `stella server` 以激活新频道。
 
-所有频道配置（凭据、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（凭据、群组模式、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
@@ -50,7 +50,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 
 ## 群组支持
 
-QQ 群组消息作为 @提及事件接收。你可以在管理面板中设置群组模式：
+QQ 群组消息作为 @提及事件接收。你可以在Web UI中设置群组模式：
 
 - `mention` -- 响应 @提及（默认）
 - `always` -- 对于 QQ 与 mention 相同（AT 事件始终是提及）
@@ -58,7 +58,7 @@ QQ 群组消息作为 @提及事件接收。你可以在管理面板中设置群
 
 ## 访问控制
 
-你可以在管理面板中添加允许的 OpenID 来限制哪些 QQ 用户可以与机器人交互。留空则允许所有用户。使用 `/whoami` 命令获取你的 OpenID。
+你可以在Web UI中添加允许的 OpenID 来限制哪些 QQ 用户可以与机器人交互。留空则允许所有用户。使用 `/whoami` 命令获取你的 OpenID。
 
 ## 图片支持
 
@@ -93,7 +93,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过管理面板管理。
+以下所有设置都通过Web UI管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |
@@ -106,13 +106,13 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且 QQ 频道已在管理面板中配置。
+- 确保 `stella server` 正在运行，且 QQ 频道已在Web UI中配置。
 - 确认你的 AppID 和 AppSecret 是否正确。
 - 如果设置了访问控制，请确认你的 QQ OpenID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
 
 **机器人在群组中不响应？**
 
-- 检查管理面板中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
+- 检查Web UI中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
 - QQ 群消息需要 @提及才能触发机器人，即使在 `always` 模式下也是如此。
 
 **文件未被分析？**

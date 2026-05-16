@@ -17,7 +17,7 @@ model_fast: claude-haiku-4-5 # optional
 
 ## Managing models
 
-Models are managed through the admin panel (web UI). You can browse available models, switch the active model, and refresh the model cache from the Models page.
+Models are managed through the Web UI (web UI). You can browse available models, switch the active model, and refresh the model cache from the Models page.
 
 ## Provider setup
 
@@ -59,4 +59,4 @@ Uses same `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars.
 
 - **CLI**: `/model` in-chat command
 - **Telegram**: inline keyboard model picker
-- **Admin panel**: switch the active model from the Models page
+- **Web UI**: switch the active model from the Models page

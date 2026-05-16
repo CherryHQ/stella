@@ -9,7 +9,7 @@ Stella includes a QQ bot that connects via WebSocket -- a persistent connection 
 Before you start, make sure you have:
 
 - A running Stella server (`stella server`)
-- At least one AI provider configured in the admin panel (e.g. Anthropic, OpenAI)
+- At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A QQ Bot registered at the [QQ Bot Platform](https://q.qq.com/) with your AppID and AppSecret
 
 ## Setup
@@ -21,12 +21,12 @@ Before you start, make sure you have:
    stella server
    ```
 
-3. Open the admin panel at `http://localhost:25678`.
+3. Open the Web UI at `http://localhost:25678`.
 4. Go to the **Channels** page and add a new QQ channel instance.
 5. Enter your AppID and AppSecret, then save.
 6. Restart `stella server` to activate the new channel.
 
-All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
 ## Multi-User Support
 
@@ -50,7 +50,7 @@ While the assistant runs tools, you will see status indicators in the stream:
 
 ## Group Support
 
-QQ group messages are received as @mention events. You can set the group mode in the admin panel:
+QQ group messages are received as @mention events. You can set the group mode in the Web UI:
 
 - `mention` -- respond to @mentions (default)
 - `always` -- same as mention for QQ (AT events are always mentions)
@@ -58,7 +58,7 @@ QQ group messages are received as @mention events. You can set the group mode in
 
 ## Access Control
 
-You can restrict which QQ users can interact with your bot by adding allowed OpenIDs in the admin panel. Leave the list empty to allow all users. Use the `/whoami` command to find your OpenID.
+You can restrict which QQ users can interact with your bot by adding allowed OpenIDs in the Web UI. Leave the list empty to allow all users. Use the `/whoami` command to find your OpenID.
 
 ## Image Support
 
@@ -93,7 +93,7 @@ Send these commands as text messages to the bot:
 
 ## Configuration Reference
 
-All settings below are managed through the admin panel.
+All settings below are managed through the Web UI.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |
@@ -106,13 +106,13 @@ All settings below are managed through the admin panel.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the QQ channel is configured in the admin panel.
+- Make sure `stella server` is running and the QQ channel is configured in the Web UI.
 - Verify your AppID and AppSecret are correct.
 - If you set up access control, confirm your QQ OpenID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the admin panel. The default is `mention`, which means you need to @mention the bot.
+- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
 - QQ group messages require an @mention to trigger the bot, even in `always` mode.
 
 **Files not being analyzed?**

@@ -45,13 +45,13 @@ cd stella && go build -o stella .
 
 ## Run
 
-Start the server — the admin panel is available at `http://localhost:25678`:
+Start the server — the Web UI is available at `http://localhost:25678`:
 
 ```bash
 stella server
 ```
 
-This starts the server and the admin panel where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
+This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
 
 ```bash
 stella server --port 8080             # custom port
@@ -135,7 +135,7 @@ Images are published to `ghcr.io/cherryhq/stella` for `linux/amd64` and `linux/a
 
 ### Quick Start
 
-First, run stella with `--port 8080` to configure it via the admin panel:
+First, run stella with `--port 8080` to configure it via the Web UI:
 
 ```bash
 docker run -it --rm \
@@ -181,7 +181,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, start with `--port 8080` and configure via the admin panel at `http://localhost:8080`, or use `docker compose exec stella stella server --port 8080`.
+To run initial setup, start with `--port 8080` and configure via the Web UI at `http://localhost:8080`, or use `docker compose exec stella stella server --port 8080`.
 
 ### Build Locally
 
@@ -226,7 +226,7 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 ## Environment Variables
 
-Configuration is managed through the admin panel (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
+Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
 | Variable            | Required | Description                                                                   |
 | ------------------- | -------- | ----------------------------------------------------------------------------- |
@@ -235,7 +235,7 @@ Configuration is managed through the admin panel (default `http://localhost:2567
 | `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
 | `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
 
-\* At least one provider key is required. API keys can also be configured via the admin panel.
+\* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 

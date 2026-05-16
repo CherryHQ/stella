@@ -16,7 +16,7 @@ You can configure multiple providers at the same time and mix models from differ
 
 ## Setting up a provider
 
-1. Open the admin panel.
+1. Open the Web UI.
 2. Go to the **Providers** section.
 3. Click **Add provider** and choose the provider type.
 4. Enter your API key and any required settings (such as a custom base URL for OpenAI-compatible providers).
@@ -36,20 +36,20 @@ Each agent in Stella uses up to three model tiers:
 
 If you only set the default model, Stella uses it for everything. The strong and fast tiers are optional -- set them when you want Stella to pick the right tool for the job automatically.
 
-Configure model tiers per agent in the admin panel on the agent settings page.
+Configure model tiers per agent in the Web UI on the agent settings page.
 
 ## Switching models
 
 You can switch models mid-conversation without losing context:
 
 - **In any channel** -- type `/model` to see available models and pick a different one. On Telegram, this shows an inline keyboard for quick selection.
-- **In the admin panel** -- go to the **Models** page to browse available models and switch the active model.
+- **In the Web UI** -- go to the **Models** page to browse available models and switch the active model.
 
 The change takes effect on the next message.
 
 ## Environment variable fallbacks
 
-If you prefer not to store API keys in the admin panel, you can set them as environment variables. Stella checks these when a provider does not have a key configured:
+If you prefer not to store API keys in the Web UI, you can set them as environment variables. Stella checks these when a provider does not have a key configured:
 
 | Provider          | Environment variable | Optional          |
 | ----------------- | -------------------- | ----------------- |
@@ -57,4 +57,4 @@ If you prefer not to store API keys in the admin panel, you can set them as envi
 | OpenAI            | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
 | OpenAI-compatible | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
 
-Add these to your shell profile or deployment environment so they persist across restarts. Provider keys configured in the admin panel take priority over environment variables.
+Add these to your shell profile or deployment environment so they persist across restarts. Provider keys configured in the Web UI take priority over environment variables.

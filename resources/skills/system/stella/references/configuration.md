@@ -36,11 +36,11 @@ Each agent has:
 - An isolated workspace at `$STELLA_HOME/workspaces/{agent_id}/`
 - Its own skills directory
 
-Create agents via the admin panel or directly in the database.
+Create agents via the Web UI or directly in the database.
 
 ## Channel configuration
 
-Channels are stored in `settings_channels`. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. The default instance IDs match their platform types (`telegram`, `qq`, `feishu`, `weixin`) for compatibility. Configure channels via the admin panel.
+Channels are stored in `settings_channels`. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. The default instance IDs match their platform types (`telegram`, `qq`, `feishu`, `weixin`) for compatibility. Configure channels via the Web UI.
 
 **Telegram config fields:**
 
@@ -92,7 +92,7 @@ Environment variables serve as fallbacks for provider API keys:
 | `OPENAI_API_KEY`     | openai/openai-response provider API key     |
 | `OPENAI_BASE_URL`    | openai/openai-response provider base URL    |
 
-Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the admin panel or database directly.
+Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 
 ## Defaults
 

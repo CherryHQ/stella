@@ -43,13 +43,13 @@ func serverCommand() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:    "host",
-				Usage:   "Host/interface for admin panel",
+				Usage:   "Host/interface for Web UI",
 				Value:   "127.0.0.1",
 				EnvVars: []string{"HOST"},
 			},
 			&ucli.IntFlag{
 				Name:    "port",
-				Usage:   "Port for admin panel",
+				Usage:   "Port for Web UI",
 				Value:   defaultAdminPort,
 				EnvVars: []string{"PORT"},
 			},
@@ -90,14 +90,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []pkgchannel.Channel
 
-	// Create auth store and policy engine for channel bots and admin panel.
+	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
 	engine, err := auth.NewEngine(gctx, as)
 	if err != nil {
 		return fmt.Errorf("create auth engine: %w", err)
 	}
 
-	// Link codes are shared between admin panel and channel bots.
+	// Link codes are shared between Web UI and channel bots.
 	linkCodes, err := auth.NewSharedLinkCodeStore(gctx, s.db)
 	if err != nil {
 		return fmt.Errorf("create link code store: %w", err)
@@ -164,15 +164,15 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
 
-	// Start admin panel server.
+	// Start Web UI server.
 	listenAddr := adminListenAddress(adminHost, adminPort)
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("admin listen: %w", err)
 	}
 	addr := ln.Addr().String()
-	slog.Info("starting admin panel", "addr", addr)
-	fmt.Printf("Admin panel running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
+	slog.Info("starting Web UI", "addr", addr)
+	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
 
 	httpSrv := &http.Server{Handler: adminSrv.Handler()}
 	g.Go(func() error {
@@ -190,7 +190,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	if len(channels) == 0 && managedChannels.Started == 0 {
 		reason := noRunningChannelReason(managedChannels)
-		slog.Warn(reason+"; running admin panel only", "configured_channels", managedChannels.Configured)
+		slog.Warn(reason+"; running Web UI only", "configured_channels", managedChannels.Configured)
 	}
 
 	// Start all channels.

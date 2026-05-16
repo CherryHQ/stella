@@ -38,9 +38,9 @@ You can specify the mode when creating a job:
 
 ## Managing Jobs
 
-### From the Admin Panel
+### From the Web UI
 
-Open the admin panel to see all your scheduled jobs. You can:
+Open the Web UI to see all your scheduled jobs. You can:
 
 - View job status, schedule, and last run time
 - Enable or disable jobs
@@ -93,7 +93,7 @@ This is useful for:
 
 ### Setting Up Heartbeat
 
-Configure heartbeat from the admin panel:
+Configure heartbeat from the Web UI:
 
 1. Enable heartbeat monitoring.
 2. Set the poll interval (for example, every 10 minutes).

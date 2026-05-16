@@ -183,7 +183,7 @@ binaries:
 | `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID       |
 | `oauth.brand`        | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
 
-`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。飞书/Lark 来源仍需要先在管理面板中配置 Lark CLI 插件凭据。
+`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。飞书/Lark 来源仍需要先在Web UI中配置 Lark CLI 插件凭据。
 
 ## 状态与缓存
 

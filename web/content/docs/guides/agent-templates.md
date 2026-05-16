@@ -25,7 +25,7 @@ Each template includes a personality (called a "soul") that shapes how the agent
 
 ## Creating an agent from a template
 
-1. Open the admin panel.
+1. Open the Web UI.
 2. Go to **Agents** and click **Add agent**.
 3. You see a grid of available templates plus a "Start from blank" option.
 4. Pick a template.

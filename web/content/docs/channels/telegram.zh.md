@@ -9,7 +9,7 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 开始之前，请确保你已具备：
 
 - 一个正在运行的 Stella 服务器（`stella server`）
-- 至少在管理面板中配置了一个 AI 提供商（如 Anthropic、OpenAI）
+- 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 一个 Telegram 账号
 
 ## 设置
@@ -21,14 +21,14 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
    stella server
    ```
 
-3. 打开管理面板 `http://localhost:25678`。
+3. 打开Web UI `http://localhost:25678`。
 4. 进入 **Channels** 页面，添加一个新的 Telegram 频道实例。
 5. 将你的 bot token 粘贴到配置中并保存。
 6. 重启 `stella server` 以激活新频道。
 
-你可以创建多个 Telegram 频道实例（如果你有多个机器人）。每个实例可以在管理面板中绑定到专用的 agent。
+你可以创建多个 Telegram 频道实例（如果你有多个机器人）。每个实例可以在Web UI中绑定到专用的 agent。
 
-所有频道配置（token、群组模式、允许的 ID、专用 agent 绑定等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（token、群组模式、允许的 ID、专用 agent 绑定等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
 ## 多用户支持
 
@@ -43,7 +43,7 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 在私聊中，这会设置你的默认 agent。在群组中，这会设置整个群组的活跃 agent。
 
-如果频道实例在管理面板中绑定了专用 agent，则该机器人上的所有聊天都使用绑定的 agent，`/agent` 切换会被禁用。
+如果频道实例在Web UI中绑定了专用 agent，则该机器人上的所有聊天都使用绑定的 agent，`/agent` 切换会被禁用。
 
 ## 流式响应
 
@@ -98,7 +98,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 群组支持
 
-机器人支持群聊，具有可配置的响应行为。在管理面板中设置群组模式：
+机器人支持群聊，具有可配置的响应行为。在Web UI中设置群组模式：
 
 - `mention` -- 仅在被 @提及时响应（默认）
 - `always` -- 响应所有消息
@@ -106,11 +106,11 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 访问控制
 
-你可以在管理面板中添加允许的用户 ID 来限制哪些 Telegram 用户可以与机器人交互。留空则允许所有用户。在 Telegram 中使用 `/whoami` 命令获取你的用户 ID。
+你可以在Web UI中添加允许的用户 ID 来限制哪些 Telegram 用户可以与机器人交互。留空则允许所有用户。在 Telegram 中使用 `/whoami` 命令获取你的用户 ID。
 
 ## 通知
 
-机器人同时作为通知后端。你可以在管理面板中配置默认通知聊天和可选的广播频道。
+机器人同时作为通知后端。你可以在Web UI中配置默认通知聊天和可选的广播频道。
 
 用于：
 
@@ -138,7 +138,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 ## 配置参考
 
-以下所有设置都通过管理面板管理。
+以下所有设置都通过Web UI管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |
@@ -152,13 +152,13 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且 Telegram 频道已在管理面板中配置。
+- 确保 `stella server` 正在运行，且 Telegram 频道已在Web UI中配置。
 - 仔细检查 bot token 是否正确。你可以向 [@BotFather](https://t.me/BotFather) 发消息查看你的机器人列表来确认。
 - 如果设置了访问控制，请确认你的 Telegram 用户 ID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
 
 **机器人在群组中不响应？**
 
-- 检查管理面板中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
+- 检查Web UI中的 `group_mode` 设置。默认为 `mention`，即你需要 @提及机器人。
 - 确保机器人已被添加到群组中，并有权限读取消息。
 
 **图片或文件未被分析？**
@@ -168,5 +168,5 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **通知不工作？**
 
-- 在管理面板中将 `notify_chat` 字段设置为你希望接收通知的聊天 ID。
+- 在Web UI中将 `notify_chat` 字段设置为你希望接收通知的聊天 ID。
 - 确保机器人已在该聊天中有过对话。

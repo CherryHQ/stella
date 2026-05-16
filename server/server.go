@@ -51,7 +51,7 @@ type Server struct {
 
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
-// admin panel can be consumed by channel handlers.
+// Web UI can be consumed by channel handlers.
 func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
 	if pluginHost == nil {
 		panic("admin: plugin host is required")

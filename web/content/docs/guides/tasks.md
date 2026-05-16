@@ -26,14 +26,14 @@ Ask Stella in any conversation to work on something in the background. For examp
 
 Stella creates the task, gives you an ID, and starts working on it. You can keep chatting about other things.
 
-You can also create tasks from the admin panel under the **Tasks** page.
+You can also create tasks from the Web UI under the **Tasks** page.
 
 ## Checking progress
 
 You can check on a task at any time:
 
 - **In conversation** -- ask Stella something like "What's the status of my research task?" or "Show me my running tasks."
-- **In the admin panel** -- open the **Tasks** page to see all your tasks, their current status, and a timeline of events.
+- **In the Web UI** -- open the **Tasks** page to see all your tasks, their current status, and a timeline of events.
 
 Stella also sends you a notification when a task finishes, fails, or needs your attention.
 
@@ -43,7 +43,7 @@ Sometimes Stella needs more information before it can continue. When this happen
 
 You can respond in two ways:
 
-1. **Admin panel** -- open the task detail page and type your response in the reply box.
+1. **Web UI** -- open the task detail page and type your response in the reply box.
 2. **In conversation** -- ask Stella to respond to the blocked task with your answer.
 
 Once you respond, the task resumes automatically.
@@ -58,11 +58,11 @@ For important or risky steps, Stella may pause and request your review before pr
 
 If you approve, Stella continues. If you reject (optionally with a reason), the task stops.
 
-You can approve or reject from the admin panel task detail page or by telling Stella in conversation.
+You can approve or reject from the Web UI task detail page or by telling Stella in conversation.
 
 ## Managing tasks
 
-From the admin panel **Tasks** page, you can:
+From the Web UI **Tasks** page, you can:
 
 - View all your tasks and filter by status
 - Open a task to see its full event timeline

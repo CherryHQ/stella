@@ -46,7 +46,7 @@ export OPENAI_API_KEY="sk-..."
 stella server
 ```
 
-Stella 启动后会在 [http://localhost:25678](http://localhost:25678) 提供管理面板。在浏览器中打开它。
+Stella 启动后会在 [http://localhost:25678](http://localhost:25678) 提供Web UI。在浏览器中打开它。
 
 如需使用其他端口：
 
@@ -56,25 +56,25 @@ stella server --port 8080
 
 ## 配置服务商
 
-1. 打开管理面板 [http://localhost:25678](http://localhost:25678)。
+1. 打开Web UI [http://localhost:25678](http://localhost:25678)。
 2. 点击侧边栏的 **Providers**。
 3. 点击 **Add Provider** 并输入你的 API 密钥。
 4. Stella 会自动检测你的服务商提供的可用模型。
 
-如果你在上一步已经设置了环境变量，Stella 会自动将其作为备选方案使用。在管理面板中配置服务商可以让你更精确地控制使用哪些模型。
+如果你在上一步已经设置了环境变量，Stella 会自动将其作为备选方案使用。在Web UI中配置服务商可以让你更精确地控制使用哪些模型。
 
 ## 开始你的第一次对话
 
 你有两种方式：
 
-**从管理面板：** 打开 **Chat** 部分，直接开始输入。Stella 会使用你配置的模型进行回复。
+**从Web UI：** 打开 **Chat** 部分，直接开始输入。Stella 会使用你配置的模型进行回复。
 
 **从 Telegram：** 连接一个 Telegram 机器人，从手机上与 Stella 聊天。设置说明请参阅 [Telegram 频道指南](/docs/channels/telegram)。
 
 ## 下一步
 
 - [将 Stella 部署为服务](/docs/getting-started/deployment)，使其在开机时自动运行
-- 在管理面板中[配置智能体、模型和设置](/docs/getting-started/configuration)
+- 在Web UI中[配置智能体、模型和设置](/docs/getting-started/configuration)
 - 连接 [Telegram](/docs/channels/telegram)、[QQ](/docs/channels/qq)、[飞书](/docs/channels/feishu) 或[微信](/docs/channels/weixin)，随时随地聊天
 - [设置提醒和定时任务](/docs/guides/scheduling)，让 Stella 自动工作
 - [浏览并安装技能](/docs/guides/skills)，扩展 Stella 的能力
