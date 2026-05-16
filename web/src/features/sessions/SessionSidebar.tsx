@@ -720,6 +720,28 @@ export function SessionSidebar({
             />
             {isOpen("skill") && (
               <>
+                {/* Built-in folder — system + agent skills, read-only, pinned top */}
+                {(agentSkills.length > 0 || systemSkills.length > 0) && (
+                  <>
+                    <SubFolder
+                      label="Built-in"
+                      count={agentSkills.length + systemSkills.length}
+                      open={isFolderOpen("skill:builtin")}
+                      onToggle={() => toggleFolder("skill:builtin")}
+                    />
+                    {isFolderOpen("skill:builtin") &&
+                      [...systemSkills, ...agentSkills].map((s) => (
+                        <NavRow
+                          key={`${s.scope}:${s.id}`}
+                          active={panelSel.kind === "skill" && panelSel.id === s.id}
+                          icon={<IconStar />}
+                          title={s.name}
+                          sub={s.description}
+                          onClick={() => onSelect({ kind: "skill", id: s.id })}
+                        />
+                      ))}
+                  </>
+                )}
                 {/* User skills — top level, editable */}
                 {userSkills.map((s) => (
                   <NavRow
@@ -738,28 +760,6 @@ export function SessionSidebar({
                       No skills yet.
                     </p>
                   )}
-                {/* Built-in folder — system + agent skills, read-only */}
-                {(agentSkills.length > 0 || systemSkills.length > 0) && (
-                  <>
-                    <SubFolder
-                      label="Built-in"
-                      count={agentSkills.length + systemSkills.length}
-                      open={isFolderOpen("skill:builtin")}
-                      onToggle={() => toggleFolder("skill:builtin")}
-                    />
-                    {isFolderOpen("skill:builtin") &&
-                      [...agentSkills, ...systemSkills].map((s) => (
-                        <NavRow
-                          key={`${s.scope}:${s.id}`}
-                          active={panelSel.kind === "skill" && panelSel.id === s.id}
-                          icon={<IconStar />}
-                          title={s.name}
-                          sub={s.description}
-                          onClick={() => onSelect({ kind: "skill", id: s.id })}
-                        />
-                      ))}
-                  </>
-                )}
               </>
             )}
           </div>

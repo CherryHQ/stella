@@ -75,16 +75,19 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const [sk, content] = await Promise.all([
-        api<Skill>("GET", skillUrl(scope, agentId, skillId)),
-        api<string>("GET", skillFileUrl(scope, agentId, skillId)).catch(() => ""),
+      const [sk, fileContent] = await Promise.all([
+        api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId)),
+        api<string>("GET", skillFileUrl(scope, agentId, skillId)).catch(() => null),
       ]);
+      // system skills may embed content in the JSON body; use it as fallback
+      const content =
+        typeof fileContent === "string" && fileContent ? fileContent : (sk.content ?? "");
       const f: Form = {
         name: sk.name,
-        description: sk.description,
-        status: sk.status,
-        disable_model_invocation: sk.disable_model_invocation,
-        content: typeof content === "string" ? content : "",
+        description: sk.description ?? "",
+        status: sk.status ?? "active",
+        disable_model_invocation: sk.disable_model_invocation ?? false,
+        content,
       };
       setSkill(sk);
       setSavedForm(f);
@@ -208,30 +211,28 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           </div>
         </div>
 
-        {/* Read-only view (system / agent scope) */}
-        {isReadOnly && (
+        {/* Read view — shown for all scopes when not editing */}
+        {!editing && !isNew && (
           <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              {skill?.scope === "system"
-                ? "Built-in skill — read only."
-                : "Agent skill — read only."}
-            </p>
             {form.description && (
-              <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-1">
-                  Description
-                </p>
-                <p className="text-sm text-foreground/90">{form.description}</p>
-              </div>
+              <p className="text-sm text-muted-foreground">{form.description}</p>
             )}
-            {form.content && (
-              <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
-                  SKILL.md
-                </p>
+            <div>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
+                SKILL.md
+              </p>
+              {form.content ? (
                 <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/90 leading-relaxed bg-muted/40 rounded-lg p-4">
                   {form.content}
                 </pre>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No content.</p>
+              )}
+            </div>
+            {!isReadOnly && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Model invocation:</span>
+                <span>{form.disable_model_invocation ? "disabled" : "enabled"}</span>
               </div>
             )}
           </div>
@@ -294,36 +295,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
               </label>
             </div>
           </>
-        )}
-
-        {/* Read view for user skills when not editing */}
-        {!isReadOnly && !isNew && !editing && (
-          <div className="space-y-4">
-            {form.description && (
-              <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-1">
-                  Description
-                </p>
-                <p className="text-sm text-foreground/90">{form.description}</p>
-              </div>
-            )}
-            {form.content && (
-              <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
-                  SKILL.md
-                </p>
-                <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/90 leading-relaxed bg-muted/40 rounded-lg p-4">
-                  {form.content}
-                </pre>
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-1">
-              <span className="text-sm text-muted-foreground">Model invocation:</span>
-              <span className="text-sm">
-                {form.disable_model_invocation ? "disabled" : "enabled"}
-              </span>
-            </div>
-          </div>
         )}
       </div>
 
