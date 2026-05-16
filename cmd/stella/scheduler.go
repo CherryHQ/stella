@@ -84,7 +84,7 @@ func schedulerAddCommand() *ucli.Command {
 				body.AgentId = &agentID
 			}
 
-			job, err := apiCallJSON[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
+			job, err := apiclient.CallJSON[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
 				return api.CreateSchedulerJob(c.Context, body)
 			})
 			if err != nil {
@@ -103,7 +103,7 @@ func schedulerListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			list, err := apiCallJSON[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.CallJSON[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListSchedulerJobs(c.Context)
 			})
 			if err != nil {
@@ -147,7 +147,7 @@ func schedulerRemoveCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella scheduler remove <job-id>")
 			}
-			if err := apiDoJSON(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.DoJSON(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteSchedulerJob(c.Context, id)
 			}); err != nil {
 				return err

@@ -35,7 +35,7 @@ func oauthProvidersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			providers, err := apiCall[[]apiclient.OAuthProviderStatus](func(api *apiclient.Client) (*http.Response, error) {
+			providers, err := apiclient.Call[[]apiclient.OAuthProviderStatus](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListOAuthProviders(c.Context)
 			})
 			if err != nil {
@@ -72,7 +72,7 @@ func oauthConnectCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth connect <provider>")
 			}
-			flow, err := apiCall[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
+			flow, err := apiclient.Call[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
 				return api.StartOAuthFlow(c.Context, provider)
 			})
 			if err != nil {
@@ -93,7 +93,7 @@ func oauthConnectCommand() *ucli.Command {
 				case <-c.Done():
 					return c.Err()
 				case <-ticker.C:
-					status, err := apiCall[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
+					status, err := apiclient.Call[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
 						return api.PollOAuthFlow(c.Context, provider, flow.FlowId)
 					})
 					if err != nil {
@@ -127,7 +127,7 @@ func oauthStatusCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth status <provider>")
 			}
-			status, err := apiCall[apiclient.OAuthConnectedResponse](func(api *apiclient.Client) (*http.Response, error) {
+			status, err := apiclient.Call[apiclient.OAuthConnectedResponse](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetOAuthConnected(c.Context, provider)
 			})
 			if err != nil {
@@ -160,7 +160,7 @@ func oauthDisconnectCommand() *ucli.Command {
 			if provider == "" {
 				return fmt.Errorf("usage: stella oauth disconnect <provider>")
 			}
-			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DisconnectOAuth(c.Context, provider)
 			}); err != nil {
 				return err

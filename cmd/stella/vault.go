@@ -36,7 +36,7 @@ func vaultListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			entries, err := apiCall[[]apiclient.VaultEntry](func(api *apiclient.Client) (*http.Response, error) {
+			entries, err := apiclient.Call[[]apiclient.VaultEntry](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListVaultEntries(c.Context)
 			})
 			if err != nil {
@@ -72,7 +72,7 @@ func vaultGetCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault get <name>")
 			}
-			entry, err := apiCall[apiclient.VaultEntryValue](func(api *apiclient.Client) (*http.Response, error) {
+			entry, err := apiclient.Call[apiclient.VaultEntryValue](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetVaultEntry(c.Context, name)
 			})
 			if err != nil {
@@ -108,7 +108,7 @@ func vaultSetCommand() *ucli.Command {
 			case "":
 				return fmt.Errorf("usage: stella vault set <name> <value>  (use '-' to read from stdin)")
 			}
-			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.SetVaultEntry(c.Context, name, apiclient.SetVaultEntryJSONRequestBody{Value: value})
 			}); err != nil {
 				return err
@@ -129,7 +129,7 @@ func vaultDeleteCommand() *ucli.Command {
 			if name == "" {
 				return fmt.Errorf("usage: stella vault delete <name>")
 			}
-			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteVaultEntry(c.Context, name)
 			}); err != nil {
 				return err

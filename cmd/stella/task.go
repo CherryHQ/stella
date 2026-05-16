@@ -45,7 +45,7 @@ func taskListCommand() *ucli.Command {
 			if s := c.String("status"); s != "" {
 				params.Status = &s
 			}
-			list, err := apiCall[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListAgentTasks(c.Context, params)
 			})
 			if err != nil {
@@ -82,7 +82,7 @@ func taskGetCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task get <task-id>")
 			}
-			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetAgentTask(c.Context, id)
 			})
 			if err != nil {
@@ -121,7 +121,7 @@ func taskCreateCommand() *ucli.Command {
 			if deps := c.StringSlice("dep"); len(deps) > 0 {
 				body.Deps = &deps
 			}
-			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
 				return api.CreateAgentTask(c.Context, body)
 			})
 			if err != nil {
@@ -158,7 +158,7 @@ func taskUpdateCommand() *ucli.Command {
 				prio := apitypes.AgentTaskUpdatePriority(p)
 				body.Priority = &prio
 			}
-			task, err := apiCall[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
 				return api.UpdateAgentTask(c.Context, id, body)
 			})
 			if err != nil {
@@ -179,7 +179,7 @@ func taskDeleteCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task delete <task-id>")
 			}
-			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteAgentTask(c.Context, id)
 			}); err != nil {
 				return err
@@ -215,7 +215,7 @@ func taskActionCommand() *ucli.Command {
 			if m := c.String("message"); m != "" {
 				body.Message = &m
 			}
-			if err := apiDo(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.AgentTaskAction(c.Context, id, body)
 			}); err != nil {
 				return err
@@ -239,7 +239,7 @@ func taskEventsCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task events <task-id>")
 			}
-			list, err := apiCall[apiclient.AgentTaskEventList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apiclient.AgentTaskEventList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListAgentTaskEvents(c.Context, id)
 			})
 			if err != nil {

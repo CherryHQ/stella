@@ -43,7 +43,7 @@ read messages, and send mail directly from the terminal.`,
 func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Config, error) {
 	resp, err := api.GetVaultEntry(ctx, emailConfigKey)
 	if err != nil {
-		return nil, wrapServerErr(err)
+		return nil, apiclient.WrapServerErr(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -57,7 +57,7 @@ func loadVaultEmailConfig(ctx context.Context, api *apiclient.Client) (*email.Co
 			Value string `json:"value"`
 		} `json:"data"`
 	}
-	if err := decodeJSON(resp, &envelope); err != nil {
+	if err := apiclient.DecodeJSON(resp, &envelope); err != nil {
 		return nil, err
 	}
 
@@ -83,10 +83,10 @@ func saveVaultEmailConfig(ctx context.Context, api *apiclient.Client, cfg *email
 		Value: string(data),
 	})
 	if err != nil {
-		return wrapServerErr(err)
+		return apiclient.WrapServerErr(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	return decodeJSON(resp, nil)
+	return apiclient.DecodeJSON(resp, nil)
 }
 
 // loadEmailConfig tries EMAIL_CONFIG env var first (fast, no server needed).
@@ -98,7 +98,7 @@ func loadEmailConfig(ctx context.Context) (*email.Config, error) {
 	if err == nil {
 		return cfg, nil
 	}
-	api, apiErr := newAPIClient()
+	api, apiErr := apiclient.NewAPIClient()
 	if apiErr != nil {
 		return nil, fmt.Errorf("EMAIL_CONFIG env var not set (vault API fallback also unavailable: %v)", apiErr) //nolint:errorlint
 	}
@@ -158,7 +158,7 @@ func emailConfigAddCommand() *ucli.Command {
 				return err
 			}
 
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}
@@ -248,7 +248,7 @@ func emailConfigRemoveCommand() *ucli.Command {
 				return err
 			}
 
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}
@@ -278,7 +278,7 @@ func emailConfigListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}
@@ -325,7 +325,7 @@ func emailConfigShowCommand() *ucli.Command {
 				return err
 			}
 
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}
@@ -373,7 +373,7 @@ func emailConfigDefaultCommand() *ucli.Command {
 				return err
 			}
 
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}

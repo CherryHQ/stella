@@ -30,7 +30,7 @@ func recallySaveCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "published-at", Usage: "Original publication date (RFC3339)"},
 		},
 		Action: func(c *ucli.Context) error {
-			api, err := newAPIClient()
+			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
 			}
@@ -73,11 +73,11 @@ func recallySaveCommand() *ucli.Command {
 
 			resp, err := api.SaveArticle(c.Context, body)
 			if err != nil {
-				return wrapServerErr(err)
+				return apiclient.WrapServerErr(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
 			var article apiclient.Article
-			if err := decodeJSON(resp, &article); err != nil {
+			if err := apiclient.DecodeJSON(resp, &article); err != nil {
 				return err
 			}
 			created := resp.StatusCode == http.StatusCreated
@@ -109,7 +109,7 @@ func recallyListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
-				Limit: ptr(c.Int("limit")),
+				Limit: apiclient.Ptr(c.Int("limit")),
 			}
 			if v := c.String("status"); v != "" {
 				st := apiclient.ArticleStatus(v)
@@ -120,9 +120,9 @@ func recallyListCommand() *ucli.Command {
 				params.SourceType = &st
 			}
 			if c.IsSet("starred") {
-				params.Starred = ptr(c.Bool("starred"))
+				params.Starred = apiclient.Ptr(c.Bool("starred"))
 			}
-			list, err := apiCallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.CallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, params)
 			})
 			if err != nil {
@@ -158,10 +158,10 @@ func recallySearchCommand() *ucli.Command {
 			if query == "" {
 				return fmt.Errorf("usage: stella recally search <query>")
 			}
-			list, err := apiCallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.CallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
 					Q:     &query,
-					Limit: ptr(c.Int("limit")),
+					Limit: apiclient.Ptr(c.Int("limit")),
 				})
 			})
 			if err != nil {
@@ -194,7 +194,7 @@ func recallyReadCommand() *ucli.Command {
 				return fmt.Errorf("usage: stella recally read <article-id>")
 			}
 			include := "content"
-			article, err := apiCallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+			article, err := apiclient.CallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetArticle(c.Context, articleID, &apiclient.GetArticleParams{Include: &include})
 			})
 			if err != nil {
@@ -234,10 +234,10 @@ func recallyUpdateCommand() *ucli.Command {
 				body.Status = &st
 			}
 			if c.IsSet("starred") {
-				body.Starred = ptr(c.Bool("starred"))
+				body.Starred = apiclient.Ptr(c.Bool("starred"))
 			}
 			if c.IsSet("summary") {
-				body.Summary = ptr(c.String("summary"))
+				body.Summary = apiclient.Ptr(c.String("summary"))
 			}
 			if c.IsSet("tags") {
 				tags := c.StringSlice("tags")
@@ -246,7 +246,7 @@ func recallyUpdateCommand() *ucli.Command {
 			if body.Status == nil && body.Starred == nil && body.Summary == nil && body.Tags == nil {
 				return fmt.Errorf("no updates specified")
 			}
-			updated, err := apiCallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+			updated, err := apiclient.CallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
 				return api.UpdateArticle(c.Context, articleID, body)
 			})
 			if err != nil {
@@ -268,7 +268,7 @@ func recallyDeleteCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally delete <article-id>")
 			}
-			if err := apiDoJSON(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.DoJSON(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteArticle(c.Context, articleID)
 			}); err != nil {
 				return err
@@ -356,13 +356,4 @@ func sourceTypePtr(v string) *apiclient.SourceType {
 	}
 	st := apiclient.SourceType(v)
 	return &st
-}
-
-// wrapServerErr decorates connection errors with a hint about STELLA_SERVER_URL
-// so users immediately understand whether the server is reachable.
-func wrapServerErr(err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("call stella server: %w (run 'stella serve' or set STELLA_SERVER_URL)", err)
 }

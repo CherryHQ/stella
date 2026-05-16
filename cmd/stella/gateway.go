@@ -88,7 +88,7 @@ func serverAction(c *ucli.Context) error {
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
-	var channels []pkgchannel.Channel
+	channels := make([]pkgchannel.Channel, 0)
 
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
