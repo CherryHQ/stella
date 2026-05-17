@@ -4,37 +4,37 @@ const translations = {
     about: "About",
     docs: "Docs",
     // Index - Hero
-    heroTag: "AI partner / multi-tenant / multi-agent",
-    heroTitle1: "Your AI partner",
-    heroTitle2: "for people, teams,",
-    heroTitle3: "and everyday work",
+    heroTag: "AI partners / memory / safe work",
+    heroTitle1: "AI partners",
+    heroTitle2: "for every",
+    heroTitle3: "person",
     heroDescription:
-      "Stella is not just a chat agent. She is a long-running teammate, household manager, and private assistant with dedicated memory, workspaces, tools, schedules, and sandboxed agents.",
+      "Stella gives every person an AI partner that remembers them, works through trusted tools, and shows up where they already chat.",
     readTheDocs: "Read the docs",
     sourceOnGithub: "Source on GitHub",
     // Index - Conversation
     memoryLabel: "Dedicated memory",
-    memoryTitle: "She knows each person differently",
+    memoryTitle: "She remembers the person, not just the thread",
     memoryBody:
-      "Each user gets dedicated memory with each agent. Your coding partner can remember your project habits, while the same agent understands a teammate or family member on their own terms.",
+      "Every user-agent relationship has its own memory. Your coding partner can learn how you work, while the same agent understands a teammate or family member on their own terms.",
     conversationLabel: "conversation",
     // Index - Features
     featuresTitle: "Why Stella is different",
-    feature1Title: "Multi-tenant from the start",
+    feature1Title: "Remembers each person",
     feature1Body:
-      "Stella supports shared deployments for teams, families, and personal work. Users, identities, secrets, tasks, and memories stay separated where they should.",
-    feature2Title: "Agents with real roles",
+      "Memory is scoped per user per agent, so Stella understands different people differently without merging everyone into one profile.",
+    feature2Title: "Works through agents",
     feature2Body:
-      "Create a coding partner, operations teammate, writing editor, family scheduler, or research assistant. Each agent has its own model, personality, skills, schedules, workspace, and memory.",
-    feature3Title: "Workspaces and sandboxes",
+      "Create agents for coding, writing, operations, family routines, research, and support. Each agent can have its own role, tools, skills, schedules, and model.",
+    feature3Title: "Acts safely",
     feature3Body:
-      "Agents can work with files and tools inside dedicated workspaces. Built-in sandbox backends define execution boundaries and network policy for tool use.",
-    feature4Title: "Present where people already talk",
+      "Agents work in dedicated workspaces with sandbox policies and controlled tool access, so useful work has clear boundaries.",
+    feature4Title: "Meets you in chat",
     feature4Body:
-      "Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal. Stella can chat, receive files, run tasks, and notify the right person through connected channels.",
-    feature5Title: "Memory with receipts",
+      "Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.",
+    feature5Title: "Keeps routines moving",
     feature5Body:
-      "Lossless Context Management compresses older conversations while keeping the source history searchable. Stella can return to the exact context behind a memory when it matters.",
+      "Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify the right people.",
     // Index - Capabilities
     capabilitiesTitle: "Built-in capabilities",
     capabilitiesSubtitle: "Everything you need, nothing you don't.",
@@ -75,14 +75,14 @@ const translations = {
     capSandboxDesc:
       "Agents run tools inside explicit execution boundaries with per-agent workspace and network policy.",
     // Index - Footer CTA
-    getStarted: "Bring Stella into your work",
-    getStartedBody: "Start locally, then invite the agents and people you need.",
+    getStarted: "Give everyone an AI partner",
+    getStartedBody: "Start locally, then add the people, agents, tools, and channels you need.",
     getStartedAlt: "Also available via go install and direct binary download.",
     // Index - Meet Stella (used on About page)
     meetStella: "Meet Stella",
     meetStellaTitle: "A calm AI partner",
     meetStellaBody1:
-      "Stella is more than a tool. She is a quiet, trustworthy partner designed for long-running relationships: a colleague for a team, a manager for a home, and a private assistant for personal work.",
+      "Stella is more than a tool. She is a quiet, trustworthy partner designed for long-running relationships: a colleague at work, a manager for home routines, and a private assistant for personal projects.",
     meetStellaBody2:
       "Built with real warmth and digital precision. Multi-user, memory-aware, tool-capable, and always composed.",
     learnMoreAboutStella: "Learn more about Stella",
@@ -91,7 +91,7 @@ const translations = {
     aboutHeroTitle2: "reliable",
     aboutHeroTitle3: "companion",
     aboutHeroDescription:
-      "Stella is a multi-user AI partner with real warmth and digital precision. She remembers what matters for each person, connects tools and channels, and stays quietly useful day after day.",
+      "Stella gives each person an AI partner with real warmth and digital precision. She remembers what matters, connects tools and channels, and stays quietly useful day after day.",
     // About - Traits
     traitsTitle: "What defines Stella",
     traitsIntro: "Stella is not another generic AI chatbot. She is a",
@@ -142,35 +142,32 @@ const translations = {
   zh: {
     about: "关于",
     docs: "文档",
-    heroTag: "AI 伙伴 / 多租户 / 多 agent",
-    heroTitle1: "你的 AI 伙伴",
-    heroTitle2: "面向个人、团队",
-    heroTitle3: "和日常工作",
+    heroTag: "AI 伙伴 / 记忆 / 安全执行",
+    heroTitle1: "给每个人",
+    heroTitle2: "一个 AI",
+    heroTitle3: "伙伴",
     heroDescription:
-      "Stella 不只是一个聊天 agent。她是长期与你一起工作的同事、家庭管家和私人助手，拥有专属记忆、工作区、工具、定时任务和内置沙箱。",
+      "Stella 为每个人提供一个会记住你、能使用可信工具做事、并出现在常用聊天工具里的 AI 伙伴。",
     readTheDocs: "阅读文档",
     sourceOnGithub: "GitHub 源码",
     memoryLabel: "专属记忆",
-    memoryTitle: "她对每个人都有不同理解",
+    memoryTitle: "她记住的是人，而不只是对话",
     memoryBody:
-      "每个用户和每个 agent 之间都有专属记忆。你的编程伙伴可以记住你的项目习惯，同一个 agent 也能以另一套上下文理解队友或家人。",
+      "每个用户和每个 agent 之间都有专属记忆。你的编程伙伴可以学习你的工作方式，同一个 agent 也能以另一套上下文理解队友或家人。",
     conversationLabel: "对话",
     featuresTitle: "Stella 的不同之处",
-    feature1Title: "天生多租户",
+    feature1Title: "记住每个人",
     feature1Body:
-      "Stella 支持团队、家庭和个人共用同一套部署。用户、身份、密钥、任务和记忆在需要隔离的地方保持隔离。",
-    feature2Title: "有真实角色的 agent",
+      "记忆按用户和 agent 隔离，因此 Stella 对不同的人有不同理解，而不会把所有人合并成同一份画像。",
+    feature2Title: "通过 agent 做事",
     feature2Body:
-      "创建编程伙伴、运营同事、写作编辑、家庭日程管家或研究助手。每个 agent 都有自己的模型、性格、技能、定时任务、工作区和记忆。",
-    feature3Title: "工作区和沙箱",
-    feature3Body:
-      "agent 可以在专属工作区里处理文件和工具。内置沙箱后端为工具执行提供明确边界，并支持按 agent 配置网络策略。",
-    feature4Title: "出现在人们聊天的地方",
-    feature4Body:
-      "Telegram、QQ、飞书、微信、Web UI 或终端。Stella 可以聊天、接收文件、执行任务，并通过已连接渠道通知正确的人。",
-    feature5Title: "有来源的记忆",
-    feature5Body:
-      "Lossless Context Management 会压缩旧对话，同时保留原始历史可搜索。需要时，Stella 可以回到某段记忆背后的准确上下文。",
+      "为编程、写作、运营、家庭事务、研究和支持创建不同 agent。每个 agent 都可以有自己的角色、工具、技能、定时任务和模型。",
+    feature3Title: "在安全边界内行动",
+    feature3Body: "agent 在专属工作区和沙箱策略中使用工具，让有用的工作始终有清晰边界。",
+    feature4Title: "出现在你已经聊天的地方",
+    feature4Body: "Telegram、QQ、飞书、微信、Web UI 和终端都可以成为同一套 AI 伙伴系统的入口。",
+    feature5Title: "持续推动日常事务",
+    feature5Body: "设置提醒、周期性任务、阅读摘要和后台任务；它们可以跨重启保留，并通知正确的人。",
     capabilitiesTitle: "内置能力",
     capabilitiesSubtitle: "你需要的都有，不需要的都没有。",
     capSkills: "技能",
@@ -197,20 +194,20 @@ const translations = {
     capUsersDesc: "一套 Stella 可以服务多人。每个用户都有自己的密钥、任务、记忆和 agent 关系。",
     capSandbox: "沙箱执行",
     capSandboxDesc: "agent 在明确的执行边界内运行工具，并拥有按 agent 配置的工作区和网络策略。",
-    getStarted: "把 Stella 带进你的工作",
-    getStartedBody: "先从本地开始，再邀请你需要的用户和 agent。",
+    getStarted: "给每个人一个 AI 伙伴",
+    getStartedBody: "先从本地开始，再加入你需要的用户、agent、工具和渠道。",
     getStartedAlt: "也支持 go install 和直接下载二进制文件。",
     meetStella: "认识 Stella",
     meetStellaTitle: "一位沉静的 AI 伙伴",
     meetStellaBody1:
-      "Stella 不仅仅是一个工具。她是一位安静、值得信赖的长期伙伴：可以是团队里的同事、家庭里的管家，也可以是个人工作的私人助手。",
+      "Stella 不仅仅是一个工具。她是一位安静、值得信赖的长期伙伴：可以是工作里的同事、家庭事务的管家，也可以是个人项目的私人助手。",
     meetStellaBody2: "融合真实温度与数字精确。多用户、记忆感知、能使用工具，并始终沉着。",
     learnMoreAboutStella: "了解更多关于 Stella",
     aboutHeroTitle1: "安静、",
     aboutHeroTitle2: "可靠的",
     aboutHeroTitle3: "伙伴",
     aboutHeroDescription:
-      "Stella 是一个多用户 AI 伙伴，兼具真实温度与数字精确。她为每个人记住重要信息，连接工具和渠道，日复一日地安静而有用。",
+      "Stella 为每个人提供一个兼具真实温度与数字精确的 AI 伙伴。她记住重要信息，连接工具和渠道，日复一日地安静而有用。",
     traitsTitle: "Stella 的特质",
     traitsIntro: "Stella 不是另一个普通的 AI 聊天机器人。她是一位",
     traitsIntroBold: "沉静的数字伙伴",
