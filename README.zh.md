@@ -106,4 +106,4 @@ mise run format   # Lint 和格式化
 
 ## 许可证
 
-MIT
+GNU Affero General Public License v3.0 或更高版本。详见 [LICENSE](LICENSE)。
