@@ -1,6 +1,6 @@
 ---
 name: Stella
-description: AI partners for every person
+description: A multi-tenant AI partner for teams, homes, and personal work
 colors:
   ember-gold: "#c27a2a"
   deep-ink: "#1a1a1a"

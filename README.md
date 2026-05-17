@@ -2,27 +2,25 @@
   <img src="avatar.png" width="200" alt="stella" />
 </p>
 
-<p align="center">
-  English | <a href="README.zh.md">中文</a>
-</p>
-
-# Stella — AI partners for every person
+# Stella — An AI partner for people, teams, and everyday work
 
 > **⚠️ Under Heavy Development** — Stella is not stable. APIs, config formats, and behavior may change without notice. Not recommended for production use.
 
-Stella gives every person an AI partner that remembers them, works through trusted tools, and shows up where they already chat.
+Stella is not just a chat agent. She is a long-running AI partner you can bring into your company, home, or personal workflow: a teammate who remembers project context, a household manager who keeps routines moving, or a private assistant who knows how you work.
 
-Use Stella as a teammate at work, a manager for home routines, or a private assistant for personal projects. Each user-agent relationship has its own memory, workspace, tools, schedules, and sandbox boundaries, so Stella can understand different people without flattening everyone into one profile.
+Stella is built as a multi-tenant, multi-user, multi-agent system. Each agent can have its own role, tools, skills, schedules, sandbox policy, and workspace. Each user gets dedicated memory with each agent, so the same writing partner, coding agent, or family assistant can understand different people without flattening everyone into one profile.
 
-Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each agent can have its own role, model, skills, tools, schedules, workspace, and sandbox policy. Deploy Stella where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal.
+Deploy Stella where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal. Conversations, secrets, memories, and workspaces stay under your control.
 
 ## Why use Stella
 
-- **Remembers each person.** Memory is scoped per user per agent, so Stella understands different people differently.
-- **Works through agents.** Create agents for coding, writing, operations, family routines, research, and support.
-- **Acts safely.** Agents work in dedicated workspaces with sandbox policies and controlled tool access.
-- **Meets you in chat.** Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.
-- **Keeps routines moving.** Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify the right people.
+- **A partner, not another chat box.** Stella is designed for recurring relationships and long-running work: company teammate, family manager, personal assistant, research partner, or coding collaborator.
+- **Multi-tenant and multi-user by design.** Stella supports many users from the same deployment. Memories are scoped per user per agent, so each person gets a dedicated relationship with each agent.
+- **Many agents, many roles.** Create a coding agent, writing partner, operations assistant, family scheduler, or reading researcher. Each agent has its own personality, model, skills, tools, schedules, workspace, and sandbox policy.
+- **Workspaces and sandboxes built in.** Agents can work with files and tools inside dedicated workspaces, with sandbox backends controlling execution boundaries and network access.
+- **One presence across every channel.** Start in Telegram, continue in the Web UI, ask from the terminal, or receive notifications in WeChat, QQ, or Feishu. The right agent can meet each user where they already are.
+- **Memory with receipts.** Stella uses Lossless Context Management (LCM) to compress old conversations while keeping the originals searchable. She can drill back into the exact context behind a memory when it matters.
+- **Routines that keep running.** Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify people through connected channels.
 
 ## Quick start
 
@@ -30,13 +28,16 @@ Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each a
 # 1. Install
 brew install CherryHQ/tap/stella
 
-# 2. Start the server
+# 2. Set your API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 3. Start the server
 stella server
 
-# 3. Open the Web UI at http://localhost:25678
+# 4. Open the Web UI at http://localhost:25678
 #    Add your provider and API key under Providers
 
-# 4. Open Chat and start talking
+# 5. Open Chat and start talking
 ```
 
 You can also install with `go install github.com/CherryHQ/stella@latest` or download a binary from [Releases](https://github.com/CherryHQ/stella/releases).
@@ -103,4 +104,4 @@ mise run format   # Lint and format
 
 ## License
 
-GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).
+MIT
