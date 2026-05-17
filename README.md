@@ -2,19 +2,25 @@
   <img src="avatar.png" width="200" alt="stella" />
 </p>
 
-# stella — Your AI assistant that never forgets
+# Stella — An AI partner for people, teams, and everyday work
 
 > **⚠️ Under Heavy Development** — Stella is not stable. APIs, config formats, and behavior may change without notice. Not recommended for production use.
 
-Stella is a self-hosted AI assistant that runs on your machine and talks to you through Telegram, QQ, Feishu, WeChat, or your terminal. She remembers every conversation — even weeks later — because she compresses old context automatically and can pull up the details whenever she needs them. Your data stays local in a SQLite database. Your API keys, your machine, nothing leaves your network.
+Stella is not just a chat agent. She is a long-running AI partner you can bring into your company, home, or personal workflow: a teammate who remembers project context, a household manager who keeps routines moving, or a private assistant who knows how you work.
 
-## What you can do with Stella
+Stella is built as a multi-tenant, multi-user, multi-agent system. Each agent can have its own role, tools, skills, schedules, sandbox policy, and workspace. Each user gets dedicated memory with each agent, so the same writing partner, coding agent, or family assistant can understand different people without flattening everyone into one profile.
 
-- **Chat from anywhere.** Talk to Stella from Telegram, QQ, Feishu, WeChat, or the terminal — all sharing the same memory. Start a conversation on your laptop, pick it up on your phone.
-- **Never lose context.** Stella uses Lossless Context Management (LCM) to compress old messages into summaries while keeping the originals. She can search her history and drill into any summary to recall exactly what you said, even thousands of messages later.
-- **Run multiple agents.** Set up a coding assistant, a writing partner, and a daily planner — each with its own model, personality, and memory. Switch between them with `/agent` in Telegram or `--agent` on the CLI.
-- **Schedule tasks and reminders.** Tell Stella "remind me every morning at 9am to check my email" and she will. Jobs persist across restarts.
-- **Extend with skills.** Browse and install community skills from [skills.sh](https://skills.sh) to teach Stella new abilities — web scraping, file monitoring, workspace automation, and more.
+Deploy Stella where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal. Conversations, secrets, memories, and workspaces stay under your control.
+
+## Why use Stella
+
+- **A partner, not another chat box.** Stella is designed for recurring relationships and long-running work: company teammate, family manager, personal assistant, research partner, or coding collaborator.
+- **Multi-tenant and multi-user by design.** Stella supports many users from the same deployment. Memories are scoped per user per agent, so each person gets a dedicated relationship with each agent.
+- **Many agents, many roles.** Create a coding agent, writing partner, operations assistant, family scheduler, or reading researcher. Each agent has its own personality, model, skills, tools, schedules, workspace, and sandbox policy.
+- **Workspaces and sandboxes built in.** Agents can work with files and tools inside dedicated workspaces, with sandbox backends controlling execution boundaries and network access.
+- **One presence across every channel.** Start in Telegram, continue in the Web UI, ask from the terminal, or receive notifications in WeChat, QQ, or Feishu. The right agent can meet each user where they already are.
+- **Memory with receipts.** Stella uses Lossless Context Management (LCM) to compress old conversations while keeping the originals searchable. She can drill back into the exact context behind a memory when it matters.
+- **Routines that keep running.** Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify people through connected channels.
 
 ## Quick start
 

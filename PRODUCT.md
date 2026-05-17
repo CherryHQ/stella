@@ -6,11 +6,11 @@ product
 
 ## Users
 
-Non-technical users who primarily chat with their AI assistant. They open the app daily for conversation, occasionally adjust agent settings, skills, or automations. They value clarity over configurability and expect things to "just work" without reading docs. Context: personal device, relaxed attention, variable screen sizes.
+People, families, and small teams who want AI partners that remember context and do useful work over time. They primarily interact through chat, but also manage agents, users, skills, tools, schedules, workspaces, and automations. They value clarity over configurability and expect things to "just work" without reading docs. Context: personal devices, shared deployments, relaxed attention, variable screen sizes.
 
 ## Product Purpose
 
-Stella is a self-hosted AI assistant with persistent memory. The web UI is the primary interface for chatting, managing agents, configuring skills and automations, and reviewing task history. Success: the user feels like they have a personal, intelligent companion that remembers context and handles recurring work without friction.
+Stella is a multi-tenant, multi-user, multi-agent AI partner platform with persistent per-user-per-agent memory, trusted tools, reusable skills, schedules, workspaces, built-in sandboxing, and multi-channel chat. The web UI is the primary interface for chatting, managing users and agents, configuring skills and automations, and reviewing task history. Success: Stella feels less like a single chatbot and more like a reliable colleague, household manager, or private assistant that remembers context, acts through trusted tools, and handles recurring work without friction.
 
 ## Brand Personality
 
