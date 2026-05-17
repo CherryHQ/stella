@@ -30,16 +30,13 @@ Stella 为每个人提供一个会记住你、能使用可信工具做事、并�
 # 1. 安装
 brew install CherryHQ/tap/stella
 
-# 2. 设置 API 密钥
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# 3. 启动服务器
+# 2. 启动服务器
 stella server
 
-# 4. 打开 Web UI：http://localhost:25678
+# 3. 打开 Web UI：http://localhost:25678
 #    在 Providers 中添加模型提供商和 API 密钥
 
-# 5. 打开 Chat，开始对话
+# 4. 打开 Chat，开始对话
 ```
 
 你也可以使用 `go install github.com/CherryHQ/stella@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。

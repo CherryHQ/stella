@@ -30,16 +30,13 @@ Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each a
 # 1. Install
 brew install CherryHQ/tap/stella
 
-# 2. Set your API key
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# 3. Start the server
+# 2. Start the server
 stella server
 
-# 4. Open the Web UI at http://localhost:25678
+# 3. Open the Web UI at http://localhost:25678
 #    Add your provider and API key under Providers
 
-# 5. Open Chat and start talking
+# 4. Open Chat and start talking
 ```
 
 You can also install with `go install github.com/CherryHQ/stella@latest` or download a binary from [Releases](https://github.com/CherryHQ/stella/releases).
