@@ -31,6 +31,7 @@ export default defineConfig({
   build: {
     outDir: "./static/dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 800,
   },
   resolve: {
     alias: {
