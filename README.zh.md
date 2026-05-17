@@ -2,27 +2,25 @@
   <img src="avatar.png" width="200" alt="stella" />
 </p>
 
-<p align="center">
-  <a href="README.md">English</a> | 中文
-</p>
-
-# Stella — 给每个人一个 AI 伙伴
+# Stella — 面向个人、团队和日常工作的 AI 伙伴
 
 > **⚠️ 正在快速开发中** — Stella 还不稳定。API、配置格式和行为都可能变化。不建议用于生产环境。
 
-Stella 为每个人提供一个会记住你、能使用可信工具做事、并出现在常用聊天工具里的 AI 伙伴。
+Stella 不只是一个聊天 agent。她是一个可以长期进入公司、家庭或个人工作流的 AI 伙伴：记住项目上下文的同事，持续推动日常事务的家庭管家，或了解你工作方式的私人助手。
 
-你可以把 Stella 用作公司的同事、家庭事务的管家，或个人项目的私人助手。每个用户和每个 agent 之间都有独立的记忆、工作区、工具、定时任务和沙箱边界，因此 Stella 可以理解不同的人，而不是把所有人压成同一份画像。
+Stella 天生是多租户、多用户、多 agent 系统。每个 agent 都可以有自己的角色、工具、技能、定时任务、沙箱策略和工作区。每个用户和每个 agent 之间都有专属记忆，因此同一个写作伙伴、编程 agent 或家庭助手可以理解不同的人，而不是把所有人压成同一份画像。
 
-在底层，Stella 是一个多租户、多用户、多 agent 系统。每个 agent 都可以有自己的角色、模型、技能、工具、定时任务、工作区和沙箱策略。你可以把 Stella 部署在自己选择的环境里，使用自己的模型 API 密钥，并从 Telegram、QQ、飞书、微信、Web UI 或终端与她对话。
+你可以把 Stella 部署在自己选择的环境里，使用自己的模型 API 密钥，并从 Telegram、QQ、飞书、微信、Web UI 或终端与她对话。对话、密钥、记忆和工作区都由你掌控。
 
 ## 为什么使用 Stella
 
-- **记住每个人。** 记忆按用户和 agent 隔离，因此 Stella 对不同的人有不同理解。
-- **通过 agent 做事。** 为编程、写作、运营、家庭事务、研究和支持创建不同 agent。
-- **在安全边界内行动。** agent 在专属工作区和沙箱策略中使用工具。
-- **出现在你已经聊天的地方。** Telegram、QQ、飞书、微信、Web UI 和终端都可以成为同一套 AI 伙伴系统的入口。
-- **持续推动日常事务。** 设置提醒、周期性任务、阅读摘要和后台任务；它们可以跨重启保留，并通知正确的人。
+- **伙伴，而不是另一个聊天框。** Stella 面向持续关系和长期工作设计：公司同事、家庭管家、私人助手、研究伙伴或编程协作者。
+- **天生多租户、多用户。** Stella 支持同一套部署服务多个用户。记忆按用户和 agent 隔离，因此每个人都能和每个 agent 建立专属关系。
+- **多个 agent，多个角色。** 创建编程 agent、写作伙伴、运营助手、家庭日程管家或阅读研究员。每个 agent 都有自己的性格、模型、技能、工具、定时任务、工作区和沙箱策略。
+- **内置工作区和沙箱。** agent 可以在专属工作区里处理文件和工具，沙箱后端负责控制执行边界和网络访问。
+- **出现在每个常用渠道。** 从 Telegram 开始，在 Web UI 继续，从终端提问，或在微信、QQ、飞书里接收通知。合适的 agent 可以出现在每个用户已经使用的地方。
+- **有来源的记忆。** Stella 使用 Lossless Context Management (LCM) 压缩旧对话，同时保留原始内容可搜索。需要时，她可以回到某段记忆背后的准确上下文。
+- **持续运行的日常事务。** 设置提醒、周期性任务、阅读摘要和后台任务；它们可以跨重启保留，并通过已连接渠道通知相关人员。
 
 ## 快速开始
 
@@ -30,13 +28,16 @@ Stella 为每个人提供一个会记住你、能使用可信工具做事、并�
 # 1. 安装
 brew install CherryHQ/tap/stella
 
-# 2. 启动服务器
+# 2. 设置 API 密钥
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 3. 启动服务器
 stella server
 
-# 3. 打开 Web UI：http://localhost:25678
+# 4. 打开 Web UI：http://localhost:25678
 #    在 Providers 中添加模型提供商和 API 密钥
 
-# 4. 打开 Chat，开始对话
+# 5. 打开 Chat，开始对话
 ```
 
 你也可以使用 `go install github.com/CherryHQ/stella@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
@@ -103,4 +104,4 @@ mise run format   # Lint 和格式化
 
 ## 许可证
 
-GNU Affero General Public License v3.0 或更高版本。详见 [LICENSE](LICENSE)。
+MIT
