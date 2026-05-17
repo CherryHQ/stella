@@ -6,6 +6,7 @@
   --home-surface: color-mix(in oklch, var(--background) 50%, var(--card));
   --home-gold: var(--primary);
   --home-success: oklch(0.65 0.17 145);
+  --home-shadow: oklch(0.15 0.005 260);
   font-family: Outfit, system-ui, sans-serif;
 }
 
@@ -120,7 +121,7 @@
 
 .home-hero-copy {
   position: relative;
-  animation: fade-up 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fade-up 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .home-hero-title {
@@ -221,10 +222,10 @@
   background: var(--home-surface);
   overflow: hidden;
   box-shadow:
-    0 1px 2px color-mix(in oklch, var(--foreground) 4%, transparent),
-    0 8px 24px color-mix(in oklch, var(--foreground) 8%, transparent),
-    0 24px 48px color-mix(in oklch, var(--foreground) 4%, transparent);
-  animation: fade-up 800ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+    0 1px 2px color-mix(in oklch, var(--home-shadow) 8%, transparent),
+    0 8px 24px color-mix(in oklch, var(--home-shadow) 14%, transparent),
+    0 24px 48px color-mix(in oklch, var(--home-shadow) 10%, transparent);
+  animation: fade-up 900ms cubic-bezier(0.16, 1, 0.3, 1) 300ms both;
 }
 
 .home-product-chrome {
@@ -422,7 +423,7 @@
   font-size: 0.65rem;
   font-weight: 500;
   color: var(--home-muted);
-  box-shadow: 0 4px 12px color-mix(in oklch, var(--foreground) 8%, transparent);
+  box-shadow: 0 4px 12px color-mix(in oklch, var(--home-shadow) 14%, transparent);
   opacity: 0;
   animation: badge-in 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   white-space: nowrap;
@@ -481,12 +482,14 @@
   background: var(--home-surface);
   transition:
     border-color 200ms ease,
-    box-shadow 200ms ease;
+    box-shadow 200ms ease,
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .home-system:hover {
   border-color: color-mix(in oklch, var(--home-gold) 30%, transparent);
-  box-shadow: 0 4px 20px color-mix(in oklch, var(--home-gold) 6%, transparent);
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--home-shadow) 10%, transparent);
+  transform: translateY(-2px);
 }
 
 .home-system-icon {
@@ -575,6 +578,14 @@
 
 .home-pillar:last-child {
   padding-bottom: 0;
+}
+
+.home-pillar .home-pillar-title {
+  transition: color 200ms ease;
+}
+
+.home-pillar:hover .home-pillar-title {
+  color: var(--primary);
 }
 
 .home-pillar-num {
@@ -713,7 +724,7 @@
   border-radius: 12px;
   background: var(--foreground);
   color: var(--background);
-  box-shadow: 0 8px 32px color-mix(in oklch, var(--foreground) 20%, transparent);
+  box-shadow: 0 8px 32px color-mix(in oklch, var(--home-shadow) 30%, transparent);
 }
 
 .home-terminal code {
@@ -884,7 +895,7 @@
   }
 
   .home-systems-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .home-caps-groups {
@@ -893,6 +904,16 @@
 
   .home-product-badge {
     display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .home-systems-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-caps-groups {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -906,7 +927,11 @@
   }
 
   .home-hero-title {
-    font-size: 2.2rem;
+    font-size: clamp(1.8rem, 7vw, 2.4rem);
+  }
+
+  .home-hero-body {
+    font-size: 1rem;
   }
 
   .home-actions {
@@ -916,6 +941,7 @@
   .home-btn {
     justify-content: center;
     width: 100%;
+    min-height: 2.75rem;
   }
 
   .home-product-sidebar {
@@ -930,8 +956,8 @@
     grid-template-columns: 2.5rem 1fr;
   }
 
-  .home-caps-groups {
-    grid-template-columns: 1fr;
+  .home-section-title {
+    font-size: clamp(1.6rem, 6vw, 2rem);
   }
 }
 
@@ -944,6 +970,7 @@
   }
 
   .home-pillar,
+  .home-pillar .home-pillar-title,
   .home-cap,
   .home-caps-header,
   .home-cta-copy,
