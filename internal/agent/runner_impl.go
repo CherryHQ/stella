@@ -484,11 +484,19 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		if e.Result.IsError {
 			status = "error"
 		}
+		var fullText string
+		for _, block := range e.Result.Content {
+			if tc, ok := block.(ai.TextContent); ok {
+				fullText = tc.Text
+				break
+			}
+		}
 		return []Event{
 			{ToolUse: &ToolUseEvent{
-				Tool:   e.Result.ToolName,
-				Status: status,
-				Detail: detail,
+				Tool:    e.Result.ToolName,
+				Status:  status,
+				Detail:  detail,
+				Content: fullText,
 			}},
 			{Store: e.Result},
 		}

@@ -12,10 +12,11 @@ import (
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	Tool   string // tool name, e.g. "bash", "read"
-	Status string // "running", "done", "error"
-	Input  string // short summary of the tool input
-	Detail string // error detail or result summary (for "error" status)
+	Tool    string // tool name, e.g. "bash", "read"
+	Status  string // "running", "done", "error"
+	Input   string // short summary of the tool input
+	Detail  string // error detail or result summary (for "error" status)
+	Content string // full tool result text (for "done"/"error" status)
 }
 
 // ImageEvent carries a base64-encoded image to be sent to the channel.

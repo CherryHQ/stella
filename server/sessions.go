@@ -168,7 +168,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 					payload := map[string]any{
 						"type":         "tool_result",
 						"tool_call_id": id,
-						"content":      tu.Detail,
+						"content":      tu.Content,
 						"is_error":     tu.Status == "error",
 					}
 					data, _ := json.Marshal(payload)
