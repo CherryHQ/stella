@@ -1,5 +1,4 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { LoginPage } from "@/features/login/LoginPage";
 import { meQueryOptions } from "@/lib/queries/me";
 
 export const Route = createFileRoute("/login")({
@@ -12,5 +11,4 @@ export const Route = createFileRoute("/login")({
       // not authenticated — render login
     }
   },
-  component: LoginPage,
 });
