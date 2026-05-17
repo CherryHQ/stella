@@ -79,7 +79,7 @@
 
 .home-hero {
   position: relative;
-  padding: 8rem 0 6rem;
+  padding: clamp(6rem, 10vw, 11rem) 0 clamp(4rem, 7vw, 8rem);
   overflow: hidden;
 }
 
@@ -113,8 +113,8 @@
 
 .home-hero-layout {
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
-  gap: 4rem;
+  grid-template-columns: 1fr 1.3fr;
+  gap: clamp(2.5rem, 5vw, 5rem);
   align-items: center;
 }
 
@@ -124,12 +124,12 @@
 }
 
 .home-hero-title {
-  margin: 1.5rem 0 1.25rem;
+  margin: 1.75rem 0 1.5rem;
   font-family: Merriweather, Georgia, serif;
-  font-size: clamp(2.4rem, 5vw, 3.8rem);
-  font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: -0.025em;
+  font-size: clamp(2.6rem, 6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
   color: var(--home-ink);
 }
 
@@ -155,7 +155,8 @@
   margin: 0;
   color: var(--home-muted);
   font-size: 1.1rem;
-  line-height: 1.7;
+  font-weight: 300;
+  line-height: 1.75;
 }
 
 .home-actions {
@@ -182,6 +183,11 @@
 
 .home-btn:active {
   transform: scale(0.97);
+}
+
+.home-btn:focus-visible {
+  outline: 2px solid var(--home-gold);
+  outline-offset: 2px;
 }
 
 .home-btn-primary {
@@ -443,7 +449,7 @@
 /* ─── Systems ─── */
 
 .home-systems {
-  padding: 6rem 0;
+  padding: clamp(4rem, 8vw, 8rem) 0;
   border-top: 1px solid var(--home-rule);
   background: color-mix(in oklch, var(--foreground) 3%, var(--background));
 }
@@ -505,7 +511,8 @@
 .home-system-desc {
   margin: 0;
   font-size: 0.88rem;
-  line-height: 1.65;
+  font-weight: 300;
+  line-height: 1.7;
   color: var(--home-muted);
 }
 
@@ -530,7 +537,7 @@
 /* ─── Pillars ─── */
 
 .home-pillars {
-  padding: 6rem 0;
+  padding: clamp(5rem, 9vw, 9rem) 0;
   border-top: 1px solid var(--home-rule);
   background: var(--foreground);
   color: var(--background);
@@ -581,11 +588,12 @@
 }
 
 .home-pillar-title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.65rem;
   font-family: Merriweather, Georgia, serif;
-  font-size: 1.3rem;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: clamp(1.3rem, 2.5vw, 1.65rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
   color: color-mix(in oklch, var(--background) 94%, transparent);
 }
 
@@ -593,14 +601,15 @@
   margin: 0;
   max-width: 48rem;
   font-size: 0.92rem;
-  line-height: 1.7;
+  font-weight: 300;
+  line-height: 1.8;
   color: color-mix(in oklch, var(--background) 56%, transparent);
 }
 
 /* ─── Capabilities ─── */
 
 .home-caps {
-  padding: 6rem 0;
+  padding: clamp(4rem, 6vw, 6rem) 0;
   border-top: 1px solid var(--home-rule);
 }
 
@@ -611,19 +620,20 @@
 .home-section-title {
   margin: 0;
   font-family: Merriweather, Georgia, serif;
-  font-size: clamp(1.8rem, 3.5vw, 2.8rem);
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
   color: var(--home-ink);
 }
 
 .home-section-sub {
-  margin: 0.75rem 0 0;
+  margin: 1rem 0 0;
   max-width: 38rem;
   color: var(--home-muted);
   font-size: 1.05rem;
-  line-height: 1.65;
+  font-weight: 300;
+  line-height: 1.7;
 }
 
 .home-caps-groups {
@@ -672,14 +682,15 @@
 .home-cap p {
   margin: 0;
   font-size: 0.82rem;
-  line-height: 1.55;
+  font-weight: 300;
+  line-height: 1.6;
   color: var(--home-muted);
 }
 
 /* ─── CTA ─── */
 
 .home-cta {
-  padding: 6rem 0;
+  padding: clamp(5rem, 8vw, 8rem) 0;
   border-top: 1px solid var(--home-rule);
   background: color-mix(in oklch, var(--foreground) 3%, var(--background));
 }
@@ -742,15 +753,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
@@ -833,10 +835,16 @@
 }
 
 .home-pillar:nth-child(2) {
-  transition-delay: 100ms;
+  transition-delay: 80ms;
 }
 .home-pillar:nth-child(3) {
-  transition-delay: 200ms;
+  transition-delay: 160ms;
+}
+.home-pillar:nth-child(4) {
+  transition-delay: 240ms;
+}
+.home-pillar:nth-child(5) {
+  transition-delay: 320ms;
 }
 
 .home-system:nth-child(2) {
@@ -857,7 +865,7 @@
 
 @media (max-width: 920px) {
   .home-hero {
-    padding: 5rem 0 4rem;
+    padding: 6rem 0 4rem;
   }
 
   .home-hero-layout,
