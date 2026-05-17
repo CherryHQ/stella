@@ -1,113 +1,486 @@
 .home-page {
+  --home-paper: color-mix(in oklch, var(--background) 96%, var(--primary) 4%);
+  --home-line: color-mix(in oklch, var(--foreground) 9%, transparent);
+  --home-line-strong: color-mix(in oklch, var(--foreground) 28%, transparent);
+  --home-soft: color-mix(in oklch, var(--foreground) 68%, var(--background));
+  --home-faint: color-mix(in oklch, var(--foreground) 44%, var(--background));
   font-family: Outfit, system-ui, sans-serif;
+  background:
+    linear-gradient(var(--home-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--home-line) 1px, transparent 1px), var(--home-paper);
+  background-size: 64px 64px;
 }
 
 .home-page h1,
 .home-page h2,
-.home-page h3 {
-  font-family: Merriweather, Georgia, serif;
+.home-page h3,
+.home-page p {
   text-wrap: balance;
 }
 
-/* Hero headline — fluid type, big and confident */
-.hero-headline {
-  font-size: clamp(2.5rem, 5.5vw, 4.5rem);
-  line-height: 1.08;
-  letter-spacing: -0.025em;
+.home-shell {
+  width: min(100% - 2rem, 76rem);
+  margin-inline: auto;
+}
+
+.home-kicker {
+  margin: 0;
+  color: var(--primary);
+  font-family:
+    Fira Code,
+    monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.home-hero {
+  min-height: calc(100svh - 3.5rem);
+  padding-block: 6rem;
+  border-bottom: 1px solid var(--home-line-strong);
+}
+
+.home-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(24rem, 0.72fr);
+  gap: 6rem;
+  align-items: center;
+  min-height: calc(100svh - 15.5rem);
+}
+
+.home-hero-copy {
+  max-width: 43rem;
+}
+
+.home-hero-title {
+  max-width: 11ch;
+  margin: 1.15rem 0 1.35rem;
+  color: var(--foreground);
+  font-family: Merriweather, Georgia, serif;
+  font-size: 5.8rem;
   font-weight: 700;
+  line-height: 0.95;
 }
 
-/* Hero warm background — tinted toward primary */
-.hero-warm-bg {
-  background:
-    radial-gradient(
-      ellipse 80% 60% at 70% 50%,
-      color-mix(in oklch, var(--primary) 8%, transparent),
-      transparent
-    ),
-    var(--background);
+.home-hero-body {
+  max-width: 39rem;
+  margin: 0;
+  color: var(--home-soft);
+  font-size: 1.15rem;
+  line-height: 1.72;
 }
 
-/*
-  Conversation section — forced dark scope.
-  Uses .dark token overrides so it always renders as a dark surface
-  regardless of the page theme, creating visual rhythm.
-*/
-.conversation-section {
-  background: var(--background);
-  color: var(--foreground);
-}
-.conversation-body-text {
-  color: var(--muted-foreground);
-}
-.conversation-window {
-  background: var(--card);
-  border: 1px solid var(--border);
-}
-.conversation-window-titlebar {
-  border-bottom: 1px solid var(--border);
-}
-.conversation-user-bubble {
-  background: var(--muted);
-  color: var(--foreground);
-}
-.conversation-stella-bubble {
-  color: var(--foreground);
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 2rem;
 }
 
-/* Feature decorative numbers */
-.feature-number {
-  font-size: clamp(4rem, 8vw, 7rem);
+.home-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 2.7rem;
+  padding: 0.72rem 1rem;
+  border-radius: var(--radius-lg);
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.home-button:hover {
+  transform: translateY(-1px);
+}
+
+.home-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.home-button-primary {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.home-button-secondary {
+  border: 1px solid var(--home-line-strong);
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--background) 82%, var(--card));
+}
+
+.home-ledger {
+  display: grid;
+  align-self: center;
+  overflow: hidden;
+  border: 1px solid var(--home-line-strong);
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--background) 84%, var(--card));
+}
+
+.home-ledger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--home-line-strong);
+}
+
+.home-ledger-head p {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.home-ledger-head span {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--home-faint);
+  font-family:
+    Fira Code,
+    monospace;
+  font-size: 0.72rem;
+}
+
+.home-ledger-head img {
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: var(--radius-lg);
+  object-fit: cover;
+}
+
+.home-ledger-rows {
+  display: grid;
+  align-content: start;
+}
+
+.home-ledger-row {
+  display: grid;
+  grid-template-columns: 3.7rem 4.8rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--home-line);
+}
+
+.home-ledger-row:last-child {
+  border-bottom: 0;
+}
+
+.home-ledger-row span,
+.home-ledger-row strong {
+  color: var(--home-faint);
+  font-family:
+    Fira Code,
+    monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.home-ledger-row p {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.95rem;
+  line-height: 1.58;
+}
+
+.home-memory,
+.home-work,
+.home-capabilities,
+.home-cta {
+  padding-block: 6.5rem;
+}
+
+.home-memory {
+  border-bottom: 1px solid var(--home-line-strong);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.home-memory .home-kicker,
+.home-memory .home-section-title {
+  color: color-mix(in oklch, var(--primary) 76%, var(--background));
+}
+
+.home-memory .home-section-body {
+  color: color-mix(in oklch, var(--background) 76%, transparent);
+}
+
+.home-memory-grid,
+.home-work-grid,
+.home-capabilities-grid,
+.home-cta-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr);
+  gap: 5rem;
+  align-items: start;
+}
+
+.home-memory-copy {
+  position: sticky;
+  top: 6rem;
+}
+
+.home-section-title {
+  max-width: 46rem;
+  margin: 0.9rem 0 0;
+  color: var(--foreground);
+  font-family: Merriweather, Georgia, serif;
+  font-size: 3.9rem;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
-/* Capabilities section */
-.capabilities-section {
-  background: var(--muted);
+.home-section-body {
+  max-width: 39rem;
+  margin: 1.25rem 0 0;
+  color: var(--home-soft);
+  font-size: 1.05rem;
+  line-height: 1.72;
 }
 
-/* Footer CTA warm background — tinted toward primary */
-.cta-warm-bg {
-  background:
-    radial-gradient(
-      ellipse 90% 70% at 30% 60%,
-      color-mix(in oklch, var(--primary) 10%, transparent),
-      transparent
-    ),
-    var(--background);
+.home-memory-panel {
+  display: grid;
+  gap: 1.2rem;
 }
 
-/* CTA code blocks */
-.cta-code-block {
-  background: var(--card);
-  border: 1px solid var(--border);
+.home-transcript {
+  display: grid;
+  border: 1px solid color-mix(in oklch, var(--background) 20%, transparent);
+  border-radius: var(--radius-xl);
+}
+
+.home-transcript-line {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 1.2rem;
+  padding: 1rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--background) 14%, transparent);
+}
+
+.home-transcript-line:last-child {
+  border-bottom: 0;
+}
+
+.home-transcript-line span,
+.home-scope-list span,
+.home-rule span {
+  color: color-mix(in oklch, var(--primary) 76%, var(--background));
+  font-family:
+    Fira Code,
+    monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.home-transcript-line p {
+  margin: 0;
+  color: color-mix(in oklch, var(--background) 88%, transparent);
+  font-size: 0.96rem;
+  line-height: 1.62;
+}
+
+.home-scope-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid color-mix(in oklch, var(--background) 20%, transparent);
+  border-radius: var(--radius-xl);
+}
+
+.home-scope-list div {
+  padding: 1rem;
+  border-right: 1px solid color-mix(in oklch, var(--background) 14%, transparent);
+}
+
+.home-scope-list div:last-child {
+  border-right: 0;
+}
+
+.home-scope-list p {
+  margin: 0.65rem 0 0;
+  color: color-mix(in oklch, var(--background) 74%, transparent);
+  font-size: 0.88rem;
+  line-height: 1.56;
+}
+
+.home-work {
+  border-bottom: 1px solid var(--home-line-strong);
+}
+
+.home-rulebook,
+.home-capability-list {
+  display: grid;
+  border-top: 1px solid var(--home-line-strong);
+}
+
+.home-rule,
+.home-capability {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 2rem;
+  padding: 1.35rem 0;
+  border-bottom: 1px solid var(--home-line-strong);
+}
+
+.home-rule span {
+  color: var(--primary);
+}
+
+.home-rule p,
+.home-capability p {
+  margin: 0;
+  color: var(--home-soft);
+  font-size: 0.98rem;
+  line-height: 1.66;
+}
+
+.home-capabilities {
+  border-bottom: 1px solid var(--home-line-strong);
+  background: color-mix(in oklch, var(--background) 92%, var(--muted));
+}
+
+.home-capability h3 {
+  margin: 0;
   color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.25;
 }
 
-/* Entrance animation */
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
+.home-cta {
+  background: var(--home-paper);
+}
+
+.home-cta-grid {
+  align-items: end;
+}
+
+.home-terminal {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in oklch, var(--foreground) 28%, transparent);
+  border-radius: var(--radius-xl);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.home-terminal code {
+  display: block;
+  overflow-x: auto;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--background) 10%, transparent);
+  font-family:
+    Fira Code,
+    monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.home-terminal code span {
+  color: color-mix(in oklch, var(--primary) 82%, var(--background));
+}
+
+.home-terminal p {
+  margin: 0.25rem 0 0;
+  color: color-mix(in oklch, var(--background) 66%, transparent);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 920px) {
+  .home-hero {
+    padding-block: 5rem 4.5rem;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  .home-hero-grid,
+  .home-memory-grid,
+  .home-work-grid,
+  .home-capabilities-grid,
+  .home-cta-grid {
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    min-height: auto;
+  }
+
+  .home-memory-copy {
+    position: static;
+  }
+
+  .home-hero-title {
+    font-size: 4.2rem;
+  }
+
+  .home-section-title {
+    font-size: 3rem;
   }
 }
 
-.animate-fade-up {
-  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
+@media (max-width: 560px) {
+  .home-shell {
+    width: min(100% - 1.25rem, 76rem);
+  }
 
-.stagger-2 {
-  animation-delay: 150ms;
+  .home-hero {
+    padding-block: 4.6rem 4rem;
+  }
+
+  .home-hero-title {
+    font-size: 3.15rem;
+  }
+
+  .home-hero-body,
+  .home-section-body {
+    font-size: 1rem;
+  }
+
+  .home-section-title {
+    font-size: 2.4rem;
+  }
+
+  .home-actions,
+  .home-button {
+    width: 100%;
+  }
+
+  .home-ledger-row,
+  .home-transcript-line,
+  .home-rule,
+  .home-capability {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+  }
+
+  .home-ledger-row span,
+  .home-ledger-row strong {
+    display: inline;
+  }
+
+  .home-scope-list {
+    grid-template-columns: 1fr;
+  }
+
+  .home-scope-list div {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in oklch, var(--background) 14%, transparent);
+  }
+
+  .home-scope-list div:last-child {
+    border-bottom: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-fade-up {
-    animation: none;
-    opacity: 1;
+  .home-button {
+    transition: none;
   }
 }

@@ -1,4 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowRight } from "lucide-react";
+import { siGithub } from "simple-icons";
 import { t } from "@/lib/docs/translations";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useI18n } from "@/lib/i18n";
@@ -6,29 +8,116 @@ import "./index.css";
 
 export const Route = createFileRoute("/")({ component: Home });
 
-const conversationLines = [
-  { role: "user" as const, text: "what did Maya decide about the launch checklist?" },
-  {
-    role: "stella" as const,
-    text: "Maya asked the operations agent to keep the checklist weekly until the beta is stable. For your workspace, the release notes draft is still in progress and the sandboxed smoke test task is scheduled for Friday.",
+const copy = {
+  en: {
+    heroLabel: "private operations ledger",
+    heroTitle: "One Stella, many relationships.",
+    heroBody:
+      "A long-running AI partner system for people who share work, homes, routines, and tools. Stella keeps memory attached to the right person, work attached to the right agent, and execution inside the boundaries you choose.",
+    ledgerTitle: "Today in the shared workspace",
+    ledgerMeta: "May 17 / Workroom",
+    ledgerRows: [
+      ["08:10", "Maya", "asks Operations to keep launch readiness weekly until beta settles"],
+      ["08:12", "Stella", "keeps that decision in the team thread, not in your private memory"],
+      ["09:30", "You", "own release notes and the Friday smoke test follow-up"],
+      ["09:31", "Stella", "schedules the task inside the sandboxed workspace"],
+    ],
+    memoryLabel: "memory has ownership",
+    memoryTitle: "The same agent can know different people differently.",
+    memoryBody:
+      "Stella does not flatten a home, a team, and a private project into one vague profile. Each user-agent relationship gets its own memory, while shared threads remain shared.",
+    conversation: [
+      ["Maya", "Can Stella keep the launch checklist moving every week?"],
+      [
+        "Stella",
+        "Yes. Operations owns launch readiness. You own release notes. The smoke test runs Friday in the sandbox.",
+      ],
+      ["You", "Is that from my memory or the team thread?"],
+      [
+        "Stella",
+        "Both, but stored separately: your responsibility is private to you; Maya's cadence belongs to the team.",
+      ],
+    ],
+    scopes: [
+      ["person", "preferences, responsibilities, private context"],
+      ["agent", "role, tools, model, skills, working style"],
+      ["thread", "decisions shared by a team, home, or channel"],
+    ],
+    workLabel: "work has boundaries",
+    workTitle: "Agents do useful work where you let them.",
+    workRows: [
+      [
+        "Channel",
+        "Telegram, QQ, Feishu, WeChat, Web UI, and terminal all lead to the same system.",
+      ],
+      [
+        "Workspace",
+        "Files, commands, and background tasks stay inside explicit execution boundaries.",
+      ],
+      [
+        "Routine",
+        "Schedules, reminders, reading digests, and follow-ups keep moving after restart.",
+      ],
+    ],
+    capabilityLabel: "capability ledger",
+    capabilityTitle: "Small pieces, clear responsibilities.",
+    ctaLabel: "run it yourself",
   },
-  { role: "user" as const, text: "is that from my memory or the team thread?" },
-  {
-    role: "stella" as const,
-    text: "Both. Your memory says you own the release notes. The team thread says Maya owns launch readiness and wants weekly checks until beta stabilizes.",
+  zh: {
+    heroLabel: "私人事务运行记录",
+    heroTitle: "一套 Stella，多组关系。",
+    heroBody:
+      "Stella 是为共享工作、家庭日常、长期任务和可信工具而设计的 AI 伙伴系统。记忆属于正确的人，工作属于正确的 agent，执行发生在你允许的边界内。",
+    ledgerTitle: "今天的共享工作区",
+    ledgerMeta: "5 月 17 日 / Workroom",
+    ledgerRows: [
+      ["08:10", "Maya", "要求 Operations 每周维护发布检查，直到 beta 稳定"],
+      ["08:12", "Stella", "把这个决定保留在团队线程，而不是你的私人记忆"],
+      ["09:30", "你", "负责 release notes 和周五的 smoke test 跟进"],
+      ["09:31", "Stella", "把任务安排进带沙箱边界的工作区"],
+    ],
+    memoryLabel: "记忆有归属",
+    memoryTitle: "同一个 agent，可以以不同方式理解不同的人。",
+    memoryBody:
+      "Stella 不会把家庭、团队和私人项目压成一份模糊画像。每个用户和 agent 的关系都有自己的记忆，共享线程则保持共享。",
+    conversation: [
+      ["Maya", "Stella 可以每周推进 launch checklist 吗？"],
+      [
+        "Stella",
+        "可以。Operations 负责发布准备，你负责 release notes，smoke test 周五在沙箱里运行。",
+      ],
+      ["你", "这是来自我的记忆，还是团队线程？"],
+      ["Stella", "两者都有，但分开存放：你的职责属于你，Maya 的节奏属于团队。"],
+    ],
+    scopes: [
+      ["person", "偏好、职责、私人上下文"],
+      ["agent", "角色、工具、模型、技能、工作方式"],
+      ["thread", "团队、家庭或渠道共享的决定"],
+    ],
+    workLabel: "工作有边界",
+    workTitle: "agent 只在你允许的地方做有用的事。",
+    workRows: [
+      ["Channel", "Telegram、QQ、飞书、微信、Web UI 和终端都进入同一套系统。"],
+      ["Workspace", "文件、命令和后台任务都留在明确的执行边界中。"],
+      ["Routine", "定时任务、提醒、阅读摘要和后续跟进会在重启后继续。"],
+    ],
+    capabilityLabel: "能力账本",
+    capabilityTitle: "小组件，清晰职责。",
+    ctaLabel: "自己运行",
   },
-];
+};
 
 function Home() {
-  const { locale: lang } = useI18n();
+  const { locale } = useI18n();
+  const lang = locale === "zh" ? "zh" : "en";
 
   return (
     <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground">
       <SiteHeader />
-      <main className="flex-1 home-page">
+      <main className="home-page flex-1">
         <HeroSection lang={lang} />
-        <ConversationSection lang={lang} />
-        <FeaturesSection lang={lang} />
+        <MemorySection lang={lang} />
+        <WorkSection lang={lang} />
         <CapabilitiesSection lang={lang} />
         <FooterCTA lang={lang} />
       </main>
@@ -36,224 +125,85 @@ function Home() {
   );
 }
 
-/* ─── Hero ─── */
-
-function HeroSection({ lang }: { lang: string }) {
+function HeroSection({ lang }: { lang: keyof typeof copy }) {
   const tr = t(lang);
-  return (
-    <section className="hero-warm-bg relative overflow-hidden">
-      {/* Decorative gold radial behind the avatar */}
-      <div className="absolute top-1/2 right-[10%] -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[100px] pointer-events-none dark:bg-primary/5" />
-
-      <div className="relative px-6 pt-28 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_auto] gap-16 lg:gap-24 items-center">
-          {/* Text column */}
-          <div className="animate-fade-up">
-            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-8 font-mono">
-              {tr.heroTag}
-            </p>
-            <h1 className="hero-headline text-foreground mb-8">
-              {tr.heroTitle1}
-              <br />
-              {tr.heroTitle2} <span className="italic text-primary">{tr.heroTitle3}</span>
-            </h1>
-            <p className="text-muted-foreground text-lg leading-relaxed max-w-[52ch] mb-12">
-              {tr.heroDescription}
-            </p>
-            <div className="flex flex-wrap items-center gap-5">
-              <Link
-                to="/docs/$"
-                params={{ _splat: "" }}
-                className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-primary text-primary-foreground text-sm font-semibold rounded-xl hover:bg-primary/90 active:scale-[0.98] transition-all shadow-md"
-              >
-                {tr.readTheDocs}
-                <span aria-hidden="true" className="text-primary-foreground/70">
-                  &rarr;
-                </span>
-              </Link>
-              <a
-                href="https://github.com/CherryHQ/stella"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-3.5 text-muted-foreground text-sm font-medium rounded-xl border border-border hover:bg-accent hover:text-foreground transition-colors"
-              >
-                {tr.sourceOnGithub}
-              </a>
-            </div>
-          </div>
-
-          {/* Avatar column */}
-          <div className="animate-fade-up stagger-2 flex justify-center lg:justify-end">
-            <div className="relative">
-              <div className="absolute -inset-6 rounded-3xl bg-primary/12 blur-3xl dark:bg-primary/8" />
-              <div className="absolute -inset-1 rounded-2xl bg-primary/20 dark:bg-primary/10" />
-              <img
-                src="/avatar.png"
-                alt="Stella"
-                className="relative w-56 h-56 md:w-68 md:h-68 lg:w-80 lg:h-80 rounded-2xl object-cover"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Conversation (dark inverted section) ─── */
-
-function ConversationSection({ lang }: { lang: string }) {
-  const tr = t(lang);
-  return (
-    <section className="conversation-section dark relative overflow-hidden">
-      <div className="absolute top-0 left-[20%] w-[400px] h-[400px] rounded-full bg-primary/6 blur-[80px] pointer-events-none" />
-
-      <div className="relative px-6 py-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-16 lg:gap-24 items-center">
-          <div>
-            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
-              {tr.memoryLabel}
-            </p>
-            <h2 className="text-3xl md:text-4xl tracking-tight mb-5 leading-tight">
-              {tr.memoryTitle}
-            </h2>
-            <p className="conversation-body-text text-base leading-relaxed max-w-md">
-              {tr.memoryBody}
-            </p>
-          </div>
-
-          {/* Conversation mock */}
-          <div className="conversation-window rounded-2xl overflow-hidden shadow-xl">
-            <div className="flex items-center gap-2 px-5 py-3 conversation-window-titlebar">
-              <div className="w-2.5 h-2.5 rounded-full opacity-30 bg-current" />
-              <div className="w-2.5 h-2.5 rounded-full opacity-20 bg-current" />
-              <div className="w-2.5 h-2.5 rounded-full opacity-15 bg-current" />
-              <span className="ml-3 text-[11px] opacity-40 font-mono tracking-wider uppercase">
-                {tr.conversationLabel}
-              </span>
-            </div>
-            <div className="px-5 py-6 space-y-5">
-              {conversationLines.map((line, i) => (
-                <div
-                  key={i}
-                  className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-xl px-4 py-3 text-[13px] leading-relaxed ${
-                      line.role === "user"
-                        ? "conversation-user-bubble"
-                        : "conversation-stella-bubble"
-                    }`}
-                  >
-                    {line.role === "stella" && (
-                      <span className="text-primary font-semibold text-[11px] tracking-wide uppercase block mb-1.5">
-                        stella
-                      </span>
-                    )}
-                    {line.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Features ─── */
-
-function FeaturesSection({ lang }: { lang: string }) {
-  const tr = t(lang);
-  const features = [
-    { label: "01", title: tr.feature1Title, body: tr.feature1Body },
-    { label: "02", title: tr.feature2Title, body: tr.feature2Body },
-    { label: "03", title: tr.feature3Title, body: tr.feature3Body },
-    { label: "04", title: tr.feature4Title, body: tr.feature4Body },
-    { label: "05", title: tr.feature5Title, body: tr.feature5Body },
-  ];
+  const c = copy[lang];
 
   return (
-    <section className="px-6 py-28 md:px-12 lg:px-20 max-w-7xl mx-auto">
-      <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
-        {tr.featuresTitle}
-      </p>
-      <div className="h-px bg-border mb-20" />
-
-      <div className="space-y-24 md:space-y-32">
-        {features.map((f, i) => (
-          <div
-            key={f.label}
-            className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-start"
-          >
-            {/* Large decorative number */}
-            <div
-              className={`hidden md:block md:col-span-2 ${i % 2 === 1 ? "md:col-start-11 md:text-right" : ""}`}
+    <section className="home-hero">
+      <div className="home-shell home-hero-grid">
+        <div className="home-hero-copy">
+          <p className="home-kicker">{c.heroLabel}</p>
+          <h1 className="home-hero-title">{c.heroTitle}</h1>
+          <p className="home-hero-body">{c.heroBody}</p>
+          <div className="home-actions">
+            <Link to="/docs/$" params={{ _splat: "" }} className="home-button home-button-primary">
+              {tr.readTheDocs}
+              <ArrowRight aria-hidden className="size-4" />
+            </Link>
+            <a
+              href="https://github.com/CherryHQ/stella"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="home-button home-button-secondary"
             >
-              <span className="feature-number font-mono text-primary/10 dark:text-primary/8 select-none leading-none">
-                {f.label}
-              </span>
-            </div>
-
-            {/* Content */}
-            <div className={`md:col-span-6 ${i % 2 === 1 ? "md:col-start-3" : "md:col-start-4"}`}>
-              <span className="md:hidden text-[11px] font-medium tracking-[0.15em] text-primary uppercase mb-3 block font-mono">
-                {f.label}
-              </span>
-              <h3 className="text-2xl md:text-3xl tracking-tight text-foreground mb-4">
-                {f.title}
-              </h3>
-              <p className="text-muted-foreground text-base leading-relaxed max-w-lg">{f.body}</p>
-            </div>
+              <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
+                <path d={siGithub.path} />
+              </svg>
+              {tr.sourceOnGithub}
+            </a>
           </div>
-        ))}
+        </div>
+
+        <section className="home-ledger" aria-label={c.ledgerTitle}>
+          <div className="home-ledger-head">
+            <div>
+              <p>{c.ledgerTitle}</p>
+              <span>{c.ledgerMeta}</span>
+            </div>
+            <img src="/avatar.png" alt="Stella" />
+          </div>
+          <div className="home-ledger-rows">
+            {c.ledgerRows.map(([time, actor, event]) => (
+              <div key={`${time}-${actor}`} className="home-ledger-row">
+                <span>{time}</span>
+                <strong>{actor}</strong>
+                <p>{event}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </section>
   );
 }
 
-/* ─── Capabilities ─── */
-
-function CapabilitiesSection({ lang }: { lang: string }) {
-  const tr = t(lang);
-  const capabilities = [
-    { title: tr.capUsers, desc: tr.capUsersDesc },
-    { title: tr.capAgents, desc: tr.capAgentsDesc },
-    { title: tr.capSandbox, desc: tr.capSandboxDesc },
-    { title: tr.capSkills, desc: tr.capSkillsDesc },
-    { title: tr.capReading, desc: tr.capReadingDesc },
-    { title: tr.capEmail, desc: tr.capEmailDesc },
-    { title: tr.capVault, desc: tr.capVaultDesc },
-    { title: tr.capOAuth, desc: tr.capOAuthDesc },
-    { title: tr.capPlugins, desc: tr.capPluginsDesc },
-    { title: tr.capMCP, desc: tr.capMCPDesc },
-    { title: tr.capModels, desc: tr.capModelsDesc },
-    { title: tr.capNotifications, desc: tr.capNotificationsDesc },
-  ];
+function MemorySection({ lang }: { lang: keyof typeof copy }) {
+  const c = copy[lang];
 
   return (
-    <section className="capabilities-section">
-      <div className="px-6 py-28 md:px-12 lg:px-20 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-12 lg:gap-24">
-          {/* Left: sticky heading */}
-          <div className="lg:sticky lg:top-24 lg:self-start">
-            <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-primary mb-5 font-mono">
-              {tr.capabilitiesTitle}
-            </p>
-            <h2 className="text-3xl md:text-4xl tracking-tight text-foreground leading-tight">
-              {tr.capabilitiesSubtitle}
-            </h2>
-          </div>
+    <section className="home-memory">
+      <div className="home-shell home-memory-grid">
+        <div className="home-memory-copy">
+          <p className="home-kicker">{c.memoryLabel}</p>
+          <h2 className="home-section-title">{c.memoryTitle}</h2>
+          <p className="home-section-body">{c.memoryBody}</p>
+        </div>
 
-          {/* Right: capabilities list */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-10">
-            {capabilities.map((cap) => (
-              <div key={cap.title}>
-                <h3 className="font-sans text-base font-semibold text-foreground mb-1.5">
-                  {cap.title}
-                </h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">{cap.desc}</p>
+        <div className="home-memory-panel">
+          <div className="home-transcript" aria-label="Conversation">
+            {c.conversation.map(([speaker, text]) => (
+              <div key={`${speaker}-${text}`} className="home-transcript-line">
+                <span>{speaker}</span>
+                <p>{text}</p>
+              </div>
+            ))}
+          </div>
+          <div className="home-scope-list">
+            {c.scopes.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <p>{value}</p>
               </div>
             ))}
           </div>
@@ -263,33 +213,85 @@ function CapabilitiesSection({ lang }: { lang: string }) {
   );
 }
 
-/* ─── Footer CTA ─── */
+function WorkSection({ lang }: { lang: keyof typeof copy }) {
+  const c = copy[lang];
 
-function FooterCTA({ lang }: { lang: string }) {
-  const tr = t(lang);
   return (
-    <section className="cta-warm-bg">
-      <div className="px-6 py-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20 items-end">
-          <div>
-            <h2 className="text-3xl md:text-4xl tracking-tight text-foreground mb-4">
-              {tr.getStarted}
-            </h2>
-            <p className="text-muted-foreground text-base">{tr.getStartedBody}</p>
-          </div>
-          <div>
-            <div className="space-y-3">
-              <div className="cta-code-block rounded-xl px-5 py-4 font-mono text-sm">
-                <span className="text-primary select-none">$ </span>
-                brew install CherryHQ/tap/stella
-              </div>
-              <div className="cta-code-block rounded-xl px-5 py-4 font-mono text-sm">
-                <span className="text-primary select-none">$ </span>
-                stella server
-              </div>
+    <section className="home-work">
+      <div className="home-shell home-work-grid">
+        <div>
+          <p className="home-kicker">{c.workLabel}</p>
+          <h2 className="home-section-title">{c.workTitle}</h2>
+        </div>
+        <div className="home-rulebook">
+          {c.workRows.map(([label, body]) => (
+            <div key={label} className="home-rule">
+              <span>{label}</span>
+              <p>{body}</p>
             </div>
-            <p className="text-muted-foreground text-xs mt-4">{tr.getStartedAlt}</p>
-          </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CapabilitiesSection({ lang }: { lang: keyof typeof copy }) {
+  const tr = t(lang);
+  const c = copy[lang];
+  const capabilities = [
+    [tr.capUsers, tr.capUsersDesc],
+    [tr.capAgents, tr.capAgentsDesc],
+    [tr.capSandbox, tr.capSandboxDesc],
+    [tr.capSkills, tr.capSkillsDesc],
+    [tr.capReading, tr.capReadingDesc],
+    [tr.capVault, tr.capVaultDesc],
+    [tr.capOAuth, tr.capOAuthDesc],
+    [tr.capPlugins, tr.capPluginsDesc],
+    [tr.capModels, tr.capModelsDesc],
+    [tr.capNotifications, tr.capNotificationsDesc],
+  ];
+
+  return (
+    <section className="home-capabilities">
+      <div className="home-shell home-capabilities-grid">
+        <div>
+          <p className="home-kicker">{c.capabilityLabel}</p>
+          <h2 className="home-section-title">{c.capabilityTitle}</h2>
+        </div>
+        <div className="home-capability-list">
+          {capabilities.map(([title, body]) => (
+            <div key={title} className="home-capability">
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FooterCTA({ lang }: { lang: keyof typeof copy }) {
+  const tr = t(lang);
+  const c = copy[lang];
+
+  return (
+    <section className="home-cta">
+      <div className="home-shell home-cta-grid">
+        <div>
+          <p className="home-kicker">{c.ctaLabel}</p>
+          <h2 className="home-section-title">{tr.getStarted}</h2>
+          <p className="home-section-body">{tr.getStartedBody}</p>
+        </div>
+        <div className="home-terminal" aria-label="Install Stella">
+          <code>
+            <span>$</span> brew install CherryHQ/tap/stella
+          </code>
+          <code>
+            <span>$</span> stella server
+          </code>
+          <p>{tr.getStartedAlt}</p>
         </div>
       </div>
     </section>
