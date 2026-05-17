@@ -2,19 +2,27 @@
   <img src="avatar.png" width="200" alt="stella" />
 </p>
 
-# stella — Your AI assistant that never forgets
+<p align="center">
+  English | <a href="README.zh.md">中文</a>
+</p>
+
+# Stella — AI partners for every person
 
 > **⚠️ Under Heavy Development** — Stella is not stable. APIs, config formats, and behavior may change without notice. Not recommended for production use.
 
-Stella is a self-hosted AI assistant that runs on your machine and talks to you through Telegram, QQ, Feishu, WeChat, or your terminal. She remembers every conversation — even weeks later — because she compresses old context automatically and can pull up the details whenever she needs them. Your data stays local in a SQLite database. Your API keys, your machine, nothing leaves your network.
+Stella gives every person an AI partner that remembers them, works through trusted tools, and shows up where they already chat.
 
-## What you can do with Stella
+Use Stella as a teammate at work, a manager for home routines, or a private assistant for personal projects. Each user-agent relationship has its own memory, workspace, tools, schedules, and sandbox boundaries, so Stella can understand different people without flattening everyone into one profile.
 
-- **Chat from anywhere.** Talk to Stella from Telegram, QQ, Feishu, WeChat, or the terminal — all sharing the same memory. Start a conversation on your laptop, pick it up on your phone.
-- **Never lose context.** Stella uses Lossless Context Management (LCM) to compress old messages into summaries while keeping the originals. She can search her history and drill into any summary to recall exactly what you said, even thousands of messages later.
-- **Run multiple agents.** Set up a coding assistant, a writing partner, and a daily planner — each with its own model, personality, and memory. Switch between them with `/agent` in Telegram or `--agent` on the CLI.
-- **Schedule tasks and reminders.** Tell Stella "remind me every morning at 9am to check my email" and she will. Jobs persist across restarts.
-- **Extend with skills.** Browse and install community skills from [skills.sh](https://skills.sh) to teach Stella new abilities — web scraping, file monitoring, workspace automation, and more.
+Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each agent can have its own role, model, skills, tools, schedules, workspace, and sandbox policy. Deploy Stella where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal.
+
+## Why use Stella
+
+- **Remembers each person.** Memory is scoped per user per agent, so Stella understands different people differently.
+- **Works through agents.** Create agents for coding, writing, operations, family routines, research, and support.
+- **Acts safely.** Agents work in dedicated workspaces with sandbox policies and controlled tool access.
+- **Meets you in chat.** Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.
+- **Keeps routines moving.** Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify the right people.
 
 ## Quick start
 
@@ -22,16 +30,13 @@ Stella is a self-hosted AI assistant that runs on your machine and talks to you 
 # 1. Install
 brew install CherryHQ/tap/stella
 
-# 2. Set your API key
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# 3. Start the server
+# 2. Start the server
 stella server
 
-# 4. Open the Web UI at http://localhost:25678
+# 3. Open the Web UI at http://localhost:25678
 #    Add your provider and API key under Providers
 
-# 5. Open Chat and start talking
+# 4. Open Chat and start talking
 ```
 
 You can also install with `go install github.com/CherryHQ/stella@latest` or download a binary from [Releases](https://github.com/CherryHQ/stella/releases).
@@ -98,4 +103,4 @@ mise run format   # Lint and format
 
 ## License
 
-MIT
+GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).

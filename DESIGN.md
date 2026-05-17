@@ -1,6 +1,6 @@
 ---
 name: Stella
-description: A self-hosted AI assistant that never forgets
+description: AI partners for every person
 colors:
   ember-gold: "#c27a2a"
   deep-ink: "#1a1a1a"
@@ -90,7 +90,7 @@ components:
 
 **Creative North Star: "The Constellation Desk"**
 
-A smart workspace where nodes of thought connect naturally. The interface feels like a personal desk that's been organized by someone who knows you: warm materials, clear sight lines, everything reachable without clutter. Not a dashboard. Not a chat window. A place where conversation and configuration coexist without competing.
+A smart shared workspace where people, agents, memories, tools, and routines connect naturally. The interface feels like a calm room organized by someone who understands the people inside it: warm materials, clear sight lines, everything reachable without clutter. Not a dashboard. Not a chat window. A place where conversation, delegation, memory, and configuration coexist without competing.
 
 The system rejects messaging-app anxiety (Slack), generic AI-product sameness (ChatGPT's empty center-chat), and enterprise admin-panel energy. It draws instead from Arc Browser's opinionated confidence, iA Writer's typographic clarity, and the warmth of a well-curated personal tool.
 

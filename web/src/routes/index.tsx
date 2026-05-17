@@ -7,15 +7,15 @@ import "./index.css";
 export const Route = createFileRoute("/")({ component: Home });
 
 const conversationLines = [
-  { role: "user" as const, text: "summarize yesterday's conversation" },
+  { role: "user" as const, text: "what did Maya decide about the launch checklist?" },
   {
     role: "stella" as const,
-    text: "Yesterday you discussed migrating the auth service to JWT tokens. Key decisions: RS256 signing with key rotation, 7-day refresh window. You asked me to remember that staging uses the old session cookies until March.",
+    text: "Maya asked the operations agent to keep the checklist weekly until the beta is stable. For your workspace, the release notes draft is still in progress and the sandboxed smoke test task is scheduled for Friday.",
   },
-  { role: "user" as const, text: "what was the refresh window again?" },
+  { role: "user" as const, text: "is that from my memory or the team thread?" },
   {
     role: "stella" as const,
-    text: "7 days. You chose that over 30 days because the security team flagged long-lived tokens in the Q3 audit.",
+    text: "Both. Your memory says you own the release notes. The team thread says Maya owns launch readiness and wants weekly checks until beta stabilizes.",
   },
 ];
 
@@ -218,8 +218,10 @@ function FeaturesSection({ lang }: { lang: string }) {
 function CapabilitiesSection({ lang }: { lang: string }) {
   const tr = t(lang);
   const capabilities = [
-    { title: tr.capSkills, desc: tr.capSkillsDesc },
+    { title: tr.capUsers, desc: tr.capUsersDesc },
     { title: tr.capAgents, desc: tr.capAgentsDesc },
+    { title: tr.capSandbox, desc: tr.capSandboxDesc },
+    { title: tr.capSkills, desc: tr.capSkillsDesc },
     { title: tr.capReading, desc: tr.capReadingDesc },
     { title: tr.capEmail, desc: tr.capEmailDesc },
     { title: tr.capVault, desc: tr.capVaultDesc },
