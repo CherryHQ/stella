@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
 	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -32,7 +33,6 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
-	"github.com/CherryHQ/stella/server"
 )
 
 type testEnv struct {

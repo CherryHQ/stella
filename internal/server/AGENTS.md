@@ -27,7 +27,7 @@ GET /{path...}  → web.SPAHandler()              (serves dist files or index.ht
 ### Directory Structure
 
 ```
-server/
+internal/server/
 ├── server.go           # Server struct, initialization
 ├── routes.go           # Route registration
 ├── middleware.go       # Auth & CORS middleware

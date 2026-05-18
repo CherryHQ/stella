@@ -23,13 +23,13 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
 	"github.com/CherryHQ/stella/pkg/providers"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
-	"github.com/CherryHQ/stella/server"
 )
 
 const defaultAdminPort = 25678
