@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"reflect"
 
@@ -19,98 +18,22 @@ import (
 	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
 
-// Session wraps a pkgsandbox.Session for runner use.
-type Session struct {
-	session     pkgsandbox.Session
-	policy      pkgsandbox.Policy
-	alwaysAlive bool
-}
-
-// SessionDir returns the session workspace directory.
-func (r *Session) SessionDir() string {
-	if r == nil || r.session == nil {
-		return ""
-	}
-	resolved, err := r.session.ResolvePath(string(os.PathSeparator))
-	if err != nil {
-		return ""
-	}
-	return resolved
-}
-
-func (r *Session) Host() pkgsandbox.Host {
-	if r == nil || r.session == nil {
-		return nil
-	}
-	return r.session
-}
-
-// Session returns the underlying sandbox session.
-func (r *Session) Session() pkgsandbox.Session {
-	if r == nil {
-		return nil
-	}
-	return r.session
-}
-
-// Policy returns the session's effective policy.
-func (r *Session) Policy() pkgsandbox.Policy {
-	if r == nil {
-		return pkgsandbox.Policy{}
-	}
-	return r.policy
-}
-
-// Alive reports whether the session is healthy.
-func (r *Session) Alive() bool {
-	if r == nil {
-		return false
-	}
-	if r.session == nil {
-		return r.alwaysAlive
-	}
-	return r.session.Alive()
-}
-
-// Done returns a channel that closes when the session terminates.
-func (r *Session) Done() <-chan struct{} {
-	if r == nil || r.session == nil {
-		ch := make(chan struct{})
-		close(ch)
-		return ch
-	}
-	return r.session.Done()
-}
-
-// Sync copies changed files from the session overlay back to the source
+// SyncSession copies changed files from the session overlay back to the source
 // workspace without closing the session. No-op for sessions that don't
 // support mid-session sync.
-func (r *Session) Sync() error {
-	if r == nil || r.session == nil {
+func SyncSession(session pkgsandbox.Session) error {
+	if session == nil {
 		return nil
 	}
 	type syncer interface{ Sync() error }
-	if s, ok := r.session.(syncer); ok {
+	if s, ok := session.(syncer); ok {
 		return s.Sync()
 	}
 	return nil
 }
 
-// Close shuts down the session.
-func (r *Session) Close() error {
-	if r == nil || r.session == nil {
-		return nil
-	}
-	return r.session.Close()
-}
-
-// NewSession wraps a pkg/sandbox.Session for use by the parent agent package.
-func NewSession(session pkgsandbox.Session) *Session {
-	return &Session{session: session}
-}
-
-// sessionFactory creates a Session from configuration.
-type sessionFactory func(context.Context, Config) (*Session, error)
+// sessionFactory creates a session from configuration.
+type sessionFactory func(context.Context, Config) (pkgsandbox.Session, error)
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
@@ -119,7 +42,7 @@ var sessionRegistry = map[string]sessionFactory{
 	config.SandboxBackendNone:   createHostSession,
 }
 
-func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
+func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
 			attribute.String("stella.sandbox.backend", config.SandboxBackendDocker),
@@ -176,15 +99,12 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, err
 	}
 
-	return &Session{
-		session: session,
-		policy:  policy,
-	}, nil
+	return session, nil
 }
 
 // createLocalSession creates a local (no container isolation) session.
 // WARNING: commands run directly on the host OS with no container isolation.
-func createLocalSession(ctx context.Context, cfg Config) (*Session, error) {
+func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -204,13 +124,10 @@ func createLocalSession(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}
 
-	return &Session{
-		session: session,
-		policy:  session.Policy(),
-	}, nil
+	return session, nil
 }
 
-func createHostSession(ctx context.Context, cfg Config) (*Session, error) {
+func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -228,10 +145,7 @@ func createHostSession(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("create host session: %w", err)
 	}
 
-	return &Session{
-		session: session,
-		policy:  session.Policy(),
-	}, nil
+	return session, nil
 }
 
 // ResolveDockerConfig builds the docker plugin Config used by the runner,
@@ -305,10 +219,10 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	return paths, policy, nil
 }
 
-// ResolveSession creates a Session from configuration.
+// ResolveSession creates a sandbox session from configuration.
 // The active backend is determined by SandboxBackendFn (global Plugins page
 // selection), defaulting to local when no backend is explicitly enabled.
-func ResolveSession(ctx context.Context, cfg Config) (*Session, error) {
+func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	name := config.SandboxBackendLocal
 	if cfg.SandboxBackendFn != nil {
 		if override := cfg.SandboxBackendFn(ctx); override != "" {

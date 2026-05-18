@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/sandbox/hostenv"
 )
 
@@ -132,29 +133,16 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 	}
 }
 
-// TestRunnerSessionLifecycle tests the Session lifecycle using a nil session
-// (alwaysAlive=true path) to avoid requiring a live sandbox backend.
-func TestRunnerSessionLifecycle(t *testing.T) {
-	rs := &Session{
-		alwaysAlive: true,
+// TestSyncSessionNoop verifies that SyncSession is a no-op for nil and
+// for sessions that don't implement Sync.
+func TestSyncSessionNoop(t *testing.T) {
+	if err := SyncSession(nil); err != nil {
+		t.Errorf("SyncSession(nil): %v", err)
 	}
 
-	// Test Alive
-	if !rs.Alive() {
-		t.Error("session should be alive")
-	}
-
-	// Test Done channel — nil session returns an already-closed channel.
-	select {
-	case <-rs.Done():
-		// Expected: nil session Done() is immediately closed.
-	default:
-		t.Error("nil-session Done() should be closed")
-	}
-
-	// Test Close (no-op for nil inner session)
-	if err := rs.Close(); err != nil {
-		t.Errorf("Close: %v", err)
+	nop := pkgsandbox.NopSession()
+	if err := SyncSession(nop); err != nil {
+		t.Errorf("SyncSession(nop): %v", err)
 	}
 }
 
@@ -181,30 +169,6 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "docker") {
 		t.Fatalf("expected error to mention 'docker', got: %v", err)
-	}
-}
-
-// TestRunnerSessionNilHandling tests nil session safety.
-func TestRunnerSessionNilHandling(t *testing.T) {
-	var rs *Session
-
-	// Should handle nil gracefully
-	if rs.Alive() {
-		t.Error("nil session should not be alive")
-	}
-
-	// Done should return closed channel for nil
-	done := rs.Done()
-	select {
-	case <-done:
-		// Expected
-	default:
-		t.Error("nil session Done() should be closed")
-	}
-
-	// Close should not panic
-	if err := rs.Close(); err != nil {
-		t.Errorf("Close on nil: %v", err)
 	}
 }
 
