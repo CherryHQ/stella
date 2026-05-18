@@ -1,4 +1,4 @@
-package coretools
+package tools
 
 import (
 	"context"

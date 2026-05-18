@@ -28,7 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/tasks"
-	coretools "github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/tools"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -38,7 +38,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/pkg/tools"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	"github.com/CherryHQ/stella/resources"
@@ -82,7 +82,7 @@ type setupResult struct {
 	pool                     *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc             *scheduler.Service
 	tasksSvc                 *tasks.Service
-	builtinTools             []tools.Tool
+	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
 	promptToolsBuilder       prompt.ToolsBuilder
@@ -274,7 +274,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
-	builtinTools := []tools.Tool{}
+	builtinTools := []pkgtools.Tool{}
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return phost.BuildStreamFunc(api, map[string]any{
@@ -358,13 +358,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memory.BuildTool(memProvider),
 		mcpplugin.New(mcpManager),
 	)
-	if notifyTool := coretools.NewNotifyTool(dispatcher); notifyTool != nil {
+	if notifyTool := tools.NewNotifyTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, notifyTool)
 	}
 
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called per runner so builders receive the active sandbox host.
-	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []tools.Tool {
+	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerStreamBuilder)
@@ -596,7 +596,7 @@ func (s *setupResult) waitBackgroundTasks() {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []pkgtools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base

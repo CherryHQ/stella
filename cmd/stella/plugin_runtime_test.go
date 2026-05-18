@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	coretools "github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/tools"
 	"github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/pkg/tools"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	"github.com/CherryHQ/stella/plugins/tools/webfetch"
 )
 
@@ -83,8 +83,8 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	}
 
 	host := &passthroughHost{workDir: dir}
-	reg := tools.NewRegistry()
-	for _, tool := range coretools.New(host, "", "") {
+	reg := pkgtools.NewRegistry()
+	for _, tool := range tools.New(host, "", "") {
 		reg.Register(tool)
 	}
 	defer func() { _ = reg.Close() }()
@@ -143,8 +143,8 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 
 	workDir := t.TempDir()
 	host := &passthroughHost{workDir: workDir}
-	reg := tools.NewRegistry()
-	for _, tool := range coretools.New(host, "", "") {
+	reg := pkgtools.NewRegistry()
+	for _, tool := range tools.New(host, "", "") {
 		reg.Register(tool)
 	}
 	reg.Register(webfetch.New())
