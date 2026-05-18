@@ -6,13 +6,13 @@ type Kind string
 const (
 	KindSkill    Kind = "skill"
 	KindSoul     Kind = "soul"
-	KindSubAgent Kind = "subagent"
+	KindDelegate Kind = "delegate"
 	KindTemplate Kind = "template"
 )
 
 // AllKinds lists every supported kind.
 func AllKinds() []Kind {
-	return []Kind{KindSkill, KindSoul, KindSubAgent, KindTemplate}
+	return []Kind{KindSkill, KindSoul, KindDelegate, KindTemplate}
 }
 
 // subdir maps a Kind to its embedded FS subdirectory.
@@ -22,8 +22,8 @@ func (k Kind) subdir() string {
 		return "skills"
 	case KindSoul:
 		return "souls"
-	case KindSubAgent:
-		return "subagents"
+	case KindDelegate:
+		return "delegates"
 	case KindTemplate:
 		return "templates"
 	default:

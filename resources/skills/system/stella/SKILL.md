@@ -99,16 +99,18 @@ stella upgrade                  # Self-update to latest release
 
 ## Delegation
 
-You have an `agent` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
+You have a `delegate` tool that spawns isolated child loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
 
 ### Presets
 
 Presets are loaded from markdown files with YAML frontmatter. Discovery order (highest priority first):
 
-1. `cwd/.agents/agents/` — project-local
-2. `workspace/agents/` — agent-level
-3. `~/.agents/agents/` — common/shared
+1. `cwd/.agents/delegates/` — project-local
+2. `workspace/.agents/delegates/` — agent-level
+3. `~/.agents/delegates/` — common/shared
 4. Builtin (embedded: `researcher`, `reviewer`, `coder`, `writer`)
+
+Legacy paths (`cwd/.agents/agents/`, etc.) are also scanned for backward compatibility but overridden by the canonical paths above.
 
 Project-local presets override builtins with the same name. Use presets for common patterns (explicit fields override preset defaults).
 
@@ -118,7 +120,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 - **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug", "preset": "coder", "context": "File content of auth.go:\n..."}]}`
 - **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
 - **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions appended to base prompt; replaces preset system if both set), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
-- Subagents get fresh context (no parent history) and cannot spawn further subagents
+- Delegates get fresh context (no parent history) and cannot spawn further delegates
 - Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true}}}`
 - Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
 
@@ -134,7 +136,7 @@ Memory is an agent tool; task, scheduler, skills, vault, oauth, and notification
 - **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `agent` for synchronous focused subtasks, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `agent` for short focused subtasks.
+- **Execution modes**: use `delegate` for synchronous focused subtasks, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
 - **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.

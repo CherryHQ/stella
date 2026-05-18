@@ -161,7 +161,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				PluginTools:     cfg.PluginToolsBuilder,
 				HookPlugins:     hookPlugins,
 				ToolLifecycle:   cfg.ToolLifecycle,
-				SubagentTimeout: cfg.Snap.Runner.SubagentTimeoutDuration(),
+				DelegateTimeout: cfg.Snap.Runner.DelegateTimeoutDuration(),
 			})
 		}, nil
 	default:

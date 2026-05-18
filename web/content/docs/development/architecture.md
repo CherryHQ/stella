@@ -119,13 +119,13 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool    | Description                                   |
-| ------- | --------------------------------------------- |
-| `read`  | Read file contents with UTF-8 safe truncation |
-| `bash`  | Execute shell commands                        |
-| `write` | Create/overwrite files atomically             |
-| `edit`  | Edit file sections preserving context         |
-| `agent` | Spawn subagent loops for bounded subtasks     |
+| Tool       | Description                                       |
+| ---------- | ------------------------------------------------- |
+| `read`     | Read file contents with UTF-8 safe truncation     |
+| `bash`     | Execute shell commands                            |
+| `write`    | Create/overwrite files atomically                 |
+| `edit`     | Edit file sections preserving context             |
+| `delegate` | Delegate focused subtasks to isolated child loops |
 
 ### Plugin Tools (toggleable via admin)
 
@@ -197,14 +197,14 @@ Sandbox guarantees apply to local execution paths owned by Stella. Remote MCP tr
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
-### Agent Tool
+### Delegate Tool
 
-The `agent` tool enables the agent to spawn child agent loops with isolated context. This is useful for focused subtasks (research, code review, drafting) that benefit from fresh context without polluting the parent conversation.
+The `delegate` tool enables the agent to delegate focused subtasks to isolated child loops. This is useful for research, code review, or drafting that benefit from fresh context without polluting the parent conversation.
 
-- Each child gets a fresh message history containing only the task description
+- Each delegate gets a fresh message history containing only the task description
 - Multiple tasks run in parallel via goroutines with configurable concurrency
-- The `agent` tool is excluded from children to prevent recursion
-- Child output is truncated to ~4096 tokens to avoid bloating the parent context
+- The `delegate` tool is excluded from children to prevent recursion
+- Delegate output is truncated to ~4096 tokens to avoid bloating the parent context
 - Supports presets loaded from markdown files with YAML frontmatter
 - Per-task options: `preset`, `context`, `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
 

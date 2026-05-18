@@ -29,8 +29,8 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("expected builtin template 'stella'")
 	}
 	for _, id := range []string{"coder"} {
-		if _, ok := r.Get(KindSubAgent, id); !ok {
-			t.Errorf("expected builtin subagent %q", id)
+		if _, ok := r.Get(KindDelegate, id); !ok {
+			t.Errorf("expected builtin delegate %q", id)
 		}
 	}
 }
@@ -41,7 +41,7 @@ func TestLoadWithFixture(t *testing.T) {
 		"skills/system/tap-web/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: tap-web\ndescription: Tap Web\n---\nbody\n")},
 		"skills/system/tap-web/ref.md":   &fstest.MapFile{Data: []byte("ref\n")},
 		"souls/terse.md":                 &fstest.MapFile{Data: []byte("---\nid: terse\nname: Terse\n---\nshort\n")},
-		"subagents/runner.md":            &fstest.MapFile{Data: []byte("---\nname: runner\ntools: [bash]\nmax_turns: 5\n---\ngo\n")},
+		"delegates/runner.md":            &fstest.MapFile{Data: []byte("---\nname: runner\ntools: [bash]\nmax_turns: 5\n---\ngo\n")},
 		"templates/blank.md":             &fstest.MapFile{Data: []byte("---\nid: blank\nname: Blank\nsoul_id: terse\n---\n")},
 	}
 
@@ -61,9 +61,9 @@ func TestLoadWithFixture(t *testing.T) {
 		t.Errorf("tags = %v, want [x y]", got)
 	}
 
-	runner, ok := r.Get(KindSubAgent, "runner")
+	runner, ok := r.Get(KindDelegate, "runner")
 	if !ok {
-		t.Fatal("runner subagent missing")
+		t.Fatal("runner delegate missing")
 	}
 	if runner.Metadata["max_turns"] != 5 {
 		t.Errorf("max_turns = %v, want 5", runner.Metadata["max_turns"])
@@ -83,7 +83,7 @@ func TestListIsSortedByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Default(): %v", err)
 	}
-	list := r.List(KindSubAgent)
+	list := r.List(KindDelegate)
 	for i := 1; i < len(list); i++ {
 		if list[i-1].ID > list[i].ID {
 			t.Errorf("list not sorted: %q > %q", list[i-1].ID, list[i].ID)

@@ -1,4 +1,4 @@
-package agent
+package delegate
 
 import (
 	"context"
@@ -28,20 +28,20 @@ func TestParseAgentFrontmatter(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
-		wantFM   agentFrontmatter
+		wantFM   delegateFrontmatter
 		wantBody string
 		wantErr  bool
 	}{
 		{
 			name:     "basic frontmatter",
 			content:  "---\nname: test-agent\ndescription: A test agent\n---\nSystem prompt body.",
-			wantFM:   agentFrontmatter{Name: "test-agent", Description: "A test agent"},
+			wantFM:   delegateFrontmatter{Name: "test-agent", Description: "A test agent"},
 			wantBody: "\nSystem prompt body.",
 		},
 		{
 			name:    "with tools and model",
 			content: "---\nname: coder\ndescription: Code helper\nmodel: claude-haiku\ntools:\n  - read\n  - edit\n---\nYou are a coder.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "coder",
 				Description: "Code helper",
 				Model:       "claude-haiku",
@@ -53,7 +53,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "empty tools explicitly set",
 			content: "---\nname: reader\ndescription: Read only\ntools: []\n---\nBody.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "reader",
 				Description: "Read only",
 				HasTools:    true,
@@ -73,7 +73,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "with timeout",
 			content: "---\nname: slow\ndescription: Slow agent\ntimeout: 5m\n---\nSlow body.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "slow",
 				Description: "Slow agent",
 				Timeout:     "5m",
@@ -83,7 +83,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "crlf line endings",
 			content: "---\r\nname: win\r\ndescription: Windows agent\r\n---\r\nWindows body.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "win",
 				Description: "Windows agent",
 			},
@@ -94,7 +94,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			fm, body, err := parseAgentFrontmatter(tt.content)
+			fm, body, err := parseDelegateFrontmatter(tt.content)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -254,27 +254,27 @@ func TestLoadPresetsFromDirNonexistent(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsDeduplication(t *testing.T) {
+func TestLoadDelegatePresetsDeduplication(t *testing.T) {
 	t.Parallel()
 
 	// Create two directories with overlapping preset names.
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
-	mkdirAll(t, filepath.Join(dir1, ".agents", "agents"), 0o755)
-	mkdirAll(t, filepath.Join(dir2, "agents"), 0o755)
+	mkdirAll(t, filepath.Join(dir1, ".agents", "delegates"), 0o755)
+	mkdirAll(t, filepath.Join(dir2, ".agents", "delegates"), 0o755)
 
 	// Same name in both — project should win.
-	writeTestFile(t, filepath.Join(dir1, ".agents", "agents", "shared.md"),
+	writeTestFile(t, filepath.Join(dir1, ".agents", "delegates", "shared.md"),
 		[]byte("---\nname: shared\ndescription: Project version\n---\nProject body."), 0o644)
-	writeTestFile(t, filepath.Join(dir2, "agents", "shared.md"),
+	writeTestFile(t, filepath.Join(dir2, ".agents", "delegates", "shared.md"),
 		[]byte("---\nname: shared\ndescription: Agent version\n---\nAgent body."), 0o644)
 
 	// Unique to workspace.
-	writeTestFile(t, filepath.Join(dir2, "agents", "unique.md"),
+	writeTestFile(t, filepath.Join(dir2, ".agents", "delegates", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadAgentPresets(context.Background(), "", dir2, "", dir1)
+	presets := loadDelegatePresets(context.Background(), "", dir2, "", dir1)
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -290,7 +290,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 func TestPresetRegistry(t *testing.T) {
 	t.Parallel()
 
-	presets := []AgentPreset{
+	presets := []DelegatePreset{
 		{Name: "alpha", Description: "Alpha"},
 		{Name: "beta", Description: "Beta"},
 	}
@@ -313,7 +313,7 @@ func TestPresetRegistry(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
+func TestLoadDelegatePresetsAllFourTiers(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
@@ -321,33 +321,33 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
 	stellaHome := t.TempDir()
 
-	mkdirAll(t, filepath.Join(cwd, ".agents", "agents"), 0o755)
-	mkdirAll(t, filepath.Join(agentRoot, "agents"), 0o755)
-	mkdirAll(t, filepath.Join(userRoot, ".agents", "agents"), 0o755)
-	mkdirAll(t, filepath.Join(stellaHome, "agents"), 0o755)
+	mkdirAll(t, filepath.Join(cwd, ".agents", "delegates"), 0o755)
+	mkdirAll(t, filepath.Join(agentRoot, ".agents", "delegates"), 0o755)
+	mkdirAll(t, filepath.Join(userRoot, ".agents", "delegates"), 0o755)
+	mkdirAll(t, filepath.Join(stellaHome, ".agents", "delegates"), 0o755)
 
 	preset := func(name, desc string) []byte {
 		return []byte("---\nname: " + name + "\ndescription: " + desc + "\n---\nBody.")
 	}
 
-	writeTestFile(t, filepath.Join(stellaHome, "agents", "stella-only.md"), preset("stella-only", "From stella"), 0o644)
-	writeTestFile(t, filepath.Join(stellaHome, "agents", "overlap.md"), preset("overlap", "Stella loses"), 0o644)
+	writeTestFile(t, filepath.Join(stellaHome, ".agents", "delegates", "stella-only.md"), preset("stella-only", "From stella"), 0o644)
+	writeTestFile(t, filepath.Join(stellaHome, ".agents", "delegates", "overlap.md"), preset("overlap", "Stella loses"), 0o644)
 
-	writeTestFile(t, filepath.Join(agentRoot, "agents", "agent-only.md"), preset("agent-only", "From agent root"), 0o644)
-	writeTestFile(t, filepath.Join(agentRoot, "agents", "overlap.md"), preset("overlap", "Agent loses"), 0o644)
+	writeTestFile(t, filepath.Join(agentRoot, ".agents", "delegates", "agent-only.md"), preset("agent-only", "From agent root"), 0o644)
+	writeTestFile(t, filepath.Join(agentRoot, ".agents", "delegates", "overlap.md"), preset("overlap", "Agent loses"), 0o644)
 
-	writeTestFile(t, filepath.Join(userRoot, ".agents", "agents", "user-only.md"), preset("user-only", "From user root"), 0o644)
-	writeTestFile(t, filepath.Join(userRoot, ".agents", "agents", "overlap.md"), preset("overlap", "User loses"), 0o644)
+	writeTestFile(t, filepath.Join(userRoot, ".agents", "delegates", "user-only.md"), preset("user-only", "From user root"), 0o644)
+	writeTestFile(t, filepath.Join(userRoot, ".agents", "delegates", "overlap.md"), preset("overlap", "User loses"), 0o644)
 
-	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
-	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)
+	writeTestFile(t, filepath.Join(cwd, ".agents", "delegates", "project-only.md"), preset("project-only", "From project"), 0o644)
+	writeTestFile(t, filepath.Join(cwd, ".agents", "delegates", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadAgentPresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
+	presets := loadDelegatePresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
 	if len(presets) != 5 {
 		t.Fatalf("expected 5 presets, got %d", len(presets))
 	}
 
-	byName := map[string]AgentPreset{}
+	byName := map[string]DelegatePreset{}
 	for _, p := range presets {
 		byName[p.Name] = p
 	}
@@ -371,15 +371,15 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresets_publicWrapper(t *testing.T) {
+func TestLoadDelegatePresets_publicWrapper(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	mkdirAll(t, agentsDir, 0o755)
-	writeTestFile(t, filepath.Join(agentsDir, "helper.md"),
-		[]byte("---\nname: helper\ndescription: A helper agent\n---\nHelp the user."), 0o644)
+	delegatesDir := filepath.Join(dir, ".agents", "delegates")
+	mkdirAll(t, delegatesDir, 0o755)
+	writeTestFile(t, filepath.Join(delegatesDir, "helper.md"),
+		[]byte("---\nname: helper\ndescription: A helper delegate\n---\nHelp the user."), 0o644)
 
-	presets := LoadAgentPresets(LoadAgentPresetsConfig{StellaHome: dir})
+	presets := LoadDelegatePresets(LoadDelegatePresetsConfig{StellaHome: dir})
 	if len(presets) != 1 {
 		t.Fatalf("expected 1 preset, got %d", len(presets))
 	}
@@ -388,27 +388,42 @@ func TestLoadAgentPresets_publicWrapper(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsPathDedup(t *testing.T) {
+func TestLoadDelegatePresetsPathDedup(t *testing.T) {
 	t.Parallel()
 
-	// If cwd and workspace resolve to the same directory, presets should not be loaded twice.
-	shared := t.TempDir()
-	mkdirAll(t, filepath.Join(shared, ".agents", "agents"), 0o755)
-	mkdirAll(t, filepath.Join(shared, "agents"), 0o755)
-
-	preset := []byte("---\nname: dup-test\ndescription: Should appear once\n---\nBody.")
-	writeTestFile(t, filepath.Join(shared, ".agents", "agents", "dup-test.md"), preset, 0o644)
-
-	// Pass the same directory as both agentRoot and builtin root. Both scan
-	// the same agents/ subdir, so filepath.Abs dedup should load it once.
+	// Pass the same dir as both stellaHome and agentRoot; both scan
+	// .agents/delegates/ so filepath.Abs dedup should load it once.
 	dir := t.TempDir()
-	mkdirAll(t, filepath.Join(dir, "agents"), 0o755)
-	writeTestFile(t, filepath.Join(dir, "agents", "test.md"),
-		[]byte("---\nname: test\ndescription: Test agent\n---\nBody."), 0o644)
+	mkdirAll(t, filepath.Join(dir, ".agents", "delegates"), 0o755)
+	writeTestFile(t, filepath.Join(dir, ".agents", "delegates", "test.md"),
+		[]byte("---\nname: test\ndescription: Test delegate\n---\nBody."), 0o644)
 
-	// Pass the same dir as both stellaHome and agentRoot; both scan agents/ so dedup fires.
-	presets := loadAgentPresets(context.Background(), dir, dir, "", "")
+	presets := loadDelegatePresets(context.Background(), dir, dir, "", "")
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
+	}
+}
+
+func TestLoadDelegatePresetsLegacyFallback(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	// Put a preset in the legacy .agents/agents/ path.
+	mkdirAll(t, filepath.Join(dir, ".agents", "agents"), 0o755)
+	writeTestFile(t, filepath.Join(dir, ".agents", "agents", "legacy.md"),
+		[]byte("---\nname: legacy\ndescription: From legacy path\n---\nBody."), 0o644)
+
+	// Put an override in the new .agents/delegates/ path.
+	mkdirAll(t, filepath.Join(dir, ".agents", "delegates"), 0o755)
+	writeTestFile(t, filepath.Join(dir, ".agents", "delegates", "legacy.md"),
+		[]byte("---\nname: legacy\ndescription: From new path\n---\nBody."), 0o644)
+
+	presets := loadDelegatePresets(context.Background(), dir, "", "", "")
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].Description != "From new path" {
+		t.Errorf("delegates/ should override agents/, got Description = %q", presets[0].Description)
 	}
 }
