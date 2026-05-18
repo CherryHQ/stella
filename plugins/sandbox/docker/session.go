@@ -45,10 +45,16 @@ type dockerFactory struct {
 }
 
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
-// If StellaHome is set, DooD path-translation prefixes are auto-derived from
-// STELLA_HOME_HOST and user tool binaries are resolved from the plugins manifest.
-// Returns an error if DooD detection fails (e.g. running in a container without
-// STELLA_HOME_HOST).
+//
+// When cfg.StellaHome is non-empty, construction performs I/O:
+//   - DooD detection: reads /.dockerenv, /run/.containerenv, and $STELLA_HOME_HOST
+//     to auto-derive path-translation prefixes. Fails if stella is inside a
+//     container but STELLA_HOME_HOST is not set.
+//   - User tool resolution: loads the builtin and user plugin manifests
+//     ($STELLA_HOME/plugins.yaml) to populate UserToolBinaries.
+//
+// Both steps are skipped when StellaHome is empty (e.g. unit tests), making
+// construction cheap and infallible in that case.
 func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error

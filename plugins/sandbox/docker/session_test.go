@@ -2,6 +2,7 @@ package docker
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -17,10 +18,24 @@ func pointToUnreachableDaemon(t *testing.T) {
 	t.Setenv("DOCKER_CERT_PATH", "")
 }
 
-func TestFactoryName(t *testing.T) {
-	f, _ := NewFactory(Config{})
+func TestNewFactory_NoStellaHome_Infallible(t *testing.T) {
+	f, err := NewFactory(Config{})
+	if err != nil {
+		t.Fatalf("NewFactory(Config{}) should not fail: %v", err)
+	}
 	if f.Name() != "docker" {
 		t.Fatalf("expected %q, got %q", "docker", f.Name())
+	}
+}
+
+func TestNewFactory_DooDError_Propagated(t *testing.T) {
+	withDooDEnv(t, true, "")
+	_, err := NewFactory(Config{StellaHome: "/fake/stella"})
+	if err == nil {
+		t.Fatal("expected error when in-container and STELLA_HOME_HOST unset")
+	}
+	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") {
+		t.Fatalf("error should mention STELLA_HOME_HOST, got: %v", err)
 	}
 }
 
