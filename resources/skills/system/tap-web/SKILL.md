@@ -2,7 +2,7 @@
 name: tap-web
 metadata:
   author: vaayne/tap
-  version: "v0.4.7"
+  version: "v0.4.8"
 description: >
   Access websites, search the web, and extract clean content using the `tap` CLI.
   Supports structured site scripts, readable page extraction, and browser automation
@@ -46,8 +46,9 @@ Start simple and escalate only when needed:
 Decision flow:
 
 1. Check for a site script first: `tap site list` / `tap site search <query>`
-2. If you just need readable content: `tap fetch <url>`
-3. If you need interaction/auth/network: `tap browser ...`
+2. For X/Twitter content, try FxEmbed scripts first (`twitter/fxembed-status`, `twitter/fxembed-search`, `twitter/fxembed-profile-*`) before browser or fetch. For long-form X articles, use `tap site twitter/fxembed-status id=<tweet-id> format=markdown -f raw`.
+3. If you just need readable content: `tap fetch <url>`
+4. If you need interaction/auth/network: `tap browser ...`
 
 ## Quick reference
 
