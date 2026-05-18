@@ -195,6 +195,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
+	phost.RegisterBuiltinTools()
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}

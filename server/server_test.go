@@ -90,6 +90,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
+	phost.RegisterBuiltinTools()
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

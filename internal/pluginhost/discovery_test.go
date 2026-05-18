@@ -341,6 +341,7 @@ func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 
 func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.RegisterBuiltinTools()
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

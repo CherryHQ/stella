@@ -15,12 +15,8 @@ func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {
 		t.Fatal("expected runtime")
 	}
 	rt.Manager().AddTool("docs", "search", "Search", "Search docs", nil, nil, nil)
-	plugin, ok := pkgplugins.Get(PluginID)
-	if !ok {
-		t.Fatal("expected mcp plugin registration")
-	}
 	host := &testHost{}
-	plugin.Register(host)
+	RegisterPlugin(host)
 	items, err := host.prompt.GetTools(context.Background(), pkgplugins.PromptInventoryContext{
 		Platform: testPlatform{lookup: lookup},
 	})

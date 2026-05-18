@@ -15,10 +15,6 @@ import (
 	// Plugin runtimes.
 	_ "github.com/CherryHQ/stella/plugins/reflect"
 
-	// Builtin tools (registered as plugins for host capabilities).
-	_ "github.com/CherryHQ/stella/internal/tools/mcp"
-	_ "github.com/CherryHQ/stella/internal/tools/notify"
-
 	// Plugin tools.
 	_ "github.com/CherryHQ/stella/plugins/tools/webfetch"
 

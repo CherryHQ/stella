@@ -12,32 +12,31 @@ import (
 
 const PluginID = "tool/notify"
 
-func init() {
-	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:          PluginID,
-			Kind:        "tool",
-			Name:        "notify",
-			DisplayName: "Notify",
-			Description: "Send notifications through Stella's configured notification routes.",
-			Capabilities: []string{
-				pkgplugins.CapabilityTool,
-			},
-		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    PluginID,
-			Name:        "notify",
-			Description: "Send a notification message to the user.",
-			Required:    false,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				service := ctx.Platform.Notifier()
-				if service == nil {
-					return nil, nil
-				}
-				return &Tool{service: service}, nil
-			},
-		})
-	}))
+// RegisterPlugin registers the notify tool as a builtin plugin with the given host.
+func RegisterPlugin(host pkgplugins.Host) {
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID:          PluginID,
+		Kind:        "tool",
+		Name:        "notify",
+		DisplayName: "Notify",
+		Description: "Send notifications through Stella's configured notification routes.",
+		Capabilities: []string{
+			pkgplugins.CapabilityTool,
+		},
+	})
+	host.AddTool(pkgplugins.ToolSpec{
+		PluginID:    PluginID,
+		Name:        "notify",
+		Description: "Send a notification message to the user.",
+		Required:    false,
+		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+			service := ctx.Platform.Notifier()
+			if service == nil {
+				return nil, nil
+			}
+			return &Tool{service: service}, nil
+		},
+	})
 }
 
 // Tool is an agent tool that sends notifications through the plugin host.

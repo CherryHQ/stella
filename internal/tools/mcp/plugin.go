@@ -13,8 +13,9 @@ const (
 	RuntimeName = "manager"
 )
 
-func init() {
-	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+// RegisterPlugin registers MCP as a builtin plugin with the given host.
+func RegisterPlugin(host pkgplugins.Host) {
+	{
 		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           PluginID,
 			Kind:         "tool",
@@ -83,7 +84,7 @@ func init() {
 			sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 			return items, nil
 		}})
-	}))
+	}
 }
 
 func configSchema() map[string]any {
