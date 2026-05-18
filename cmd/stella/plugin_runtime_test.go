@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/tools/bash"
+	"github.com/CherryHQ/stella/internal/tools/edit"
+	"github.com/CherryHQ/stella/internal/tools/read"
+	"github.com/CherryHQ/stella/internal/tools/write"
 	"github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/bash"
-	"github.com/CherryHQ/stella/plugins/tools/edit"
-	"github.com/CherryHQ/stella/plugins/tools/read"
 	"github.com/CherryHQ/stella/plugins/tools/webfetch"
-	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {

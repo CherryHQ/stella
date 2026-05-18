@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/CherryHQ/stella/internal/tools/bash"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	"github.com/CherryHQ/stella/internal/tools/edit"
+	"github.com/CherryHQ/stella/internal/tools/read"
+	"github.com/CherryHQ/stella/internal/tools/write"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/bash"
-	delegatetool "github.com/CherryHQ/stella/plugins/tools/delegate"
-	"github.com/CherryHQ/stella/plugins/tools/edit"
-	"github.com/CherryHQ/stella/plugins/tools/read"
-	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
 // toolJSON is the JSON representation of a tool definition.

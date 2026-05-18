@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -21,7 +22,6 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
-	delegatetool "github.com/CherryHQ/stella/plugins/tools/delegate"
 	"github.com/CherryHQ/stella/resources"
 )
 

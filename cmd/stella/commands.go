@@ -28,6 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/tasks"
+	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -39,7 +40,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
-	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )

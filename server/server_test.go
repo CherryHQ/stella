@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/skills"
+	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -31,7 +32,6 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
-	mcp "github.com/CherryHQ/stella/plugins/tools/mcp"
 	"github.com/CherryHQ/stella/server"
 )
 

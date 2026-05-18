@@ -9,12 +9,12 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
 
 func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.ReflectSnapshot, c candidate) error {

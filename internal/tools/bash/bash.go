@@ -10,33 +10,8 @@ import (
 	"strings"
 	"time"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
-
-func init() {
-	pkgplugins.Register("tool/bash", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:          "tool/bash",
-			Kind:        "tool",
-			Name:        "bash",
-			DisplayName: "Bash",
-			Description: "Execute shell commands in the current workspace.",
-			Capabilities: []string{
-				pkgplugins.CapabilityTool,
-			},
-		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    "tool/bash",
-			Name:        "bash",
-			Description: "Execute bash commands.",
-			Required:    true,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewBashTool(ctx.Paths.ProjectRoot, ctx.Paths.ToolsBinDir), nil
-			},
-		})
-	}))
-}
 
 // BashTool executes bash commands.
 type BashTool struct {

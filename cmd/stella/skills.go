@@ -16,8 +16,8 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	internalskills "github.com/CherryHQ/stella/internal/skills"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 	"github.com/CherryHQ/stella/resources"
 )
 

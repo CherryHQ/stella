@@ -10,12 +10,12 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
 )
 
 // RunnerFactoryConfig holds all dependencies needed to create a NewRunnerFunc.

@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/resources"
 )
 

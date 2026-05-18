@@ -15,7 +15,7 @@ import (
 )
 
 // builtinFrontmatter mirrors the YAML frontmatter fields in a builtin SKILL.md.
-// Duplicated from plugins/tools/skills/catalog.go intentionally (Phase 6 will decide
+// Duplicated from internal/tools/skills/catalog.go intentionally (Phase 6 will decide
 // whether to centralise; for now this avoids breaking catalog.go's unexported API).
 type builtinFrontmatter struct {
 	Name                   string         `yaml:"name"`
@@ -27,7 +27,7 @@ type builtinFrontmatter struct {
 }
 
 // parseBuiltinFrontmatter extracts YAML frontmatter from a SKILL.md string.
-// It mirrors parseFrontmatter in plugins/tools/skills/catalog.go.
+// It mirrors parseFrontmatter in internal/tools/skills/catalog.go.
 func parseBuiltinFrontmatter(content string) (builtinFrontmatter, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")

@@ -7,33 +7,8 @@ import (
 	"os"
 	"strings"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
-
-func init() {
-	pkgplugins.Register("tool/read", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:          "tool/read",
-			Kind:        "tool",
-			Name:        "read",
-			DisplayName: "Read",
-			Description: "Read file contents with pagination and truncation.",
-			Capabilities: []string{
-				pkgplugins.CapabilityTool,
-			},
-		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    "tool/read",
-			Name:        "read",
-			Description: "Read file contents.",
-			Required:    true,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewReadTool(ctx.Paths.ProjectRoot), nil
-			},
-		})
-	}))
-}
 
 // ReadTool reads file contents.
 type ReadTool struct {
