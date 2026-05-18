@@ -1,12 +1,10 @@
-package sandbox
+package docker
 
 import (
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
-
-	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 )
 
 // containerFilesystemMarkers are the well-known files created by container
@@ -43,7 +41,7 @@ var lookupStellaHomeHost = func() string {
 //     the host.
 //   - Not in a container + STELLA_HOME_HOST set → warn and ignore; "host path"
 //     is meaningless when stella already runs on the host.
-func applyDooDDefaults(cfg dockerplugin.Config, stellaHome string) (dockerplugin.Config, error) {
+func applyDooDDefaults(cfg Config, stellaHome string) (Config, error) {
 	if cfg.ContainerPathPrefix != "" || cfg.HostPathPrefix != "" {
 		return cfg, nil
 	}

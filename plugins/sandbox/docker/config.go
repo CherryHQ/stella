@@ -2,24 +2,20 @@ package docker
 
 import "strings"
 
-// Config configures the docker sandbox factory. All fields are populated by
-// the runner glue layer — there are no user-facing knobs. The image is
-// version-locked to the stella binary (via internal/config.SandboxDockerImage)
-// and the path-prefix fields are auto-derived from STELLA_HOME_HOST when stella
-// runs inside a container (see internal/agent/sandbox_dood.go).
+// Config configures the docker sandbox factory.
 type Config struct {
 	// Image is the container image to use. Required.
 	Image string
 
 	// StellaHome is the host-view stella home directory. Used for orphan
-	// cleanup scoping and preflight checks. When running under DooD, this
-	// is the in-container path (TranslateToDaemonPath converts it).
+	// cleanup scoping, preflight checks, DooD path translation, and
+	// resolving user tool binaries from the plugins manifest.
 	StellaHome string
 
 	// ContainerPathPrefix / HostPathPrefix enable path alignment when stella
 	// runs inside a container and talks to the daemon on the host (DooD).
-	// Both fields are filled by applyDooDDefaults in the runner; callers
-	// outside that path should leave them empty.
+	// Normally auto-derived from STELLA_HOME_HOST by NewFactory; only set
+	// explicitly in tests or when overriding the default detection.
 	ContainerPathPrefix string
 	HostPathPrefix      string
 
@@ -27,6 +23,7 @@ type Config struct {
 	// baked into the versioned sandbox image. They are installed in a Linux
 	// helper container and exposed to sessions through a Docker-managed tool
 	// cache, never through host $STELLA_HOME/bin.
+	// Normally auto-resolved by NewFactory from $STELLA_HOME/plugins.yaml.
 	UserToolBinaries []ToolBinary
 }
 

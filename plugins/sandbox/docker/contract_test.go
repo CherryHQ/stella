@@ -43,7 +43,11 @@ func TestSessionContract(t *testing.T) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
 		dockerPreflightForTest(t, ctx)
-		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
+		factory, err := dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage})
+		if err != nil {
+			t.Fatalf("NewFactory: %v", err)
+		}
+		testSessionContract(t, factory)
 	})
 }
 

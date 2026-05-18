@@ -45,7 +45,27 @@ type dockerFactory struct {
 }
 
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
-func NewFactory(cfg Config) sandboxpkg.Factory { return &dockerFactory{cfg: cfg} }
+// If StellaHome is set, DooD path-translation prefixes are auto-derived from
+// STELLA_HOME_HOST and user tool binaries are resolved from the plugins manifest.
+// Returns an error if DooD detection fails (e.g. running in a container without
+// STELLA_HOME_HOST).
+func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
+	if cfg.StellaHome != "" {
+		var err error
+		cfg, err = applyDooDDefaults(cfg, cfg.StellaHome)
+		if err != nil {
+			return nil, err
+		}
+		if len(cfg.UserToolBinaries) == 0 {
+			tools, err := resolveUserToolBinaries(cfg.StellaHome)
+			if err != nil {
+				return nil, fmt.Errorf("resolve docker user tools: %w", err)
+			}
+			cfg.UserToolBinaries = tools
+		}
+	}
+	return &dockerFactory{cfg: cfg}, nil
+}
 
 func (f *dockerFactory) Name() string { return "docker" }
 

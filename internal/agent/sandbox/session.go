@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"reflect"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
@@ -63,20 +60,14 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 
-	dockerCfg, err := ResolveDockerConfig(paths.StellaHome)
+	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
+		Image:      config.SandboxDockerImage(),
+		StellaHome: paths.StellaHome,
+	})
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	userTools, err := resolveDockerUserToolBinaries(paths.StellaHome)
-	if err != nil {
-		err = fmt.Errorf("resolve docker user tools: %w", err)
-		recordSandboxError(span, err)
-		return nil, err
-	}
-	dockerCfg.UserToolBinaries = userTools
-
-	factory := dockerplugin.NewFactory(dockerCfg)
 
 	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
@@ -136,54 +127,6 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 	}
 
 	return session, nil
-}
-
-// ResolveDockerConfig builds the docker plugin Config used by the runner,
-// including any DooD path-translation prefixes derived from STELLA_HOME_HOST.
-func ResolveDockerConfig(stellaHome string) (dockerplugin.Config, error) {
-	if stellaHome == "" {
-		stellaHome = config.StellaHome()
-	}
-	return applyDooDDefaults(
-		dockerplugin.Config{Image: config.SandboxDockerImage(), StellaHome: stellaHome},
-		stellaHome,
-	)
-}
-
-func resolveDockerUserToolBinaries(stellaHome string) ([]dockerplugin.ToolBinary, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
-	if err != nil {
-		return nil, err
-	}
-	user, err := manifestplugins.LoadUser(filepath.Join(stellaHome, "plugins.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	merged := manifestplugins.Merge(builtin, user)
-
-	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
-	for _, plugin := range builtin.Plugins {
-		builtinByID[plugin.ID] = plugin
-	}
-
-	var out []dockerplugin.ToolBinary
-	for _, plugin := range merged.Plugins {
-		if !plugin.Enabled || len(plugin.Binaries) == 0 {
-			continue
-		}
-		if builtinPlugin, ok := builtinByID[plugin.ID]; ok && reflect.DeepEqual(plugin.Binaries, builtinPlugin.Binaries) {
-			continue
-		}
-		for _, binary := range plugin.Binaries {
-			out = append(out, dockerplugin.ToolBinary{
-				Name:    binary.Name,
-				Tool:    binary.Tool,
-				Version: binary.Version,
-				Options: binary.Options,
-			})
-		}
-	}
-	return out, nil
 }
 
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy

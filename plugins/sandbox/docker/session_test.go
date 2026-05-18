@@ -18,7 +18,7 @@ func pointToUnreachableDaemon(t *testing.T) {
 }
 
 func TestFactoryName(t *testing.T) {
-	f := NewFactory(Config{})
+	f, _ := NewFactory(Config{})
 	if f.Name() != "docker" {
 		t.Fatalf("expected %q, got %q", "docker", f.Name())
 	}
@@ -26,7 +26,7 @@ func TestFactoryName(t *testing.T) {
 
 func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
-	f := NewFactory(Config{})
+	f, _ := NewFactory(Config{})
 	if f.Available() {
 		t.Fatal("expected Available() == false when daemon is unreachable")
 	}
@@ -34,7 +34,7 @@ func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 
 func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
-	f := NewFactory(Config{})
+	f, _ := NewFactory(Config{})
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 	}
