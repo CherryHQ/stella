@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-05-18
+
+### ✨ Features
+
+- **Streaming**: AI SDK data stream protocol for `sendSessionMessage` ([#190](https://github.com/CherryHQ/stella/pull/190))
+- **UI**: Redesign landing page ([#186](https://github.com/CherryHQ/stella/pull/186))
+
+### 🐛 Bug Fixes
+
+- **Sessions**: Send full tool result content during SSE streaming
+
+### ♻️ Refactoring
+
+- **Tools**: Rename subagent terminology to delegate ([#188](https://github.com/CherryHQ/stella/pull/188))
+- **Tools**: Move builtin tools to `internal/` and bypass plugin host ([#189](https://github.com/CherryHQ/stella/pull/189))
+- **Sandbox**: Deepen sandbox modules ([#187](https://github.com/CherryHQ/stella/pull/187))
+- **Internal**: Consolidate memory and reflect into `internal/` ([#191](https://github.com/CherryHQ/stella/pull/191))
+
+### 📝 Documentation
+
+- Refine Stella positioning ([#185](https://github.com/CherryHQ/stella/pull/185))
+
+### 📦 Dependencies
+
+- Update tap-web to 0.4.8
+
+**Full Changelog**: [v0.32.0...v0.33.0](https://github.com/CherryHQ/stella/compare/v0.32.0...v0.33.0)
+
 ## [0.32.0] - 2026-05-17
 
 ### ✨ Features

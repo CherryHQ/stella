@@ -11,6 +11,34 @@ icon: History
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-05-18
+
+### ✨ 功能
+
+- **流式传输**：为 `sendSessionMessage` 实现 AI SDK 数据流协议 ([#190](https://github.com/CherryHQ/stella/pull/190))
+- **UI**：重新设计着陆页 ([#186](https://github.com/CherryHQ/stella/pull/186))
+
+### 🐛 修复
+
+- **会话**：SSE 流式传输时发送完整工具结果内容
+
+### ♻️ 重构
+
+- **工具**：将 subagent 术语重命名为 delegate ([#188](https://github.com/CherryHQ/stella/pull/188))
+- **工具**：将内置工具移至 `internal/` 并绕过插件宿主 ([#189](https://github.com/CherryHQ/stella/pull/189))
+- **沙箱**：深化沙箱模块结构 ([#187](https://github.com/CherryHQ/stella/pull/187))
+- **内部**：将 memory 和 reflect 整合到 `internal/` ([#191](https://github.com/CherryHQ/stella/pull/191))
+
+### 📝 文档
+
+- 精炼 Stella 产品定位 ([#185](https://github.com/CherryHQ/stella/pull/185))
+
+### 📦 依赖
+
+- 更新 tap-web 至 0.4.8
+
+**完整变更日志**：[v0.32.0...v0.33.0](https://github.com/CherryHQ/stella/compare/v0.32.0...v0.33.0)
+
 ## [0.32.0] - 2026-05-17
 
 ### ✨ 功能
