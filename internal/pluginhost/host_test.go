@@ -228,18 +228,6 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
-func TestBuildMemoryReturnsErrorForUnknownPlugin(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{}}
-	host := New(store)
-	provider, err := host.BuildMemory(context.Background(), "missing", nil, t.TempDir(), nil, nil)
-	if err == nil {
-		t.Fatal("expected error for unknown memory plugin")
-	}
-	if provider != nil {
-		t.Fatalf("expected nil provider, got %#v", provider)
-	}
-}
-
 func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

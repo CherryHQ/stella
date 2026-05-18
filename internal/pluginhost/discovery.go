@@ -161,11 +161,6 @@ func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, c
 			add(pkgplugins.CapabilityHook)
 		}
 	}
-	for _, reg := range h.memoryRegs {
-		if reg.PluginID == pluginID {
-			add(pkgplugins.CapabilityMemory)
-		}
-	}
 	for _, reg := range h.runtimeRegs {
 		if reg.PluginID == pluginID {
 			add(pkgplugins.CapabilityRuntime)

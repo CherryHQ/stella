@@ -40,7 +40,6 @@ type Host struct {
 	beforeToolRegs     map[string]pkgplugins.BeforeToolCallSpec
 	afterToolRegs      map[string]pkgplugins.AfterToolResultSpec
 	channelRegs        map[string]pkgplugins.ChannelSpec
-	memoryRegs         map[string]pkgplugins.MemorySpec
 	runtimeRegs        map[string]pkgplugins.RuntimeSpec
 	configRegs         map[string]pkgplugins.AdminSpec
 	statusRegs         map[string]pkgplugins.AdminSpec
@@ -66,7 +65,6 @@ func New(store config.Store, opts ...Option) *Host {
 		beforeToolRegs:     map[string]pkgplugins.BeforeToolCallSpec{},
 		afterToolRegs:      map[string]pkgplugins.AfterToolResultSpec{},
 		channelRegs:        map[string]pkgplugins.ChannelSpec{},
-		memoryRegs:         map[string]pkgplugins.MemorySpec{},
 		runtimeRegs:        map[string]pkgplugins.RuntimeSpec{},
 		configRegs:         map[string]pkgplugins.AdminSpec{},
 		statusRegs:         map[string]pkgplugins.AdminSpec{},
@@ -283,12 +281,6 @@ func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.afterToolRegs, promptKey(reg.PluginID, reg.Name), reg, "after tool result")
-}
-
-func (h *Host) AddMemory(reg pkgplugins.MemorySpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	registerUnique(h.memoryRegs, reg.Name, reg, "memory")
 }
 
 func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec) {

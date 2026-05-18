@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -47,13 +46,6 @@ type HookSpec struct {
 	PluginID string
 	Name     string
 	Build    func(ctx HookContext) (hooks.HookPlugin, error)
-}
-
-// MemorySpec declares a memory capability owned by a plugin.
-type MemorySpec struct {
-	PluginID string
-	Name     string
-	Build    func(ctx context.Context, build MemoryContext) (memory.Provider, error)
 }
 
 // RuntimeSpec declares a managed runtime capability owned by a plugin.

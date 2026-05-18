@@ -115,10 +115,6 @@ func (h *Host) ValidateRegistrations() error {
 				if !hasHookLocked(h.hookRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares hook capability but no hook is registered", meta.ID)
 				}
-			case pkgplugins.CapabilityMemory:
-				if !hasMemoryLocked(h.memoryRegs, meta.ID) {
-					return fmt.Errorf("pluginhost: metadata for %q declares memory capability but no memory is registered", meta.ID)
-				}
 			}
 		}
 	}
@@ -234,15 +230,6 @@ func hasAfterToolLocked(regs map[string]pkgplugins.AfterToolResultSpec, pluginID
 
 func hasLifecycleLocked(beforeRunRegs map[string]pkgplugins.BeforeRunSpec, beforeToolRegs map[string]pkgplugins.BeforeToolCallSpec, afterToolRegs map[string]pkgplugins.AfterToolResultSpec, pluginID string) bool {
 	return hasBeforeRunLocked(beforeRunRegs, pluginID) || hasBeforeToolLocked(beforeToolRegs, pluginID) || hasAfterToolLocked(afterToolRegs, pluginID)
-}
-
-func hasMemoryLocked(regs map[string]pkgplugins.MemorySpec, pluginID string) bool {
-	for _, reg := range regs {
-		if reg.PluginID == pluginID {
-			return true
-		}
-	}
-	return false
 }
 
 func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, manifestPrompts map[string]pkgplugins.SystemPromptSection, pluginID string) bool {
