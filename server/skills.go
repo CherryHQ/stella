@@ -12,7 +12,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
 // skillView is the JSON representation of a skill returned to the admin UI.

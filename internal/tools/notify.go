@@ -1,4 +1,4 @@
-package notify
+package tools
 
 import (
 	"context"
@@ -7,45 +7,23 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/tools"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-const PluginID = "tool/notify"
-
-func init() {
-	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:          PluginID,
-			Kind:        "tool",
-			Name:        "notify",
-			DisplayName: "Notify",
-			Description: "Send notifications through Stella's configured notification routes.",
-			Capabilities: []string{
-				pkgplugins.CapabilityTool,
-			},
-		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    PluginID,
-			Name:        "notify",
-			Description: "Send a notification message to the user.",
-			Required:    false,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				service := ctx.Platform.Notifier()
-				if service == nil {
-					return nil, nil
-				}
-				return &Tool{service: service}, nil
-			},
-		})
-	}))
+// NewNotifyTool creates a notify tool with the given notifier service.
+// Returns nil if notifier is nil.
+func NewNotifyTool(notifier pkgplugins.Notifier) pkgtools.Tool {
+	if notifier == nil {
+		return nil
+	}
+	return &notifyTool{service: notifier}
 }
 
-// Tool is an agent tool that sends notifications through the plugin host.
-type Tool struct {
+type notifyTool struct {
 	service pkgplugins.Notifier
 }
 
-var inputSchema = map[string]any{
+var notifyInputSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
 		"message": map[string]any{
@@ -68,15 +46,15 @@ var inputSchema = map[string]any{
 	"required": []string{"message"},
 }
 
-func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{
+func (t *notifyTool) Definition() pkgtools.Definition {
+	return pkgtools.Definition{
 		Name:        "notify",
 		Description: "Send a notification message to the user. In normal user conversations, omit 'chat_id' so Stella can route via the current user's linked identities automatically. Supports multiple backends (Telegram, Slack, etc.). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
-		InputSchema: inputSchema,
+		InputSchema: notifyInputSchema,
 	}
 }
 
-func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *notifyTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	message, _ := args["message"].(string)
 	if message == "" {
 		return "", fmt.Errorf("message is required")

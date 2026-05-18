@@ -4,13 +4,10 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/CherryHQ/stella/internal/tools"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/bash"
-	delegatetool "github.com/CherryHQ/stella/plugins/tools/delegate"
-	"github.com/CherryHQ/stella/plugins/tools/edit"
-	"github.com/CherryHQ/stella/plugins/tools/read"
-	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
 // toolJSON is the JSON representation of a tool definition.
@@ -31,36 +28,29 @@ func defToJSON(def pkgtools.Definition, category string) toolJSON {
 }
 
 func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
-	var tools []toolJSON
+	var items []toolJSON
 
-	// Built-in tools (Read, Bash, Edit, Write).
-	builtinTools := []pkgtools.Tool{
-		&read.ReadTool{},
-		bash.NewBashTool("", ""),
-		&edit.EditTool{},
-		&write.WriteTool{},
-	}
-	for _, t := range builtinTools {
-		tools = append(tools, defToJSON(t.Definition(), "builtin"))
+	for _, def := range tools.Definitions() {
+		items = append(items, defToJSON(def, "builtin"))
 	}
 
 	// Delegate tool (always present).
-	tools = append(tools, defToJSON(delegatetool.DelegateDefinition(nil), "builtin"))
+	items = append(items, defToJSON(delegatetool.DelegateDefinition(nil), "builtin"))
 
 	// Builtin tools (memory, skills).
 	for _, def := range s.builtinToolDefinitions() {
-		tools = append(tools, defToJSON(def, "builtin"))
+		items = append(items, defToJSON(def, "builtin"))
 	}
 
-	sort.Slice(tools, func(i, j int) bool {
-		if tools[i].Category != tools[j].Category {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Category != items[j].Category {
 			order := map[string]int{"builtin": 0, "extra": 1}
-			return order[tools[i].Category] < order[tools[j].Category]
+			return order[items[i].Category] < order[items[j].Category]
 		}
-		return tools[i].Name < tools[j].Name
+		return items[i].Name < items[j].Name
 	})
 
-	writeData(w, http.StatusOK, tools)
+	writeData(w, http.StatusOK, items)
 }
 
 // builtinToolDefinitions returns the canonical definitions from each tool

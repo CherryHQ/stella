@@ -1,4 +1,4 @@
-package notify
+package tools
 
 import (
 	"context"
@@ -29,9 +29,9 @@ func (m *mockNotifier) NotifyUser(_ context.Context, userID string, n pkgchannel
 	return nil
 }
 
-func TestToolExecuteUsesNotifyUserForScopedUser(t *testing.T) {
+func TestNotifyToolUsesNotifyUserForScopedUser(t *testing.T) {
 	notifier := &mockNotifier{}
-	tool := &Tool{service: notifier}
+	tool := NewNotifyTool(notifier)
 	ctx := memory.WithUserID(context.Background(), "7")
 
 	_, err := tool.Execute(ctx, map[string]any{"message": "hello"})
@@ -49,9 +49,9 @@ func TestToolExecuteUsesNotifyUserForScopedUser(t *testing.T) {
 	}
 }
 
-func TestToolExecuteUsesNotifyForExplicitTarget(t *testing.T) {
+func TestNotifyToolUsesNotifyForExplicitTarget(t *testing.T) {
 	notifier := &mockNotifier{}
-	tool := &Tool{service: notifier}
+	tool := NewNotifyTool(notifier)
 	ctx := memory.WithUserID(context.Background(), "7")
 
 	_, err := tool.Execute(ctx, map[string]any{"message": "hello", "channel": "telegram"})
@@ -63,5 +63,11 @@ func TestToolExecuteUsesNotifyForExplicitTarget(t *testing.T) {
 	}
 	if len(notifier.notifyUserCalls) != 0 {
 		t.Fatalf("NotifyUser calls = %d, want 0", len(notifier.notifyUserCalls))
+	}
+}
+
+func TestNewNotifyToolReturnsNilForNilNotifier(t *testing.T) {
+	if tool := NewNotifyTool(nil); tool != nil {
+		t.Fatal("expected nil tool for nil notifier")
 	}
 }

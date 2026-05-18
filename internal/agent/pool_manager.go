@@ -21,17 +21,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
-
-// BuiltinToolsFactory creates agent-specific builtin tools given a snapshot.
-// It allows callers to inject always-on tools that depend on per-agent
-// configuration (for example, notifications).
-type BuiltinToolsFactory func(snap *config.Snapshot) []tools.Tool
 
 // PluginToolsBuilder creates tools from enabled plugin state.
 // Called per runner so tool builders receive the active sandbox host.
-type PluginToolsBuilder func(ctx context.Context, build plugintools.BuildContext) []tools.Tool
+type PluginToolsBuilder func(ctx context.Context, build pkgplugins.ToolBuildContext) []tools.Tool
 
 // PluginHooksBuilder creates hook plugins from enabled plugin state.
 // Called at startup and on hot-reload when a hook plugin is toggled.
@@ -57,13 +51,6 @@ func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
 func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.compaction = cfg
-	}
-}
-
-// WithBuiltinToolsFactory sets the function that creates per-agent builtin tools.
-func WithBuiltinToolsFactory(f BuiltinToolsFactory) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.builtinToolsFactory = f
 	}
 }
 
@@ -171,7 +158,6 @@ type PoolManager struct {
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
-	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	tokenService             *auth.TokenService
@@ -538,10 +524,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 	pm.mu.RLock()
 	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
-
-	if pm.builtinToolsFactory != nil {
-		builtinTools = mergeTools(builtinTools, pm.builtinToolsFactory(snap))
-	}
 
 	sandboxBackendFn := func(ctx context.Context) string {
 		plugins, _ := pm.store.ListPlugins(ctx)

@@ -195,7 +195,7 @@ Runner 启动在以下情况下失败关闭：
 - 远程 MCP HTTP/SSE/StreamableHTTP 拨号目前不由 `ToolRuntime` 调解
 - 该例外是显式的、可观察的，并记录为 `runtime.exception_path`，`exception_id=EX-009`
 
-插件工具位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+内置工具（bash、read、write、edit、delegate、mcp、notify、skills、coretools）位于 `internal/tools/`，直接集成到代理中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 
 ### Delegate 工具
 

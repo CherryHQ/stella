@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
+	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	qqplugin "github.com/CherryHQ/stella/plugins/channels/qq"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
-	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
 )
 
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
@@ -341,6 +341,7 @@ func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 
 func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.RegisterBuiltinTools(mcpplugin.NewManager())
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

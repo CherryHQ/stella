@@ -21,7 +21,7 @@ import (
 )
 
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
-// It avoids the import cycle internal/skills → plugins/tools/skills → internal/skills.
+// It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
 type testSkillStore struct {
 	db *sql.DB
 	q  *sqlc.Queries

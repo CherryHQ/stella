@@ -18,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/internal/skills"
-	skillstool "github.com/CherryHQ/stella/plugins/tools/skills"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
 const (

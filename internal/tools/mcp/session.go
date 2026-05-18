@@ -78,7 +78,7 @@ func newTransport(ctx context.Context, server ServerConfig, runtime sandbox.Sess
 func logRemoteTransportException(transport string) {
 	slog.Warn("runtime.exception_path",
 		"exception_id", "EX-009",
-		"component", "plugins/tools/mcp",
+		"component", "internal/tools/mcp",
 		"access_type", "network",
 		"detail", "remote MCP "+transport+" transport dials outside runtime mediation",
 	)

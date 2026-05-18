@@ -8,7 +8,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 type testTool struct{ name string }
@@ -63,7 +62,7 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 		},
 	})
 
-	build := plugintools.BuildContext{
+	build := pkgplugins.ToolBuildContext{
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    "/user",
 			ToolsBinDir: "/tools/bin",

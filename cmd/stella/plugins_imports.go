@@ -16,13 +16,7 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/reflect"
 
 	// Plugin tools.
-	_ "github.com/CherryHQ/stella/plugins/tools/bash"
-	_ "github.com/CherryHQ/stella/plugins/tools/edit"
-	_ "github.com/CherryHQ/stella/plugins/tools/mcp"
-	_ "github.com/CherryHQ/stella/plugins/tools/notify"
-	_ "github.com/CherryHQ/stella/plugins/tools/read"
 	_ "github.com/CherryHQ/stella/plugins/tools/webfetch"
-	_ "github.com/CherryHQ/stella/plugins/tools/write"
 
 	// Plugin hooks.
 	_ "github.com/CherryHQ/stella/plugins/hooks/rtk"

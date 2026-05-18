@@ -1,16 +1,16 @@
 package agent
 
 import (
-	"github.com/CherryHQ/stella/internal/agent/coretools"
+	"github.com/CherryHQ/stella/internal/tools"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/pkg/tools"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // buildSandboxCoreTools creates core tools using the active sandbox session.
-func buildSandboxCoreTools(session pkgsandbox.Session, bc plugintools.BuildContext) []tools.Tool {
+func buildSandboxCoreTools(session pkgsandbox.Session, bc pkgplugins.ToolBuildContext) []pkgtools.Tool {
 	if session == nil {
 		return nil
 	}
-	return coretools.New(session, bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
+	return tools.New(session, bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
 }

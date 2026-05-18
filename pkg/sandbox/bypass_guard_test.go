@@ -22,11 +22,11 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"os.Stat",
 	}
 	files := []string{
-		"plugins/tools/skills/plugin.go",
-		"plugins/tools/skills/tool.go",
-		"plugins/tools/skills/catalog.go",
-		"plugins/tools/skills/manage.go",
-		"plugins/tools/delegate/preset_loader.go",
+		"internal/tools/skills/plugin.go",
+		"internal/tools/skills/tool.go",
+		"internal/tools/skills/catalog.go",
+		"internal/tools/skills/manage.go",
+		"internal/tools/delegate/preset_loader.go",
 		"internal/agent/prompt/prompt.go",
 		// prompt/host.go intentionally uses os.* for host-side operations (no
 		// sandbox session available during prompt rendering, which runs in the

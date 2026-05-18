@@ -15,10 +15,10 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
+	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	mcpplugin "github.com/CherryHQ/stella/plugins/tools/mcp"
 )
 
 func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {

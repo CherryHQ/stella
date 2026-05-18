@@ -195,7 +195,7 @@ Sandbox guarantees apply to local execution paths owned by Stella. Remote MCP tr
 - remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
 - that exception is explicit, observable, and logged as `runtime.exception_path` with `exception_id=EX-009`
 
-Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Builtin tools (bash, read, write, edit, delegate, mcp, notify, skills, coretools) live in `internal/tools/` and are wired directly into the agent. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
 ### Delegate Tool
 

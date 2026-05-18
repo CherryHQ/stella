@@ -2,88 +2,65 @@ package mcp
 
 import (
 	"context"
-	"sort"
 	"time"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (
 	RuntimeName = "manager"
 )
 
-func init() {
-	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.SetInfo(pkgplugins.PluginInfo{
-			ID:           PluginID,
-			Kind:         "tool",
-			Name:         "mcp",
-			DisplayName:  "MCP",
-			Description:  "Connect and proxy configured MCP servers.",
-			Managed:      true,
-			AdminVisible: true,
-			HasConfig:    true,
-			HasStatus:    true,
-			Capabilities: []string{
-				pkgplugins.CapabilityTool,
-				pkgplugins.CapabilityPrompt,
-				pkgplugins.CapabilityRuntime,
-				pkgplugins.CapabilityConfig,
-				pkgplugins.CapabilityStatus,
-			},
-		})
-		host.AddAdmin(pkgplugins.AdminSpec{
-			PluginID:      PluginID,
-			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
-			Schema:        configSchema(),
-			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
-			Redact: func(raw map[string]any) map[string]any {
-				cfg, err := DecodeConfig(raw)
-				if err != nil {
-					return raw
-				}
-				out := map[string]any{"servers": make([]any, 0, len(cfg.Servers))}
-				for _, server := range cfg.Servers {
-					out["servers"] = append(out["servers"].([]any), map[string]any{
-						"name": server.Name, "enabled": server.Enabled, "transport": server.Transport, "command": server.Command,
-						"args": server.Args, "env": redactStringMap(server.Env), "url": server.URL, "headers": redactStringMap(server.Headers), "timeout_seconds": server.TimeoutSeconds,
-					})
-				}
-				return out
-			},
-		})
-		host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: PluginID, Name: RuntimeName, Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-			return &managedRuntime{manager: NewManager()}, nil
-		}})
-		host.AddTool(pkgplugins.ToolSpec{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-			rt, ok := LookupRuntime(ctx.Platform.RuntimeLookup())
-			if !ok {
-				return New(nil), nil
+// RegisterPlugin registers MCP admin capabilities (config, status, runtime)
+// with the plugin host for Web UI management. Tool construction is handled
+// directly by the runner — this only covers admin features.
+func RegisterPlugin(host pkgplugins.Host, manager *Manager) {
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID:           PluginID,
+		Kind:         "tool",
+		Name:         "mcp",
+		DisplayName:  "MCP",
+		Description:  "Connect and proxy configured MCP servers.",
+		Managed:      true,
+		AdminVisible: true,
+		HasConfig:    true,
+		HasStatus:    true,
+		Capabilities: []string{
+			pkgplugins.CapabilityRuntime,
+			pkgplugins.CapabilityConfig,
+			pkgplugins.CapabilityStatus,
+		},
+	})
+	host.AddAdmin(pkgplugins.AdminSpec{
+		PluginID:      PluginID,
+		DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
+		Schema:        configSchema(),
+		Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
+		Redact: func(raw map[string]any) map[string]any {
+			cfg, err := DecodeConfig(raw)
+			if err != nil {
+				return raw
 			}
-			rt.Manager().SetRuntime(ctx.Runtime)
-			return New(rt.Manager()), nil
-		}})
-		host.AddAdmin(pkgplugins.AdminSpec{PluginID: PluginID, Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {
-			rt, ok := LookupRuntime(build.Platform.RuntimeLookup())
-			if !ok {
-				return map[string]any{"servers": []ServerStatus{}}, nil
+			out := map[string]any{"servers": make([]any, 0, len(cfg.Servers))}
+			for _, server := range cfg.Servers {
+				out["servers"] = append(out["servers"].([]any), map[string]any{
+					"name": server.Name, "enabled": server.Enabled, "transport": server.Transport, "command": server.Command,
+					"args": server.Args, "env": redactStringMap(server.Env), "url": server.URL, "headers": redactStringMap(server.Headers), "timeout_seconds": server.TimeoutSeconds,
+				})
 			}
-			return map[string]any{"servers": rt.Manager().Statuses()}, nil
-		}})
-		host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: PluginID, Name: "tools", GetTools: func(ctx context.Context, build pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
-			rt, ok := LookupRuntime(build.Platform.RuntimeLookup())
-			if !ok {
-				return nil, nil
-			}
-			items := make([]pkgplugins.PromptToolInfo, 0, len(rt.Manager().ValidTools()))
-			for _, tool := range rt.Manager().ValidTools() {
-				items = append(items, pkgplugins.PromptToolInfo{Name: tool.ID, Description: tool.Description, Metadata: map[string]any{"server_name": tool.ServerName}})
-			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-			return items, nil
-		}})
-	}))
+			return out
+		},
+	})
+	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: PluginID, Name: RuntimeName, Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+		return &managedRuntime{manager: manager}, nil
+	}})
+	host.AddAdmin(pkgplugins.AdminSpec{PluginID: PluginID, Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {
+		rt, ok := LookupRuntime(build.Platform.RuntimeLookup())
+		if !ok {
+			return map[string]any{"servers": []ServerStatus{}}, nil
+		}
+		return map[string]any{"servers": rt.Manager().Statuses()}, nil
+	}})
 }
 
 func configSchema() map[string]any {

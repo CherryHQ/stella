@@ -2,20 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/tools/bash"
-	"github.com/CherryHQ/stella/plugins/tools/edit"
-	"github.com/CherryHQ/stella/plugins/tools/read"
+	"github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/pkg/sandbox"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	"github.com/CherryHQ/stella/plugins/tools/webfetch"
-	"github.com/CherryHQ/stella/plugins/tools/write"
 )
 
 func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
@@ -41,6 +41,38 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 	return httptest.NewServer(handler)
 }
 
+// passthroughHost is a minimal sandbox.Host that executes commands directly.
+type passthroughHost struct {
+	sandbox.Session
+	workDir string
+}
+
+func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
+	cwd := h.workDir
+	if opts.Cwd != "" {
+		cwd = opts.Cwd
+	}
+	cmd := exec.Command("bash", "-c", command)
+	cmd.Dir = cwd
+	for k, v := range opts.Env {
+		cmd.Env = append(os.Environ(), k+"="+v)
+	}
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return sandbox.ExecResult{}, err
+		}
+	}
+	return sandbox.ExecResult{Stdout: string(out), ExitCode: exitCode}, nil
+}
+
+func (h *passthroughHost) ResolvePath(path string) (string, error)      { return path, nil }
+func (h *passthroughHost) ResolveWritePath(path string) (string, error) { return path, nil }
+
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
 
@@ -50,11 +82,11 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := tools.NewRegistry()
-	reg.Register(&read.ReadTool{})
-	reg.Register(bash.NewBashTool("", ""))
-	reg.Register(&edit.EditTool{})
-	reg.Register(&write.WriteTool{})
+	host := &passthroughHost{workDir: dir}
+	reg := pkgtools.NewRegistry()
+	for _, tool := range tools.New(host, "", "") {
+		reg.Register(tool)
+	}
 	defer func() { _ = reg.Close() }()
 
 	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"path": path})
@@ -110,12 +142,11 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
 
 	workDir := t.TempDir()
-	reg := tools.NewRegistry()
-	reg.Register(&read.ReadTool{})
-	reg.Register(bash.NewBashTool(workDir, ""))
-	reg.Register(&edit.EditTool{})
-	reg.Register(&write.WriteTool{})
-	// Register webfetch as an extra tool (simulating enabled plugin).
+	host := &passthroughHost{workDir: workDir}
+	reg := pkgtools.NewRegistry()
+	for _, tool := range tools.New(host, "", "") {
+		reg.Register(tool)
+	}
 	reg.Register(webfetch.New())
 	defer func() { _ = reg.Close() }()
 
@@ -123,7 +154,6 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bash execute: %v", err)
 	}
-	// Resolve symlinks (macOS /tmp -> /private/tmp).
 	resolved, _ := filepath.EvalSymlinks(workDir)
 	if !strings.Contains(bashResult, resolved) {
 		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
