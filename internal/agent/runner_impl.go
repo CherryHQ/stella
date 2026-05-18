@@ -21,7 +21,7 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
-	delegatetool "github.com/CherryHQ/stella/plugins/tools/delegate"
+	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -108,7 +108,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	presets := buildAgentPresets(cfg)
 	hookSet := buildHookSet(cfg)
 
-	toolReg.Register(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
 		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
@@ -264,12 +264,12 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
 }
 
-func buildAgentPresets(cfg runnerConfig) *delegatetool.PresetRegistry {
+func buildAgentPresets(cfg runnerConfig) *agenttool.PresetRegistry {
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	if err := resources.ExtractSubAgents(stellaAgentsDir(paths)); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
-	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(delegatetool.LoadDelegatePresetsConfig{
+	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
 		StellaHome:  paths.StellaHome,
 		AgentRoot:   paths.AgentRoot,
 		UserRoot:    paths.UserRoot,
@@ -568,7 +568,7 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 	case "memory":
 		action, _ := args["action"].(string)
 		return action
-	case "delegate":
+	case "agent":
 		if tasks, ok := args["tasks"].([]any); ok && len(tasks) > 0 {
 			return fmt.Sprintf("%d task(s)", len(tasks))
 		}

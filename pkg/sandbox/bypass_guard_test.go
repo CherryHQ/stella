@@ -26,7 +26,7 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"plugins/tools/skills/tool.go",
 		"plugins/tools/skills/catalog.go",
 		"plugins/tools/skills/manage.go",
-		"plugins/tools/delegate/preset_loader.go",
+		"plugins/tools/agent/preset_loader.go",
 		"internal/agent/prompt/prompt.go",
 		// prompt/host.go intentionally uses os.* for host-side operations (no
 		// sandbox session available during prompt rendering, which runs in the

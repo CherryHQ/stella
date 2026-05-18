@@ -1,9 +1,9 @@
-package delegate
+package agent
 
 import "time"
 
-// DelegatePreset defines a reusable subagent configuration loaded from a markdown file.
-type DelegatePreset struct {
+// AgentPreset defines a reusable subagent configuration loaded from a markdown file.
+type AgentPreset struct {
 	Name        string        // unique identifier
 	Description string        // human-readable description
 	System      string        // markdown body = system prompt for the subagent
@@ -15,7 +15,7 @@ type DelegatePreset struct {
 	Source      string        // "project", "agent", "common", or "builtin"
 }
 
-// delegateFrontmatter is the YAML frontmatter parsed from an agent preset file.
+// agentFrontmatter is the YAML frontmatter parsed from an agent preset file.
 //
 // Supported fields:
 //   - name, description, model: identity and display
@@ -25,7 +25,7 @@ type DelegatePreset struct {
 // max_turns is intentionally not exposed here. It is a fixed internal safety
 // rail (50 turns) that prevents runaway loops regardless of preset configuration.
 // Use timeout to bound long-running subagents by wall-clock time instead.
-type delegateFrontmatter struct {
+type agentFrontmatter struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Model       string   `yaml:"model"`
@@ -36,13 +36,13 @@ type delegateFrontmatter struct {
 
 // PresetRegistry holds loaded agent presets with O(1) lookup.
 type PresetRegistry struct {
-	presets []DelegatePreset
-	byName  map[string]DelegatePreset
+	presets []AgentPreset
+	byName  map[string]AgentPreset
 }
 
 // NewPresetRegistry creates a registry from a slice of presets.
-func NewPresetRegistry(presets []DelegatePreset) *PresetRegistry {
-	m := make(map[string]DelegatePreset, len(presets))
+func NewPresetRegistry(presets []AgentPreset) *PresetRegistry {
+	m := make(map[string]AgentPreset, len(presets))
 	for _, p := range presets {
 		m[p.Name] = p
 	}
@@ -50,7 +50,7 @@ func NewPresetRegistry(presets []DelegatePreset) *PresetRegistry {
 }
 
 // Lookup returns a preset by name and whether it exists.
-func (r *PresetRegistry) Lookup(name string) (DelegatePreset, bool) {
+func (r *PresetRegistry) Lookup(name string) (AgentPreset, bool) {
 	p, ok := r.byName[name]
 	return p, ok
 }
@@ -65,6 +65,6 @@ func (r *PresetRegistry) Names() []string {
 }
 
 // All returns all loaded presets.
-func (r *PresetRegistry) All() []DelegatePreset {
+func (r *PresetRegistry) All() []AgentPreset {
 	return r.presets
 }

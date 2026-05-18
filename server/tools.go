@@ -6,8 +6,8 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
 	"github.com/CherryHQ/stella/plugins/tools/bash"
-	delegatetool "github.com/CherryHQ/stella/plugins/tools/delegate"
 	"github.com/CherryHQ/stella/plugins/tools/edit"
 	"github.com/CherryHQ/stella/plugins/tools/read"
 	"github.com/CherryHQ/stella/plugins/tools/write"
@@ -44,8 +44,8 @@ func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 		tools = append(tools, defToJSON(t.Definition(), "builtin"))
 	}
 
-	// Delegate tool (always present).
-	tools = append(tools, defToJSON(delegatetool.DelegateDefinition(nil), "builtin"))
+	// Agent tool (always present).
+	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
 	// Builtin tools (memory, skills).
 	for _, def := range s.builtinToolDefinitions() {

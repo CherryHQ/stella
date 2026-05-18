@@ -1,4 +1,4 @@
-package delegate
+package agent
 
 import (
 	"context"
@@ -11,25 +11,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadDelegatePresetsConfig configures the agent preset discovery paths.
-type LoadDelegatePresetsConfig struct {
+// LoadAgentPresetsConfig configures the agent preset discovery paths.
+type LoadAgentPresetsConfig struct {
 	StellaHome  string // stella home dir (e.g. ~/.stella)
 	AgentRoot   string // agent root dir (e.g. ~/.stella/workspaces/{agentID})
 	UserRoot    string // user root dir (e.g. ~/.stella/workspaces/{agentID}/users/{userID})
 	ProjectRoot string // optional project root for local/project-attached runs
 }
 
-// LoadDelegatePresets discovers agent presets in increasing priority order:
+// LoadAgentPresets discovers agent presets in increasing priority order:
 // STELLA_HOME -> agent root -> user root -> project root.
-func LoadDelegatePresets(cfg LoadDelegatePresetsConfig) []DelegatePreset {
-	return loadDelegatePresets(context.Background(), cfg.StellaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
+func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
+	return loadAgentPresets(context.Background(), cfg.StellaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
 }
 
-func loadDelegatePresets(ctx context.Context, stellaHome, agentRoot, userRoot, projectRoot string) []DelegatePreset {
+func loadAgentPresets(ctx context.Context, stellaHome, agentRoot, userRoot, projectRoot string) []AgentPreset {
 	indexByName := map[string]int{}
-	var presets []DelegatePreset
+	var presets []AgentPreset
 
-	add := func(p DelegatePreset) {
+	add := func(p AgentPreset) {
 		if idx, ok := indexByName[p.Name]; ok {
 			presets[idx] = p
 			return
@@ -67,7 +67,7 @@ func loadDelegatePresets(ctx context.Context, stellaHome, agentRoot, userRoot, p
 }
 
 // loadPresetsFromDir scans a directory for agent preset .md files.
-func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePreset {
+func loadPresetsFromDir(ctx context.Context, dir, source string) []AgentPreset {
 	info, err := statHostPath(ctx, dir)
 	if err != nil || !info.Exists || !info.IsDir {
 		return nil
@@ -78,7 +78,7 @@ func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePrese
 		return nil
 	}
 
-	var presets []DelegatePreset
+	var presets []AgentPreset
 	for _, entry := range entries {
 		if entry.IsDir || !strings.HasSuffix(entry.Name, ".md") {
 			continue
@@ -97,18 +97,18 @@ func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePrese
 }
 
 // loadPresetFromFile parses an agent preset from a markdown file with YAML frontmatter.
-func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegatePreset, bool) {
+func loadPresetFromFile(ctx context.Context, filePath, source string) (AgentPreset, bool) {
 	data, err := readHostFile(ctx, filePath)
 	if err != nil {
 		slog.Debug("failed to read agent preset file", "path", filePath, "error", err)
-		return DelegatePreset{}, false
+		return AgentPreset{}, false
 	}
 
 	content := string(data)
-	fm, body, err := parseDelegateFrontmatter(content)
+	fm, body, err := parseAgentFrontmatter(content)
 	if err != nil {
 		slog.Debug("failed to parse agent preset frontmatter", "path", filePath, "error", err)
-		return DelegatePreset{}, false
+		return AgentPreset{}, false
 	}
 
 	// Name is required — fall back to filename without extension.
@@ -120,7 +120,7 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegateP
 	// Description is required.
 	if strings.TrimSpace(fm.Description) == "" {
 		slog.Debug("agent preset missing description", "path", filePath)
-		return DelegatePreset{}, false
+		return AgentPreset{}, false
 	}
 
 	var timeout time.Duration
@@ -128,11 +128,11 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegateP
 		timeout, err = time.ParseDuration(fm.Timeout)
 		if err != nil {
 			slog.Debug("invalid timeout in agent preset", "path", filePath, "timeout", fm.Timeout, "error", err)
-			return DelegatePreset{}, false
+			return AgentPreset{}, false
 		}
 	}
 
-	return DelegatePreset{
+	return AgentPreset{
 		Name:        name,
 		Description: fm.Description,
 		System:      strings.TrimSpace(body),
@@ -145,26 +145,26 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegateP
 	}, true
 }
 
-// parseDelegateFrontmatter extracts YAML frontmatter and body from markdown content.
-func parseDelegateFrontmatter(content string) (delegateFrontmatter, string, error) {
+// parseAgentFrontmatter extracts YAML frontmatter and body from markdown content.
+func parseAgentFrontmatter(content string) (agentFrontmatter, string, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 
 	if !strings.HasPrefix(content, "---") {
-		return delegateFrontmatter{}, "", fmt.Errorf("no frontmatter")
+		return agentFrontmatter{}, "", fmt.Errorf("no frontmatter")
 	}
 
 	endIdx := strings.Index(content[3:], "\n---")
 	if endIdx == -1 {
-		return delegateFrontmatter{}, "", fmt.Errorf("no closing frontmatter delimiter")
+		return agentFrontmatter{}, "", fmt.Errorf("no closing frontmatter delimiter")
 	}
 
 	yamlStr := content[4 : 3+endIdx]
 	body := content[3+endIdx+4:] // skip "\n---\n"
 
-	var fm delegateFrontmatter
+	var fm agentFrontmatter
 	if err := yaml.Unmarshal([]byte(yamlStr), &fm); err != nil {
-		return delegateFrontmatter{}, "", fmt.Errorf("invalid yaml: %w", err)
+		return agentFrontmatter{}, "", fmt.Errorf("invalid yaml: %w", err)
 	}
 
 	// Detect whether tools was explicitly set in the YAML.
