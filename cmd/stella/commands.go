@@ -28,8 +28,8 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	skills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/tasks"
+	coretools "github.com/CherryHQ/stella/internal/tools"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
-	notifytool "github.com/CherryHQ/stella/internal/tools/notify"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -358,7 +358,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memory.BuildTool(memProvider),
 		mcpplugin.New(mcpManager),
 	)
-	if notifyTool := notifytool.NewTool(dispatcher); notifyTool != nil {
+	if notifyTool := coretools.NewNotifyTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, notifyTool)
 	}
 

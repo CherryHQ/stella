@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/CherryHQ/stella/internal/tools/coretools"
+	coretools "github.com/CherryHQ/stella/internal/tools"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"

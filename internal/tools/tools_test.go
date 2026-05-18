@@ -57,7 +57,7 @@ func TestPaginateReadContent(t *testing.T) {
 	}{
 		{1, 0, 5, 5},
 		{2, 2, 2, 5},
-		{6, 0, 0, 5}, // offset beyond end
+		{6, 0, 0, 5},
 		{1, 100, 5, 5},
 	}
 	for _, tc := range tests {

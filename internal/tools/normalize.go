@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/pkg/tools"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 type toolNormalizeResult struct {
@@ -43,7 +43,7 @@ func (n *toolNormalizer) NormalizeExec(result sandbox.ExecResult, elapsed time.D
 			truncated = output
 		}
 	} else {
-		truncated = tools.TruncateTail(output).Content
+		truncated = pkgtools.TruncateTail(output).Content
 	}
 
 	if n.IncludeTimestamps {

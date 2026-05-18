@@ -4,11 +4,8 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/CherryHQ/stella/internal/tools/bash"
+	coretools "github.com/CherryHQ/stella/internal/tools"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
-	"github.com/CherryHQ/stella/internal/tools/edit"
-	"github.com/CherryHQ/stella/internal/tools/read"
-	"github.com/CherryHQ/stella/internal/tools/write"
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -33,15 +30,8 @@ func defToJSON(def pkgtools.Definition, category string) toolJSON {
 func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolJSON
 
-	// Built-in tools (Read, Bash, Edit, Write).
-	builtinTools := []pkgtools.Tool{
-		&read.ReadTool{},
-		bash.NewBashTool("", ""),
-		&edit.EditTool{},
-		&write.WriteTool{},
-	}
-	for _, t := range builtinTools {
-		tools = append(tools, defToJSON(t.Definition(), "builtin"))
+	for _, def := range coretools.Definitions() {
+		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
 	// Delegate tool (always present).
