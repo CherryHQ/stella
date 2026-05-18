@@ -46,8 +46,8 @@ Each domain (recally is the first; scheduler, skills, tools follow) ships:
 
 1. An OpenAPI 3.0 spec at `api/<domain>.openapi.yaml`. **This is the source of
    truth.** Code is regenerated from the spec, never the other way around.
-2. A generated server interface in `server/<domain>_gen.go` and
-   handlers in `server/<domain>_handlers.go` that implement it.
+2. A generated server interface in `internal/server/<domain>_gen.go` and
+   handlers in `internal/server/<domain>_handlers.go` that implement it.
 3. A generated client in `pkg/<domain>/client/client_gen.go`, plus a small
    `auth.go` wrapper that reads `STELLA_TOKEN` / `STELLA_SERVER_URL` from the
    environment.
@@ -68,19 +68,19 @@ To add a new domain (say `notes`):
    `/api/notes/{id}`); reuse the existing `Error` response shape.
 2. Add the codegen invocation to `mise run generate:api` (in `mise.toml`).
 3. Run `mise run generate:api` to produce
-   `server/notes_gen.go` and `pkg/notes/client/client_gen.go`.
+   `internal/server/notes_gen.go` and `pkg/notes/client/client_gen.go`.
 4. Implement the generated `ServerInterface` in
-   `server/notes_handlers.go`.
-5. Wire it from `server/routes.go`:
+   `internal/server/notes_handlers.go`.
+5. Wire it from `internal/server/routes.go`:
    `s.registerNotesRoutes()` → `HandlerFromMux(s.notes, s.mux)`.
-6. Inject any new domain stores in `server/server.go`.
+6. Inject any new domain stores in `internal/server/server.go`.
 7. Replace direct DB calls in `cmd/stella/notes*.go` with calls to
    `notesclient.NewFromEnv()`.
 
 ## Bearer token authentication
 
 The CLI reads `STELLA_TOKEN` and sends it as `Authorization: Bearer …`. The
-server's existing `authMiddleware` (`server/middleware.go`) already
+server's existing `authMiddleware` (`internal/server/middleware.go`) already
 handles bearer tokens via `authInfoFromBearer`, so new domain routes get auth
 for free as soon as they are registered on `s.mux`.
 
