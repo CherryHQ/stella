@@ -12,10 +12,9 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
-func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContext) []tools.Tool {
+func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) []tools.Tool {
 	h.mu.RLock()
 	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
 	for _, reg := range h.toolRegs {

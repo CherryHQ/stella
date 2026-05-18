@@ -40,7 +40,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -364,7 +363,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called per runner so builders receive the active sandbox host.
-	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []pkgtools.Tool {
+	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerStreamBuilder)

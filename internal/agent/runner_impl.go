@@ -21,7 +21,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -41,7 +40,7 @@ type runnerConfig struct {
 	System          string // optional system prompt override (bypasses default prompt building)
 	Sections        []pkgplugins.SystemPromptSection
 	ExtraTools      []tools.Tool // additional tools to register
-	PluginTools     func(context.Context, plugintools.BuildContext) []tools.Tool
+	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle   *coreagent.ToolLifecycle
 	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
@@ -196,7 +195,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	toolsBinDir := resolveToolsBinDir(paths, config.SandboxBackendDocker)
 
 	// Runtime capabilities are injected from the active runner session.
-	bc := plugintools.BuildContext{
+	bc := pkgplugins.ToolBuildContext{
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
 			ToolsBinDir: toolsBinDir,

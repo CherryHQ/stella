@@ -29,6 +29,13 @@ type ToolContext struct {
 	Runtime  sandbox.Session
 }
 
+// ToolBuildContext carries per-session configuration for tool construction.
+// It is the runner-facing subset of ToolContext without the Platform field.
+type ToolBuildContext struct {
+	Paths   ToolPaths
+	Runtime sandbox.Session
+}
+
 // ProviderContext is the narrow build context for provider capabilities.
 type ProviderContext struct {
 	Platform Platform

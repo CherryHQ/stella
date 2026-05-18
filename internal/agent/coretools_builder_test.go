@@ -6,7 +6,6 @@ import (
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
 
 type fakeSession struct {
@@ -35,7 +34,7 @@ func (f *fakeSession) ResolveWritePath(path string) (string, error) { return pat
 func (f *fakeSession) WorkingDir() string                           { return "/tmp" }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
-	tools := buildSandboxCoreTools(nil, plugintools.BuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}})
+	tools := buildSandboxCoreTools(nil, pkgplugins.ToolBuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}})
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
@@ -43,7 +42,7 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
-	tools := buildSandboxCoreTools(session, plugintools.BuildContext{})
+	tools := buildSandboxCoreTools(session, pkgplugins.ToolBuildContext{})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
