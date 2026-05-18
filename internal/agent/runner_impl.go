@@ -483,10 +483,11 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 
 	case coreagent.ToolStarted:
 		return []Event{{ToolUse: &ToolUseEvent{
-			ID:     e.ToolCall.ID,
-			Tool:   e.ToolCall.Name,
-			Status: "running",
-			Input:  summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
+			ID:        e.ToolCall.ID,
+			Tool:      e.ToolCall.Name,
+			Status:    "running",
+			Input:     summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
+			Arguments: e.ToolCall.Arguments,
 		}}}
 
 	case coreagent.ToolFinished:

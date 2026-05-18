@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useChat } from "@ai-sdk/react";
 import { api } from "@/lib/api";
 import type { Message } from "@/lib/types";
+import {
+  createSessionTransport,
+  messageToUIMessage,
+  uiMessageToMessage,
+} from "@/lib/chat-transport";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,14 +31,26 @@ export function SessionConversation({
   className = "",
   bodyClassName = "h-[28rem]",
 }: Props) {
-  const [input, setInput] = useState("");
-  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
   const enc = encodeURIComponent(sessionId);
+
+  const transport = useMemo(() => createSessionTransport(sessionId), [sessionId]);
+
+  const {
+    messages: chatMessages,
+    sendMessage: chatSendMessage,
+    setMessages: setChatMessages,
+    status: chatStatus,
+    stop: chatStop,
+  } = useChat({
+    id: `conv-${sessionId}`,
+    transport,
+  });
+
+  const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", sessionId],
@@ -43,12 +61,28 @@ export function SessionConversation({
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
 
-  const messages = [...(messagesQuery.data?.pages ?? [])].reverse().flat().concat(liveMessages);
+  const historicalCountRef = useRef(0);
+
+  useEffect(() => {
+    if (!messagesQuery.data) return;
+    const historical = [...messagesQuery.data.pages].reverse().flat();
+    const prevCount = historicalCountRef.current;
+    historicalCountRef.current = historical.length;
+    if (historical.length === 0) return;
+    const uiMessages = historical.map(messageToUIMessage);
+    setChatMessages((prev) => {
+      const liveSlice = prev.slice(prevCount);
+      return [...uiMessages, ...liveSlice];
+    });
+  }, [messagesQuery.data, setChatMessages]);
+
+  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
 
   useEffect(() => {
     initialScrollSessionRef.current = null;
-    setLiveMessages([]);
-  }, [sessionId]);
+    historicalCountRef.current = 0;
+    setChatMessages([]);
+  }, [sessionId, setChatMessages]);
 
   useEffect(() => {
     if (!messagesQuery.isSuccess || initialScrollSessionRef.current === sessionId) return;
@@ -71,163 +105,19 @@ export function SessionConversation({
     }, 0);
   }, [messagesQuery]);
 
-  const scrollToBottom = useCallback(() => {
-    if (!transcriptRef.current) return;
-    const el = transcriptRef.current;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, []);
-
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
+  const sendMessage = useCallback(() => {
+    const content = userInput.trim();
     if (!content || isStreaming) return;
 
-    setInput("");
-    setLiveMessages((prev) => [
-      ...prev,
-      { role: "user", content, timestamp: new Date().toISOString() },
-    ]);
-    setIsStreaming(true);
-    abortRef.current = new AbortController();
-
+    setUserInput("");
     setTimeout(() => {
       if (transcriptRef.current) {
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }
     }, 0);
 
-    try {
-      const res = await fetch(`/api/sessions/${enc}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-        signal: abortRef.current.signal,
-      });
-      if (!res.ok) throw new Error((await res.text()) || res.statusText);
-      if (!res.body) return;
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentEvent = "";
-      let currentData = "";
-
-      const dispatch = (event: string, dataStr: string) => {
-        if (!dataStr) return;
-        let data: Record<string, unknown>;
-        try {
-          data = JSON.parse(dataStr) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-
-        if (event === "text") {
-          const text = (data.text as string) || "";
-          setLiveMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant" && last._streaming) {
-              const blocks = [...(last.blocks ?? [])];
-              const lastBlock = blocks[blocks.length - 1];
-              if (lastBlock?.type === "text") {
-                blocks[blocks.length - 1] = { ...lastBlock, text: lastBlock.text + text };
-              } else {
-                blocks.push({ type: "text", text });
-              }
-              return [...prev.slice(0, -1), { ...last, blocks }];
-            }
-            return [
-              ...prev,
-              {
-                role: "assistant",
-                blocks: [{ type: "text", text }],
-                timestamp: new Date().toISOString(),
-                _streaming: true,
-              },
-            ];
-          });
-          scrollToBottom();
-        } else if (event === "tool_use") {
-          if ((data.type as string) === "tool_call") {
-            setLiveMessages((prev) => {
-              const last = prev[prev.length - 1];
-              const newBlock = {
-                type: "tool_call" as const,
-                id: data.id as string,
-                name: data.name as string,
-                arguments: data.arguments as Record<string, unknown>,
-                status: "running" as const,
-              };
-              if (last?.role === "assistant" && last._streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, blocks: [...(last.blocks ?? []), newBlock] },
-                ];
-              }
-              return [
-                ...prev,
-                {
-                  role: "assistant",
-                  blocks: [newBlock],
-                  timestamp: new Date().toISOString(),
-                  _streaming: true,
-                },
-              ];
-            });
-            scrollToBottom();
-          } else if ((data.type as string) === "tool_result") {
-            setLiveMessages((prev) =>
-              prev.map((msg) => {
-                if (msg.role !== "assistant") return msg;
-                const blocks = (msg.blocks ?? []).map((block) => {
-                  if (block.type === "tool_call" && block.id === (data.tool_call_id as string)) {
-                    return {
-                      ...block,
-                      result: {
-                        tool_call_id: data.tool_call_id as string,
-                        content: data.content as string,
-                        is_error: data.is_error as boolean,
-                      },
-                      status: "done" as const,
-                    };
-                  }
-                  return block;
-                });
-                return { ...msg, blocks };
-              }),
-            );
-          }
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) currentEvent = line.slice(7).trim();
-          else if (line.startsWith("data: ")) currentData = line.slice(6).trim();
-          else if (line === "") {
-            if (currentEvent) dispatch(currentEvent, currentData);
-            currentEvent = "";
-            currentData = "";
-          }
-        }
-      }
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") console.error(e);
-    } finally {
-      setLiveMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?._streaming) return [...prev.slice(0, -1), { ...last, _streaming: undefined }];
-        return prev;
-      });
-      setIsStreaming(false);
-      abortRef.current = null;
-    }
-  }, [enc, input, isStreaming, scrollToBottom]);
+    void chatSendMessage({ text: content });
+  }, [userInput, isStreaming, chatSendMessage]);
 
   const renderBody = () => (
     <div className="flex h-full min-h-0 flex-col">
@@ -239,26 +129,36 @@ export function SessionConversation({
       />
       <div className="flex flex-col gap-2 border-t border-border p-2 sm:flex-row sm:p-3">
         <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          value={userInput}
+          onChange={(e) => setUserInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              void sendMessage();
+              sendMessage();
             }
           }}
           placeholder={placeholder}
           className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-hidden focus:ring-2 focus:ring-ring"
         />
-        <Button
-          size="sm"
-          className="w-full sm:w-auto"
-          loading={isStreaming}
-          disabled={!input.trim()}
-          onClick={sendMessage}
-        >
-          Continue
-        </Button>
+        {isStreaming ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => chatStop()}
+          >
+            Stop
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="w-full sm:w-auto"
+            disabled={!userInput.trim()}
+            onClick={sendMessage}
+          >
+            Continue
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -46,7 +46,6 @@ export interface Message {
   timestamp: string;
   token_count?: number;
   model?: string;
-  _streaming?: boolean;
 }
 
 export interface Agent {

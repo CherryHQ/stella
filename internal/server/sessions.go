@@ -248,28 +248,34 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 				tu := evt.ToolUse
 				switch tu.Status {
 				case "running":
-					writeData(map[string]string{
+					writeData(map[string]any{
 						"type":       "tool-input-start",
 						"toolCallId": tu.ID,
 						"toolName":   tu.Tool,
+						"dynamic":    true,
 					})
+					args := tu.Arguments
+					if args == nil {
+						args = map[string]any{"input": tu.Input}
+					}
 					writeData(map[string]any{
 						"type":       "tool-input-available",
 						"toolCallId": tu.ID,
 						"toolName":   tu.Tool,
-						"input":      map[string]string{"input": tu.Input},
+						"dynamic":    true,
+						"input":      args,
 					})
 				case "done":
 					writeData(map[string]any{
 						"type":       "tool-output-available",
 						"toolCallId": tu.ID,
-						"output":     map[string]string{"content": tu.Content},
+						"output":     tu.Content,
 					})
 				case "error":
 					writeData(map[string]any{
-						"type":       "tool-output-available",
+						"type":       "tool-output-error",
 						"toolCallId": tu.ID,
-						"output":     map[string]string{"error": tu.Content},
+						"errorText":  tu.Content,
 					})
 				}
 				continue

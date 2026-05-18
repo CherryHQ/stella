@@ -54,13 +54,18 @@ export function messageToUIMessage(m: Message): UIMessage {
     id: `${m.timestamp}-${m.role}`,
     role: m.role === "tool" ? "assistant" : m.role,
     parts,
+    metadata: {
+      timestamp: m.timestamp,
+      token_count: m.token_count,
+      model: m.model,
+    },
   };
 }
 
 type AnyToolPart = {
   type: string;
   toolCallId: string;
-  toolName: string;
+  toolName?: string;
   state: string;
   input?: unknown;
   output?: unknown;
@@ -71,6 +76,12 @@ function isToolPart(
   part: UIMessage["parts"][number],
 ): part is AnyToolPart & UIMessage["parts"][number] {
   return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function extractToolName(part: AnyToolPart): string {
+  if (part.toolName) return part.toolName;
+  if (part.type.startsWith("tool-")) return part.type.slice(5);
+  return "";
 }
 
 export function uiMessageToMessage(m: UIMessage): Message {
@@ -89,22 +100,24 @@ export function uiMessageToMessage(m: UIMessage): Message {
       default:
         if (isToolPart(part)) {
           const hasOutput = part.state === "output-available" || part.state === "output-error";
+          const outputContent = hasOutput
+            ? part.state === "output-error"
+              ? (part.errorText ?? "error")
+              : typeof part.output === "string"
+                ? part.output
+                : JSON.stringify(part.output)
+            : undefined;
           blocks.push({
             type: "tool_call",
             id: part.toolCallId,
-            name: part.toolName,
+            name: extractToolName(part),
             arguments: (part.input as Record<string, unknown>) ?? {},
             status: hasOutput ? "done" : "running",
             ...(hasOutput
               ? {
                   result: {
                     tool_call_id: part.toolCallId,
-                    content:
-                      part.state === "output-error"
-                        ? (part.errorText ?? "error")
-                        : typeof part.output === "string"
-                          ? part.output
-                          : JSON.stringify(part.output),
+                    content: outputContent!,
                     is_error: part.state === "output-error",
                   },
                 }
@@ -115,10 +128,14 @@ export function uiMessageToMessage(m: UIMessage): Message {
     }
   }
 
+  const meta = (m.metadata ?? {}) as Record<string, unknown>;
+
   return {
     role: m.role === "system" ? "assistant" : m.role,
     content: content || undefined,
     blocks: blocks.length > 0 ? blocks : undefined,
-    timestamp: new Date().toISOString(),
+    timestamp: (meta.timestamp as string) || new Date().toISOString(),
+    token_count: meta.token_count as number | undefined,
+    model: meta.model as string | undefined,
   };
 }

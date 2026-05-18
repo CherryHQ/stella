@@ -7,7 +7,11 @@ import { formatTime } from "@/lib/time";
 import type { Message, Session, Skill, Tool } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { createSessionTransport, uiMessageToMessage } from "@/lib/chat-transport";
+import {
+  createSessionTransport,
+  messageToUIMessage,
+  uiMessageToMessage,
+} from "@/lib/chat-transport";
 import { Transcript } from "./Transcript";
 
 interface Props {
@@ -76,17 +80,22 @@ export function SessionDetail({
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
 
-  const historicalMessages = useMemo(
-    () => [...(messagesQuery.data?.pages ?? [])].reverse().flat(),
-    [messagesQuery.data],
-  );
+  const historicalCountRef = useRef(0);
 
-  const liveMessages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
+  useEffect(() => {
+    if (!messagesQuery.data) return;
+    const historical = [...messagesQuery.data.pages].reverse().flat();
+    const prevCount = historicalCountRef.current;
+    historicalCountRef.current = historical.length;
+    if (historical.length === 0) return;
+    const uiMessages = historical.map(messageToUIMessage);
+    setChatMessages((prev) => {
+      const liveSlice = prev.slice(prevCount);
+      return [...uiMessages, ...liveSlice];
+    });
+  }, [messagesQuery.data, setChatMessages]);
 
-  const messages = useMemo(
-    () => [...historicalMessages, ...liveMessages],
-    [historicalMessages, liveMessages],
-  );
+  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
 
   useEffect(() => {
     if (!session) {

@@ -12,12 +12,13 @@ import (
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	ID      string // provider-assigned tool call ID
-	Tool    string // tool name, e.g. "bash", "read"
-	Status  string // "running", "done", "error"
-	Input   string // short summary of the tool input
-	Detail  string // error detail or result summary (for "error" status)
-	Content string // full tool result text (for "done"/"error" status)
+	ID        string         // provider-assigned tool call ID
+	Tool      string         // tool name, e.g. "bash", "read"
+	Status    string         // "running", "done", "error"
+	Input     string         // short summary of the tool input
+	Arguments map[string]any // raw tool arguments
+	Detail    string         // error detail or result summary (for "error" status)
+	Content   string         // full tool result text (for "done"/"error" status)
 }
 
 // StepEvent marks the boundary of an agentic step (one LLM call + tool executions).
