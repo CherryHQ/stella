@@ -32,16 +32,6 @@ func SyncSession(session pkgsandbox.Session) error {
 	return nil
 }
 
-// sessionFactory creates a session from configuration.
-type sessionFactory func(context.Context, Config) (pkgsandbox.Session, error)
-
-// registry manages session factories by name.
-var sessionRegistry = map[string]sessionFactory{
-	config.SandboxBackendDocker: createDockerSession,
-	config.SandboxBackendLocal:  createLocalSession,
-	config.SandboxBackendNone:   createHostSession,
-}
-
 func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -222,6 +212,11 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 // ResolveSession creates a sandbox session from configuration.
 // The active backend is determined by SandboxBackendFn (global Plugins page
 // selection), defaulting to local when no backend is explicitly enabled.
+//
+// This dispatches directly rather than using pkg/sandbox.Registry because the
+// runtime path needs Config→Policy transformation that is per-backend, while
+// the pkg Registry operates on Policy alone (useful for contract tests and
+// external plugin registration).
 func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	name := config.SandboxBackendLocal
 	if cfg.SandboxBackendFn != nil {
@@ -230,9 +225,14 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		}
 	}
 
-	factory, ok := sessionRegistry[name]
-	if !ok {
+	switch name {
+	case config.SandboxBackendDocker:
+		return createDockerSession(ctx, cfg)
+	case config.SandboxBackendLocal:
+		return createLocalSession(ctx, cfg)
+	case config.SandboxBackendNone:
+		return createHostSession(ctx, cfg)
+	default:
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
-	return factory(ctx, cfg)
 }
