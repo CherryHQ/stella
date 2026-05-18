@@ -322,6 +322,7 @@ interface ProcessedMessage extends Message {
 }
 
 function processMessages(messages: Message[]): ProcessedMessage[] {
+  // Collect standalone tool-result messages (legacy format) by tool_call_id.
   const resultsByID: Record<string, Message> = {};
   for (const msg of messages) {
     if (msg.role === "tool" && msg.tool_call_id) {
@@ -335,14 +336,15 @@ function processMessages(messages: Message[]): ProcessedMessage[] {
       return {
         ...msg,
         blocks: (msg.blocks ?? []).map((block) => {
-          if (block.type === "tool_call" && block.id && resultsByID[block.id]) {
+          // Only backfill from standalone tool messages if block has no result yet.
+          if (block.type === "tool_call" && block.id && !block.result && resultsByID[block.id]) {
             const r = resultsByID[block.id];
             return {
               ...block,
               result: {
                 tool_call_id: block.id,
                 content: r.content ?? "",
-                is_error: false,
+                is_error: !!r.blocks?.some((b) => b.type === "tool_call" && b.result?.is_error),
               },
             };
           }

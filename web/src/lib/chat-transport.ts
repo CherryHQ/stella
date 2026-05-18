@@ -20,6 +20,8 @@ export function createSessionTransport(sessionId: string) {
   });
 }
 
+let msgSeq = 0;
+
 export function messageToUIMessage(m: Message): UIMessage {
   const parts: UIMessage["parts"] = [];
 
@@ -39,9 +41,14 @@ export function messageToUIMessage(m: Message): UIMessage {
             type: "dynamic-tool",
             toolName: block.name,
             toolCallId: block.id,
-            state: block.result ? "output-available" : "input-available",
+            state: block.result
+              ? block.result.is_error
+                ? "output-error"
+                : "output-available"
+              : "input-available",
             input: block.arguments ?? {},
-            ...(block.result ? { output: block.result.content } : {}),
+            ...(block.result && !block.result.is_error ? { output: block.result.content } : {}),
+            ...(block.result?.is_error ? { errorText: block.result.content } : {}),
           } as UIMessage["parts"][number]);
           break;
       }
@@ -51,7 +58,7 @@ export function messageToUIMessage(m: Message): UIMessage {
   }
 
   return {
-    id: `${m.timestamp}-${m.role}`,
+    id: `${m.timestamp}-${m.role}-${msgSeq++}`,
     role: m.role === "tool" ? "assistant" : m.role,
     parts,
     metadata: {
@@ -80,7 +87,7 @@ function isToolPart(
 
 function extractToolName(part: AnyToolPart): string {
   if (part.toolName) return part.toolName;
-  if (part.type.startsWith("tool-")) return part.type.slice(5);
+  if (part.type.startsWith("tool-") && part.type.length > 5) return part.type.slice(5);
   return "";
 }
 

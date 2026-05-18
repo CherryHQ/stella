@@ -80,17 +80,17 @@ export function SessionDetail({
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
 
-  const historicalCountRef = useRef(0);
+  const historicalIDsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!messagesQuery.data) return;
     const historical = [...messagesQuery.data.pages].reverse().flat();
-    const prevCount = historicalCountRef.current;
-    historicalCountRef.current = historical.length;
     if (historical.length === 0) return;
     const uiMessages = historical.map(messageToUIMessage);
+    const newIDs = new Set(uiMessages.map((m) => m.id));
+    historicalIDsRef.current = newIDs;
     setChatMessages((prev) => {
-      const liveSlice = prev.slice(prevCount);
+      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
       return [...uiMessages, ...liveSlice];
     });
   }, [messagesQuery.data, setChatMessages]);
