@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memorywrite"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 )
 
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
