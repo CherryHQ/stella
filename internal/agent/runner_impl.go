@@ -452,18 +452,28 @@ func (r *runner) Close() error {
 // convertLoopEvent bridges agent.LoopEvent to Event(s).
 func convertLoopEvent(e coreagent.LoopEvent) []Event {
 	switch e := e.(type) {
+	case coreagent.TurnStarted:
+		return []Event{{Step: &StepEvent{Kind: "start"}}}
+
+	case coreagent.TurnFinished:
+		return []Event{{Step: &StepEvent{Kind: "finish"}}}
+
 	case coreagent.AssistantDelta:
-		if d, ok := e.Event.(ai.EventTextDelta); ok && d.Text != "" {
-			return []Event{{Text: d.Text}}
+		switch d := e.Event.(type) {
+		case ai.EventTextDelta:
+			if d.Text != "" {
+				return []Event{{Text: d.Text}}
+			}
+		case ai.EventThinkingDelta:
+			if d.Thinking != "" {
+				return []Event{{Reasoning: d.Thinking}}
+			}
 		}
 
 	case coreagent.AssistantFinished:
-		// Emit Store events for tool calls in the final message.
 		var events []Event
 		for _, block := range e.Message.Content {
 			if _, ok := block.(ai.ToolCall); ok {
-				// Store the full assistant message (text + all tool calls) once
-				// when we see the first tool call.
 				msg := ai.AssistantMessage{Content: e.Message.Content}
 				events = append(events, Event{Store: msg})
 				return events
@@ -473,6 +483,7 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 
 	case coreagent.ToolStarted:
 		return []Event{{ToolUse: &ToolUseEvent{
+			ID:     e.ToolCall.ID,
 			Tool:   e.ToolCall.Name,
 			Status: "running",
 			Input:  summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
@@ -493,6 +504,7 @@ func convertLoopEvent(e coreagent.LoopEvent) []Event {
 		}
 		return []Event{
 			{ToolUse: &ToolUseEvent{
+				ID:      e.Result.ToolCallID,
 				Tool:    e.Result.ToolName,
 				Status:  status,
 				Detail:  detail,
