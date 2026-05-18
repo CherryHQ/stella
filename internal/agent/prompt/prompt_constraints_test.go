@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/pkg/memory"
-	"github.com/CherryHQ/stella/pkg/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
 func TestBuildSystemPrompt_ConstraintsInjected(t *testing.T) {

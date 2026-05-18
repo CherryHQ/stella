@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 const maxReviewMessages = 200

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 )

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/pkg/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/plugins/memory/lcm"
 )
 

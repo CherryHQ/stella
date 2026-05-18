@@ -10,7 +10,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/resources"

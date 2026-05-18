@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 const maxFallbackMessages = 200

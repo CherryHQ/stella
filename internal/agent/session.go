@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // CompactionConfig controls automatic session compaction.

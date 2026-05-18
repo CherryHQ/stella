@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // candidate represents a session that may need review.

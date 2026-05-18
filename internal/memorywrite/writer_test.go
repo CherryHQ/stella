@@ -8,8 +8,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // setupTestDB creates a test database and returns the db, queries, userID, agentID, and cleanup.

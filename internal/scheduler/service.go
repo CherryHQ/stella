@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp

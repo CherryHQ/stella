@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // CompactSession delegates compaction to the memory engine and returns the
