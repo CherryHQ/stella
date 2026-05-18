@@ -217,6 +217,27 @@ func (e FeedEntryStatus) Valid() bool {
 	}
 }
 
+// Defines values for MessagePartType.
+const (
+	File  MessagePartType = "file"
+	Image MessagePartType = "image"
+	Text  MessagePartType = "text"
+)
+
+// Valid indicates whether the value is a known member of the MessagePartType enum.
+func (e MessagePartType) Valid() bool {
+	switch e {
+	case File:
+		return true
+	case Image:
+		return true
+	case Text:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SourceType.
 const (
 	Github  SourceType = "github"
@@ -778,6 +799,25 @@ type MeResponse struct {
 	Username string `json:"username"`
 }
 
+// MessagePart defines model for MessagePart.
+type MessagePart struct {
+	// Image Base64-encoded image data (when type is "image")
+	Image *string `json:"image,omitempty"`
+
+	// MimeType MIME type of the image or file
+	MimeType *string `json:"mimeType,omitempty"`
+
+	// Text Text content (when type is "text")
+	Text *string         `json:"text,omitempty"`
+	Type MessagePartType `json:"type"`
+
+	// Url File URL (when type is "file")
+	Url *string `json:"url,omitempty"`
+}
+
+// MessagePartType defines model for MessagePart.Type.
+type MessagePartType string
+
 // OAuthConnectedResponse defines model for OAuthConnectedResponse.
 type OAuthConnectedResponse struct {
 	Connected bool    `json:"connected"`
@@ -948,8 +988,8 @@ type SaveDigestRequest struct {
 
 // SendMessageRequest defines model for SendMessageRequest.
 type SendMessageRequest struct {
-	// Content Message content (required)
-	Content string `json:"content"`
+	// Parts Message content parts (text, image, file)
+	Parts []MessagePart `json:"parts"`
 }
 
 // Session defines model for Session.

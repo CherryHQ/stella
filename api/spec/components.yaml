@@ -1320,13 +1320,34 @@ components:
       properties:
         agent_id:
           type: string
+    MessagePart:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, image, file]
+        text:
+          type: string
+          description: Text content (when type is "text")
+        image:
+          type: string
+          description: Base64-encoded image data (when type is "image")
+        url:
+          type: string
+          description: File URL (when type is "file")
+        mimeType:
+          type: string
+          description: MIME type of the image or file
     SendMessageRequest:
       type: object
-      required: [content]
+      required: [parts]
       properties:
-        content:
-          type: string
-          description: "Message content (required)"
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessagePart"
+          description: Message content parts (text, image, file)
     SystemPromptResponse:
       type: object
       required: [system_prompt]
