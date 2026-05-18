@@ -53,7 +53,7 @@ func Load(sourceFS fs.FS) (*Registry, error) {
 
 // loadKind discovers resources of a single kind under subFS.
 // Skills are multi-file directories (id = dir name, main = SKILL.md).
-// Souls/sub-agents/templates are single files (id = basename without .md).
+// Souls/delegates/templates are single files (id = basename without .md).
 func loadKind(r *Registry, kind Kind, subFS fs.FS) error {
 	entries, err := fs.ReadDir(subFS, ".")
 	if err != nil {

@@ -12,6 +12,6 @@ func resolveToolsBinDir(_ sandbox.Paths, _ string) string {
 	return ""
 }
 
-func stellaAgentsDir(paths sandbox.Paths) string {
-	return filepath.Join(paths.StellaHome, ".agents", "agents")
+func stellaDelegatesDir(paths sandbox.Paths) string {
+	return filepath.Join(paths.StellaHome, ".agents", "delegates")
 }

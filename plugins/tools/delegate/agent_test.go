@@ -1,4 +1,4 @@
-package agent
+package delegate
 
 import (
 	"testing"
@@ -6,23 +6,23 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-// --- AgentConfig defaults ---
+// --- DelegateConfig defaults ---
 
-func TestAgentConfig_Defaults(t *testing.T) {
-	cfg := AgentConfig{}
+func TestDelegateConfig_Defaults(t *testing.T) {
+	cfg := DelegateConfig{}
 	if cfg.maxConcurrency() != defaultMaxConcurrency {
 		t.Errorf("expected default maxConcurrency=%d, got %d", defaultMaxConcurrency, cfg.maxConcurrency())
 	}
 }
 
-func TestAgentConfig_CustomValues(t *testing.T) {
-	cfg := AgentConfig{MaxConcurrency: 1}
+func TestDelegateConfig_CustomValues(t *testing.T) {
+	cfg := DelegateConfig{MaxConcurrency: 1}
 	if cfg.maxConcurrency() != 1 {
 		t.Errorf("expected maxConcurrency=1, got %d", cfg.maxConcurrency())
 	}
 }
 
-// --- parseAgentTasks ---
+// --- parseDelegateTasks ---
 
 func TestParseAgentTasks_Basic(t *testing.T) {
 	args := map[string]any{
@@ -30,7 +30,7 @@ func TestParseAgentTasks_Basic(t *testing.T) {
 			map[string]any{"id": "t1", "task": "do something"},
 		},
 	}
-	tasks, err := parseAgentTasks(args)
+	tasks, err := parseDelegateTasks(args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestParseAgentTasks_AllFields(t *testing.T) {
 			},
 		},
 	}
-	tasks, err := parseAgentTasks(args)
+	tasks, err := parseDelegateTasks(args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestParseAgentTasks_AutoID(t *testing.T) {
 			map[string]any{"task": "second"},
 		},
 	}
-	tasks, err := parseAgentTasks(args)
+	tasks, err := parseDelegateTasks(args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,14 +86,14 @@ func TestParseAgentTasks_AutoID(t *testing.T) {
 }
 
 func TestParseAgentTasks_MissingTasks(t *testing.T) {
-	_, err := parseAgentTasks(map[string]any{})
+	_, err := parseDelegateTasks(map[string]any{})
 	if err == nil {
 		t.Error("expected error when tasks is missing")
 	}
 }
 
 func TestParseAgentTasks_InvalidTasksType(t *testing.T) {
-	_, err := parseAgentTasks(map[string]any{"tasks": "not an array"})
+	_, err := parseDelegateTasks(map[string]any{"tasks": "not an array"})
 	if err == nil {
 		t.Error("expected error when tasks is not an array")
 	}
@@ -105,7 +105,7 @@ func TestParseAgentTasks_MissingTask(t *testing.T) {
 			map[string]any{"id": "t1"},
 		},
 	}
-	_, err := parseAgentTasks(args)
+	_, err := parseDelegateTasks(args)
 	if err == nil {
 		t.Error("expected error when task is missing")
 	}
@@ -118,7 +118,7 @@ func TestParseAgentTasks_DuplicateID(t *testing.T) {
 			map[string]any{"id": "t1", "task": "second"},
 		},
 	}
-	_, err := parseAgentTasks(args)
+	_, err := parseDelegateTasks(args)
 	if err == nil {
 		t.Error("expected error for duplicate task ID")
 	}
@@ -167,29 +167,29 @@ func TestExtractLastAssistant_NoTextContent(t *testing.T) {
 	}
 }
 
-// --- AgentDefinition ---
+// --- DelegateDefinition ---
 
-func TestAgentDefinition_NoPresets(t *testing.T) {
-	def := AgentDefinition(nil)
-	if def.Name != agentToolName {
-		t.Errorf("expected name %q, got %q", agentToolName, def.Name)
+func TestDelegateDefinition_NoPresets(t *testing.T) {
+	def := DelegateDefinition(nil)
+	if def.Name != delegateToolName {
+		t.Errorf("expected name %q, got %q", delegateToolName, def.Name)
 	}
 }
 
-func TestAgentDefinition_WithPresets(t *testing.T) {
+func TestDelegateDefinition_WithPresets(t *testing.T) {
 	reg := &PresetRegistry{}
 	// Registry with no presets should not panic.
-	def := AgentDefinition(reg)
-	if def.Name != agentToolName {
-		t.Errorf("expected name %q, got %q", agentToolName, def.Name)
+	def := DelegateDefinition(reg)
+	if def.Name != delegateToolName {
+		t.Errorf("expected name %q, got %q", delegateToolName, def.Name)
 	}
 }
 
 // --- applyPreset ---
 
 func TestApplyPreset_FillsDefaults(t *testing.T) {
-	tc := agentTaskConfig{}
-	preset := AgentPreset{
+	tc := delegateTaskConfig{}
+	preset := DelegatePreset{
 		Model:  "claude-haiku",
 		System: "be helpful",
 	}
@@ -203,8 +203,8 @@ func TestApplyPreset_FillsDefaults(t *testing.T) {
 }
 
 func TestApplyPreset_DoesNotOverrideExisting(t *testing.T) {
-	tc := agentTaskConfig{Model: "gpt-4", System: "existing"}
-	preset := AgentPreset{Model: "claude-haiku", System: "preset system"}
+	tc := delegateTaskConfig{Model: "gpt-4", System: "existing"}
+	preset := DelegatePreset{Model: "claude-haiku", System: "preset system"}
 	tc.applyPreset(preset)
 	if tc.Model != "gpt-4" {
 		t.Error("preset should not override explicit model")

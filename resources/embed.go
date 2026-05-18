@@ -1,4 +1,4 @@
-// Package resources bundles embedded resources (skills, souls, sub-agents, templates,
+// Package resources bundles embedded resources (skills, souls, delegates, templates,
 // and builtin plugin manifest) that Stella ships with its binary.
 // Runtime code accesses them through Registry, not by walking the filesystem directly.
 package resources
@@ -8,7 +8,7 @@ import (
 	"io/fs"
 )
 
-//go:embed all:skills all:souls all:subagents all:templates
+//go:embed all:skills all:souls all:delegates all:templates
 var fsys embed.FS
 
 //go:embed plugins.yaml

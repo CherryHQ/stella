@@ -67,19 +67,19 @@ func extractSkillsFS(sub fs.FS, skillsDir string) error {
 	return nil
 }
 
-// ExtractSubAgents writes builtin sub-agent preset files into agentsDir.
-// Individual files are overwritten; other content in agentsDir is preserved.
-func ExtractSubAgents(agentsDir string) error {
-	sub, ok := SubFS(KindSubAgent)
+// ExtractDelegates writes builtin delegate preset files into delegatesDir.
+// Individual files are overwritten; other content in delegatesDir is preserved.
+func ExtractDelegates(delegatesDir string) error {
+	sub, ok := SubFS(KindDelegate)
 	if !ok {
 		return nil
 	}
-	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
-		return fmt.Errorf("create agents dir: %w", err)
+	if err := os.MkdirAll(delegatesDir, 0o755); err != nil {
+		return fmt.Errorf("create delegates dir: %w", err)
 	}
 	entries, err := fs.ReadDir(sub, ".")
 	if err != nil {
-		return fmt.Errorf("read builtin subagents: %w", err)
+		return fmt.Errorf("read builtin delegates: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -89,7 +89,7 @@ func ExtractSubAgents(agentsDir string) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", entry.Name(), err)
 		}
-		if err := os.WriteFile(filepath.Join(agentsDir, entry.Name()), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(delegatesDir, entry.Name()), data, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", entry.Name(), err)
 		}
 	}

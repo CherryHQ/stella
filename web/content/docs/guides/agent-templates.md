@@ -46,15 +46,15 @@ Once created, every aspect of an agent is yours to change:
 
 Changes take effect on the next conversation. Existing chat history is preserved.
 
-## Sub-agents
+## Delegates
 
-Stella also includes specialized sub-agents that handle delegated work. When your main agent needs help with a focused task, it can hand off work to a sub-agent:
+Stella also includes specialized delegates that handle focused subtasks. When your main agent needs help with a bounded task, it can delegate work to an isolated child loop:
 
-| Sub-agent      | Role                                     |
+| Delegate       | Role                                     |
 | -------------- | ---------------------------------------- |
 | **Coder**      | Writes and edits code                    |
 | **Researcher** | Gathers information and analyzes sources |
 | **Reviewer**   | Reviews code or documents for quality    |
 | **Writer**     | Drafts and edits written content         |
 
-Sub-agents work behind the scenes -- your main agent delegates to them automatically when appropriate. You do not need to configure them, but you can customize their behavior by placing override files in your project's `.agents/agents/` directory.
+Delegates work behind the scenes -- your main agent delegates to them automatically when appropriate. You do not need to configure them, but you can customize their behavior by placing override files in your project's `.agents/delegates/` directory.

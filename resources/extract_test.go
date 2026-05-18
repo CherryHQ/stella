@@ -18,17 +18,17 @@ func TestExtractSkills(t *testing.T) {
 	}
 }
 
-func TestExtractSubAgents(t *testing.T) {
+func TestExtractDelegates(t *testing.T) {
 	dir := t.TempDir()
-	if err := ExtractSubAgents(dir); err != nil {
-		t.Fatalf("ExtractSubAgents: %v", err)
+	if err := ExtractDelegates(dir); err != nil {
+		t.Fatalf("ExtractDelegates: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
 	}
 	if len(entries) == 0 {
-		t.Fatal("expected sub-agent files")
+		t.Fatal("expected delegate files")
 	}
 }
 
