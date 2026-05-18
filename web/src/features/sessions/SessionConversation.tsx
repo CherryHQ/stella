@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { Message } from "@/lib/types";
 import {
   createSessionTransport,
+  mergeToolResults,
   messageToUIMessage,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
@@ -65,9 +66,9 @@ export function SessionConversation({
 
   useEffect(() => {
     if (!messagesQuery.data) return;
-    const historical = [...messagesQuery.data.pages].reverse().flat();
-    if (historical.length === 0) return;
-    const uiMessages = historical.map(messageToUIMessage);
+    const merged = mergeToolResults([...messagesQuery.data.pages].reverse().flat());
+    if (merged.length === 0) return;
+    const uiMessages = merged.map(messageToUIMessage);
     const newIDs = new Set(uiMessages.map((m) => m.id));
     historicalIDsRef.current = newIDs;
     setChatMessages((prev) => {

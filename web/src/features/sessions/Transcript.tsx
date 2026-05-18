@@ -322,36 +322,8 @@ interface ProcessedMessage extends Message {
 }
 
 function processMessages(messages: Message[]): ProcessedMessage[] {
-  // Collect standalone tool-result messages (legacy format) by tool_call_id.
-  const resultsByID: Record<string, Message> = {};
-  for (const msg of messages) {
-    if (msg.role === "tool" && msg.tool_call_id) {
-      resultsByID[msg.tool_call_id] = msg;
-    }
-  }
-  const msgs = messages
-    .filter((m) => m.role !== "tool")
-    .map((msg) => {
-      if (msg.role !== "assistant") return msg;
-      return {
-        ...msg,
-        blocks: (msg.blocks ?? []).map((block) => {
-          // Only backfill from standalone tool messages if block has no result yet.
-          if (block.type === "tool_call" && block.id && !block.result && resultsByID[block.id]) {
-            const r = resultsByID[block.id];
-            return {
-              ...block,
-              result: {
-                tool_call_id: block.id,
-                content: r.content ?? "",
-                is_error: !!r.blocks?.some((b) => b.type === "tool_call" && b.result?.is_error),
-              },
-            };
-          }
-          return block;
-        }),
-      };
-    });
+  // Tool results are merged upstream by mergeToolResults; filter any stragglers.
+  const msgs = messages.filter((m) => m.role !== "tool");
   return msgs.map((msg, i) => ({
     ...msg,
     showTimestamp: i === msgs.length - 1 || msgs[i + 1].role !== msg.role,

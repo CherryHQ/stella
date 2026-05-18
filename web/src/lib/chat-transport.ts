@@ -10,8 +10,6 @@ export function createSessionTransport(sessionId: string) {
       const parts = last.parts
         .map((p) => {
           if (p.type === "text") return { type: "text" as const, text: p.text };
-          if (p.type === "file" && "url" in p)
-            return { type: "file" as const, url: p.url, mimeType: p.mediaType };
           return null;
         })
         .filter(Boolean);
@@ -20,9 +18,40 @@ export function createSessionTransport(sessionId: string) {
   });
 }
 
-let msgSeq = 0;
+/**
+ * Merge standalone role:"tool" messages into the preceding assistant message's
+ * tool_call blocks so that the conversion to UIMessage never produces orphan
+ * tool-result rows. Returns a new array (no mutation).
+ */
+export function mergeToolResults(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  for (const m of messages) {
+    if (m.role === "tool" && m.tool_call_id) {
+      const prev = out.length > 0 ? out[out.length - 1] : undefined;
+      if (prev?.role === "assistant" && prev.blocks) {
+        prev.blocks = prev.blocks.map((block) => {
+          if (block.type === "tool_call" && block.id === m.tool_call_id && !block.result) {
+            return {
+              ...block,
+              status: "done" as const,
+              result: {
+                tool_call_id: m.tool_call_id!,
+                content: m.content ?? "",
+                is_error: false,
+              },
+            };
+          }
+          return block;
+        });
+        continue;
+      }
+    }
+    out.push({ ...m });
+  }
+  return out;
+}
 
-export function messageToUIMessage(m: Message): UIMessage {
+export function messageToUIMessage(m: Message, index: number): UIMessage {
   const parts: UIMessage["parts"] = [];
 
   if (m.blocks && m.blocks.length > 0) {
@@ -58,7 +87,7 @@ export function messageToUIMessage(m: Message): UIMessage {
   }
 
   return {
-    id: `${m.timestamp}-${m.role}-${msgSeq++}`,
+    id: `hist-${m.timestamp}-${m.role}-${index}`,
     role: m.role === "tool" ? "assistant" : m.role,
     parts,
     metadata: {
