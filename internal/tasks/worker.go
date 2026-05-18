@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 

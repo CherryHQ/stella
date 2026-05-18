@@ -13,7 +13,6 @@ func (h stubHost) AddTool(ToolSpec)                       {}
 func (h stubHost) AddProvider(ProviderSpec)               {}
 func (h stubHost) AddChannel(ChannelSpec)                 {}
 func (h stubHost) AddHook(HookSpec)                       {}
-func (h stubHost) AddMemory(MemorySpec)                   {}
 func (h stubHost) AddRuntime(RuntimeSpec)                 {}
 func (h stubHost) AddPromptInventory(PromptInventorySpec) {}
 func (h stubHost) AddSystemPrompt(SystemPromptSpec)       {}

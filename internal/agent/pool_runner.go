@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // getOrCreateRunner returns the session and its runner, creating both if needed.

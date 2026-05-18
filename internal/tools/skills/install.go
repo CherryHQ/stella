@@ -9,7 +9,7 @@ import (
 
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 

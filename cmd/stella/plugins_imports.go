@@ -13,7 +13,7 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/providers/openai-response"
 
 	// Plugin runtimes.
-	_ "github.com/CherryHQ/stella/plugins/reflect"
+	_ "github.com/CherryHQ/stella/internal/reflect"
 
 	// Plugin tools.
 	_ "github.com/CherryHQ/stella/plugins/tools/webfetch"
@@ -21,10 +21,6 @@ import (
 	// Plugin hooks.
 	_ "github.com/CherryHQ/stella/plugins/hooks/rtk"
 	_ "github.com/CherryHQ/stella/plugins/hooks/trace"
-
-	// Plugin memory.
-	_ "github.com/CherryHQ/stella/plugins/memory/lcm"
-	_ "github.com/CherryHQ/stella/plugins/memory/simple"
 
 	// Plugin sandbox backends.
 	_ "github.com/CherryHQ/stella/plugins/sandbox"

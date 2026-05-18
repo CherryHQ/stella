@@ -247,7 +247,7 @@ Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in th
 
 ## Admin API
 
-The `server/` package provides an HTTP API and embedded SPA for managing the system. Endpoints cover CRUD operations for providers, agents, channels, users, sessions, scheduler jobs, and global settings. The server reads and writes through `config.Store`, giving operators a web interface for configuration that was previously done via YAML files.
+The `internal/server/` package provides an HTTP API and embedded SPA for managing the system. Endpoints cover CRUD operations for providers, agents, channels, users, sessions, scheduler jobs, and global settings. The server reads and writes through `config.Store`, giving operators a web interface for configuration that was previously done via YAML files.
 
 ## Notification Flow
 

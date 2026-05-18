@@ -1,0 +1,314 @@
+// Package memory defines the pluggable memory provider contract.
+//
+// Every memory plugin implements [Provider] as its core interface.
+// Optional capabilities are discovered via type assertion at runtime,
+// following the same pattern as [github.com/CherryHQ/stella/pkg/hooks].
+package memory
+
+import (
+	"context"
+	"time"
+
+	"github.com/CherryHQ/stella/pkg/ai"
+)
+
+// SessionStats contains basic statistics about a session's memory state.
+// Every provider can produce this since it only requires knowledge of
+// what was stored via Append.
+type SessionStats struct {
+	MessageCount int       // total messages stored for this session
+	TokenCount   int       // estimated total tokens across all stored messages
+	SummaryCount int       // number of summaries (0 for providers without Compactor)
+	OldestAt     time.Time // timestamp of the earliest message (zero if empty)
+	NewestAt     time.Time // timestamp of the most recent message (zero if empty)
+}
+
+// Provider is the memory plugin contract.
+// Every memory plugin must implement this interface.
+// Optional capabilities are discovered via type assertion — see Capability Interfaces.
+type Provider interface {
+	// Name returns the plugin identifier (e.g. "lcm", "simple").
+	// Used in logs and admin UI.
+	Name() string
+
+	// Bootstrap ensures the session is initialized and ready for use.
+	// Called once at the start of every Pool.Chat call before any Append or Assemble.
+	// Implementations use this to create conversation records, initialize caches,
+	// or establish remote connections for the session.
+	Bootstrap(ctx context.Context, session Session) error
+
+	// Append persists one or more messages to the session's event log.
+	// Messages must be appended in the order they arrive.
+	// Callers pass all messages from a single turn together so implementations
+	// can store them in a single atomic transaction if they choose.
+	//
+	// Concurrency: implementations MUST be safe for concurrent Append calls
+	// on different sessions. Concurrent Append calls on the SAME session
+	// MUST be serialised by the implementation (see Concurrency Contract).
+	Append(ctx context.Context, session Session, msgs ...ai.Message) error
+
+	// Assemble builds the context window to send to the LLM.
+	// budget: maximum number of tokens the returned messages may consume.
+	// freshTail: minimum number of recent messages to always include verbatim,
+	//   regardless of budget pressure. Implementations MUST honour this.
+	// Returns messages in chronological order (oldest first).
+	// Older content that does not fit in the budget is either summarised
+	// (if the plugin supports Compactor) or omitted.
+	Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error)
+
+	// Stats returns basic statistics about a session's memory state.
+	// Used by the memory tool's "status" action and by admin endpoints.
+	// Returns zero-value stats (not an error) if the session does not exist.
+	Stats(ctx context.Context, session Session) (SessionStats, error)
+
+	// Close releases any resources held by the provider (DB connections, caches, etc.).
+	// Called when the Pool shuts down. Must be safe to call multiple times.
+	Close() error
+}
+
+// ---------------------------------------------------------------------------
+// Capability: Compactor
+// ---------------------------------------------------------------------------
+
+// CompactionMode controls compaction behavior.
+type CompactionMode int
+
+const (
+	// CompactionIncremental runs one leaf pass + one condensed pass.
+	CompactionIncremental CompactionMode = iota
+	// CompactionFull repeats until no more compaction is possible.
+	CompactionFull
+)
+
+// String returns the human-readable name of the compaction mode.
+func (m CompactionMode) String() string {
+	switch m {
+	case CompactionIncremental:
+		return "incremental"
+	case CompactionFull:
+		return "full"
+	default:
+		return "unknown"
+	}
+}
+
+// CompactionResult reports what a compaction cycle accomplished.
+type CompactionResult struct {
+	LeafSummariesCreated      int
+	CondensedSummariesCreated int
+	MessagesCompacted         int
+	TokensBefore              int
+	TokensAfter               int
+	Duration                  time.Duration
+}
+
+// Compactor is implemented by providers that support background compaction.
+// The Pool calls NeedsCompaction before each chat turn and Compact when needed.
+type Compactor interface {
+	// NeedsCompaction returns true if the session's context has grown large enough
+	// to warrant compaction. threshold is a fraction of the session's token budget
+	// (e.g. 0.75 means "compact when context is 75% full").
+	NeedsCompaction(ctx context.Context, session Session, threshold float64) bool
+
+	// Compact runs the compaction algorithm on the session.
+	// Incremental mode runs a single summarisation pass (fast, called automatically).
+	// Full mode runs repeated passes until no further reduction is possible
+	// (slow, called on demand e.g. via /compact slash command).
+	Compact(ctx context.Context, session Session, mode CompactionMode) (*CompactionResult, error)
+}
+
+// ---------------------------------------------------------------------------
+// Capability: Searcher
+// ---------------------------------------------------------------------------
+
+// SearchScope controls which storage layer to search.
+type SearchScope int
+
+const (
+	SearchScopeBoth      SearchScope = iota // default: search everything
+	SearchScopeMessages                     // raw messages only
+	SearchScopeSummaries                    // summaries only
+)
+
+// SearchQuery describes a search request.
+type SearchQuery struct {
+	Text  string      // search term (keyword or natural language depending on plugin)
+	Scope SearchScope // which layer of storage to search
+	Limit int         // max results (default 20)
+}
+
+// SearchResult represents a single search hit.
+type SearchResult struct {
+	SourceType string    // "message" or "summary"
+	SourceID   string    // message ID or summary ID
+	Content    string    // snippet of the matching content (truncated at ~500 chars)
+	Score      float64   // relevance score: 0 for keyword match, 0.0-1.0 for semantic
+	Timestamp  time.Time // when the source was created
+}
+
+// Searcher is implemented by providers that support history search.
+type Searcher interface {
+	Search(ctx context.Context, session Session, query SearchQuery) ([]SearchResult, error)
+}
+
+// ---------------------------------------------------------------------------
+// Capability: Explorer
+// ---------------------------------------------------------------------------
+
+// DescribeResult represents summary metadata and lineage.
+type DescribeResult struct {
+	SummaryID       string
+	Kind            string     // "leaf" or "condensed"
+	Depth           int        // 0 = leaf, 1+ = condensed
+	Content         string     // the summary text
+	EarliestAt      *time.Time // timestamp of oldest source message
+	LatestAt        *time.Time // timestamp of newest source message
+	DescendantCount int        // total original messages this summary covers
+	ParentIDs       []string   // summaries that contain this one (condensed parents)
+	ChildIDs        []string   // summaries or messages this one was built from
+}
+
+// ExpandResult represents drill-down results from exploring a summary.
+type ExpandResult struct {
+	SummaryID string
+	// For leaf summaries: the original source messages.
+	Messages []ExpandMessage
+	// For condensed summaries: the child summaries.
+	Children []ExpandChild
+}
+
+// ExpandMessage is a source message in an expand result.
+type ExpandMessage struct {
+	MessageID string
+	Role      string
+	Content   string
+	CreatedAt time.Time
+}
+
+// ExpandChild is a child summary in an expand result.
+type ExpandChild struct {
+	SummaryID string
+	Kind      string
+	Depth     int
+	Content   string
+}
+
+// Explorer is implemented by providers that store summaries in a navigable hierarchy.
+// It lets the agent inspect and drill into compressed history.
+//
+// Note: these methods take summaryID only, not Session. Summary IDs are globally
+// unique (e.g. "sum_a1b2c3d4") and already scoped to a conversation internally.
+type Explorer interface {
+	// Describe returns metadata and lineage for a summary ID.
+	Describe(ctx context.Context, summaryID string) (*DescribeResult, error)
+
+	// Expand drills into a summary:
+	//   - For leaf summaries: returns the original source messages
+	//   - For condensed summaries: returns the child summaries
+	// tokenCap limits how many tokens of content are returned.
+	Expand(ctx context.Context, summaryID string, tokenCap int) (*ExpandResult, error)
+}
+
+// ---------------------------------------------------------------------------
+// Capability: ProfileStore
+// ---------------------------------------------------------------------------
+
+// ProfileStore is implemented by providers that support per-user-per-agent
+// persistent memory: agent soul (identity/personality customization) and
+// user profile (facts/context about the user).
+//
+// Both are scoped to (userID, agentID) — each user can customise the agent's
+// soul independently, and the agent maintains separate profile notes per user.
+// Content is free-form text managed entirely by the agent. The system injects
+// both into the system prompt at session start.
+type ProfileStore interface {
+	// GetProfile returns the current user profile for the (userID, agentID) pair.
+	// Returns ("", nil) if no profile exists yet (not an error).
+	GetProfile(ctx context.Context, userID string, agentID string) (string, error)
+
+	// SetProfile overwrites the user profile for the (userID, agentID) pair.
+	// Callers are responsible for merging new content with existing content
+	// before calling SetProfile — this method always replaces, never appends.
+	SetProfile(ctx context.Context, userID string, agentID string, content string) error
+
+	// GetAgentSoul returns the agent soul for the (userID, agentID) pair.
+	// The soul defines the agent's identity, personality, and behavior as
+	// customised by this specific user. Returns ("", nil) if not set.
+	GetAgentSoul(ctx context.Context, userID string, agentID string) (string, error)
+
+	// SetAgentSoul overwrites the agent soul for the (userID, agentID) pair.
+	// Callers are responsible for merging; this method always replaces.
+	SetAgentSoul(ctx context.Context, userID string, agentID string, content string) error
+}
+
+// ---------------------------------------------------------------------------
+// Capability: ConstraintStore
+// ---------------------------------------------------------------------------
+
+// ConstraintEntry represents a single user constraint.
+type ConstraintEntry struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ConstraintStore is implemented by providers that support storing user-defined
+// hard constraints (rules the agent must always follow).
+// Constraints are separate from Profile to give them special protection:
+// Reflect cannot modify them; only user-initiated writes are allowed by convention.
+type ConstraintStore interface {
+	// GetConstraints returns all active constraints for the (userID, agentID) pair.
+	GetConstraints(ctx context.Context, userID string, agentID string) ([]ConstraintEntry, error)
+
+	// AddConstraint adds a new constraint with a generated UUID-like ID.
+	// Returns the updated list of constraints.
+	AddConstraint(ctx context.Context, userID string, agentID string, text string) ([]ConstraintEntry, error)
+
+	// RemoveConstraint removes the constraint with the given ID.
+	// Returns the updated list of constraints.
+	RemoveConstraint(ctx context.Context, userID string, agentID string, id string) ([]ConstraintEntry, error)
+}
+
+// ---------------------------------------------------------------------------
+// Capability: SessionManager
+// ---------------------------------------------------------------------------
+
+// SessionManager is implemented by providers that support session lifecycle management.
+type SessionManager interface {
+	// SaveInfo persists or updates session metadata.
+	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// LoadInfo retrieves metadata for a single session.
+	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)
+
+	// ListInfo lists sessions matching the options.
+	ListInfo(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
+
+	// LoadHistory returns the complete raw message history for a session
+	// in chronological order. Used by the Web UI viewer and export.
+	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
+}
+
+// ---------------------------------------------------------------------------
+// Capability: Reviewer
+// ---------------------------------------------------------------------------
+
+// Reviewer is implemented by providers that can format conversation content
+// for review by a background agent (the reflect system).
+//
+// This is deliberately a single method. Watermark tracking (which sessions
+// have been reviewed, when) is not the memory plugin's concern — it belongs
+// to the consumer (`internal/reflect`). The memory provider's only job is:
+// "given a session and an optional time boundary, produce reviewable text."
+type Reviewer interface {
+	// BuildReviewContext returns a text representation of the conversation
+	// suitable for passing to a reviewer agent's prompt.
+	//
+	// since: if non-zero, only include content created after this time.
+	//   The provider should include prior context (e.g. summaries from before
+	//   this timestamp) to give the reviewer enough background.
+	//   If zero, include all content.
+	//
+	// Returns ("", nil) if there is no content to review.
+	BuildReviewContext(ctx context.Context, session Session, since time.Time) (string, error)
+}

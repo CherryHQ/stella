@@ -11,7 +11,6 @@ type Host interface {
 	AddProvider(ProviderSpec)
 	AddChannel(ChannelSpec)
 	AddHook(HookSpec)
-	AddMemory(MemorySpec)
 	AddRuntime(RuntimeSpec)
 	AddPromptInventory(PromptInventorySpec)
 	AddSystemPrompt(SystemPromptSpec)

@@ -22,6 +22,9 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/memory"
+	memorylcm "github.com/CherryHQ/stella/internal/memory/lcm"
+	memorysimple "github.com/CherryHQ/stella/internal/memory/simple"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
@@ -35,7 +38,6 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -325,7 +327,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return text, nil
 	}
 
-	// Build memory provider through the plugin host so memory plugins use the same registration path.
+	// Build memory provider directly — memory is core infrastructure, not a plugin.
 	memoryName := "lcm"
 	memoryConfig := map[string]any{}
 	if plugins, err := store.ListPluginsByKind(parent, config.PluginKindMemory); err == nil {
@@ -337,9 +339,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}
 		}
 	}
-	memProvider, err := phost.BuildMemory(parent, memoryName, db, config.StellaHome(), memoryConfig, memorySummarizer)
+	memProvider, err := buildMemory(parent, memoryName, db, memoryConfig, memorySummarizer)
 	if err != nil {
-		return nil, fmt.Errorf("memory plugin: %w", err)
+		return nil, fmt.Errorf("memory provider: %w", err)
 	}
 
 	// Wrap with tracing. The hooksFn closure captures poolMgr which is nil now
@@ -661,4 +663,16 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
 	)
+}
+
+// TODO: summarizerFn should accept the memory.Summarizer interface instead of a raw function.
+func buildMemory(_ context.Context, name string, db *sql.DB, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
+	switch name {
+	case "lcm":
+		return memorylcm.New(db, summarizerFn, cfg)
+	case "simple":
+		return memorysimple.New(db), nil
+	default:
+		return nil, fmt.Errorf("unknown memory provider: %q", name)
+	}
 }

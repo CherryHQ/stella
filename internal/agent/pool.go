@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/memory"
 )
 
 // Pool manages a set of sessions, each with its own history and

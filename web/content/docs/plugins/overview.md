@@ -62,7 +62,6 @@ Examples:
 - `channel/telegram`
 - `hook/trace`
 - `provider/openai`
-- `memory/lcm`
 - `reflect`
 
 Capabilities are registered under that plugin ID, but each capability may also have its own capability-local name.
@@ -173,7 +172,7 @@ Common examples:
 - `plugins/tools/webfetch/`
 - `plugins/channels/telegram/`
 - `plugins/providers/openai/`
-- `plugins/reflect/`
+- `internal/reflect/`
 
 This keeps plugin ownership obvious: the package that registers a plugin also owns its config logic, runtime wiring, and capability-specific behavior.
 

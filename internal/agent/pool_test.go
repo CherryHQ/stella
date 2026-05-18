@@ -9,10 +9,10 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/memory"
+	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 )
 
 // testMemoryProvider creates an LCM memory provider backed by an in-memory SQLite DB.

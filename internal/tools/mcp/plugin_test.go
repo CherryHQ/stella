@@ -42,7 +42,6 @@ func (*testHost) AddTool(pkgplugins.ToolSpec)                       {}
 func (*testHost) AddProvider(pkgplugins.ProviderSpec)               {}
 func (*testHost) AddChannel(pkgplugins.ChannelSpec)                 {}
 func (*testHost) AddHook(pkgplugins.HookSpec)                       {}
-func (*testHost) AddMemory(pkgplugins.MemorySpec)                   {}
 func (*testHost) AddRuntime(pkgplugins.RuntimeSpec)                 {}
 func (*testHost) AddPromptInventory(pkgplugins.PromptInventorySpec) {}
 func (*testHost) AddSystemPrompt(pkgplugins.SystemPromptSpec)       {}

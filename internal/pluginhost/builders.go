@@ -2,12 +2,9 @@ package pluginhost
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"sort"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
-	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -94,23 +91,4 @@ func (h *Host) BuildStreamFunc(name string, stateConfig map[string]any) (provide
 		return nil, err
 	}
 	return providers.AdapterStreamFunc(adapter), nil
-}
-
-func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, stellaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
-	h.mu.RLock()
-	reg, ok := h.memoryRegs[name]
-	h.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("unknown memory plugin: %q", name)
-	}
-	if reg.Build == nil {
-		return nil, fmt.Errorf("memory plugin %q does not provide a builder", name)
-	}
-	return reg.Build(ctx, pkgplugins.MemoryContext{
-		Platform:     h.platform(reg.PluginID),
-		State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
-		DB:           db,
-		StellaHome:   stellaHome,
-		SummarizerFn: summarizerFn,
-	})
 }

@@ -6,7 +6,7 @@ title: Memory System Internals
 
 ## Provider Interface
 
-The core `Provider` interface (`pkg/memory/provider.go`) has 5 methods:
+The core `Provider` interface (`internal/memory/provider.go`) has 5 methods:
 
 | Method                                      | Description                                             |
 | ------------------------------------------- | ------------------------------------------------------- |

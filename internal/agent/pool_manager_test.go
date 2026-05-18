@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/pkg/memory"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // mockStore implements config.Store for testing PoolManager.

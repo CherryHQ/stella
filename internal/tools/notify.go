@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )

@@ -12,7 +12,6 @@ const (
 	CapabilityPrompt    = "prompt"
 	CapabilityProvider  = "provider"
 	CapabilityHook      = "hook"
-	CapabilityMemory    = "memory"
 )
 
 // PluginInfo is the host discovery metadata registered by a plugin.

@@ -1,8 +1,6 @@
 package plugins
 
 import (
-	"context"
-	"database/sql"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -54,17 +52,6 @@ type ChannelContext struct {
 	Platform Platform
 	State    PluginState
 	Handler  channel.Handler
-}
-
-// MemoryContext is the narrow build context for memory capabilities.
-// DB is a construction-time exception for memory providers, not a general
-// plugin service surface.
-type MemoryContext struct {
-	Platform     Platform
-	State        PluginState
-	DB           *sql.DB
-	StellaHome   string
-	SummarizerFn func(context.Context, string) (string, error)
 }
 
 // RuntimeContext is the narrow construction context for runtime capabilities.
