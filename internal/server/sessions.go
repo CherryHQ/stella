@@ -11,12 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -71,8 +75,8 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.Content == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
+	if len(body.Parts) == 0 {
+		writeError(w, http.StatusBadRequest, "parts is required")
 		return
 	}
 
@@ -111,76 +115,253 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
+	// Convert AI SDK parts to internal MessageContent.
+	msgContent := partsToMessageContent(body.Parts)
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	writeSSEEvent := func(event, data string) {
-		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	writeData := func(v any) {
+		data, _ := json.Marshal(v)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+	writeDone := func() {
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 	}
 
-	// runningToolID maps tool name to the generated ID for the running invocation.
-	runningToolID := make(map[string]string)
+	messageID := uuid.New().String()
+	writeData(map[string]string{"type": "start", "messageId": messageID})
 
-	ch := pool.Chat(r.Context(), sessionID, body.Content)
+	var (
+		inText      bool
+		textID      string
+		inReasoning bool
+		reasoningID string
+		stepOpen    bool
+	)
+
+	closeText := func() {
+		if inText {
+			writeData(map[string]string{"type": "text-end", "id": textID})
+			inText = false
+		}
+	}
+	closeReasoning := func() {
+		if inReasoning {
+			writeData(map[string]string{"type": "reasoning-end", "id": reasoningID})
+			inReasoning = false
+		}
+	}
+
+	ch := pool.Chat(r.Context(), sessionID, msgContent)
 	for {
 		select {
 		case <-r.Context().Done():
+			closeText()
+			closeReasoning()
+			if stepOpen {
+				writeData(map[string]string{"type": "finish-step"})
+			}
+			writeData(map[string]string{"type": "finish"})
+			writeDone()
 			return
 		case evt, open := <-ch:
 			if !open {
+				closeText()
+				closeReasoning()
+				if stepOpen {
+					writeData(map[string]string{"type": "finish-step"})
+				}
+				writeData(map[string]string{"type": "finish"})
+				writeDone()
 				return
 			}
+
 			if evt.Err != nil {
-				data, _ := json.Marshal(map[string]string{"error": evt.Err.Error()})
-				writeSSEEvent("error", string(data))
+				closeText()
+				closeReasoning()
+				writeData(map[string]string{"type": "error", "errorText": evt.Err.Error()})
+				if stepOpen {
+					writeData(map[string]string{"type": "finish-step"})
+				}
+				writeData(map[string]string{"type": "finish"})
+				writeDone()
 				return
 			}
+
 			if evt.Store != nil {
 				continue
 			}
-			if evt.ToolUse != nil {
-				tu := evt.ToolUse
-				switch tu.Status {
-				case "running":
-					id := fmt.Sprintf("%s-%d", tu.Tool, time.Now().UnixNano())
-					runningToolID[tu.Tool] = id
-					payload := map[string]any{
-						"type": "tool_call",
-						"id":   id,
-						"name": tu.Tool,
-						"arguments": map[string]string{
-							"input": tu.Input,
-						},
-						"status": "running",
+
+			if evt.Step != nil {
+				switch evt.Step.Kind {
+				case "start":
+					closeText()
+					closeReasoning()
+					if stepOpen {
+						writeData(map[string]string{"type": "finish-step"})
 					}
-					data, _ := json.Marshal(payload)
-					writeSSEEvent("tool_use", string(data))
-				case "done", "error":
-					id := runningToolID[tu.Tool]
-					if id == "" {
-						id = fmt.Sprintf("%s-%d", tu.Tool, time.Now().UnixNano())
+					writeData(map[string]string{"type": "start-step"})
+					stepOpen = true
+				case "finish":
+					closeText()
+					closeReasoning()
+					if stepOpen {
+						writeData(map[string]string{"type": "finish-step"})
+						stepOpen = false
 					}
-					delete(runningToolID, tu.Tool)
-					payload := map[string]any{
-						"type":         "tool_result",
-						"tool_call_id": id,
-						"content":      tu.Content,
-						"is_error":     tu.Status == "error",
-					}
-					data, _ := json.Marshal(payload)
-					writeSSEEvent("tool_use", string(data))
 				}
 				continue
 			}
+
+			if evt.Reasoning != "" {
+				closeText()
+				if !inReasoning {
+					reasoningID = uuid.New().String()
+					writeData(map[string]string{"type": "reasoning-start", "id": reasoningID})
+					inReasoning = true
+				}
+				writeData(map[string]any{"type": "reasoning-delta", "id": reasoningID, "delta": evt.Reasoning})
+				continue
+			}
+
 			if evt.Text != "" {
-				data, _ := json.Marshal(map[string]string{"text": evt.Text})
-				writeSSEEvent("text", string(data))
+				closeReasoning()
+				if !inText {
+					textID = uuid.New().String()
+					writeData(map[string]string{"type": "text-start", "id": textID})
+					inText = true
+				}
+				writeData(map[string]any{"type": "text-delta", "id": textID, "delta": evt.Text})
+				continue
+			}
+
+			if evt.ToolUse != nil {
+				closeText()
+				closeReasoning()
+				tu := evt.ToolUse
+				switch tu.Status {
+				case "running":
+					writeData(map[string]any{
+						"type":       "tool-input-start",
+						"toolCallId": tu.ID,
+						"toolName":   tu.Tool,
+						"dynamic":    true,
+					})
+					args := tu.Arguments
+					if args == nil {
+						args = map[string]any{"input": tu.Input}
+					}
+					writeData(map[string]any{
+						"type":       "tool-input-available",
+						"toolCallId": tu.ID,
+						"toolName":   tu.Tool,
+						"dynamic":    true,
+						"input":      args,
+					})
+				case "done":
+					writeData(map[string]any{
+						"type":       "tool-output-available",
+						"toolCallId": tu.ID,
+						"output":     tu.Content,
+					})
+				case "error":
+					writeData(map[string]any{
+						"type":       "tool-output-error",
+						"toolCallId": tu.ID,
+						"errorText":  tu.Content,
+					})
+				}
+				continue
+			}
+
+			if evt.Image != nil {
+				closeText()
+				closeReasoning()
+				dataURI := "data:" + evt.Image.MimeType + ";base64," + evt.Image.Data
+				writeData(map[string]string{
+					"type":      "file",
+					"url":       dataURI,
+					"mediaType": evt.Image.MimeType,
+				})
+				continue
+			}
+
+			if evt.File != nil {
+				closeText()
+				closeReasoning()
+				fileURL := fmt.Sprintf("/api/sessions/%s/workspace/file-content?path=%s&raw=true",
+					sessionID, evt.File.Path)
+				mediaType := detectMIME(evt.File.Name)
+				writeData(map[string]string{
+					"type":      "file",
+					"url":       fileURL,
+					"mediaType": mediaType,
+				})
+				continue
 			}
 		}
+	}
+}
+
+// partsToMessageContent converts API MessageParts to internal MessageContent.
+func partsToMessageContent(parts []apitypes.MessagePart) agent.MessageContent {
+	if len(parts) == 1 && parts[0].Type == apitypes.Text && parts[0].Text != nil {
+		return *parts[0].Text
+	}
+	var blocks []ai.ContentBlock
+	for _, p := range parts {
+		switch p.Type {
+		case apitypes.Text:
+			if p.Text != nil {
+				blocks = append(blocks, ai.TextContent{Text: *p.Text})
+			}
+		case apitypes.Image:
+			if p.Image != nil {
+				mime := "image/png"
+				if p.MimeType != nil {
+					mime = *p.MimeType
+				}
+				blocks = append(blocks, ai.ImageContent{Data: *p.Image, MimeType: mime})
+			}
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return blocks
+}
+
+// detectMIME returns a MIME type based on file extension.
+func detectMIME(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".svg":
+		return "image/svg+xml"
+	case ".pdf":
+		return "application/pdf"
+	case ".txt":
+		return "text/plain"
+	case ".json":
+		return "application/json"
+	case ".csv":
+		return "text/csv"
+	default:
+		return "application/octet-stream"
 	}
 }
 

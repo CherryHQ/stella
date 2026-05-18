@@ -134,7 +134,7 @@ function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }
 
 function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [expanded, setExpanded] = useState(false);
-  const colorClass = toolColor(block.name);
+  const colorClass = toolColor(block.name ?? "");
 
   return (
     <div className="pl-3 rounded-lg bg-muted/20">
@@ -235,7 +235,7 @@ function toolArgText(value: unknown): string {
 }
 
 function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call" } }) {
-  const n = block.name.toLowerCase();
+  const n = (block.name ?? "").toLowerCase();
   const args = block.arguments ?? {};
 
   if (n === "bash")
@@ -287,7 +287,7 @@ function toolColor(name: string): string {
 
 function toolPreview(block: ContentBlock & { type: "tool_call" }): string {
   const args = block.arguments ?? {};
-  const n = block.name.toLowerCase();
+  const n = (block.name ?? "").toLowerCase();
   const trunc = (s: string, len = 55) => (s.length > len ? s.slice(0, len) + "…" : s);
   const shortPath = (p: string) => {
     const pts = (p || "").split("/");
@@ -322,34 +322,8 @@ interface ProcessedMessage extends Message {
 }
 
 function processMessages(messages: Message[]): ProcessedMessage[] {
-  const resultsByID: Record<string, Message> = {};
-  for (const msg of messages) {
-    if (msg.role === "tool" && msg.tool_call_id) {
-      resultsByID[msg.tool_call_id] = msg;
-    }
-  }
-  const msgs = messages
-    .filter((m) => m.role !== "tool")
-    .map((msg) => {
-      if (msg.role !== "assistant") return msg;
-      return {
-        ...msg,
-        blocks: (msg.blocks ?? []).map((block) => {
-          if (block.type === "tool_call" && block.id && resultsByID[block.id]) {
-            const r = resultsByID[block.id];
-            return {
-              ...block,
-              result: {
-                tool_call_id: block.id,
-                content: r.content ?? "",
-                is_error: false,
-              },
-            };
-          }
-          return block;
-        }),
-      };
-    });
+  // Tool results are merged upstream by mergeToolResults; filter any stragglers.
+  const msgs = messages.filter((m) => m.role !== "tool");
   return msgs.map((msg, i) => ({
     ...msg,
     showTimestamp: i === msgs.length - 1 || msgs[i + 1].role !== msg.role,

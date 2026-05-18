@@ -911,6 +911,7 @@ export type {
   ManifestPlugin,
   ManifestPluginsResponse,
   MeResponse,
+  MessagePart,
   MoveWorkspaceFileData,
   MoveWorkspaceFileError,
   MoveWorkspaceFileErrors,

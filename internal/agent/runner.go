@@ -12,11 +12,18 @@ import (
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	Tool    string // tool name, e.g. "bash", "read"
-	Status  string // "running", "done", "error"
-	Input   string // short summary of the tool input
-	Detail  string // error detail or result summary (for "error" status)
-	Content string // full tool result text (for "done"/"error" status)
+	ID        string         // provider-assigned tool call ID
+	Tool      string         // tool name, e.g. "bash", "read"
+	Status    string         // "running", "done", "error"
+	Input     string         // short summary of the tool input
+	Arguments map[string]any // raw tool arguments
+	Detail    string         // error detail or result summary (for "error" status)
+	Content   string         // full tool result text (for "done"/"error" status)
+}
+
+// StepEvent marks the boundary of an agentic step (one LLM call + tool executions).
+type StepEvent struct {
+	Kind string // "start" or "finish"
 }
 
 // ImageEvent carries a base64-encoded image to be sent to the channel.
@@ -34,12 +41,14 @@ type FileEvent struct {
 // Event is the consumer-facing stream event. Channels read these from the
 // stream returned by Pool.Chat().
 type Event struct {
-	Text    string
-	Image   *ImageEvent
-	File    *FileEvent
-	ToolUse *ToolUseEvent
-	Store   ai.Message // if non-nil, Pool appends to session history
-	Err     error
+	Text      string
+	Reasoning string
+	Image     *ImageEvent
+	File      *FileEvent
+	ToolUse   *ToolUseEvent
+	Step      *StepEvent
+	Store     ai.Message // if non-nil, Pool appends to session history
+	Err       error
 }
 
 // MessageContent is the type for user messages passed through the runner pipeline.

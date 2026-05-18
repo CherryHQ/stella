@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useChat } from "@ai-sdk/react";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import type { Message, Session, Skill, Tool } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  createSessionTransport,
+  mergeToolResults,
+  messageToUIMessage,
+  uiMessageToMessage,
+} from "@/lib/chat-transport";
 import { Transcript } from "./Transcript";
 
 interface Props {
@@ -25,7 +32,6 @@ export function SessionDetail({
   onToggleRight,
 }: Props) {
   const { t } = useI18n();
-  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
@@ -36,18 +42,35 @@ export function SessionDetail({
     "session",
   );
   const [userInput, setUserInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
   const [attachments, setAttachments] = useState<
     { name: string; path: string; uploading: boolean }[]
   >([]);
 
-  const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
 
   const enc = session ? encodeURIComponent(session.id) : "";
+
+  const transport = useMemo(
+    () => (session ? createSessionTransport(session.id) : undefined),
+    [session?.id],
+  );
+
+  const {
+    messages: chatMessages,
+    sendMessage: chatSendMessage,
+    setMessages: setChatMessages,
+    status: chatStatus,
+    stop: chatStop,
+  } = useChat({
+    id: session?.id ?? "empty",
+    transport,
+  });
+
+  const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", session?.id],
     enabled: !!session,
@@ -57,11 +80,27 @@ export function SessionDetail({
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
-  const messages = [...(messagesQuery.data?.pages ?? [])].reverse().flat().concat(liveMessages);
+
+  const historicalIDsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!messagesQuery.data) return;
+    const merged = mergeToolResults([...messagesQuery.data.pages].reverse().flat());
+    if (merged.length === 0) return;
+    const uiMessages = merged.map(messageToUIMessage);
+    const newIDs = new Set(uiMessages.map((m) => m.id));
+    historicalIDsRef.current = newIDs;
+    setChatMessages((prev) => {
+      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
+      return [...uiMessages, ...liveSlice];
+    });
+  }, [messagesQuery.data, setChatMessages]);
+
+  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
 
   useEffect(() => {
     if (!session) {
-      setLiveMessages([]);
+      setChatMessages([]);
       setSystemPrompt("");
       setInspectOpen(false);
       setAttachments([]);
@@ -69,7 +108,7 @@ export function SessionDetail({
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
-    setLiveMessages([]);
+    setChatMessages([]);
     setSkills([]);
 
     const load = async () => {
@@ -209,164 +248,17 @@ export function SessionDetail({
       parts.push(`[file: ${p}]`);
     }
     if (userInput.trim()) parts.push(userInput.trim());
-    const content = parts.join("\n");
+    const text = parts.join("\n");
 
     setUserInput("");
     setAttachments([]);
-    setLiveMessages((prev) => [
-      ...prev,
-      { role: "user", content, timestamp: new Date().toISOString() },
-    ]);
-    setIsStreaming(true);
-    abortRef.current = new AbortController();
     setTimeout(() => {
       if (transcriptRef.current)
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }, 0);
 
-    try {
-      const res = await fetch(`/api/sessions/${enc}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-        signal: abortRef.current.signal,
-      });
-      if (!res.ok) throw new Error((await res.text()) || res.statusText);
-
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentEvent = "";
-      let currentData = "";
-
-      const scrollToBottom = () => {
-        if (transcriptRef.current) {
-          const el = transcriptRef.current;
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 200)
-            el.scrollTop = el.scrollHeight;
-        }
-      };
-
-      const dispatch = (event: string, dataStr: string) => {
-        if (!dataStr) return;
-        let data: Record<string, unknown>;
-        try {
-          data = JSON.parse(dataStr) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-
-        if (event === "text") {
-          const text = (data.text as string) || "";
-          setLiveMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant" && last._streaming) {
-              const blocks = [...(last.blocks ?? [])];
-              const lastBlock = blocks[blocks.length - 1];
-              if (lastBlock?.type === "text") {
-                blocks[blocks.length - 1] = { ...lastBlock, text: lastBlock.text + text };
-              } else {
-                blocks.push({ type: "text", text });
-              }
-              return [...prev.slice(0, -1), { ...last, blocks }];
-            }
-            return [
-              ...prev,
-              {
-                role: "assistant",
-                blocks: [{ type: "text", text }],
-                timestamp: new Date().toISOString(),
-                _streaming: true,
-              },
-            ];
-          });
-          scrollToBottom();
-        } else if (event === "tool_use") {
-          if ((data.type as string) === "tool_call") {
-            setLiveMessages((prev) => {
-              const last = prev[prev.length - 1];
-              const newBlock = {
-                type: "tool_call" as const,
-                id: data.id as string,
-                name: data.name as string,
-                arguments: data.arguments as Record<string, unknown>,
-                status: "running" as const,
-              };
-              if (last?.role === "assistant" && last._streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, blocks: [...(last.blocks ?? []), newBlock] },
-                ];
-              }
-              return [
-                ...prev,
-                {
-                  role: "assistant",
-                  blocks: [newBlock],
-                  timestamp: new Date().toISOString(),
-                  _streaming: true,
-                },
-              ];
-            });
-            scrollToBottom();
-          } else if ((data.type as string) === "tool_result") {
-            setLiveMessages((prev) =>
-              prev.map((msg) => {
-                if (msg.role !== "assistant") return msg;
-                const blocks = (msg.blocks ?? []).map((block) => {
-                  if (block.type === "tool_call" && block.id === (data.tool_call_id as string)) {
-                    return {
-                      ...block,
-                      result: {
-                        tool_call_id: data.tool_call_id as string,
-                        content: data.content as string,
-                        is_error: data.is_error as boolean,
-                      },
-                      status: "done" as const,
-                    };
-                  }
-                  return block;
-                });
-                return { ...msg, blocks };
-              }),
-            );
-          }
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) currentEvent = line.slice(7).trim();
-          else if (line.startsWith("data: ")) currentData = line.slice(6).trim();
-          else if (line === "") {
-            if (currentEvent) dispatch(currentEvent, currentData);
-            currentEvent = "";
-            currentData = "";
-          }
-        }
-      }
-      setLiveMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?._streaming) return [...prev.slice(0, -1), { ...last, _streaming: undefined }];
-        return prev;
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") console.error(e);
-      setLiveMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?._streaming) return [...prev.slice(0, -1), { ...last, _streaming: undefined }];
-        return prev;
-      });
-    } finally {
-      setIsStreaming(false);
-      abortRef.current = null;
-    }
-  }, [userInput, isStreaming, session, enc, attachments]);
+    void chatSendMessage({ text });
+  }, [userInput, isStreaming, session, attachments, chatSendMessage]);
 
   const copyID = useCallback(async () => {
     if (!session?.id) return;
@@ -655,7 +547,7 @@ export function SessionDetail({
                       <Button
                         size="xs"
                         variant="ghost"
-                        onClick={() => abortRef.current?.abort()}
+                        onClick={() => chatStop()}
                         className="text-destructive gap-1 rounded-lg"
                       >
                         Stop

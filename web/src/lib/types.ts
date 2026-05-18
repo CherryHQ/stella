@@ -13,7 +13,7 @@ export interface Session {
 export interface ToolBlock {
   type: "tool_call";
   id: string;
-  name: string;
+  name?: string;
   arguments: Record<string, unknown>;
   status?: "running" | "done";
   result?: ToolResult;
@@ -46,7 +46,6 @@ export interface Message {
   timestamp: string;
   token_count?: number;
   model?: string;
-  _streaming?: boolean;
 }
 
 export interface Agent {

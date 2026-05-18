@@ -742,6 +742,26 @@ export type ComponentsMeResponse = {
   is_admin: boolean;
 };
 
+export type MessagePart = {
+  type: "text" | "image" | "file";
+  /**
+   * Text content (when type is "text")
+   */
+  text?: string;
+  /**
+   * Base64-encoded image data (when type is "image")
+   */
+  image?: string;
+  /**
+   * File URL (when type is "file")
+   */
+  url?: string;
+  /**
+   * MIME type of the image or file
+   */
+  mimeType?: string;
+};
+
 export type ComponentsOAuthConnectedResponse = {
   connected: boolean;
   username?: string;
@@ -902,9 +922,9 @@ export type SaveDigestRequest = {
 
 export type ComponentsSendMessageRequest = {
   /**
-   * Message content (required)
+   * Message content parts (text, image, file)
    */
-  content: string;
+  parts: Array<MessagePart>;
 };
 
 export type ComponentsSession = {
