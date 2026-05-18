@@ -1,4 +1,4 @@
-package agent
+package delegate
 
 import (
 	"context"
@@ -19,17 +19,17 @@ import (
 )
 
 const (
-	agentToolName = "agent"
+	delegateToolName = "delegate"
 
 	// defaultTimeout is the wall-clock deadline applied to every subagent run.
-	// Overridable globally via AgentConfig.DefaultTimeout (runner.subagent_timeout
+	// Overridable globally via DelegateConfig.DefaultTimeout (runner.subagent_timeout
 	// in admin settings) or per-preset via the timeout front-matter field.
 	defaultTimeout        = 15 * time.Minute
 	defaultMaxConcurrency = 10
 )
 
-// AgentConfig holds the dependencies needed to spawn subagent loops.
-type AgentConfig struct {
+// DelegateConfig holds the dependencies needed to spawn subagent loops.
+type DelegateConfig struct {
 	Stream        providers.StreamFunc
 	Registry      *tools.Registry
 	Model         ai.Model
@@ -44,37 +44,37 @@ type AgentConfig struct {
 	DefaultTimeout time.Duration // default subagent wall-clock timeout (0 = 15m)
 }
 
-func (c AgentConfig) maxConcurrency() int {
+func (c DelegateConfig) maxConcurrency() int {
 	if c.MaxConcurrency > 0 {
 		return c.MaxConcurrency
 	}
 	return defaultMaxConcurrency
 }
 
-func (c AgentConfig) subagentTimeout() time.Duration {
+func (c DelegateConfig) subagentTimeout() time.Duration {
 	if c.DefaultTimeout > 0 {
 		return c.DefaultTimeout
 	}
 	return defaultTimeout
 }
 
-// AgentTool spawns child agent loops for bounded subtasks.
-type AgentTool struct {
-	cfg AgentConfig
+// DelegateTool spawns child agent loops for bounded subtasks.
+type DelegateTool struct {
+	cfg DelegateConfig
 	sem chan struct{} // concurrency semaphore
 }
 
-// NewAgentTool creates an agent tool with the given configuration.
-func NewAgentTool(cfg AgentConfig) *AgentTool {
-	return &AgentTool{
+// NewDelegateTool creates an agent tool with the given configuration.
+func NewDelegateTool(cfg DelegateConfig) *DelegateTool {
+	return &DelegateTool{
 		cfg: cfg,
 		sem: make(chan struct{}, cfg.maxConcurrency()),
 	}
 }
 
-// AgentDefinition returns the tool definition without requiring a live config.
+// DelegateDefinition returns the tool definition without requiring a live config.
 // presets is optional — when provided, the preset enum is included in the schema.
-func AgentDefinition(presets *PresetRegistry) tools.Definition {
+func DelegateDefinition(presets *PresetRegistry) tools.Definition {
 	var presetNames []string
 	var presetDesc string
 	if presets != nil && len(presets.Names()) > 0 {
@@ -84,7 +84,7 @@ func AgentDefinition(presets *PresetRegistry) tools.Definition {
 	}
 
 	return tools.Definition{
-		Name:        agentToolName,
+		Name:        delegateToolName,
 		Description: "Spawn one or more subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -112,12 +112,12 @@ func AgentDefinition(presets *PresetRegistry) tools.Definition {
 	}
 }
 
-func (t *AgentTool) Definition() tools.Definition {
-	return AgentDefinition(t.cfg.Presets)
+func (t *DelegateTool) Definition() tools.Definition {
+	return DelegateDefinition(t.cfg.Presets)
 }
 
-func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	tasks, err := parseAgentTasks(args)
+func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	tasks, err := parseDelegateTasks(args)
 	if err != nil {
 		return "", fmt.Errorf("agent: %w", err)
 	}
@@ -131,7 +131,7 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 
 	for _, task := range tasks {
 		wg.Add(1)
-		go func(tc agentTaskConfig) {
+		go func(tc delegateTaskConfig) {
 			defer wg.Done()
 
 			// Acquire semaphore slot.
@@ -161,7 +161,7 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 	return string(out), nil
 }
 
-type agentTaskConfig struct {
+type delegateTaskConfig struct {
 	ID     string
 	Task   string
 	Preset string
@@ -175,7 +175,7 @@ type agentTaskConfig struct {
 
 // applyPreset merges preset defaults into the task config.
 // Explicit task fields take precedence over preset values.
-func (tc *agentTaskConfig) applyPreset(p AgentPreset) {
+func (tc *delegateTaskConfig) applyPreset(p DelegatePreset) {
 	if tc.Model == "" && p.Model != "" {
 		tc.Model = p.Model
 	}
@@ -197,13 +197,13 @@ type taskResult struct {
 	Complete bool   `json:"complete"` // true if agent stopped naturally (not max_turns/timeout)
 }
 
-func (t *AgentTool) emit(ev agent.LoopEvent) {
+func (t *DelegateTool) emit(ev agent.LoopEvent) {
 	if t.cfg.Emit != nil {
 		t.cfg.Emit(ev)
 	}
 }
 
-func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (result taskResult) {
+func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskConfig) (result taskResult) {
 	log := slog.With("component", "agent", "task_id", tc.ID)
 
 	defer func() {
@@ -289,14 +289,14 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	log.Info("subagent started", "preset", tc.Preset, "model", model.Name, "timeout", timeout)
 	start := time.Now()
 
-	t.emit(SubAgentStarted{TaskID: tc.ID, Preset: tc.Preset})
+	t.emit(SubDelegateStarted{TaskID: tc.ID, Preset: tc.Preset})
 
 	history, err := runner.Run(ctx, messages, nil)
 	duration := time.Since(start)
 
 	if err != nil {
 		log.Error("subagent failed", "duration", duration, "error", err)
-		t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
+		t.emit(SubDelegateFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
 		return taskResult{Error: err.Error()}
 	}
 
@@ -305,7 +305,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	output, stopReason := extractLastAssistant(history)
 	complete := stopReason == ai.StopReasonStop || stopReason == ai.StopReasonLength
 
-	t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration})
+	t.emit(SubDelegateFinished{TaskID: tc.ID, Duration: duration})
 
 	return taskResult{Output: output, Complete: complete}
 }
@@ -314,12 +314,12 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 // It always excludes "agent" to prevent recursion.
 // If hasWhitelist is true, only the listed tools are included (empty list = no tools).
 // If hasWhitelist is false, all parent tools (minus agent) are available.
-func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (agent.ToolSet, []tools.Definition, error) {
+func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (agent.ToolSet, []tools.Definition, error) {
 	if hasWhitelist {
 		// Filter out "agent" from whitelist.
 		filtered := make([]string, 0, len(whitelist))
 		for _, name := range whitelist {
-			if name != agentToolName {
+			if name != delegateToolName {
 				filtered = append(filtered, name)
 			}
 		}
@@ -330,7 +330,7 @@ func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (age
 	allDefs := t.cfg.Registry.Definitions()
 	names := make([]string, 0, len(allDefs))
 	for _, def := range allDefs {
-		if def.Name != agentToolName {
+		if def.Name != delegateToolName {
 			names = append(names, def.Name)
 		}
 	}
@@ -354,7 +354,7 @@ func extractLastAssistant(history []ai.Message) (string, ai.StopReason) {
 	return "", ""
 }
 
-func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
+func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 	tasksRaw, ok := args["tasks"]
 	if !ok {
 		return nil, fmt.Errorf("tasks is required")
@@ -364,7 +364,7 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 		return nil, fmt.Errorf("tasks must be an array")
 	}
 
-	tasks := make([]agentTaskConfig, 0, len(tasksSlice))
+	tasks := make([]delegateTaskConfig, 0, len(tasksSlice))
 	seen := make(map[string]bool, len(tasksSlice))
 
 	for i, raw := range tasksSlice {
@@ -373,7 +373,7 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 			return nil, fmt.Errorf("tasks[%d]: must be an object", i)
 		}
 
-		tc := agentTaskConfig{}
+		tc := delegateTaskConfig{}
 
 		id, _ := obj["id"].(string)
 		if id == "" {

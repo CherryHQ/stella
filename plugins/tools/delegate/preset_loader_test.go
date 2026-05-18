@@ -1,4 +1,4 @@
-package agent
+package delegate
 
 import (
 	"context"
@@ -28,20 +28,20 @@ func TestParseAgentFrontmatter(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
-		wantFM   agentFrontmatter
+		wantFM   delegateFrontmatter
 		wantBody string
 		wantErr  bool
 	}{
 		{
 			name:     "basic frontmatter",
 			content:  "---\nname: test-agent\ndescription: A test agent\n---\nSystem prompt body.",
-			wantFM:   agentFrontmatter{Name: "test-agent", Description: "A test agent"},
+			wantFM:   delegateFrontmatter{Name: "test-agent", Description: "A test agent"},
 			wantBody: "\nSystem prompt body.",
 		},
 		{
 			name:    "with tools and model",
 			content: "---\nname: coder\ndescription: Code helper\nmodel: claude-haiku\ntools:\n  - read\n  - edit\n---\nYou are a coder.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "coder",
 				Description: "Code helper",
 				Model:       "claude-haiku",
@@ -53,7 +53,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "empty tools explicitly set",
 			content: "---\nname: reader\ndescription: Read only\ntools: []\n---\nBody.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "reader",
 				Description: "Read only",
 				HasTools:    true,
@@ -73,7 +73,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "with timeout",
 			content: "---\nname: slow\ndescription: Slow agent\ntimeout: 5m\n---\nSlow body.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "slow",
 				Description: "Slow agent",
 				Timeout:     "5m",
@@ -83,7 +83,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 		{
 			name:    "crlf line endings",
 			content: "---\r\nname: win\r\ndescription: Windows agent\r\n---\r\nWindows body.",
-			wantFM: agentFrontmatter{
+			wantFM: delegateFrontmatter{
 				Name:        "win",
 				Description: "Windows agent",
 			},
@@ -94,7 +94,7 @@ func TestParseAgentFrontmatter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			fm, body, err := parseAgentFrontmatter(tt.content)
+			fm, body, err := parseDelegateFrontmatter(tt.content)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -254,7 +254,7 @@ func TestLoadPresetsFromDirNonexistent(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsDeduplication(t *testing.T) {
+func TestLoadDelegatePresetsDeduplication(t *testing.T) {
 	t.Parallel()
 
 	// Create two directories with overlapping preset names.
@@ -274,7 +274,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir2, "agents", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadAgentPresets(context.Background(), "", dir2, "", dir1)
+	presets := loadDelegatePresets(context.Background(), "", dir2, "", dir1)
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -290,7 +290,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 func TestPresetRegistry(t *testing.T) {
 	t.Parallel()
 
-	presets := []AgentPreset{
+	presets := []DelegatePreset{
 		{Name: "alpha", Description: "Alpha"},
 		{Name: "beta", Description: "Beta"},
 	}
@@ -313,7 +313,7 @@ func TestPresetRegistry(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
+func TestLoadDelegatePresetsAllFourTiers(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
@@ -342,12 +342,12 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadAgentPresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
+	presets := loadDelegatePresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
 	if len(presets) != 5 {
 		t.Fatalf("expected 5 presets, got %d", len(presets))
 	}
 
-	byName := map[string]AgentPreset{}
+	byName := map[string]DelegatePreset{}
 	for _, p := range presets {
 		byName[p.Name] = p
 	}
@@ -371,7 +371,7 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresets_publicWrapper(t *testing.T) {
+func TestLoadDelegatePresets_publicWrapper(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	agentsDir := filepath.Join(dir, "agents")
@@ -379,7 +379,7 @@ func TestLoadAgentPresets_publicWrapper(t *testing.T) {
 	writeTestFile(t, filepath.Join(agentsDir, "helper.md"),
 		[]byte("---\nname: helper\ndescription: A helper agent\n---\nHelp the user."), 0o644)
 
-	presets := LoadAgentPresets(LoadAgentPresetsConfig{StellaHome: dir})
+	presets := LoadDelegatePresets(LoadDelegatePresetsConfig{StellaHome: dir})
 	if len(presets) != 1 {
 		t.Fatalf("expected 1 preset, got %d", len(presets))
 	}
@@ -388,7 +388,7 @@ func TestLoadAgentPresets_publicWrapper(t *testing.T) {
 	}
 }
 
-func TestLoadAgentPresetsPathDedup(t *testing.T) {
+func TestLoadDelegatePresetsPathDedup(t *testing.T) {
 	t.Parallel()
 
 	// If cwd and workspace resolve to the same directory, presets should not be loaded twice.
@@ -407,7 +407,7 @@ func TestLoadAgentPresetsPathDedup(t *testing.T) {
 		[]byte("---\nname: test\ndescription: Test agent\n---\nBody."), 0o644)
 
 	// Pass the same dir as both stellaHome and agentRoot; both scan agents/ so dedup fires.
-	presets := loadAgentPresets(context.Background(), dir, dir, "", "")
+	presets := loadDelegatePresets(context.Background(), dir, dir, "", "")
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
 	}
