@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory" // NOTE: pkg/ importing internal/ — acceptable since this is a monorepo with no external consumers
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
