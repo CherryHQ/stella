@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	mobyclient "github.com/moby/moby/client"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
@@ -265,4 +268,43 @@ func shellQuoteForDoubleQuotedPath(s string) string {
 	s = strings.ReplaceAll(s, "$", "\\$")
 	s = strings.ReplaceAll(s, "`", "\\`")
 	return s
+}
+
+// resolveUserToolBinaries loads manifest plugins and returns user-configured
+// tool binaries that differ from builtins. Called by NewFactory when
+// StellaHome is set.
+func resolveUserToolBinaries(stellaHome string) ([]ToolBinary, error) {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return nil, err
+	}
+	user, err := manifestplugins.LoadUser(filepath.Join(stellaHome, "plugins.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	merged := manifestplugins.Merge(builtin, user)
+
+	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
+	for _, plugin := range builtin.Plugins {
+		builtinByID[plugin.ID] = plugin
+	}
+
+	var out []ToolBinary
+	for _, plugin := range merged.Plugins {
+		if !plugin.Enabled || len(plugin.Binaries) == 0 {
+			continue
+		}
+		if builtinPlugin, ok := builtinByID[plugin.ID]; ok && reflect.DeepEqual(plugin.Binaries, builtinPlugin.Binaries) {
+			continue
+		}
+		for _, binary := range plugin.Binaries {
+			out = append(out, ToolBinary{
+				Name:    binary.Name,
+				Tool:    binary.Tool,
+				Version: binary.Version,
+				Options: binary.Options,
+			})
+		}
+	}
+	return out, nil
 }

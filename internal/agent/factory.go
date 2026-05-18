@@ -144,7 +144,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				Sandbox: sandbox.Config{
 					SandboxConfig:    cfg.Snap.Sandbox,
 					SandboxBackendFn: cfg.SandboxBackendFn,
-					Paths: sandbox.PathConfig{
+					Paths: sandbox.Paths{
 						StellaHome: config.StellaHome(),
 						AgentRoot:  cfg.Snap.Workspace,
 						UserRoot:   userRoot,

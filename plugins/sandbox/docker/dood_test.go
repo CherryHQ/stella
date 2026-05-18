@@ -1,10 +1,8 @@
-package sandbox
+package docker
 
 import (
 	"strings"
 	"testing"
-
-	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 )
 
 func withDooDEnv(t *testing.T, inContainer bool, stellaHomeHost string) {
@@ -21,7 +19,7 @@ func withDooDEnv(t *testing.T, inContainer bool, stellaHomeHost string) {
 
 func TestApplyDooDDefaults_ExplicitPrefixWins(t *testing.T) {
 	withDooDEnv(t, true, "/host/stella")
-	in := dockerplugin.Config{
+	in := Config{
 		ContainerPathPrefix: "/explicit/container",
 		HostPathPrefix:      "/explicit/host",
 	}
@@ -36,7 +34,7 @@ func TestApplyDooDDefaults_ExplicitPrefixWins(t *testing.T) {
 
 func TestApplyDooDDefaults_InContainerWithEnv(t *testing.T) {
 	withDooDEnv(t, true, "/Users/v/.stella-dev")
-	out, err := applyDooDDefaults(dockerplugin.Config{}, "/workspace")
+	out, err := applyDooDDefaults(Config{}, "/workspace")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +48,7 @@ func TestApplyDooDDefaults_InContainerWithEnv(t *testing.T) {
 
 func TestApplyDooDDefaults_InContainerWithoutEnvErrors(t *testing.T) {
 	withDooDEnv(t, true, "")
-	_, err := applyDooDDefaults(dockerplugin.Config{}, "/workspace")
+	_, err := applyDooDDefaults(Config{}, "/workspace")
 	if err == nil {
 		t.Fatal("expected error when in-container and STELLA_HOME_HOST unset")
 	}
@@ -64,7 +62,7 @@ func TestApplyDooDDefaults_InContainerWithoutEnvErrors(t *testing.T) {
 
 func TestApplyDooDDefaults_NotInContainerEnvSetIgnored(t *testing.T) {
 	withDooDEnv(t, false, "/some/host/path")
-	out, err := applyDooDDefaults(dockerplugin.Config{}, "/workspace")
+	out, err := applyDooDDefaults(Config{}, "/workspace")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,7 +73,7 @@ func TestApplyDooDDefaults_NotInContainerEnvSetIgnored(t *testing.T) {
 
 func TestApplyDooDDefaults_NotInContainerNoEnv(t *testing.T) {
 	withDooDEnv(t, false, "")
-	out, err := applyDooDDefaults(dockerplugin.Config{}, "/workspace")
+	out, err := applyDooDDefaults(Config{}, "/workspace")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

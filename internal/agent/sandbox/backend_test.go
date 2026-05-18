@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -58,7 +59,7 @@ func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID string) (map[str
 // TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.
 func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := ResolveSession(context.Background(), Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			AgentRoot: "/workspace/agent",
 			// UserRoot intentionally omitted
 		},
@@ -70,7 +71,7 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/agent/users/1",
@@ -96,7 +97,7 @@ func TestCopyLocalHostEnvAllowlist(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://proxy.example:8080")
 
 	env := map[string]string{}
-	copyLocalHostEnv(env)
+	pkgsandbox.HostEnvCopy(env)
 
 	if _, ok := env["STELLA_TEST_SECRET"]; ok {
 		t.Fatal("local sandbox env copied non-allowlisted host variable")
@@ -120,40 +121,27 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 		"/nix/store/abc/bin",
 		"/run/current-system/sw/bin",
 	} {
-		if !localSandboxPathAllowed(entry, stellaBin) {
+		if !pkgsandbox.HostEnvPathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be allowed", entry)
 		}
 	}
 	for _, entry := range []string{"", "/home/me/bin", "/tmp/bin", "/binary"} {
-		if localSandboxPathAllowed(entry, stellaBin) {
+		if pkgsandbox.HostEnvPathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be rejected", entry)
 		}
 	}
 }
 
-// TestRunnerSessionLifecycle tests the Session lifecycle using a nil session
-// (alwaysAlive=true path) to avoid requiring a live sandbox backend.
-func TestRunnerSessionLifecycle(t *testing.T) {
-	rs := &Session{
-		alwaysAlive: true,
+// TestSyncSessionNoop verifies that SyncSession is a no-op for nil and
+// for sessions that don't implement Sync.
+func TestSyncSessionNoop(t *testing.T) {
+	if err := SyncSession(nil); err != nil {
+		t.Errorf("SyncSession(nil): %v", err)
 	}
 
-	// Test Alive
-	if !rs.Alive() {
-		t.Error("session should be alive")
-	}
-
-	// Test Done channel — nil session returns an already-closed channel.
-	select {
-	case <-rs.Done():
-		// Expected: nil session Done() is immediately closed.
-	default:
-		t.Error("nil-session Done() should be closed")
-	}
-
-	// Test Close (no-op for nil inner session)
-	if err := rs.Close(); err != nil {
-		t.Errorf("Close: %v", err)
+	nop := pkgsandbox.NopSession()
+	if err := SyncSession(nop); err != nil {
+		t.Errorf("SyncSession(nop): %v", err)
 	}
 }
 
@@ -168,7 +156,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	_, err := ResolveSession(context.Background(), Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			AgentRoot: workspace,
 			UserRoot:  userRoot,
 		},
@@ -183,36 +171,12 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	}
 }
 
-// TestRunnerSessionNilHandling tests nil session safety.
-func TestRunnerSessionNilHandling(t *testing.T) {
-	var rs *Session
-
-	// Should handle nil gracefully
-	if rs.Alive() {
-		t.Error("nil session should not be alive")
-	}
-
-	// Done should return closed channel for nil
-	done := rs.Done()
-	select {
-	case <-done:
-		// Expected
-	default:
-		t.Error("nil session Done() should be closed")
-	}
-
-	// Close should not panic
-	if err := rs.Close(); err != nil {
-		t.Errorf("Close on nil: %v", err)
-	}
-}
-
 // TestBuildSandboxEnv_vaultSecretsInjected verifies that vault secrets appear
 // in the sandbox env and that runner-set vars (STELLA_HOME) take precedence over
 // any same-named vault entry.
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -251,7 +215,7 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 // correctly (returns runner env vars) when no vault loader is configured.
 func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -278,7 +242,7 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 // present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -355,7 +319,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	}
 
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -422,7 +386,7 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	}
 
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",

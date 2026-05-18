@@ -4,15 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 )
-
-func fakeRunnerSession(_ string, sess pkgsandbox.Session) *sandbox.Session {
-	return sandbox.NewSession(sess)
-}
 
 type fakeSession struct {
 	alive  bool
@@ -47,7 +42,7 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 }
 
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
-	session := fakeRunnerSession("local", &fakeSession{alive: true})
+	session := &fakeSession{alive: true}
 	tools := buildSandboxCoreTools(session, plugintools.BuildContext{})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
@@ -58,13 +53,5 @@ func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 		if gotNames[i] != want[i] {
 			t.Fatalf("tool[%d] = %q, want %q", i, gotNames[i], want[i])
 		}
-	}
-}
-
-func TestBuildSandboxCoreTools_NilSessionReturnsNil(t *testing.T) {
-	session := fakeRunnerSession("docker", nil)
-	got := buildSandboxCoreTools(session, plugintools.BuildContext{})
-	if got != nil {
-		t.Fatalf("expected nil core tools without session, got %v", got)
 	}
 }

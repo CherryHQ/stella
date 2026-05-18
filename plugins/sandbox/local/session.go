@@ -27,11 +27,26 @@ import (
 // access.
 var sandboxEnvDenyList = []string{"STELLA_VAULT_KEY"}
 
+// Config configures the local sandbox factory.
+type Config struct {
+	// StellaHome is the host path to the stella home directory, used for
+	// building a sandboxed PATH that includes $STELLA_HOME/bin.
+	StellaHome string
+}
+
 // Factory creates local sandbox sessions that run directly on the host OS.
-type Factory struct{}
+type Factory struct {
+	cfg Config
+}
 
 // NewFactory returns a Factory for the local backend.
-func NewFactory() sandboxpkg.Factory { return &Factory{} }
+func NewFactory(cfg ...Config) sandboxpkg.Factory {
+	var c Config
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
+	return &Factory{cfg: c}
+}
 
 // Name returns the backend name.
 func (f *Factory) Name() string { return "local" }
@@ -49,11 +64,17 @@ type tmpMount struct {
 }
 
 // CreateSession creates a new localSession.
+// If a StellaHome was provided via Config, the factory adjusts the policy env
+// with a sandboxed PATH, HOME, and an allowlist of host variables so callers
+// don't need to know about host-execution specifics.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
 	if err := checkSandboxRequirements(); err != nil {
 		return nil, err
 	}
+
+	policy = f.adjustPolicy(policy)
+
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	tmpMounts, ownsTmp, err := createSessionTmpMounts()
 	if err != nil {
@@ -70,6 +91,25 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
+}
+
+// adjustPolicy applies local-backend-specific environment adjustments.
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+	if f.cfg.StellaHome == "" {
+		return policy
+	}
+	env := maps.Clone(policy.Env)
+	if env == nil {
+		env = make(map[string]string)
+	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome)
+	if policy.Filesystem.WorkingDir != "" {
+		env["HOME"] = sandboxpkg.HostEnvBuildHome(policy.Filesystem.WorkingDir)
+	}
+	sandboxpkg.HostEnvCopy(env)
+	policy.Env = env
+	policy.InheritEnv = false
+	return policy
 }
 
 // ─────────────────────────── localSession ─────────────────────────────

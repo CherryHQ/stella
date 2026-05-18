@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 	plugintools "github.com/CherryHQ/stella/plugins/tools"
 	agenttool "github.com/CherryHQ/stella/plugins/tools/agent"
@@ -58,7 +59,7 @@ type runner struct {
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
-	session       *sandbox.Session // runner-owned sandbox session lifecycle
+	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -93,7 +94,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 			ProjectRoot: paths.ProjectRoot,
 			UserRoot:    paths.UserRoot,
 			Sections:    cfg.Sections,
-			Host:        session.Session(),
+			Host:        session,
 		})
 	}
 
@@ -185,7 +186,7 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.Session) (*tools.Registry, error) {
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session) (*tools.Registry, error) {
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
 
@@ -203,7 +204,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session *sandbox.S
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,
 		},
-		Runtime: session.Session(),
+		Runtime: session,
 	}
 
 	coreTools := buildSandboxCoreTools(session, bc)
@@ -391,7 +392,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		}
 
 		if r.session != nil {
-			if err := r.session.Sync(); err != nil {
+			if err := sandbox.SyncSession(r.session); err != nil {
 				slog.Warn("runner: sync session after chat", "error", err)
 			}
 		}

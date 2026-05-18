@@ -7,41 +7,36 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-// Paths is the minimal path set sandbox policy creation depends on.
-// Sandbox execution is defined entirely by the user-scoped writable root and an
-// internal working directory derived from that root.
+// Paths is the path set sandbox policy creation and tool registration depend on.
 type Paths struct {
 	StellaHome  string
-	UserRoot    string
-	WorkDir     string
 	AgentRoot   string
+	UserRoot    string
 	ProjectRoot string
+	// WorkDir is the initial working directory inside the sandbox.
+	// Set by ResolvePaths to the absolute form of UserRoot.
+	WorkDir string
 }
 
-// ResolvePaths converts a Config into the minimal path set the sandbox needs.
+// ResolvePaths validates cfg.Paths and fills derived fields (StellaHome default, WorkDir).
 func ResolvePaths(cfg Config) (Paths, error) {
-	stellaHome := cfg.Paths.StellaHome
-	if stellaHome == "" {
-		stellaHome = config.StellaHome()
+	p := cfg.Paths
+	if p.StellaHome == "" {
+		p.StellaHome = config.StellaHome()
 	}
-	if cfg.Paths.AgentRoot == "" {
+	if p.AgentRoot == "" {
 		return Paths{}, fmt.Errorf("agent_root is required")
 	}
-	if cfg.Paths.UserRoot == "" {
+	if p.UserRoot == "" {
 		return Paths{}, fmt.Errorf("user_root is required")
 	}
-
-	userRoot, err := filepath.Abs(cfg.Paths.UserRoot)
+	userRoot, err := filepath.Abs(p.UserRoot)
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
-	return Paths{
-		StellaHome:  stellaHome,
-		UserRoot:    userRoot,
-		WorkDir:     userRoot,
-		AgentRoot:   cfg.Paths.AgentRoot,
-		ProjectRoot: cfg.Paths.ProjectRoot,
-	}, nil
+	p.UserRoot = userRoot
+	p.WorkDir = userRoot
+	return p, nil
 }
 
 // ProcessEnv builds the baseline process environment injected into
