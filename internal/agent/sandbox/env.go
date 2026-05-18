@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -166,88 +164,4 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) er
 		}
 	}
 	return nil
-}
-
-func prependPathEntry(entry, existing string) string {
-	if entry == "" {
-		return existing
-	}
-	if existing == "" {
-		return entry
-	}
-	return entry + string(os.PathListSeparator) + existing
-}
-
-func localSandboxHome(workDir string) string {
-	if runtime.GOOS == "linux" {
-		return "/workspace"
-	}
-	return workDir
-}
-
-func localSandboxPath(stellaHome string) string {
-	stellaBin := filepath.Join(stellaHome, "bin")
-	if runtime.GOOS != "linux" {
-		return prependPathEntry(stellaBin, os.Getenv("PATH"))
-	}
-
-	entries := []string{stellaBin}
-	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
-		if localSandboxPathAllowed(entry, stellaBin) {
-			entries = append(entries, entry)
-		}
-	}
-	entries = append(entries,
-		"/run/current-system/sw/bin",
-		"/usr/local/sbin",
-		"/usr/local/bin",
-		"/usr/sbin",
-		"/usr/bin",
-		"/sbin",
-		"/bin",
-	)
-	return strings.Join(dedupePathEntries(entries), string(os.PathListSeparator))
-}
-
-func localSandboxPathAllowed(entry, stellaBin string) bool {
-	if entry == "" {
-		return false
-	}
-	if stellaBin != "" && entry == stellaBin {
-		return true
-	}
-	for _, root := range []string{"/usr", "/bin", "/sbin", "/nix", "/run/current-system/sw"} {
-		if entry == root || strings.HasPrefix(entry, root+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func dedupePathEntries(entries []string) []string {
-	seen := make(map[string]struct{}, len(entries))
-	out := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry == "" {
-			continue
-		}
-		if _, ok := seen[entry]; ok {
-			continue
-		}
-		seen[entry] = struct{}{}
-		out = append(out, entry)
-	}
-	return out
-}
-
-func copyLocalHostEnv(env map[string]string) {
-	for _, key := range []string{
-		"TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
-		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-		"http_proxy", "https_proxy", "all_proxy", "no_proxy",
-	} {
-		if value := os.Getenv(key); value != "" {
-			env[key] = value
-		}
-	}
 }

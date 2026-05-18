@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox/hostenv"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -96,7 +97,7 @@ func TestCopyLocalHostEnvAllowlist(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://proxy.example:8080")
 
 	env := map[string]string{}
-	copyLocalHostEnv(env)
+	hostenv.CopyHostEnv(env)
 
 	if _, ok := env["STELLA_TEST_SECRET"]; ok {
 		t.Fatal("local sandbox env copied non-allowlisted host variable")
@@ -120,12 +121,12 @@ func TestLocalSandboxPathAllowed(t *testing.T) {
 		"/nix/store/abc/bin",
 		"/run/current-system/sw/bin",
 	} {
-		if !localSandboxPathAllowed(entry, stellaBin) {
+		if !hostenv.PathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be allowed", entry)
 		}
 	}
 	for _, entry := range []string{"", "/home/me/bin", "/tmp/bin", "/binary"} {
-		if localSandboxPathAllowed(entry, stellaBin) {
+		if hostenv.PathAllowed(entry, stellaBin) {
 			t.Fatalf("expected %q to be rejected", entry)
 		}
 	}

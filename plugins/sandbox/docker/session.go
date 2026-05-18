@@ -40,7 +40,8 @@ func logSessionClosed(sessionID, backend, reason string) {
 
 // dockerFactory creates docker-backed sandbox sessions.
 type dockerFactory struct {
-	cfg Config
+	cfg                Config
+	cleanupOrphansOnce sync.Once
 }
 
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
@@ -76,6 +77,26 @@ func (f *dockerFactory) Supported(policy sandboxpkg.Policy) error {
 	return nil
 }
 
+// EnsureReady performs preflight checks (daemon reachability, image availability)
+// and orphan cleanup. Safe to call multiple times; orphan cleanup runs at most once.
+func (f *dockerFactory) EnsureReady(ctx context.Context) error {
+	if err := Preflight(ctx, PreflightConfig{StellaHome: f.cfg.StellaHome, Docker: f.cfg}); err != nil {
+		return err
+	}
+	f.cleanupOrphansOnce.Do(func() {
+		daemonHome := f.cfg.TranslateToDaemonPath(f.cfg.StellaHome)
+		if daemonHome == "" {
+			return
+		}
+		client, err := getSharedClient()
+		if err != nil {
+			return
+		}
+		dockerclient.CleanupOrphanedContainers(ctx, client, daemonHome)
+	})
+	return nil
+}
+
 // CreateSession starts a new container and returns a dockerSession.
 func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	if err := f.Supported(policy); err != nil {
@@ -84,6 +105,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 
 	if f.cfg.Image == "" {
 		return nil, fmt.Errorf("docker session: Image is required")
+	}
+
+	if f.cfg.StellaHome != "" {
+		if err := f.EnsureReady(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	sessionID := nextSessionID()

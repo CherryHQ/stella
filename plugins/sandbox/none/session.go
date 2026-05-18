@@ -15,13 +15,29 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/pkg/sandbox/hostenv"
 )
 
+// Config configures the none factory.
+type Config struct {
+	// StellaHome is the host path to the stella home directory, used for
+	// building a PATH that includes $STELLA_HOME/bin.
+	StellaHome string
+}
+
 // Factory creates sessions that execute directly on the host with no sandboxing.
-type Factory struct{}
+type Factory struct {
+	cfg Config
+}
 
 // NewFactory returns a Factory for the none backend.
-func NewFactory() sandboxpkg.Factory { return &Factory{} }
+func NewFactory(cfg ...Config) sandboxpkg.Factory {
+	var c Config
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
+	return &Factory{cfg: c}
+}
 
 // Name returns the backend name.
 func (f *Factory) Name() string { return "none" }
@@ -33,7 +49,11 @@ func (f *Factory) Available() bool { return platformAvailable() }
 func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 
 // CreateSession creates a new noneSession.
+// If a StellaHome was provided via Config, the factory adjusts the policy env
+// with a sandboxed PATH. Network mode is always overridden to AllowAll since
+// the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+	policy = f.adjustPolicy(policy)
 	id := sandboxpkg.NewSessionID()
 	s := &noneSession{
 		id:     id,
@@ -42,6 +62,21 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 	sandboxpkg.LogSessionCreated(id, "none", policy)
 	return s, nil
+}
+
+// adjustPolicy applies none-backend-specific policy adjustments.
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+	policy.Network.Mode = sandboxpkg.NetworkAllowAll
+	if f.cfg.StellaHome == "" {
+		return policy
+	}
+	env := maps.Clone(policy.Env)
+	if env == nil {
+		env = make(map[string]string)
+	}
+	env["PATH"] = hostenv.BuildPath(f.cfg.StellaHome)
+	policy.Env = env
+	return policy
 }
 
 // noneSession implements sandboxpkg.Session with zero isolation.

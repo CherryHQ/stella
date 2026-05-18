@@ -11,6 +11,11 @@ type Config struct {
 	// Image is the container image to use. Required.
 	Image string
 
+	// StellaHome is the host-view stella home directory. Used for orphan
+	// cleanup scoping and preflight checks. When running under DooD, this
+	// is the in-container path (TranslateToDaemonPath converts it).
+	StellaHome string
+
 	// ContainerPathPrefix / HostPathPrefix enable path alignment when stella
 	// runs inside a container and talks to the daemon on the host (DooD).
 	// Both fields are filled by applyDooDDefaults in the runner; callers

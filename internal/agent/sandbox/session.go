@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -16,7 +15,6 @@ import (
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
-	dockerclient "github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
 	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
@@ -132,26 +130,12 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 	)
 	defer span.End()
 
-	paths, err := ResolvePaths(cfg)
-	if err != nil {
-		err = fmt.Errorf("resolve sandbox paths: %w", err)
-		recordSandboxError(span, err)
-		return nil, err
-	}
-	env, err := buildSandboxEnv(ctx, cfg, paths)
+	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
 	}
-
-	policy := pkgsandbox.Policy{
-		Filesystem: runnerFilesystemPolicy(paths),
-		Network: pkgsandbox.NetworkPolicy{
-			Mode: pkgsandbox.NetworkMode(cfg.SandboxConfig.Network.Mode),
-		},
-		Env:        env,
-		InheritEnv: true,
-	}
+	policy.InheritEnv = true
 
 	span.SetAttributes(
 		attribute.String("stella.sandbox.resolved_user_root", paths.UserRoot),
@@ -166,21 +150,8 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 
-	dockerCfg, err := ResolveDockerConfig()
+	dockerCfg, err := ResolveDockerConfig(paths.StellaHome)
 	if err != nil {
-		recordSandboxError(span, err)
-		return nil, err
-	}
-	CleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.StellaHome))
-	if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-		StellaHome: paths.StellaHome,
-		Docker:     dockerCfg,
-	}); err != nil {
-		if config.SandboxDockerImageIsDev() {
-			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
-		} else {
-			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
-		}
 		recordSandboxError(span, err)
 		return nil, err
 	}
@@ -192,13 +163,15 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 	}
 	dockerCfg.UserToolBinaries = userTools
 
-	// Construct a per-runner factory with the resolved config. The global
-	// registry carries a zero-value Config for probe/contract-test use only.
 	factory := dockerplugin.NewFactory(dockerCfg)
 
 	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
-		err = fmt.Errorf("create docker session: %w", err)
+		if config.SandboxDockerImageIsDev() {
+			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+		} else {
+			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
+		}
 		recordSandboxError(span, err)
 		return nil, err
 	}
@@ -212,27 +185,9 @@ func createDockerSession(ctx context.Context, cfg Config) (*Session, error) {
 // createLocalSession creates a local (no container isolation) session.
 // WARNING: commands run directly on the host OS with no container isolation.
 func createLocalSession(ctx context.Context, cfg Config) (*Session, error) {
-	paths, err := ResolvePaths(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
-	}
-	env, err := buildSandboxEnv(ctx, cfg, paths)
+	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
-	}
-	env["PATH"] = localSandboxPath(paths.StellaHome)
-	if paths.WorkDir != "" {
-		env["HOME"] = localSandboxHome(paths.WorkDir)
-	}
-	copyLocalHostEnv(env)
-
-	policy := pkgsandbox.Policy{
-		Filesystem: runnerFilesystemPolicy(paths),
-		Network: pkgsandbox.NetworkPolicy{
-			Mode: pkgsandbox.NetworkMode(cfg.SandboxConfig.Network.Mode),
-		},
-		Env:        env,
-		InheritEnv: false,
 	}
 
 	slog.Info("creating local session",
@@ -242,35 +197,23 @@ func createLocalSession(ctx context.Context, cfg Config) (*Session, error) {
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 
-	session, err := localplugin.NewFactory().CreateSession(ctx, policy)
+	session, err := localplugin.NewFactory(localplugin.Config{
+		StellaHome: paths.StellaHome,
+	}).CreateSession(ctx, policy)
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}
 
 	return &Session{
 		session: session,
-		policy:  policy,
+		policy:  session.Policy(),
 	}, nil
 }
 
 func createHostSession(ctx context.Context, cfg Config) (*Session, error) {
-	paths, err := ResolvePaths(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
-	}
-	env, err := buildSandboxEnv(ctx, cfg, paths)
+	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
-	}
-	env["PATH"] = localSandboxPath(paths.StellaHome)
-
-	policy := pkgsandbox.Policy{
-		Filesystem: runnerFilesystemPolicy(paths),
-		Network: pkgsandbox.NetworkPolicy{
-			Mode: pkgsandbox.NetworkAllowAll,
-		},
-		Env:        env,
-		InheritEnv: true,
 	}
 
 	slog.Info("creating host session",
@@ -278,25 +221,28 @@ func createHostSession(ctx context.Context, cfg Config) (*Session, error) {
 		"work_dir", paths.WorkDir,
 	)
 
-	session, err := noneplugin.NewFactory().CreateSession(ctx, policy)
+	session, err := noneplugin.NewFactory(noneplugin.Config{
+		StellaHome: paths.StellaHome,
+	}).CreateSession(ctx, policy)
 	if err != nil {
 		return nil, fmt.Errorf("create host session: %w", err)
 	}
 
 	return &Session{
 		session: session,
-		policy:  policy,
+		policy:  session.Policy(),
 	}, nil
 }
 
 // ResolveDockerConfig builds the docker plugin Config used by the runner,
 // including any DooD path-translation prefixes derived from STELLA_HOME_HOST.
-// Shared by session creation, preflight, and orphan cleanup so all three scope
-// to the same daemon-view paths.
-func ResolveDockerConfig() (dockerplugin.Config, error) {
+func ResolveDockerConfig(stellaHome string) (dockerplugin.Config, error) {
+	if stellaHome == "" {
+		stellaHome = config.StellaHome()
+	}
 	return applyDooDDefaults(
-		dockerplugin.Config{Image: config.SandboxDockerImage()},
-		config.StellaHome(),
+		dockerplugin.Config{Image: config.SandboxDockerImage(), StellaHome: stellaHome},
+		stellaHome,
 	)
 }
 
@@ -336,22 +282,27 @@ func resolveDockerUserToolBinaries(stellaHome string) ([]dockerplugin.ToolBinary
 	return out, nil
 }
 
-var dockerOrphanCleanupOnce sync.Once
+// buildBasePolicy resolves paths and builds the backend-agnostic base policy
+// (filesystem, network, env). Backend-specific adjustments are applied by
+// each factory's CreateSession.
+func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy, error) {
+	paths, err := ResolvePaths(cfg)
+	if err != nil {
+		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("resolve sandbox paths: %w", err)
+	}
+	env, err := buildSandboxEnv(ctx, cfg, paths)
+	if err != nil {
+		return Paths{}, pkgsandbox.Policy{}, err
+	}
 
-// CleanupOrphanedDockerContainers removes stale stella containers from previous
-// crashed processes. Runs at most once per process. The stellaHome argument must
-// already be translated to the daemon-view path so it matches the label set at
-// container creation time.
-func CleanupOrphanedDockerContainers(ctx context.Context, stellaHome string) {
-	dockerOrphanCleanupOnce.Do(func() {
-		client, err := dockerclient.New()
-		if err != nil {
-			slog.Warn("docker orphan cleanup skipped: cannot construct docker client",
-				"component", "runner_sandbox", "error", err)
-			return
-		}
-		dockerclient.CleanupOrphanedContainers(ctx, client, stellaHome)
-	})
+	policy := pkgsandbox.Policy{
+		Filesystem: runnerFilesystemPolicy(paths),
+		Network: pkgsandbox.NetworkPolicy{
+			Mode: pkgsandbox.NetworkMode(cfg.SandboxConfig.Network.Mode),
+		},
+		Env: env,
+	}
+	return paths, policy, nil
 }
 
 // ResolveSession creates a Session from configuration.
