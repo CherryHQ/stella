@@ -30,28 +30,11 @@ func SyncSession(session pkgsandbox.Session) error {
 }
 
 func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
-		trace.WithAttributes(
-			attribute.String("stella.sandbox.backend", config.SandboxBackendDocker),
-			attribute.String("stella.sandbox.agent_root", cfg.Paths.AgentRoot),
-			attribute.String("stella.sandbox.user_root", cfg.Paths.UserRoot),
-			attribute.String("stella.sandbox.project_root", cfg.Paths.ProjectRoot),
-		),
-	)
-	defer span.End()
-
 	paths, policy, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
-		recordSandboxError(span, err)
 		return nil, err
 	}
 	policy.InheritEnv = true
-
-	span.SetAttributes(
-		attribute.String("stella.sandbox.resolved_user_root", paths.UserRoot),
-		attribute.String("stella.sandbox.work_dir", paths.WorkDir),
-		attribute.String("stella.sandbox.network.mode", cfg.SandboxConfig.Network.Mode),
-	)
 
 	slog.Info("creating docker session",
 		"component", "runner_sandbox",
@@ -65,7 +48,6 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		StellaHome: paths.StellaHome,
 	})
 	if err != nil {
-		recordSandboxError(span, err)
 		return nil, err
 	}
 
@@ -76,7 +58,6 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		} else {
 			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
 		}
-		recordSandboxError(span, err)
 		return nil, err
 	}
 
@@ -168,14 +149,31 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		}
 	}
 
+	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
+		trace.WithAttributes(
+			attribute.String("stella.sandbox.backend", name),
+			attribute.String("stella.sandbox.agent_root", cfg.Paths.AgentRoot),
+			attribute.String("stella.sandbox.user_root", cfg.Paths.UserRoot),
+			attribute.String("stella.sandbox.project_root", cfg.Paths.ProjectRoot),
+		),
+	)
+	defer span.End()
+
+	var session pkgsandbox.Session
+	var err error
 	switch name {
 	case config.SandboxBackendDocker:
-		return createDockerSession(ctx, cfg)
+		session, err = createDockerSession(ctx, cfg)
 	case config.SandboxBackendLocal:
-		return createLocalSession(ctx, cfg)
+		session, err = createLocalSession(ctx, cfg)
 	case config.SandboxBackendNone:
-		return createHostSession(ctx, cfg)
+		session, err = createHostSession(ctx, cfg)
 	default:
-		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
+		err = fmt.Errorf("unknown sandbox backend: %q", name)
 	}
+	if err != nil {
+		recordSandboxError(span, err)
+		return nil, err
+	}
+	return session, nil
 }

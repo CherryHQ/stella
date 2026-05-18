@@ -33,7 +33,7 @@ func integrationConfig(t *testing.T) runnerConfig {
 			Builder: integrationProviderStreamBuilder,
 		},
 		Sandbox: sandbox.Config{
-			Paths: sandbox.PathConfig{
+			Paths: sandbox.Paths{
 				StellaHome: stellaHome,
 				AgentRoot:  workspace,
 				UserRoot:   userRoot,

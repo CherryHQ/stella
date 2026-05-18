@@ -102,8 +102,8 @@ func TestNewRunnerRequiresConfig(t *testing.T) {
 		{"missing api", runnerConfig{Provider: providerConfig{Model: "m", APIKey: "k"}}},
 		{"missing model", runnerConfig{Provider: providerConfig{API: "anthropic", APIKey: "k"}}},
 		{"missing api_key", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m"}}},
-		{"missing workspace", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.PathConfig{UserRoot: "/tmp/user"}}}},
-		{"missing user_data_dir", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.PathConfig{AgentRoot: "/tmp/workspace"}}}},
+		{"missing workspace", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.Paths{UserRoot: "/tmp/user"}}}},
+		{"missing user_data_dir", runnerConfig{Provider: providerConfig{API: "anthropic", Model: "m", APIKey: "k"}, Sandbox: sandbox.Config{Paths: sandbox.Paths{AgentRoot: "/tmp/workspace"}}}},
 	}
 
 	for _, tt := range tests {

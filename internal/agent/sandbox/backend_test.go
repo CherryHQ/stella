@@ -59,7 +59,7 @@ func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID string) (map[str
 // TestResolveSessionRequiresUserRoot tests that ResolveSession fails without a UserRoot.
 func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := ResolveSession(context.Background(), Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			AgentRoot: "/workspace/agent",
 			// UserRoot intentionally omitted
 		},
@@ -71,7 +71,7 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/agent/users/1",
@@ -156,7 +156,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	_, err := ResolveSession(context.Background(), Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			AgentRoot: workspace,
 			UserRoot:  userRoot,
 		},
@@ -176,7 +176,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 // any same-named vault entry.
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -215,7 +215,7 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 // correctly (returns runner env vars) when no vault loader is configured.
 func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -242,7 +242,7 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 // present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -319,7 +319,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	}
 
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",
@@ -386,7 +386,7 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	}
 
 	cfg := Config{
-		Paths: PathConfig{
+		Paths: Paths{
 			StellaHome: "/stella",
 			AgentRoot:  "/workspace/agent",
 			UserRoot:   "/workspace/users/1",

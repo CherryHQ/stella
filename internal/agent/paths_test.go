@@ -8,7 +8,7 @@ import (
 
 func TestResolvePathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	paths, err := sandbox.ResolvePaths(sandbox.Config{
-		Paths: sandbox.PathConfig{
+		Paths: sandbox.Paths{
 			AgentRoot: "/workspace/agent",
 			UserRoot:  "/workspace/agent/users/1",
 		},
