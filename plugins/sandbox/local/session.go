@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/pkg/sandbox/hostenv"
 )
 
 // sandboxEnvDenyList is the set of host environment variable names that must
@@ -103,11 +102,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	if env == nil {
 		env = make(map[string]string)
 	}
-	env["PATH"] = hostenv.BuildPath(f.cfg.StellaHome)
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome)
 	if policy.Filesystem.WorkingDir != "" {
-		env["HOME"] = hostenv.BuildHome(policy.Filesystem.WorkingDir)
+		env["HOME"] = sandboxpkg.HostEnvBuildHome(policy.Filesystem.WorkingDir)
 	}
-	hostenv.CopyHostEnv(env)
+	sandboxpkg.HostEnvCopy(env)
 	policy.Env = env
 	policy.InheritEnv = false
 	return policy

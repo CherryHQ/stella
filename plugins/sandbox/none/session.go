@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/pkg/sandbox/hostenv"
 )
 
 // Config configures the none factory.
@@ -74,7 +73,7 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	if env == nil {
 		env = make(map[string]string)
 	}
-	env["PATH"] = hostenv.BuildPath(f.cfg.StellaHome)
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome)
 	policy.Env = env
 	return policy
 }

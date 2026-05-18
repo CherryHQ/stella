@@ -1,4 +1,4 @@
-package hostenv
+package sandbox
 
 import (
 	"os"
@@ -7,18 +7,18 @@ import (
 	"strings"
 )
 
-// BuildPath returns a sanitized PATH suitable for host-execution sandbox
+// HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
 // backends (local, none). It prepends the stella bin directory and filters
 // host PATH entries to a safe allowlist on Linux.
-func BuildPath(stellaHome string) string {
+func HostEnvBuildPath(stellaHome string) string {
 	stellaBin := filepath.Join(stellaHome, "bin")
 	if runtime.GOOS != "linux" {
-		return prependPathEntry(stellaBin, os.Getenv("PATH"))
+		return hostEnvPrependPath(stellaBin, os.Getenv("PATH"))
 	}
 
 	entries := []string{stellaBin}
 	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
-		if pathAllowed(entry, stellaBin) {
+		if hostEnvPathAllowed(entry, stellaBin) {
 			entries = append(entries, entry)
 		}
 	}
@@ -31,22 +31,22 @@ func BuildPath(stellaHome string) string {
 		"/sbin",
 		"/bin",
 	)
-	return strings.Join(dedupeEntries(entries), string(os.PathListSeparator))
+	return strings.Join(hostEnvDedupeEntries(entries), string(os.PathListSeparator))
 }
 
-// BuildHome returns the HOME value for host-execution sandbox backends.
+// HostEnvBuildHome returns the HOME value for host-execution sandbox backends.
 // On Linux (with bwrap), HOME is remapped to /workspace; elsewhere it
 // mirrors the working directory.
-func BuildHome(workDir string) string {
+func HostEnvBuildHome(workDir string) string {
 	if runtime.GOOS == "linux" {
 		return "/workspace"
 	}
 	return workDir
 }
 
-// CopyHostEnv copies a fixed allowlist of host environment variables into env.
+// HostEnvCopy copies a fixed allowlist of host environment variables into env.
 // Only locale, terminal, and proxy variables are included.
-func CopyHostEnv(env map[string]string) {
+func HostEnvCopy(env map[string]string) {
 	for _, key := range []string{
 		"TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
@@ -58,13 +58,12 @@ func CopyHostEnv(env map[string]string) {
 	}
 }
 
-// PathAllowed reports whether a PATH entry is in the safe allowlist.
-// Exported for testing.
-func PathAllowed(entry, stellaBin string) bool {
-	return pathAllowed(entry, stellaBin)
+// HostEnvPathAllowed reports whether a PATH entry is in the safe allowlist.
+func HostEnvPathAllowed(entry, stellaBin string) bool {
+	return hostEnvPathAllowed(entry, stellaBin)
 }
 
-func pathAllowed(entry, stellaBin string) bool {
+func hostEnvPathAllowed(entry, stellaBin string) bool {
 	if entry == "" {
 		return false
 	}
@@ -79,7 +78,7 @@ func pathAllowed(entry, stellaBin string) bool {
 	return false
 }
 
-func prependPathEntry(entry, existing string) string {
+func hostEnvPrependPath(entry, existing string) string {
 	if entry == "" {
 		return existing
 	}
@@ -89,7 +88,7 @@ func prependPathEntry(entry, existing string) string {
 	return entry + string(os.PathListSeparator) + existing
 }
 
-func dedupeEntries(entries []string) []string {
+func hostEnvDedupeEntries(entries []string) []string {
 	seen := make(map[string]struct{}, len(entries))
 	out := make([]string, 0, len(entries))
 	for _, entry := range entries {
