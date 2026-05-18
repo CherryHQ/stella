@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
+	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
 	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
@@ -32,7 +33,6 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
-	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 )
 
 type testEnv struct {

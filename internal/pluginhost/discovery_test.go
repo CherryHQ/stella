@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
+	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	qqplugin "github.com/CherryHQ/stella/plugins/channels/qq"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
-	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 )
 
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
