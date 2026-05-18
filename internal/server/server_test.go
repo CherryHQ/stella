@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
@@ -31,7 +32,6 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
-	lcmmemory "github.com/CherryHQ/stella/plugins/memory/lcm"
 	reflectplugin "github.com/CherryHQ/stella/plugins/reflect"
 )
 

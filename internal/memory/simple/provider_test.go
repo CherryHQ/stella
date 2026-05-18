@@ -6,7 +6,7 @@ import (
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/plugins/memory/simple"
+	"github.com/CherryHQ/stella/internal/memory/simple"
 )
 
 func TestConformance(t *testing.T) {

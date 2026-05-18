@@ -117,8 +117,7 @@ type storageRow struct {
 	content   string
 }
 
-// messageToRows maps an ai.Message to one or more DB rows.
-// An AssistantMessage with text + tool calls produces multiple rows.
+// TODO: messageToRows/rowsToMessages are duplicated between simple/ and lcm/ — extract into a shared helper in internal/memory/.
 func messageToRows(msg ai.Message) []storageRow {
 	switch m := msg.(type) {
 	case ai.UserMessage:

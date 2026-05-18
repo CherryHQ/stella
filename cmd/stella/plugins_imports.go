@@ -23,8 +23,8 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/hooks/trace"
 
 	// Plugin memory.
-	_ "github.com/CherryHQ/stella/plugins/memory/lcm"
-	_ "github.com/CherryHQ/stella/plugins/memory/simple"
+	_ "github.com/CherryHQ/stella/internal/memory/lcm"
+	_ "github.com/CherryHQ/stella/internal/memory/simple"
 
 	// Plugin sandbox backends.
 	_ "github.com/CherryHQ/stella/plugins/sandbox"

@@ -719,6 +719,7 @@ type toolResultEnvelope struct {
 	Error  string          `json:"error,omitempty"`
 }
 
+// TODO: messageToRows/rowsToMessages are duplicated between simple/ and lcm/ — extract into a shared helper in internal/memory/.
 func messageToRows(msg ai.Message) []storageRow {
 	switch m := msg.(type) {
 	case ai.UserMessage:
