@@ -6,7 +6,7 @@ title: 记忆系统内部实现
 
 ## Provider 接口
 
-核心 `Provider` 接口（`pkg/memory/provider.go`）包含 5 个方法：
+核心 `Provider` 接口（`internal/memory/provider.go`）包含 5 个方法：
 
 | 方法                                        | 说明                             |
 | ------------------------------------------- | -------------------------------- |
