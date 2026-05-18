@@ -90,7 +90,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
-	phost.RegisterBuiltinTools()
+	phost.RegisterBuiltinTools(mcp.NewManager())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

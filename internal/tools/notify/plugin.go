@@ -10,33 +10,13 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const PluginID = "tool/notify"
-
-// RegisterPlugin registers the notify tool as a builtin plugin with the given host.
-func RegisterPlugin(host pkgplugins.Host) {
-	host.SetInfo(pkgplugins.PluginInfo{
-		ID:          PluginID,
-		Kind:        "tool",
-		Name:        "notify",
-		DisplayName: "Notify",
-		Description: "Send notifications through Stella's configured notification routes.",
-		Capabilities: []string{
-			pkgplugins.CapabilityTool,
-		},
-	})
-	host.AddTool(pkgplugins.ToolSpec{
-		PluginID:    PluginID,
-		Name:        "notify",
-		Description: "Send a notification message to the user.",
-		Required:    false,
-		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-			service := ctx.Platform.Notifier()
-			if service == nil {
-				return nil, nil
-			}
-			return &Tool{service: service}, nil
-		},
-	})
+// NewTool creates a notify tool with the given notifier service.
+// Returns nil if notifier is nil.
+func NewTool(notifier pkgplugins.Notifier) *Tool {
+	if notifier == nil {
+		return nil
+	}
+	return &Tool{service: notifier}
 }
 
 // Tool is an agent tool that sends notifications through the plugin host.

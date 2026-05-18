@@ -29,6 +29,7 @@ import (
 	skills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/tasks"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
+	notifytool "github.com/CherryHQ/stella/internal/tools/notify"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -195,7 +196,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
-	phost.RegisterBuiltinTools()
+	mcpManager := mcpplugin.NewManager()
+	phost.RegisterBuiltinTools(mcpManager)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
@@ -354,7 +356,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Unified memory tool (always available to every agent, adapts to provider capabilities).
 	builtinTools = append(builtinTools,
 		memory.BuildTool(memProvider),
+		mcpplugin.New(mcpManager),
 	)
+	if notifyTool := notifytool.NewTool(dispatcher); notifyTool != nil {
+		builtinTools = append(builtinTools, notifyTool)
+	}
 
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called per runner so builders receive the active sandbox host.
@@ -417,8 +423,17 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}, nil
 		},
 	}
-	promptToolsBuilder := func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
-		return phost.PromptTools(ctx, mcpplugin.PluginID)
+	promptToolsBuilder := func(_ context.Context) ([]pkgplugins.PromptToolInfo, error) {
+		validTools := mcpManager.ValidTools()
+		items := make([]pkgplugins.PromptToolInfo, 0, len(validTools))
+		for _, t := range validTools {
+			items = append(items, pkgplugins.PromptToolInfo{
+				Name:        t.ID,
+				Description: t.Description,
+				Metadata:    map[string]any{"server_name": t.ServerName},
+			})
+		}
+		return items, nil
 	}
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 		return phost.SystemPromptSections(ctx, build)

@@ -170,8 +170,7 @@ Built-in plugins live under `plugins/<kind>/<name>/`.
 
 Common examples:
 
-- `plugins/tools/notify/`
-- `plugins/tools/mcp/`
+- `plugins/tools/webfetch/`
 - `plugins/channels/telegram/`
 - `plugins/providers/openai/`
 - `plugins/reflect/`

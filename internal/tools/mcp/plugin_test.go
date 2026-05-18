@@ -2,64 +2,55 @@ package mcp
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {
-	lookup := testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: NewManager()}}}
-	rt, ok := LookupRuntime(lookup)
+func TestRegisterPluginUsesSharedManager(t *testing.T) {
+	manager := NewManager()
+	manager.AddTool("docs", "search", "Search", "Search docs", nil, nil, nil)
+	host := &testHost{}
+	RegisterPlugin(host, manager)
+
+	rt, ok := LookupRuntime(testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: manager}}})
 	if !ok || rt.Manager() == nil {
 		t.Fatal("expected runtime")
 	}
-	rt.Manager().AddTool("docs", "search", "Search", "Search docs", nil, nil, nil)
-	host := &testHost{}
-	RegisterPlugin(host)
-	items, err := host.prompt.GetTools(context.Background(), pkgplugins.PromptInventoryContext{
-		Platform: testPlatform{lookup: lookup},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].Metadata["server_name"] != "docs" {
-		t.Fatalf("unexpected items: %#v", items)
+	if got := len(rt.Manager().ValidTools()); got != 1 {
+		t.Fatalf("expected 1 valid tool, got %d", got)
 	}
 }
 
-type testHost struct {
-	prompt pkgplugins.PromptInventorySpec
+func TestValidToolsReturnsPromptInfo(t *testing.T) {
+	manager := NewManager()
+	manager.AddTool("docs", "search", "Search", "Search docs", nil, nil, nil)
+	tools := manager.ValidTools()
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	if tools[0].ServerName != "docs" {
+		t.Fatalf("expected server_name=docs, got %q", tools[0].ServerName)
+	}
 }
 
-func (*testHost) SetInfo(pkgplugins.PluginInfo)                           {}
-func (*testHost) AddAdmin(pkgplugins.AdminSpec)                           {}
-func (*testHost) AddTool(pkgplugins.ToolSpec)                             {}
-func (*testHost) AddProvider(pkgplugins.ProviderSpec)                     {}
-func (*testHost) AddChannel(pkgplugins.ChannelSpec)                       {}
-func (*testHost) AddHook(pkgplugins.HookSpec)                             {}
-func (*testHost) AddMemory(pkgplugins.MemorySpec)                         {}
-func (*testHost) AddRuntime(pkgplugins.RuntimeSpec)                       {}
-func (h *testHost) AddPromptInventory(reg pkgplugins.PromptInventorySpec) { h.prompt = reg }
-func (*testHost) AddSystemPrompt(pkgplugins.SystemPromptSpec)             {}
-func (*testHost) AddBeforeRun(pkgplugins.BeforeRunSpec)                   {}
-func (*testHost) AddBeforeToolCall(pkgplugins.BeforeToolCallSpec)         {}
-func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec)       {}
-func (*testHost) AddSessionEnv(pkgplugins.SessionEnvSpec)                 {}
-func (*testHost) AddBundledSkill(pkgplugins.BundledSkillSpec)             {}
+type testHost struct{}
 
-type testPlatform struct{ lookup testRuntimeLookup }
-
-func (testPlatform) Logger() *slog.Logger                        { return nil }
-func (testPlatform) ConfigStore() pkgplugins.ConfigStore         { return nil }
-func (testPlatform) StateStore() pkgplugins.StateStore           { return nil }
-func (testPlatform) Scheduler() pkgplugins.Scheduler             { return nil }
-func (testPlatform) Notifier() pkgplugins.Notifier               { return nil }
-func (testPlatform) Auth() pkgplugins.Auth                       { return nil }
-func (p testPlatform) RuntimeLookup() pkgplugins.RuntimeLookup   { return p.lookup }
-func (testPlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
-func (testPlatform) ReflectPlatform() pkgplugins.ReflectPlatform { return nil }
-func (testPlatform) SkillStore() pkgplugins.SkillStore           { return nil }
+func (*testHost) SetInfo(pkgplugins.PluginInfo)                     {}
+func (*testHost) AddAdmin(pkgplugins.AdminSpec)                     {}
+func (*testHost) AddTool(pkgplugins.ToolSpec)                       {}
+func (*testHost) AddProvider(pkgplugins.ProviderSpec)               {}
+func (*testHost) AddChannel(pkgplugins.ChannelSpec)                 {}
+func (*testHost) AddHook(pkgplugins.HookSpec)                       {}
+func (*testHost) AddMemory(pkgplugins.MemorySpec)                   {}
+func (*testHost) AddRuntime(pkgplugins.RuntimeSpec)                 {}
+func (*testHost) AddPromptInventory(pkgplugins.PromptInventorySpec) {}
+func (*testHost) AddSystemPrompt(pkgplugins.SystemPromptSpec)       {}
+func (*testHost) AddBeforeRun(pkgplugins.BeforeRunSpec)             {}
+func (*testHost) AddBeforeToolCall(pkgplugins.BeforeToolCallSpec)   {}
+func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec) {}
+func (*testHost) AddSessionEnv(pkgplugins.SessionEnvSpec)           {}
+func (*testHost) AddBundledSkill(pkgplugins.BundledSkillSpec)       {}
 
 type testRuntimeLookup struct{ handle testRuntimeHandle }
 

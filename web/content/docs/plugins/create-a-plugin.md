@@ -248,8 +248,7 @@ Good examples already exist in:
 
 - `plugins/channels/telegram/plugin_test.go`
 - `plugins/reflect/plugin_runtime_test.go`
-- `plugins/tools/mcp/plugin_test.go`
-- `plugins/tools/lark-cli/plugin.go`
+- `plugins/tools/webfetch/webfetch_test.go`
 
 ## Common Mistakes
 

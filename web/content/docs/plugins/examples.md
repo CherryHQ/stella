@@ -229,7 +229,7 @@ This is useful when the plugin exposes dynamic capability inventory that the mod
 
 Use a manifest entry when the integration only needs a managed binary and session
 environment injection. For example, GitHub CLI is manifest-only: there is no Go
-`plugins/tools/gh` package, no admin config, and no system-prompt contribution.
+`tool/gh` package, no admin config, and no system-prompt contribution.
 
 ```yaml
 plugins:
