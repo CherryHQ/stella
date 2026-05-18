@@ -134,7 +134,7 @@ function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }
 
 function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [expanded, setExpanded] = useState(false);
-  const colorClass = toolColor(block.name);
+  const colorClass = toolColor(block.name ?? "");
 
   return (
     <div className="pl-3 rounded-lg bg-muted/20">
@@ -235,7 +235,7 @@ function toolArgText(value: unknown): string {
 }
 
 function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call" } }) {
-  const n = block.name.toLowerCase();
+  const n = (block.name ?? "").toLowerCase();
   const args = block.arguments ?? {};
 
   if (n === "bash")
@@ -287,7 +287,7 @@ function toolColor(name: string): string {
 
 function toolPreview(block: ContentBlock & { type: "tool_call" }): string {
   const args = block.arguments ?? {};
-  const n = block.name.toLowerCase();
+  const n = (block.name ?? "").toLowerCase();
   const trunc = (s: string, len = 55) => (s.length > len ? s.slice(0, len) + "…" : s);
   const shortPath = (p: string) => {
     const pts = (p || "").split("/");

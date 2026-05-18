@@ -13,7 +13,7 @@ export interface Session {
 export interface ToolBlock {
   type: "tool_call";
   id: string;
-  name: string;
+  name?: string;
   arguments: Record<string, unknown>;
   status?: "running" | "done";
   result?: ToolResult;
