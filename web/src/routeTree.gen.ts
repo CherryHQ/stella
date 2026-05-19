@@ -13,6 +13,7 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -70,6 +71,11 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const STokenRoute = STokenRouteImport.update({
+  id: '/s/$token',
+  path: '/s/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -380,6 +386,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRouteWithChildren
   '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/automations/$': typeof AppAutomationsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
@@ -422,6 +429,7 @@ export interface FileRoutesByTo {
   '/sessions': typeof AppSessionsRouteWithChildren
   '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/s/$token': typeof STokenRoute
   '/automations/$': typeof AppAutomationsSplatRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -467,6 +475,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/s/$token': typeof STokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/_app/automations/$': typeof AppAutomationsSplatRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
@@ -513,6 +522,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/docs/$'
+    | '/s/$token'
     | '/agents/$agentId'
     | '/automations/$'
     | '/sessions/$'
@@ -555,6 +565,7 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/tasks'
     | '/docs/$'
+    | '/s/$token'
     | '/automations/$'
     | '/sessions/$'
     | '/settings/about'
@@ -599,6 +610,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/tasks'
     | '/docs/$'
+    | '/s/$token'
     | '/_app/agents/$agentId'
     | '/_app/automations/$'
     | '/_app/sessions/$'
@@ -638,6 +650,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
   DocsSplatRoute: typeof DocsSplatRoute
+  STokenRoute: typeof STokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -668,6 +681,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$token': {
+      id: '/s/$token'
+      path: '/s/$token'
+      fullPath: '/s/$token'
+      preLoaderRoute: typeof STokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -1113,6 +1133,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
   DocsSplatRoute: DocsSplatRoute,
+  STokenRoute: STokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

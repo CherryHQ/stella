@@ -6,11 +6,20 @@ import {
   useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
-import { FilePlus, FolderPlus, Trash2, RefreshCw, X } from "lucide-react";
+import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FileViewer } from "./FileViewer";
 import { isNonTextFile, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
 import { useI18n } from "@/lib/i18n";
@@ -74,6 +83,10 @@ function isDirectoryPath(path: string): boolean {
 function basename(path: string): string {
   const trimmed = isDirectoryPath(path) ? path.slice(0, -1) : path;
   return trimmed.split("/").pop() ?? trimmed;
+}
+
+function isShareableArtifact(path: string): boolean {
+  return /\.(html?|mdx?|markdown|png|jpe?g|gif|webp|svg|avif|bmp|ico|pdf)$/i.test(path);
 }
 
 interface ViewerState {
@@ -368,6 +381,139 @@ export function WorkspacePanel({
   );
 }
 
+interface ArtifactShareDialogProps {
+  path: string | null;
+  sessionID: string;
+  onClose: () => void;
+}
+
+const expirationOptions = [
+  { value: "1h", label: "1 hour" },
+  { value: "1d", label: "1 day" },
+  { value: "7d", label: "7 days" },
+  { value: "never", label: "Never" },
+];
+
+function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogProps) {
+  const [expiresIn, setExpiresIn] = useState("7d");
+  const [creating, setCreating] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [share, setShare] = useState<{ id: string; url: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!path) {
+      setShare(null);
+      setError(null);
+      setExpiresIn("7d");
+    }
+  }, [path]);
+
+  const createShare = useCallback(async () => {
+    if (!path) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const result = await api<{ id: string; url: string }>("POST", "/api/artifact-shares", {
+        session_id: sessionID,
+        path,
+        expires_in: expiresIn,
+      });
+      setShare({ id: result.id, url: result.url });
+      await navigator.clipboard?.writeText(result.url).catch(() => undefined);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to share artifact");
+    } finally {
+      setCreating(false);
+    }
+  }, [expiresIn, path, sessionID]);
+
+  const revokeShare = useCallback(async () => {
+    if (!share) return;
+    setRevoking(true);
+    setError(null);
+    try {
+      await api("DELETE", `/api/artifact-shares/${encodeURIComponent(share.id)}`);
+      setShare(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to revoke share");
+    } finally {
+      setRevoking(false);
+    }
+  }, [share]);
+
+  const copyShare = useCallback(async () => {
+    if (share) await navigator.clipboard?.writeText(share.url);
+  }, [share]);
+
+  return (
+    <Dialog open={Boolean(path)} onOpenChange={(open) => !open && onClose()}>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>Share artifact</DialogTitle>
+          <DialogDescription>
+            Create a public, read-only snapshot link for {path ? basename(path) : "this file"}.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <div className="space-y-2">
+            <label
+              className="text-xs font-medium text-muted-foreground"
+              htmlFor="artifact-share-expiry"
+            >
+              Expiration
+            </label>
+            <select
+              id="artifact-share-expiry"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              disabled={creating || Boolean(share)}
+              value={expiresIn}
+              onChange={(e) => setExpiresIn(e.currentTarget.value)}
+            >
+              {expirationOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {share && (
+            <div className="rounded-lg border bg-muted/40 p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">Public URL</div>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-xs font-mono"
+                  value={share.url}
+                />
+                <Button size="sm" variant="outline" onClick={copyShare}>
+                  <Copy className="size-3.5" />
+                  Copy
+                </Button>
+              </div>
+            </div>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogPanel>
+        <DialogFooter>
+          {share ? (
+            <Button variant="destructive" disabled={revoking} onClick={revokeShare}>
+              {revoking ? "Revoking…" : "Revoke link"}
+            </Button>
+          ) : (
+            <Button disabled={creating} onClick={createShare}>
+              {creating ? "Creating…" : "Create link"}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
 interface TreeWithSearchProps {
   sessionID: string;
   workspace: Workspace;
@@ -411,6 +557,7 @@ function TreeWithSearch({
   const enc = encodeURIComponent(sessionID);
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
+  const [sharePath, setSharePath] = useState<string | null>(null);
 
   const prefix = projectDir ? projectDir + "/" : "";
   const toDisplay = useCallback(
@@ -523,6 +670,11 @@ function TreeWithSearch({
 
   return (
     <div className="flex flex-col h-full">
+      <ArtifactShareDialog
+        path={sharePath}
+        sessionID={sessionID}
+        onClose={() => setSharePath(null)}
+      />
       <div className="flex-1 overflow-hidden">
         <FileTreeComponent
           model={model}
@@ -533,6 +685,7 @@ function TreeWithSearch({
             const { anchorRect } = context;
             const isDir = isDirectoryPath(item.path);
             const apiPath = toApi(item.path);
+            const canShare = !isDir && isShareableArtifact(apiPath);
             const left =
               anchorRect.right + MENU_W > window.innerWidth
                 ? Math.max(0, anchorRect.left - MENU_W)
@@ -615,6 +768,24 @@ function TreeWithSearch({
                 >
                   Download
                 </a>
+                {canShare && (
+                  <button
+                    type="button"
+                    style={ctxItemStyle}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--accent)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "none";
+                    }}
+                    onClick={() => {
+                      context.close({ restoreFocus: false });
+                      setSharePath(apiPath);
+                    }}
+                  >
+                    Share
+                  </button>
+                )}
                 <button
                   type="button"
                   style={ctxItemStyle}
