@@ -48,11 +48,6 @@ func ValidateProjectDir(baseDir, userRoot string) error {
 		}
 	}
 
-	// Equal is OK (root project uses UserRoot as base_dir).
-	if cleanBase == cleanRoot {
-		return nil
-	}
-
 	rel, err := filepath.Rel(cleanRoot, cleanBase)
 	if err != nil {
 		return fmt.Errorf("base_dir is not under user workspace")
