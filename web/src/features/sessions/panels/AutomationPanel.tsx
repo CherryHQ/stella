@@ -277,7 +277,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                   ? t("sessions.auto.eyebrowSystem")
                   : t("sessions.auto.eyebrowUser")}
             </div>
-            <h2 className="mt-1.5 font-serif text-2xl italic tracking-tight truncate">
+            <h2 className="mt-1.5 font-sans text-2xl font-semibold tracking-tight truncate">
               {isNew ? t("sessions.auto.titleNew") : form.name}
             </h2>
             {!isNew && job && (

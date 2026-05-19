@@ -86,9 +86,7 @@ function ArticleGroup({
               onClick={() => onSelectArticle(a.id)}
               className="group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/40"
             >
-              {a.starred && (
-                <Star className="mt-0.5 size-3 shrink-0 fill-amber-500 text-amber-500" />
-              )}
+              {a.starred && <Star className="mt-0.5 size-3 shrink-0 fill-primary text-primary" />}
               <span className="line-clamp-2 text-sm leading-snug text-foreground group-hover:underline">
                 {a.title}
               </span>

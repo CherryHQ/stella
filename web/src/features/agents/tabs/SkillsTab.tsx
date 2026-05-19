@@ -375,7 +375,7 @@ export function SkillsTab({
                       });
                     }}
                     disabled={!canEdit}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full rounded-xl border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="active">active</option>
                     <option value="draft">draft</option>
@@ -453,7 +453,7 @@ export function SkillsTab({
                     <select
                       value={selectedSkillActiveFile}
                       onChange={(e) => onSelectSkillFile(e.target.value)}
-                      className="rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring w-auto max-w-sm"
+                      className="rounded-xl border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring w-auto max-w-sm"
                     >
                       {skillFiles.map((f) => (
                         <option key={f} value={f}>

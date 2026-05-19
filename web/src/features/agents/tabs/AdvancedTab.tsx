@@ -58,7 +58,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
               }),
             })
           }
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="disabled">disabled — block outbound network</option>
           <option value="allow_all">allow_all — allow outbound network</option>

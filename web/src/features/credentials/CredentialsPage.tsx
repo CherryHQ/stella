@@ -327,7 +327,7 @@ export function CredentialsPage() {
 
   const toastBanner = toast ? (
     <div
-      className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+      className={`mb-4 rounded-xl border px-3 py-2 text-sm ${
         toast.type === "error"
           ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
           : "border-success/36 bg-success/8 text-success-foreground"
@@ -340,7 +340,7 @@ export function CredentialsPage() {
   const vaultDetail = (
     <div className="p-6">
       {toastBanner}
-      <h2 className="font-serif text-xl mb-1">Vault</h2>
+      <h2 className="font-sans font-semibold text-xl mb-1">Vault</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Encrypted secrets injected as environment variables in sandbox sessions.
       </p>
@@ -426,7 +426,7 @@ export function CredentialsPage() {
   const oauthDetail = (
     <div className="p-6">
       {toastBanner}
-      <h2 className="font-serif text-xl mb-1">OAuth Providers</h2>
+      <h2 className="font-sans font-semibold text-xl mb-1">OAuth Providers</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools and
         runners.
@@ -435,7 +435,7 @@ export function CredentialsPage() {
       <div className="flex flex-col gap-4">
         {oauthProviders.map((p) => (
           <div key={p.provider}>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-border p-4">
               <div className="flex items-center gap-3">
                 <span className="font-medium text-sm">{p.provider}</span>
                 {oauthStatus[p.provider] === "connected" && (
@@ -482,7 +482,7 @@ export function CredentialsPage() {
             </div>
 
             {configOpen[p.provider] && (
-              <div className="mt-2 rounded-lg border border-border p-4">
+              <div className="mt-2 rounded-xl border border-border p-4">
                 <h3 className="text-sm font-medium mb-3">Configure {p.provider} OAuth App</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
@@ -545,7 +545,7 @@ export function CredentialsPage() {
             )}
 
             {oauthFlow[p.provider] && (
-              <div className="mt-2 rounded-lg border border-info/36 bg-info/8 p-4 text-sm">
+              <div className="mt-2 rounded-xl border border-info/36 bg-info/8 p-4 text-sm">
                 <p className="font-medium">Authorize stella:</p>
                 <a
                   href={oauthFlow[p.provider]!.verification_uri}

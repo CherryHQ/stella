@@ -331,9 +331,7 @@ export function UsersPage() {
             selectedUser?.id === u.id ? "bg-primary/8" : ""
           }`}
         >
-          <div className="font-medium text-sm truncate" style={{ fontWeight: 500 }}>
-            {u.username}
-          </div>
+          <div className="font-medium text-sm truncate">{u.username}</div>
           <div className="text-xs font-mono text-muted-foreground mt-0.5">
             {u.role === "admin" ? (
               <span className="text-primary">{u.role}</span>
@@ -495,7 +493,7 @@ export function UsersPage() {
                 <select
                   value={selectedUser.notify_identity_id?.toString() ?? ""}
                   onChange={(e) => void setNotifyIdentity(e.target.value)}
-                  className="select select-bordered select-sm w-full text-sm"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-1.5 text-sm"
                 >
                   <option value="">Auto (first linked)</option>
                   {selectedUser.identities.map((ident: Identity) => (
@@ -543,7 +541,7 @@ export function UsersPage() {
                 <select
                   value={addAgentId}
                   onChange={(e) => setAddAgentId(e.target.value)}
-                  className="select select-bordered select-sm flex-1"
+                  className="flex-1 rounded-xl border border-border bg-background px-3 py-1.5 text-sm"
                 >
                   <option value="">Select agent...</option>
                   {availableAgents.map((a) => (
@@ -585,7 +583,7 @@ export function UsersPage() {
                     ),
                   )
                 }
-                className="select select-bordered select-sm flex-1 text-sm"
+                className="flex-1 rounded-xl border border-border bg-background px-3 py-1.5 text-sm"
               >
                 <option value="">None</option>
                 {agents.map((a) => (
@@ -680,7 +678,7 @@ export function UsersPage() {
                           ),
                         )
                       }
-                      className="select select-bordered select-sm w-full text-xs"
+                      className="w-full rounded-xl border border-border bg-background px-3 py-1.5 text-xs"
                     >
                       <option value="" disabled>
                         Select agent...

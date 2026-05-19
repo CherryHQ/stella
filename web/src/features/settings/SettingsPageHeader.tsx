@@ -10,7 +10,7 @@ export function SettingsPageHeader({ title, description, action }: SettingsPageH
   return (
     <div className="mb-8 flex items-start justify-between gap-4">
       <div>
-        <h1 className="text-[1.25rem] font-semibold tracking-tight leading-snug mb-1">{title}</h1>
+        <h1 className="text-xl font-semibold tracking-tight leading-snug mb-1">{title}</h1>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       {action && <div className="shrink-0">{action}</div>}

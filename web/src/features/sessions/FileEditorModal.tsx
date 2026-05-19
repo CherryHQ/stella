@@ -138,7 +138,7 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
               }}
               className="absolute inset-0 w-full h-full resize-none border-0 outline-none bg-background text-foreground p-4"
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "var(--font-mono, monospace)",
                 fontSize: 13,
                 lineHeight: 1.6,
                 tabSize: 2,

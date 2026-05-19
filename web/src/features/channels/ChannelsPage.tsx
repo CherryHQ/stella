@@ -137,7 +137,7 @@ interface Toast {
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const selectClassName =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs/5 outline-none sm:h-8 sm:text-sm";
+  "h-9 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-xs/5 outline-none sm:h-8 sm:text-sm";
 
 function InstanceFields({
   ch,
@@ -317,7 +317,7 @@ function ChannelDetail({
         {/* Panel header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-serif text-xl tracking-tight flex items-center gap-2">
+            <h2 className="font-sans font-semibold text-xl tracking-tight flex items-center gap-2">
               {platformMeta[channel.type]?.icon && (
                 <BrandIcon path={platformMeta[channel.type].icon!} className="size-5 shrink-0" />
               )}
@@ -393,7 +393,7 @@ function ChannelDetail({
 
           {/* Link code */}
           {linkCode && linkPlatform === channel.type && (
-            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2">
               <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
@@ -509,7 +509,7 @@ function NewChannelForm({
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         <div>
-          <h2 className="font-serif text-xl tracking-tight">New Channel</h2>
+          <h2 className="font-sans font-semibold text-xl tracking-tight">New Channel</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Connect Stella to a messaging platform.
           </p>
@@ -616,7 +616,7 @@ function PublicChannelDetail({
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-serif text-xl tracking-tight">{platformLabel}</h2>
+            <h2 className="font-sans font-semibold text-xl tracking-tight">{platformLabel}</h2>
             <div className="flex items-center gap-2 mt-1">
               <Badge size="sm" variant={linked ? "success" : "secondary"}>
                 {linked ? "linked" : "not linked"}
@@ -673,7 +673,7 @@ function PublicChannelDetail({
 
           {/* Link code */}
           {linkCode && linkPlatform === channel.type && (
-            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2">
               <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
@@ -1098,7 +1098,7 @@ export function ChannelsPage() {
               ) : (
                 <span
                   className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                    ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                    ch.enabled ? "bg-primary" : "bg-muted-foreground/40"
                   }`}
                 />
               )}
@@ -1166,7 +1166,7 @@ export function ChannelsPage() {
         {toast && (
           <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50">
             <div
-              className={`rounded-lg border px-4 py-2 text-sm font-mono shadow-lg ${
+              className={`rounded-xl border px-4 py-2 text-sm font-mono shadow-lg ${
                 toast.kind === "error"
                   ? "border-destructive/50 bg-destructive/10 text-destructive-foreground"
                   : "border-success/50 bg-success/10 text-success-foreground"
@@ -1220,7 +1220,7 @@ export function ChannelsPage() {
             ) : (
               <span
                 className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                  linked ? "bg-green-500" : "bg-muted-foreground/40"
+                  linked ? "bg-primary" : "bg-muted-foreground/40"
                 }`}
               />
             )}
@@ -1280,7 +1280,7 @@ export function ChannelsPage() {
       {toast && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50">
           <div
-            className={`rounded-lg border px-4 py-2 text-sm font-mono shadow-lg ${
+            className={`rounded-xl border px-4 py-2 text-sm font-mono shadow-lg ${
               toast.kind === "error"
                 ? "border-destructive/50 bg-destructive/10 text-destructive-foreground"
                 : "border-success/50 bg-success/10 text-success-foreground"

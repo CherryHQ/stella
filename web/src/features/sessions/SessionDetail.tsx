@@ -424,7 +424,7 @@ export function SessionDetail({
                   "relative rounded-2xl border bg-background transition-all duration-150",
                   isStreaming
                     ? "border-primary/40 shadow-sm"
-                    : "border-border focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(0.642_0.1691_38.5815/0.1)]",
+                    : "border-border focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_hsl(var(--primary)/0.1)]",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -561,7 +561,7 @@ export function SessionDetail({
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="rounded-xl gap-1.5 active:scale-[0.98] transition-transform"
+                        className="rounded-full gap-1.5 active:scale-[0.98] transition-transform"
                       >
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />

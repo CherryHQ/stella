@@ -42,7 +42,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
         <select
           value={addUserId}
           onChange={(e) => onSetState({ addUserId: e.target.value })}
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          className="flex-1 rounded-xl border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Select user...</option>
           {availableUsers.map((u) => (

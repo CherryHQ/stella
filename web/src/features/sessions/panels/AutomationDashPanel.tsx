@@ -184,7 +184,7 @@ export function AutomationDashPanel({
             </button>
           </div>
           <div className="ml-auto">
-            <Button size="sm" onClick={onCreateJob} className="rounded-xl text-xs gap-1.5">
+            <Button size="sm" onClick={onCreateJob} className="rounded-full text-xs gap-1.5">
               <svg
                 className="w-3 h-3"
                 viewBox="0 0 24 24"

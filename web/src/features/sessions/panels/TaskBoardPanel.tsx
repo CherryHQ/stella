@@ -133,7 +133,7 @@ export function TaskBoardPanel({
               <Button
                 size="sm"
                 onClick={() => setCreating(true)}
-                className="rounded-xl text-xs gap-1.5"
+                className="rounded-full text-xs gap-1.5"
               >
                 <svg
                   className="w-3 h-3"
@@ -159,7 +159,11 @@ export function TaskBoardPanel({
                   placeholder="Task title..."
                   className="text-xs px-3 py-1.5 rounded-lg border border-border bg-background focus:border-primary/50 focus:outline-none w-48"
                 />
-                <Button size="sm" onClick={() => void createTask()} className="rounded-xl text-xs">
+                <Button
+                  size="sm"
+                  onClick={() => void createTask()}
+                  className="rounded-full text-xs"
+                >
                   Add
                 </Button>
               </div>
@@ -374,7 +378,7 @@ function TaskCard({
     <div
       onClick={onOpen}
       className={cn(
-        "rounded-lg border bg-card p-3 transition-all duration-150 hover:shadow-sm cursor-pointer",
+        "rounded-xl border bg-card p-3 transition-all duration-150 hover:shadow-sm cursor-pointer",
         selected ? "border-primary/40 shadow-sm" : "border-border/60",
       )}
     >

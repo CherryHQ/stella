@@ -81,7 +81,7 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-sm p-8">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card shadow-sm p-8">
         <div className="text-center mb-6">
           <span className="font-serif italic text-primary text-3xl tracking-tight select-none">
             stella
@@ -98,7 +98,7 @@ export function LoginPage() {
         {!isRegister && (
           <form onSubmit={login} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium font-mono">{t("login.username")}</label>
+              <label className="text-sm font-medium">{t("login.username")}</label>
               <Input
                 type="text"
                 value={username}
@@ -110,7 +110,7 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium font-mono">{t("login.password")}</label>
+              <label className="text-sm font-medium">{t("login.password")}</label>
               <Input
                 type="password"
                 value={password}
@@ -121,7 +121,7 @@ export function LoginPage() {
                 nativeInput
               />
             </div>
-            <Button type="submit" loading={loading} className="w-full">
+            <Button type="submit" loading={loading} className="w-full rounded-full">
               {loading ? t("login.signingIn") : t("login.signIn")}
             </Button>
           </form>
@@ -130,7 +130,7 @@ export function LoginPage() {
         {isRegister && (
           <form onSubmit={register} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium font-mono">{t("login.username")}</label>
+              <label className="text-sm font-medium">{t("login.username")}</label>
               <Input
                 type="text"
                 value={username}
@@ -142,7 +142,7 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium font-mono">{t("login.password")}</label>
+              <label className="text-sm font-medium">{t("login.password")}</label>
               <Input
                 type="password"
                 value={password}
@@ -155,7 +155,7 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium font-mono">{t("login.confirmPassword")}</label>
+              <label className="text-sm font-medium">{t("login.confirmPassword")}</label>
               <Input
                 type="password"
                 value={confirmPassword}
@@ -167,7 +167,7 @@ export function LoginPage() {
                 nativeInput
               />
             </div>
-            <Button type="submit" loading={loading} className="w-full">
+            <Button type="submit" loading={loading} className="w-full rounded-full">
               {loading ? t("login.creatingAccount") : t("login.createAccount")}
             </Button>
           </form>

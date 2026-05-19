@@ -71,7 +71,7 @@ export function AccountPage() {
       <SettingsPageHeader title={t("account.title")} description="Manage your account settings." />
 
       <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">{t("account.changePassword")}</h2>
+        <h2 className="text-xl font-semibold mb-4">{t("account.changePassword")}</h2>
         <div className="border-t border-border pt-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>

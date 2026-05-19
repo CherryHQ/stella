@@ -25,7 +25,7 @@ export function SkillsListPage() {
             onClick={() =>
               void navigate({ to: "/agents/$agentId/skills/new", params: { agentId } })
             }
-            className="rounded-xl text-xs gap-1.5"
+            className="rounded-full text-xs gap-1.5"
           >
             <svg
               className="w-3 h-3"

@@ -144,7 +144,7 @@ export function RecallyReader({
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
               >
                 <Star
-                  className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
+                  className={`size-3 ${selectedArticle.starred ? "fill-primary text-primary" : ""}`}
                 />
                 {selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")}
               </button>

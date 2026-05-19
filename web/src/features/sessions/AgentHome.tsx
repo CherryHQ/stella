@@ -56,7 +56,7 @@ export function AgentHome() {
         </p>
         <button
           onClick={() => void createSession()}
-          className="px-4 py-2 rounded-xl text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 active:scale-[0.98] transition-all duration-150"
+          className="px-4 py-2 rounded-full text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 active:scale-[0.98] transition-all duration-150"
         >
           {t("sessions.sidebar.newChat")}
         </button>

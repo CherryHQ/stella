@@ -64,7 +64,7 @@ function ModelComboField({
         id={`model-field-${field}`}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-lg py-1">
+        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-2xl shadow-lg py-1">
           {filtered.map((m) => (
             <button
               key={m}
@@ -159,7 +159,7 @@ export function ConfigTab({ state, onSetState }: Props) {
           <select
             value={form.scope}
             onChange={(e) => setForm({ scope: e.target.value as "system" | "restricted" })}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="system">system — all users can access</option>
             <option value="restricted">restricted — only assigned users</option>
@@ -176,7 +176,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             {availableDedicatedChannels.map((ch) => (
               <label
                 key={ch.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 cursor-pointer"
+                className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2 cursor-pointer"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-mono">{ch.id}</p>

@@ -1100,7 +1100,7 @@ export function ProvidersPage() {
             {/* Status dot */}
             <span
               className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                p.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                p.enabled ? "bg-success" : "bg-muted-foreground/40"
               }`}
             />
             <div className="min-w-0 flex-1">

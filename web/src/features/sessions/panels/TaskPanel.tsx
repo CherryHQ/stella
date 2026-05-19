@@ -54,7 +54,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
           <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
             {t("sessions.task.eyebrow")}
           </div>
-          <h2 className="mt-1.5 font-serif text-2xl italic tracking-tight">
+          <h2 className="mt-1.5 font-sans text-2xl font-semibold tracking-tight">
             {t("sessions.task.title")}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t("sessions.task.subtitle")}</p>

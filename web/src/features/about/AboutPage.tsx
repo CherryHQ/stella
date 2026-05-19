@@ -46,7 +46,7 @@ export function AboutPage() {
       <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
 
       <div className="border-t border-border pt-6 pb-6 max-w-2xl">
-        <h2 className="font-serif text-xl mb-4">{t("about.versionInfo")}</h2>
+        <h2 className="text-xl font-semibold mb-4">{t("about.versionInfo")}</h2>
         <dl className="divide-y divide-border">
           <InfoRow
             label={t("about.status")}
@@ -64,7 +64,7 @@ export function AboutPage() {
 
       {(status?.runtime || status?.database || status?.plugins) && (
         <div className="border-t border-border pt-6 pb-6 max-w-2xl">
-          <h2 className="font-serif text-xl mb-4">{t("about.adminInfo")}</h2>
+          <h2 className="text-xl font-semibold mb-4">{t("about.adminInfo")}</h2>
           <dl className="divide-y divide-border">
             {status.database && (
               <InfoRow
