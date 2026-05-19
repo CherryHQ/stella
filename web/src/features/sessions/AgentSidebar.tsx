@@ -264,6 +264,7 @@ function NavRow({
   sub,
   meta,
   onClick,
+  className,
 }: {
   active: boolean;
   icon?: React.ReactNode;
@@ -271,6 +272,7 @@ function NavRow({
   sub?: string;
   meta?: string;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <div
@@ -278,6 +280,7 @@ function NavRow({
       className={cn(
         "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-150",
         active ? "bg-sidebar-accent" : "hover:bg-muted/50",
+        className,
       )}
     >
       {icon && (
@@ -595,6 +598,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             }
             icon={<IconHome />}
             title={selectedAgent?.name ?? "Home"}
+            className="pl-[22px]"
             onClick={() => {
               if (homeSession) {
                 void navigate({
