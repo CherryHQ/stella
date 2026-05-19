@@ -587,45 +587,25 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
       {/* Scrollable nav */}
       <div ref={listRef} className="flex-1 overflow-y-auto pb-2" onScroll={handleScroll}>
-        {/* Projects */}
+        {/* Home row — standalone, above Tasks */}
         {!search && (
-          <div>
-            <SectionHeader
-              icon={<IconFolder />}
-              label="Projects"
-              count={projects.length + 1}
-              open={isOpen("project")}
-              onToggle={() => toggleSection("project")}
-            />
-            {isOpen("project") && (
-              <>
-                <NavRow
-                  active={isActive(`/agents/${agentId}`)}
-                  icon={<IconHome />}
-                  title={selectedAgent?.name ?? "Home"}
-                  onClick={() => {
-                    if (homeSession) {
-                      void navigate({
-                        to: "/agents/$agentId/sessions/$sessionId",
-                        params: { agentId, sessionId: homeSession.id },
-                      });
-                    } else {
-                      void navigate({ to: "/agents/$agentId", params: { agentId } });
-                    }
-                  }}
-                />
-                {(projects as Project[]).map((p) => (
-                  <NavRow
-                    key={p.id}
-                    active={false}
-                    icon={<IconFolder />}
-                    title={p.name}
-                    onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
-                  />
-                ))}
-              </>
-            )}
-          </div>
+          <NavRow
+            active={
+              homeSession ? activeSessionId === homeSession.id : isActive(`/agents/${agentId}`)
+            }
+            icon={<IconHome />}
+            title={selectedAgent?.name ?? "Home"}
+            onClick={() => {
+              if (homeSession) {
+                void navigate({
+                  to: "/agents/$agentId/sessions/$sessionId",
+                  params: { agentId, sessionId: homeSession.id },
+                });
+              } else {
+                void navigate({ to: "/agents/$agentId", params: { agentId } });
+              }
+            }}
+          />
         )}
 
         {/* Tasks & Automations */}
@@ -647,6 +627,29 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } })
               }
             />
+          </div>
+        )}
+
+        {/* Projects — folders only, no home row */}
+        {!search && projects.length > 0 && (
+          <div>
+            <SectionHeader
+              icon={<IconFolder />}
+              label="Projects"
+              count={projects.length}
+              open={isOpen("project")}
+              onToggle={() => toggleSection("project")}
+            />
+            {isOpen("project") &&
+              (projects as Project[]).map((p) => (
+                <NavRow
+                  key={p.id}
+                  active={false}
+                  icon={<IconFolder />}
+                  title={p.name}
+                  onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
+                />
+              ))}
           </div>
         )}
 
