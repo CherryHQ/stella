@@ -17,6 +17,7 @@ import {
   createAgentTask,
   createChannel,
   createFeed,
+  createProject,
   createProvider,
   createSchedulerJob,
   createSession,
@@ -34,6 +35,7 @@ import {
   deleteProfileMemory,
   deleteProfileSkill,
   deleteProfileSkillFile,
+  deleteProject,
   deleteProvider,
   deleteSchedulerJob,
   deleteSkill,
@@ -63,6 +65,7 @@ import {
   getPluginStatus,
   getProfileSkill,
   getProfileSkillFile,
+  getProject,
   getProvider,
   getSession,
   getSessionMessages,
@@ -96,6 +99,7 @@ import {
   listProfileIdentities,
   listProfileMemories,
   listProfileSkills,
+  listProjects,
   listProviderModels,
   listProviders,
   listProviderTypes,
@@ -145,6 +149,7 @@ import {
   updateFeedEntry,
   updatePluginConfig,
   updateProfileSkill,
+  updateProject,
   updateProvider,
   updateSchedulerJob,
   updateSkill,
@@ -177,6 +182,9 @@ import type {
   CreateFeedData,
   CreateFeedError,
   CreateFeedResponse,
+  CreateProjectData,
+  CreateProjectError,
+  CreateProjectResponse,
   CreateProviderData,
   CreateProviderError,
   CreateProviderResponse,
@@ -228,6 +236,9 @@ import type {
   DeleteProfileSkillFileError,
   DeleteProfileSkillFileResponse,
   DeleteProfileSkillResponse,
+  DeleteProjectData,
+  DeleteProjectError,
+  DeleteProjectResponse,
   DeleteProviderData,
   DeleteProviderError,
   DeleteProviderResponse,
@@ -315,6 +326,9 @@ import type {
   GetProfileSkillFileError,
   GetProfileSkillFileResponse,
   GetProfileSkillResponse,
+  GetProjectData,
+  GetProjectError,
+  GetProjectResponse,
   GetProviderData,
   GetProviderError,
   GetProviderResponse,
@@ -413,6 +427,9 @@ import type {
   ListProfileSkillsData,
   ListProfileSkillsError,
   ListProfileSkillsResponse,
+  ListProjectsData,
+  ListProjectsError,
+  ListProjectsResponse,
   ListProviderModelsData,
   ListProviderModelsError,
   ListProviderModelsResponse,
@@ -555,6 +572,9 @@ import type {
   UpdateProfileSkillData,
   UpdateProfileSkillError,
   UpdateProfileSkillResponse,
+  UpdateProjectData,
+  UpdateProjectError,
+  UpdateProjectResponse,
   UpdateProviderData,
   UpdateProviderError,
   UpdateProviderResponse,
@@ -1197,6 +1217,137 @@ export const getAgentSkillFileOptions = (
     },
     queryKey: getAgentSkillFileQueryKey(options),
   });
+
+export const listProjectsQueryKey = (options: Options<ListProjectsData>) =>
+  createQueryKey("listProjects", options);
+
+/**
+ * List projects for an agent
+ */
+export const listProjectsOptions = (options: Options<ListProjectsData>) =>
+  queryOptions<
+    ListProjectsResponse,
+    ListProjectsError,
+    ListProjectsResponse,
+    ReturnType<typeof listProjectsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listProjects({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listProjectsQueryKey(options),
+  });
+
+/**
+ * Create a project
+ */
+export const createProjectMutation = (
+  options?: Partial<Options<CreateProjectData>>,
+): UseMutationOptions<
+  CreateProjectResponse,
+  CreateProjectError,
+  Options<CreateProjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateProjectResponse,
+    CreateProjectError,
+    Options<CreateProjectData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createProject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Delete a project
+ */
+export const deleteProjectMutation = (
+  options?: Partial<Options<DeleteProjectData>>,
+): UseMutationOptions<
+  DeleteProjectResponse,
+  DeleteProjectError,
+  Options<DeleteProjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteProjectResponse,
+    DeleteProjectError,
+    Options<DeleteProjectData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteProject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getProjectQueryKey = (options: Options<GetProjectData>) =>
+  createQueryKey("getProject", options);
+
+/**
+ * Get a project
+ */
+export const getProjectOptions = (options: Options<GetProjectData>) =>
+  queryOptions<
+    GetProjectResponse,
+    GetProjectError,
+    GetProjectResponse,
+    ReturnType<typeof getProjectQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getProject({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getProjectQueryKey(options),
+  });
+
+/**
+ * Update a project
+ */
+export const updateProjectMutation = (
+  options?: Partial<Options<UpdateProjectData>>,
+): UseMutationOptions<
+  UpdateProjectResponse,
+  UpdateProjectError,
+  Options<UpdateProjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateProjectResponse,
+    UpdateProjectError,
+    Options<UpdateProjectData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await updateProject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listSkillsQueryKey = (options?: Options<ListSkillsData>) =>
   createQueryKey("listSkills", options);

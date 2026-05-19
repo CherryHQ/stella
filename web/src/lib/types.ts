@@ -2,12 +2,26 @@ export interface Session {
   id: string;
   title: string;
   channel: string;
+  source: "main" | "chat" | "scheduler" | "task";
+  project_id?: string;
   agent_id: string;
   agent_name: string;
   user_id: number;
   user_name: string;
   last_active: string;
   archived: boolean;
+}
+
+export interface Project {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  name: string;
+  base_dir: string;
+  description?: string;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ToolBlock {

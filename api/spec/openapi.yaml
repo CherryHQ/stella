@@ -51,6 +51,7 @@ tags:
   - name: plugins
   - name: status
   - name: tasks
+  - name: projects
 paths:
   # ── Status ─────────────────────────────────────────────────────────────────
   /api/status:
@@ -85,6 +86,11 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
   /api/agents/{id}/skills/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  # ── Projects ───────────────────────────────────────────────────────────────
+  /api/agents/{agentId}/projects:
+    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects"
+  /api/agents/{agentId}/projects/{projectId}:
+    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects~1{projectId}"
   # ── Skills ─────────────────────────────────────────────────────────────────
   /api/skills:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"

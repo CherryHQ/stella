@@ -147,6 +147,8 @@ type CtxConversation struct {
 	SessionID      string         `json:"session_id"`
 	Title          sql.NullString `json:"title"`
 	Channel        string         `json:"channel"`
+	Source         string         `json:"source"`
+	ProjectID      sql.NullString `json:"project_id"`
 	Archived       int64          `json:"archived"`
 	LastActive     string         `json:"last_active"`
 	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
@@ -250,6 +252,18 @@ type PluginStateEntry struct {
 	Value     string `json:"value"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type Project struct {
+	ID          string         `json:"id"`
+	AgentID     string         `json:"agent_id"`
+	UserID      string         `json:"user_id"`
+	Name        string         `json:"name"`
+	BaseDir     string         `json:"base_dir"`
+	Description sql.NullString `json:"description"`
+	Archived    int64          `json:"archived"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 type RecallyDigest struct {

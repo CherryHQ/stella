@@ -49,7 +49,16 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := pool.CreateSession("admin", authInfo.UserID)
+	source := "chat"
+	if body.Source != nil {
+		source = string(*body.Source)
+	}
+	projectID := ""
+	if body.ProjectId != nil {
+		projectID = *body.ProjectId
+	}
+
+	info, err := pool.CreateSessionWithSource("admin", source, projectID, authInfo.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -369,6 +378,8 @@ func detectMIME(name string) string {
 type sessionResponse struct {
 	ID         string `json:"id"`
 	Channel    string `json:"channel"`
+	Source     string `json:"source"`
+	ProjectID  string `json:"project_id,omitempty"`
 	Title      string `json:"title"`
 	AgentID    string `json:"agent_id"`
 	UserID     string `json:"user_id"`
@@ -388,6 +399,8 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 	return sessionResponse{
 		ID:         info.ID,
 		Channel:    info.Channel,
+		Source:     info.Source,
+		ProjectID:  info.ProjectID,
 		Title:      info.Title,
 		AgentID:    info.AgentID,
 		UserID:     info.UserID,
@@ -417,6 +430,12 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
 	if info != nil {
 		opts.UserID = info.UserID
+	}
+	if params.Source != nil {
+		opts.Source = string(*params.Source)
+	}
+	if params.ProjectId != nil {
+		opts.ProjectID = *params.ProjectId
 	}
 	sessions, err := sm.ListInfo(r.Context(), opts)
 	if err != nil {

@@ -497,8 +497,16 @@ export type ComponentsCreateFeedRequest = {
   agent_id?: string | null;
 };
 
+export type CreateProjectRequest = {
+  name: string;
+  base_dir: string;
+  description?: string;
+};
+
 export type ComponentsCreateSessionRequest = {
   agent_id?: string;
+  source?: "main" | "chat" | "scheduler" | "task";
+  project_id?: string;
 };
 
 export type ComponentsCreateSkillRequest = {
@@ -821,6 +829,18 @@ export type ComponentsProfileInstallSkillRequest = {
   source: string;
 };
 
+export type Project = {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  name: string;
+  base_dir: string;
+  description?: string;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ComponentsProvider = {
   id: string;
   type: string;
@@ -930,6 +950,8 @@ export type ComponentsSendMessageRequest = {
 export type ComponentsSession = {
   id: string;
   channel: string;
+  source: "main" | "chat" | "scheduler" | "task";
+  project_id?: string;
   title: string;
   agent_id: string;
   user_id: string;
@@ -1180,6 +1202,12 @@ export type ComponentsUpdatePluginConfigRequest = {
   };
 };
 
+export type UpdateProjectRequest = {
+  name?: string;
+  base_dir?: string;
+  description?: string;
+};
+
 export type ComponentsUpdateRoleRequest = {
   role: string;
 };
@@ -1381,6 +1409,10 @@ export type _1Api1Auth1Profile1Soul1AgentId = unknown;
 export type _1Api1Auth1Profile1Vault = unknown;
 
 export type _1Api1Auth1Profile1Vault1Name = unknown;
+
+export type _1Api1Agents1AgentId1Projects = unknown;
+
+export type _1Api1Agents1AgentId1Projects1ProjectId = unknown;
 
 export type _1Api1ProviderTypes = unknown;
 
@@ -2335,6 +2367,193 @@ export type GetAgentSkillFileResponses = {
 
 export type GetAgentSkillFileResponse =
   GetAgentSkillFileResponses[keyof GetAgentSkillFileResponses];
+
+export type ListProjectsData = {
+  body?: never;
+  path: {
+    agentId: string;
+  };
+  query?: {
+    /**
+     * Include archived projects
+     */
+    include_archived?: boolean;
+  };
+  url: "/api/agents/{agentId}/projects";
+};
+
+export type ListProjectsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListProjectsError = ListProjectsErrors[keyof ListProjectsErrors];
+
+export type ListProjectsResponses = {
+  /**
+   * ok
+   */
+  200: Array<Project>;
+};
+
+export type ListProjectsResponse =
+  ListProjectsResponses[keyof ListProjectsResponses];
+
+export type CreateProjectData = {
+  body: CreateProjectRequest;
+  path: {
+    agentId: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentId}/projects";
+};
+
+export type CreateProjectErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type CreateProjectError = CreateProjectErrors[keyof CreateProjectErrors];
+
+export type CreateProjectResponses = {
+  /**
+   * created
+   */
+  201: Project;
+};
+
+export type CreateProjectResponse =
+  CreateProjectResponses[keyof CreateProjectResponses];
+
+export type DeleteProjectData = {
+  body?: never;
+  path: {
+    agentId: string;
+    projectId: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentId}/projects/{projectId}";
+};
+
+export type DeleteProjectErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type DeleteProjectError = DeleteProjectErrors[keyof DeleteProjectErrors];
+
+export type DeleteProjectResponses = {
+  /**
+   * no content
+   */
+  204: void;
+};
+
+export type DeleteProjectResponse =
+  DeleteProjectResponses[keyof DeleteProjectResponses];
+
+export type GetProjectData = {
+  body?: never;
+  path: {
+    agentId: string;
+    projectId: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentId}/projects/{projectId}";
+};
+
+export type GetProjectErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetProjectError = GetProjectErrors[keyof GetProjectErrors];
+
+export type GetProjectResponses = {
+  /**
+   * ok
+   */
+  200: Project;
+};
+
+export type GetProjectResponse = GetProjectResponses[keyof GetProjectResponses];
+
+export type UpdateProjectData = {
+  body: UpdateProjectRequest;
+  path: {
+    agentId: string;
+    projectId: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentId}/projects/{projectId}";
+};
+
+export type UpdateProjectErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type UpdateProjectError = UpdateProjectErrors[keyof UpdateProjectErrors];
+
+export type UpdateProjectResponses = {
+  /**
+   * ok
+   */
+  200: Project;
+};
+
+export type UpdateProjectResponse =
+  UpdateProjectResponses[keyof UpdateProjectResponses];
 
 export type ListSkillsData = {
   body?: never;
@@ -4451,6 +4670,14 @@ export type ListSessionsData = {
      * Number of sessions to skip
      */
     offset?: number;
+    /**
+     * Filter by session source
+     */
+    source?: "main" | "chat" | "scheduler" | "task";
+    /**
+     * Filter by project ID
+     */
+    project_id?: string;
   };
   url: "/api/sessions";
 };

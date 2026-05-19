@@ -1,0 +1,44 @@
+openapi: 3.0.3
+info:
+  title: Projects Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Project:
+      type: object
+      required: [
+        id,
+        agent_id,
+        user_id,
+        name,
+        base_dir,
+        archived,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        user_id: { type: string }
+        name: { type: string }
+        base_dir: { type: string }
+        description: { type: string }
+        archived: { type: boolean }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    CreateProjectRequest:
+      type: object
+      required: [name, base_dir]
+      properties:
+        name: { type: string }
+        base_dir: { type: string }
+        description: { type: string }
+
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name: { type: string }
+        base_dir: { type: string }
+        description: { type: string }

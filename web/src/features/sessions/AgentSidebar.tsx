@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Agent, Session } from "@/lib/types";
+import type { Agent, Session, Project } from "@/lib/types";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import {
   agentSkillsOptions,
   agentMemoriesOptions,
 } from "@/lib/queries/agents";
+import { agentProjectsOptions } from "@/lib/queries/projects";
 
 interface Props {
   agents: Agent[];
@@ -30,12 +31,8 @@ function agentColor(id: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-function isSchedulerSession(s: Session): boolean {
-  return Boolean(s.id && (s.id.startsWith("scheduler:") || s.id.includes(":scheduler:")));
-}
-
 function isTaskSession(s: Session): boolean {
-  return Boolean(s.id?.startsWith("task:") || s.channel === "task");
+  return s.source === "task";
 }
 
 function sessionTitle(s: Session): string {
@@ -155,6 +152,35 @@ function IconPlus() {
       strokeWidth="2.5"
     >
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconHome() {
+  return (
+    <svg
+      className="w-3 h-3"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  );
+}
+
+function IconFolder() {
+  return (
+    <svg
+      className="w-3 h-3"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
     </svg>
   );
 }
@@ -330,8 +356,9 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [openSections, setOpenSections] = useState<string[]>(["chat"]);
+  const [openSections, setOpenSections] = useState<string[]>(["project"]);
   const [openFolders, setOpenFolders] = useState<string[]>([]);
+  const [historySource, setHistorySource] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
   const isFolderOpen = (key: string) => openFolders.includes(key);
@@ -351,6 +378,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: schedulerJobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
   const { data: memories = [] } = useQuery(agentMemoriesOptions(agentId));
+  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
@@ -360,16 +388,17 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const selectedAgent = agents.find((a) => a.id === agentId);
   const color = selectedAgent ? agentColor(selectedAgent.id) : "#888";
 
-  const chatSessions = useMemo(
-    () =>
-      sessions.filter((s) => {
-        if (s.archived) return false;
-        if (isSchedulerSession(s) || isTaskSession(s)) return false;
-        if (search) return sessionTitle(s).toLowerCase().includes(search.toLowerCase());
-        return true;
-      }),
-    [sessions, search],
-  );
+  const chatSessions = useMemo(() => {
+    const base = sessions.filter((s) => {
+      if (s.archived) return false;
+      if (s.id === "main") return false;
+      if (historySource) return s.source === historySource;
+      return true;
+    });
+    if (search)
+      return base.filter((s) => sessionTitle(s).toLowerCase().includes(search.toLowerCase()));
+    return base;
+  }, [sessions, search, historySource]);
 
   const taskSessions = useMemo(
     () => sessions.filter((s) => !s.archived && isTaskSession(s)),
@@ -524,24 +553,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
         </div>
       </div>
 
-      {/* New chat + search */}
-      <div className="flex-shrink-0 px-2.5 pt-3 space-y-1.5">
-        <button
-          type="button"
-          onClick={() => void createSession()}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-primary-foreground bg-primary hover:bg-primary/90 active:scale-[0.98] transition-all duration-150"
-        >
-          <svg
-            className="w-3.5 h-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          {t("sessions.sidebar.newChat")}
-        </button>
+      {/* Search */}
+      <div className="flex-shrink-0 px-2.5 pt-3">
         <div className="relative">
           <input
             type="text"
@@ -565,53 +578,34 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
       {/* Scrollable nav */}
       <div ref={listRef} className="flex-1 overflow-y-auto pb-2" onScroll={handleScroll}>
-        {/* Chats */}
-        {(chatSessions.length > 0 || !search) && (
+        {/* Projects */}
+        {!search && (
           <div>
             <SectionHeader
-              icon={<IconChat />}
-              label={t("sessions.sidebar.chats")}
-              count={chatSessions.length}
-              open={isOpen("chat")}
-              onToggle={() => toggleSection("chat")}
+              icon={<IconFolder />}
+              label="Projects"
+              count={projects.length + 1}
+              open={isOpen("project")}
+              onToggle={() => toggleSection("project")}
             />
-            {isOpen("chat") &&
-              chatSessions.map((s) => (
+            {isOpen("project") && (
+              <>
                 <NavRow
-                  key={s.id}
-                  active={activeSessionId === s.id}
-                  icon={<IconChat />}
-                  title={sessionTitle(s)}
-                  meta={formatTime(s.last_active)}
-                  onClick={() =>
-                    void navigate({
-                      to: "/agents/$agentId/sessions/$sessionId",
-                      params: { agentId, sessionId: s.id },
-                    })
-                  }
+                  active={isActive(`/agents/${agentId}`)}
+                  icon={<IconHome />}
+                  title={selectedAgent?.name ?? "Home"}
+                  onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
                 />
-              ))}
-            {isOpen("chat") && chatSessions.length === 0 && (
-              <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                {t("sessions.sidebar.noChats")}
-              </p>
-            )}
-            {isOpen("chat") && sessionsQuery.isLoading && (
-              <div className="px-7 py-1.5 flex items-center gap-2">
-                <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
-                <span className="text-xs font-mono text-muted-foreground">
-                  {t("common.loading")}
-                </span>
-              </div>
-            )}
-            {isOpen("chat") && sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
-              <button
-                type="button"
-                onClick={() => void sessionsQuery.fetchNextPage()}
-                className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
-              >
-                {t("sessions.sidebar.loadMore")}
-              </button>
+                {(projects as Project[]).map((p) => (
+                  <NavRow
+                    key={p.id}
+                    active={false}
+                    icon={<IconFolder />}
+                    title={p.name}
+                    onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
+                  />
+                ))}
+              </>
             )}
           </div>
         )}
@@ -743,6 +737,82 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     })
                   }
                 />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* History (was Chats - moved to bottom, collapsed by default) */}
+        {(chatSessions.length > 0 || !search) && (
+          <div>
+            <SectionHeader
+              icon={<IconChat />}
+              label="History"
+              count={chatSessions.length}
+              open={isOpen("history")}
+              onToggle={() => toggleSection("history")}
+            />
+            {isOpen("history") && (
+              <>
+                <div className="flex items-center gap-1 px-4 py-1">
+                  <select
+                    value={historySource}
+                    onChange={(e) => setHistorySource(e.target.value)}
+                    className="text-xs font-mono bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
+                  >
+                    <option value="">all</option>
+                    <option value="chat">chat</option>
+                    <option value="scheduler">scheduler</option>
+                    <option value="task">task</option>
+                  </select>
+                </div>
+                {chatSessions.map((s) => (
+                  <NavRow
+                    key={s.id}
+                    active={activeSessionId === s.id}
+                    icon={<IconChat />}
+                    title={sessionTitle(s)}
+                    meta={formatTime(s.last_active)}
+                    onClick={() =>
+                      void navigate({
+                        to: "/agents/$agentId/sessions/$sessionId",
+                        params: { agentId, sessionId: s.id },
+                      })
+                    }
+                  />
+                ))}
+                {chatSessions.length === 0 && (
+                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                    {t("sessions.sidebar.noChats")}
+                  </p>
+                )}
+                {sessionsQuery.isLoading && (
+                  <div className="px-7 py-1.5 flex items-center gap-2">
+                    <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {t("common.loading")}
+                    </span>
+                  </div>
+                )}
+                {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
+                  <button
+                    type="button"
+                    onClick={() => void sessionsQuery.fetchNextPage()}
+                    className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
+                  >
+                    {t("sessions.sidebar.loadMore")}
+                  </button>
+                )}
+                <div className="flex justify-end px-3 py-1">
+                  <button
+                    type="button"
+                    onClick={() => void createSession()}
+                    className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
+                  >
+                    <IconPlus />
+                    New
+                  </button>
+                </div>
               </>
             )}
           </div>

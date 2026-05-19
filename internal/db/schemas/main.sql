@@ -32,3 +32,4 @@
 -- atlas:import tables/recally_digests.sql
 -- atlas:import tables/agent_task.sql
 -- atlas:import tables/agent_task_event.sql
+-- atlas:import tables/projects.sql

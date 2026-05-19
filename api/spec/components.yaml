@@ -588,6 +588,56 @@ components:
           type: boolean
         username:
           type: string
+    Project:
+      type: object
+      required: [
+        id,
+        agent_id,
+        user_id,
+        name,
+        base_dir,
+        archived,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        user_id:
+          type: string
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
+        archived:
+          type: boolean
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    CreateProjectRequest:
+      type: object
+      required: [name, base_dir]
+      properties:
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
     ProviderModelCost:
       type: object
       properties:
@@ -1284,6 +1334,7 @@ components:
       required: [
         id,
         channel,
+        source,
         title,
         agent_id,
         user_id,
@@ -1295,6 +1346,11 @@ components:
         id:
           type: string
         channel:
+          type: string
+        source:
+          type: string
+          enum: [main, chat, scheduler, task]
+        project_id:
           type: string
         title:
           type: string
@@ -1319,6 +1375,11 @@ components:
       type: object
       properties:
         agent_id:
+          type: string
+        source:
+          type: string
+          enum: [main, chat, scheduler, task]
+        project_id:
           type: string
     MessagePart:
       type: object

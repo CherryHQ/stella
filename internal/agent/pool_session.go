@@ -13,8 +13,22 @@ import (
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
 func (p *Pool) CreateSession(channel string, userID ...string) (SessionInfo, error) {
+	return p.CreateSessionWithSource(channel, "chat", "", userID...)
+}
+
+// CreateSessionWithSource creates a new session with explicit source and projectID.
+func (p *Pool) CreateSessionWithSource(channel, source, projectID string, userID ...string) (SessionInfo, error) {
+	if source == "" {
+		source = "chat"
+	}
 	p.mu.Lock()
 	info := p.createSessionLocked(channel, userID...)
+	info.Source = source
+	info.ProjectID = projectID
+	if sess, ok := p.sessions[info.ID]; ok {
+		sess.Info.Source = source
+		sess.Info.ProjectID = projectID
+	}
 	p.mu.Unlock()
 	return p.persistNewSession(info)
 }
