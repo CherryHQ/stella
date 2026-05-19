@@ -483,6 +483,9 @@ type ListSessionsParams struct {
 	// Kind Filter by session kind
 	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
 
+	// AgentId Filter by agent ID
+	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+
 	// ProjectId Filter by project ID
 	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
@@ -8387,6 +8390,18 @@ func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Re
 		if params.Kind != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.AgentId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

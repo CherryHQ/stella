@@ -481,6 +481,9 @@ type ListSessionsParams struct {
 	// Kind Filter by session kind
 	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
 
+	// AgentId Filter by agent ID
+	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+
 	// ProjectId Filter by project ID
 	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
@@ -4854,6 +4857,19 @@ func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
 		}
 		return
 	}

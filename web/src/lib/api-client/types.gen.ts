@@ -4675,6 +4675,10 @@ export type ListSessionsData = {
      */
     kind?: "main" | "chat" | "scheduler" | "task";
     /**
+     * Filter by agent ID
+     */
+    agent_id?: string;
+    /**
      * Filter by project ID
      */
     project_id?: string;
