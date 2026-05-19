@@ -59,13 +59,14 @@ Read the relevant reference file for detailed guidance:
 
 Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
-| Command    | Description                   |
-| ---------- | ----------------------------- |
-| `/new`     | Start a fresh session         |
-| `/compact` | Compress conversation history |
-| `/model`   | Switch model interactively    |
-| `/agent`   | List or switch agents         |
-| `/whoami`  | Show your user/chat ID        |
+| Command    | Description                                   |
+| ---------- | --------------------------------------------- |
+| `/new`     | Clear context (compact main, or archive temp) |
+| `/temp`    | Start a temporary blank session               |
+| `/compact` | Compress conversation history                 |
+| `/model`   | Switch model interactively                    |
+| `/agent`   | List or switch agents                         |
+| `/whoami`  | Show your user/chat ID                        |
 
 ## CLI commands
 

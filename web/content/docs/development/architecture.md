@@ -243,7 +243,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/temp`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ## Admin API
 

@@ -80,16 +80,17 @@ The agent can then use the `kreuzberg extract` command to parse the file.
 
 Send these commands as text messages to the bot:
 
-| Command             | Description                     |
-| ------------------- | ------------------------------- |
-| `/start` or `/help` | Welcome and help                |
-| `/new`              | Start a fresh session           |
-| `/compact`          | Compress conversation history   |
-| `/abort`            | Cancel the in-progress response |
-| `/model`            | List available models           |
-| `/model <number>`   | Switch to model by number       |
-| `/model <query>`    | Filter models by name           |
-| `/whoami`           | Show your user ID for config    |
+| Command             | Description                        |
+| ------------------- | ---------------------------------- |
+| `/start` or `/help` | Welcome and help                   |
+| `/new`              | Clear context (compact or archive) |
+| `/temp`             | Start a temporary blank session    |
+| `/compact`          | Compress conversation history      |
+| `/abort`            | Cancel the in-progress response    |
+| `/model`            | List available models              |
+| `/model <number>`   | Switch to model by number          |
+| `/model <query>`    | Filter models by name              |
+| `/whoami`           | Show your user ID for config       |
 
 ## Configuration Reference
 

@@ -28,7 +28,8 @@ func atoiOr(s string, fallback int) int {
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
-		{Text: "new", Description: "Start a new session"},
+		{Text: "new", Description: "Clear context (compact or archive)"},
+		{Text: "temp", Description: "Start a temporary blank session"},
 		{Text: "compact", Description: "Compact session history"},
 		{Text: "abort", Description: "Cancel the in-progress response"},
 		{Text: "model", Description: "List or switch models"},
@@ -44,7 +45,7 @@ func registerCommands(bot *tele.Bot) error {
 func (b *Bot) registerHandlers() {
 	// Register shared slash commands explicitly so Telegram's command list and
 	// handler table stay aligned. /whoami keeps a Telegram-specific override.
-	for _, cmd := range []string{"/start", "/help", "/new", "/compact", "/abort"} {
+	for _, cmd := range []string{"/start", "/help", "/new", "/temp", "/compact", "/abort"} {
 		b.bot.Handle(cmd, b.guard(func(c tele.Context) error {
 			return b.handleSharedCommand(c, cmd)
 		}))

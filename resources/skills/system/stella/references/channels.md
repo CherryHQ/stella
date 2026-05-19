@@ -12,7 +12,8 @@ All channel configuration is stored in the database and managed via the Web UI (
 Commands available in all channels:
 
 - `/agent` -- List available agents or switch to a specific one
-- `/new` -- Start a fresh session (with the current agent)
+- `/new` -- Clear context (compact main session, or archive temp session)
+- `/temp` -- Start a temporary blank session
 - `/compact` -- Compress conversation history
 - `/model` -- Switch model interactively
 - `/whoami` -- Show your user/chat ID
@@ -43,7 +44,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
 - Image input: send photos for vision-based analysis (requires vision-capable model)
 - Multi-agent: `/agent` to list or switch agents per DM or group
-- In-chat commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- In-chat commands: `/new`, `/temp`, `/compact`, `/model`, `/agent`, `/whoami`
 
 ### Group support
 
@@ -87,7 +88,7 @@ Connects via WebSocket (no public URL needed). QQ supports the same channel inst
 - Native Stream API for progressive responses
 - C2C (private) and group @mention support
 - Image input support
-- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/whoami`
+- Commands: `/start`, `/help`, `/new`, `/temp`, `/compact`, `/model`, `/whoami`
 
 ## Feishu bot
 
@@ -117,7 +118,7 @@ Connects via WebSocket (no public URL or webhook needed).
 
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
-- Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Commands: `/new`, `/temp`, `/compact`, `/model`, `/agent`, `/whoami`
 - Chat transport only. Workspace automation moved out of builtin `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
 
 ## WeChat bot (iLink)
@@ -149,7 +150,7 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 - Image input/output with AES-128-ECB encryption
 - Typing indicators while processing
 - QR-code-based login via Web UI
-- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Commands: `/start`, `/help`, `/new`, `/temp`, `/compact`, `/model`, `/agent`, `/whoami`
 
 ### WeChat limitations
 
