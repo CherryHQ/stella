@@ -490,6 +490,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithSkillStore(pluginhost.NewSkillStoreAdapter(skillStore)),
+		agent.WithProjectResolver(func(ctx context.Context, projectID, userID string) (string, error) {
+			p, err := sqlc.New(db).GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
+			if err != nil {
+				return "", err
+			}
+			return p.BaseDir, nil
+		}),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {

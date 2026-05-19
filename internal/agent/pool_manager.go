@@ -139,6 +139,12 @@ func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	}
 }
 
+func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.projectResolver = r
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -160,6 +166,7 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           sandbox.VaultEnvLoader
+	projectResolver          ProjectResolverFunc
 	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
@@ -542,6 +549,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenService:             pm.tokenService,
 		TokenManager:             pm.tokenManager,
+		ProjectResolver:          pm.projectResolver,
 	})
 }
 
