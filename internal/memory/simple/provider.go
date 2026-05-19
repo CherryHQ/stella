@@ -718,6 +718,7 @@ const (
 	roleTool      = "tool"
 
 	eventTypeText       = "text"
+	eventTypeThinking   = "thinking"
 	eventTypeMultimodal = "multimodal"
 	eventTypeToolCall   = "tool_call"
 	eventTypeToolResult = "tool_result"
@@ -774,20 +775,22 @@ func userMessageToRows(m ai.UserMessage) []storageRow {
 
 func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 	var rows []storageRow
-	var text string
 	for _, block := range m.Content {
 		switch b := block.(type) {
+		case ai.ThinkingContent:
+			if b.Thinking != "" {
+				rows = append(rows, storageRow{role: roleAssistant, eventType: eventTypeThinking, content: b.Thinking})
+			}
 		case ai.TextContent:
-			text += b.Text
+			if b.Text != "" {
+				rows = append(rows, storageRow{role: roleAssistant, eventType: eventTypeText, content: b.Text})
+			}
 		case ai.ToolCall:
 			argsJSON, _ := json.Marshal(b.Arguments)
 			envelope := toolCallEnvelope{ID: b.ID, Tool: b.Name, Args: argsJSON}
 			data, _ := json.Marshal(envelope)
 			rows = append(rows, storageRow{role: roleAssistant, eventType: eventTypeToolCall, content: string(data)})
 		}
-	}
-	if text != "" {
-		rows = append([]storageRow{{role: roleAssistant, eventType: eventTypeText, content: text}}, rows...)
 	}
 	return rows
 }
@@ -881,6 +884,9 @@ func mergeAssistantRows(msgs []sqlc.CtxMessage, start int) (ai.AssistantMessage,
 	case eventTypeText:
 		blocks = append(blocks, ai.TextContent{Text: msg.Content})
 		consumed++
+	case eventTypeThinking:
+		blocks = append(blocks, ai.ThinkingContent{Thinking: msg.Content})
+		consumed++
 	case eventTypeToolCall:
 		if call, ok := decodeToolCall(msg.Content); ok {
 			blocks = append(blocks, call)
@@ -894,11 +900,20 @@ func mergeAssistantRows(msgs []sqlc.CtxMessage, start int) (ai.AssistantMessage,
 
 	for start+consumed < len(msgs) {
 		next := msgs[start+consumed]
-		if next.Role != roleAssistant || next.EventType != eventTypeToolCall {
+		if next.Role != roleAssistant {
 			break
 		}
-		if call, ok := decodeToolCall(next.Content); ok {
-			blocks = append(blocks, call)
+		switch next.EventType {
+		case eventTypeThinking:
+			blocks = append(blocks, ai.ThinkingContent{Thinking: next.Content})
+		case eventTypeText:
+			blocks = append(blocks, ai.TextContent{Text: next.Content})
+		case eventTypeToolCall:
+			if call, ok := decodeToolCall(next.Content); ok {
+				blocks = append(blocks, call)
+			}
+		default:
+			return ai.AssistantMessage{Content: blocks}, consumed
 		}
 		consumed++
 	}

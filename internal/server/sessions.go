@@ -1146,6 +1146,8 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		}
 		totalTokens += row.TokenCount
 		switch row.EventType {
+		case "thinking":
+			blocks = append(blocks, map[string]any{"type": "thinking", "thinking": row.Content})
 		case "tool_call":
 			blocks = append(blocks, decodeToolCallBlock(row.Content))
 		default:

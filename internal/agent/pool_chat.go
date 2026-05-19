@@ -204,16 +204,18 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession me
 	}()
 	persistCtx := context.WithoutCancel(ctx)
 	var textBuf strings.Builder
+	var reasoningBuf strings.Builder
 	for evt := range stream {
 		if evt.Err != nil {
 			chatErr = evt.Err
 			// Persist any buffered text before returning on error.
-			if textBuf.Len() > 0 {
-				flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
+			if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
+				flushMsg := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := p.mem.Append(persistCtx, memSession, flushMsg); err != nil {
 					p.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
 				}
 				textBuf.Reset()
+				reasoningBuf.Reset()
 			}
 			// On timeout, emit a friendly status notice instead of a raw error
 			// so the user sees context rather than a crash. The session remains
@@ -234,12 +236,13 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession me
 		// Store messages emitted by runners (assistant turns with tool calls, tool results).
 		if evt.Store != nil {
 			// Flush buffered text before storing a non-text message.
-			if textBuf.Len() > 0 {
-				flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
+			if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
+				flushMsg := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := p.mem.Append(persistCtx, memSession, flushMsg); err != nil {
 					p.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
 				}
 				textBuf.Reset()
+				reasoningBuf.Reset()
 			}
 			if err := p.mem.Append(persistCtx, memSession, evt.Store); err != nil {
 				p.log.Warn("memory append store message failed", "session_id", sessionID, "error", err)
@@ -252,7 +255,10 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession me
 			continue
 		}
 
-		// Text delta: buffer for persistence (only the final assembled message is ingested).
+		// Text/reasoning deltas: buffer for persistence (only the final assembled message is ingested).
+		if evt.Reasoning != "" {
+			reasoningBuf.WriteString(evt.Reasoning)
+		}
 		if evt.Text != "" {
 			textBuf.WriteString(evt.Text)
 		}
@@ -260,10 +266,21 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession me
 		out <- evt
 	}
 	// Stream ended normally — persist the complete assistant message.
-	if textBuf.Len() > 0 {
-		finalMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
+	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
+		finalMsg := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 		if err := p.mem.Append(persistCtx, memSession, finalMsg); err != nil {
 			p.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
 		}
 	}
+}
+
+func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {
+	blocks := make([]ai.ContentBlock, 0, 2)
+	if reasoning != "" {
+		blocks = append(blocks, ai.ThinkingContent{Thinking: reasoning})
+	}
+	if text != "" {
+		blocks = append(blocks, ai.TextContent{Text: text})
+	}
+	return ai.AssistantMessage{Content: blocks}
 }
