@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
 import type { Message, Session, Skill, Tool } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -43,7 +42,7 @@ export function SessionDetail({
   );
   const [userInput, setUserInput] = useState("");
   const [attachments, setAttachments] = useState<
-    { name: string; path: string; uploading: boolean }[]
+    { name: string; path: string; uploading: boolean; error?: boolean }[]
   >([]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -226,7 +225,9 @@ export function SessionDetail({
           );
         } catch (e) {
           console.error("upload failed:", e);
-          setAttachments((prev) => prev.filter((a) => a !== placeholder));
+          setAttachments((prev) =>
+            prev.map((a) => (a === placeholder ? { ...a, uploading: false, error: true } : a)),
+          );
         }
       }
     },
@@ -267,11 +268,11 @@ export function SessionDetail({
 
   if (!session) {
     return (
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-shrink-0 h-14 px-4 border-b border-border/60 bg-background flex items-center justify-between">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
+        <div className="flex-shrink-0 h-[52px] px-6 border-b border-accent flex items-center justify-between">
           <button
             onClick={onToggleLeft}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Toggle sessions"
             aria-label="Toggle sidebar"
           >
@@ -291,7 +292,7 @@ export function SessionDetail({
           </button>
           <button
             onClick={onToggleRight}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Toggle workspace"
             aria-label="Toggle workspace"
           >
@@ -310,22 +311,24 @@ export function SessionDetail({
             </svg>
           </button>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground/70">Pick a conversation to continue</p>
-          <p className="text-xs text-muted-foreground/50">or start something new</p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 bg-secondary">
+          <p className="text-lg font-semibold tracking-tight text-foreground">
+            Pick a conversation
+          </p>
+          <p className="text-sm text-muted-foreground">or start something new</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+    <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex-shrink-0 h-14 px-4 border-b border-border/60 bg-background flex items-center">
-        <div className="flex items-center gap-2.5 w-full min-w-0">
+      <div className="flex-shrink-0 h-[52px] px-6 border-b border-accent flex items-center">
+        <div className="flex items-center gap-3 w-full min-w-0">
           <button
             onClick={onToggleLeft}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
             title="Toggle sessions"
             aria-label="Toggle sidebar"
           >
@@ -345,25 +348,50 @@ export function SessionDetail({
           </button>
           <button
             onClick={onBack}
-            className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+            className="lg:hidden text-sm text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
             aria-label="Go back"
           >
             ←
           </button>
-          <h1 className="flex-1 text-base font-medium tracking-tight truncate min-w-0">
-            {session.title || "Untitled session"}
-          </h1>
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <h1 className="font-semibold tracking-tight truncate min-w-0">
+              {session.title || "Untitled session"}
+            </h1>
+            {session.agent_name && (
+              <span className="text-xs text-muted-foreground shrink-0">{session.agent_name}</span>
+            )}
+          </div>
           <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="xs"
+            <button
               onClick={toggleInspect}
-              className={cn(inspectOpen ? "text-primary" : "text-muted-foreground")}
-              title="Inspect session"
-              aria-label="Inspect session"
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
+                inspectOpen
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
+              )}
+              title="Details"
+              aria-label="Toggle details"
             >
               <svg
-                className="w-[15px] h-[15px]"
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth="1.8"
+                stroke="currentColor"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" d="M12 16v-4M12 8h.01" />
+              </svg>
+            </button>
+            <button
+              onClick={onToggleRight}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+              title="Toggle workspace"
+              aria-label="Toggle workspace"
+            >
+              <svg
+                className="w-4 h-4"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth="1.8"
@@ -372,31 +400,11 @@ export function SessionDetail({
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
+                  d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
                 />
               </svg>
-            </Button>
+            </button>
           </div>
-          <button
-            onClick={onToggleRight}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
-            title="Toggle workspace"
-            aria-label="Toggle workspace"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.8"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
-              />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -410,9 +418,9 @@ export function SessionDetail({
             onScroll={handleTranscriptScroll}
           />
 
-          {/* Message input */}
+          {/* Composer */}
           {session.user_id === currentUserID && (
-            <div className="flex-shrink-0 px-4 pb-4 pt-3 bg-background">
+            <div className="flex-shrink-0 px-6 pb-5 pt-3 bg-background">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -423,116 +431,123 @@ export function SessionDetail({
                   e.target.value = "";
                 }}
               />
-              <div
-                className={cn(
-                  "relative rounded-2xl border bg-background transition-all duration-150",
-                  isStreaming
-                    ? "border-primary/40 shadow-sm"
-                    : "border-border focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_hsl(var(--primary)/0.1)]",
-                )}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!isStreaming) handleFileSelect(e.dataTransfer.files).catch(console.error);
-                }}
-              >
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-4 pt-3">
-                    {attachments.map((a, i) => (
-                      <span
-                        key={i}
-                        className={cn(
-                          "inline-flex items-center gap-1 text-[11px] font-mono rounded-lg px-2 py-1 max-w-48 border",
-                          a.uploading
-                            ? "bg-muted/50 text-muted-foreground/50 border-border"
-                            : "bg-primary/5 text-primary border-primary/20",
-                        )}
-                      >
-                        {a.uploading ? (
-                          <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
-                        ) : (
-                          <svg
-                            className="w-3 h-3 shrink-0"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth="2"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
-                            />
-                          </svg>
-                        )}
-                        <span className="truncate">{a.name}</span>
-                        {!a.uploading && (
-                          <button
-                            onClick={() => removeAttachment(i)}
-                            className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0"
-                          >
-                            x
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage().catch(console.error);
-                    }
-                  }}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "auto";
-                    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-                  }}
-                  onPaste={(e) => {
-                    const files = e.clipboardData.files;
-                    if (files.length > 0 && !isStreaming) {
-                      e.preventDefault();
-                      handleFileSelect(files).catch(console.error);
-                    }
-                  }}
-                  placeholder={t("sessions.composer.placeholder")}
+              <div className="mx-auto max-w-[720px] relative">
+                <div
                   className={cn(
-                    "w-full px-4 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto",
-                    attachments.length > 0 ? "pt-2" : "pt-3",
+                    "flex items-end bg-secondary rounded-[18px] border transition-colors duration-150",
+                    isStreaming ? "border-primary/40" : "border-border focus-within:border-primary",
                   )}
-                  style={{ minHeight: 52, maxHeight: 160 }}
-                  rows={1}
-                  disabled={isStreaming}
-                />
-                <div className="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
-                  {!isStreaming && (
-                    <span className="text-[10px] text-muted-foreground/50 select-none">
-                      ↵ send · ⇧↵ new line
-                    </span>
-                  )}
-                  {isStreaming && (
-                    <span className="text-[10px] text-primary/60 select-none">generating…</span>
-                  )}
-                  <div className="flex items-center gap-1 pointer-events-auto">
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!isStreaming) handleFileSelect(e.dataTransfer.files).catch(console.error);
+                  }}
+                >
+                  <div className="flex-1 min-w-0">
+                    {attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 px-5 pt-3">
+                        {attachments.map((a, i) => (
+                          <span
+                            key={i}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 text-xs font-mono rounded-lg px-2.5 py-1 max-w-48 border",
+                              a.error
+                                ? "bg-destructive/5 text-destructive border-destructive/20"
+                                : a.uploading
+                                  ? "bg-muted/50 text-muted-foreground/50 border-border"
+                                  : "bg-primary/5 text-primary border-primary/20",
+                            )}
+                          >
+                            {a.uploading ? (
+                              <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
+                            ) : a.error ? (
+                              <svg
+                                className="w-3 h-3 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth="2"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
+                                />
+                              </svg>
+                            ) : (
+                              <svg
+                                className="w-3 h-3 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth="2"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                                />
+                              </svg>
+                            )}
+                            <span className="truncate">{a.error ? "Upload failed" : a.name}</span>
+                            {!a.uploading && (
+                              <button
+                                onClick={() => removeAttachment(i)}
+                                className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0"
+                                aria-label="Remove attachment"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <textarea
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage().catch(console.error);
+                        }
+                      }}
+                      onInput={(e) => {
+                        const el = e.currentTarget;
+                        el.style.height = "auto";
+                        el.style.height = Math.min(el.scrollHeight, 160) + "px";
+                      }}
+                      onPaste={(e) => {
+                        const files = e.clipboardData.files;
+                        if (files.length > 0 && !isStreaming) {
+                          e.preventDefault();
+                          handleFileSelect(files).catch(console.error);
+                        }
+                      }}
+                      placeholder={t("sessions.composer.placeholder")}
+                      className={cn(
+                        "w-full pl-5 pr-2 bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto",
+                        attachments.length > 0 ? "pt-2 pb-3" : "py-3",
+                      )}
+                      style={{ minHeight: 25, maxHeight: 160 }}
+                      rows={1}
+                      disabled={isStreaming}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 p-2 shrink-0">
                     {!isStreaming && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
+                      <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground rounded-lg"
-                        title="Attach files"
-                        aria-label="Attach files"
+                        className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors active:scale-95"
+                        title="Attach file"
+                        aria-label="Attach file"
                       >
                         <svg
-                          className="w-4 h-4"
+                          className="w-[18px] h-[18px]"
                           fill="none"
                           viewBox="0 0 24 24"
                           strokeWidth="1.8"
@@ -540,40 +555,46 @@ export function SessionDetail({
                         >
                           <path
                             strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                            d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
                           />
                         </svg>
-                      </Button>
+                      </button>
                     )}
-                    {isStreaming && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
+                    {isStreaming ? (
+                      <button
                         onClick={() => chatStop()}
-                        className="text-destructive gap-1 rounded-lg"
+                        className="h-[34px] px-3 rounded-full flex items-center justify-center text-destructive text-sm cursor-pointer hover:bg-destructive/10 transition-colors active:scale-95"
                       >
                         Stop
-                      </Button>
-                    )}
-                    {!isStreaming && (
-                      <Button
-                        size="sm"
+                      </button>
+                    ) : (
+                      <button
                         disabled={
                           (!userInput.trim() && attachments.length === 0) ||
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="rounded-full gap-1.5 active:scale-[0.98] transition-transform"
+                        className="w-[34px] h-[34px] rounded-full flex items-center justify-center bg-primary text-primary-foreground cursor-pointer hover:bg-[#0071e3] disabled:bg-border disabled:text-muted-foreground disabled:cursor-default transition-colors active:scale-95"
+                        title="Send"
+                        aria-label="Send message"
                       >
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
                         </svg>
-                        {t("sessions.composer.send")}
-                      </Button>
+                      </button>
                     )}
                   </div>
                 </div>
+                {!isStreaming && (
+                  <span className="absolute -bottom-5 left-5 text-[11px] text-muted-foreground/40 select-none">
+                    ↵ send · ⇧↵ new line
+                  </span>
+                )}
+                {isStreaming && (
+                  <span className="absolute -bottom-5 left-5 text-[11px] text-primary/50 select-none">
+                    generating…
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -625,29 +646,28 @@ function InspectPanel({
 }) {
   const sessionTotalTokens = messages.reduce((sum, m) => sum + (m.token_count ?? 0), 0);
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-secondary">
-      <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
-          Inspect
-        </span>
+    <aside className="flex w-[300px] shrink-0 flex-col border-l border-accent bg-secondary">
+      <div className="h-[52px] shrink-0 px-5 flex items-center justify-between">
+        <span className="text-sm font-semibold tracking-tight text-foreground">Details</span>
         <button
           onClick={onClose}
-          className="text-xs text-muted-foreground/50 hover:text-foreground cursor-pointer"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer text-lg leading-none"
+          aria-label="Close details"
         >
           ×
         </button>
       </div>
 
-      <div className="h-10 shrink-0 border-b border-border px-2 flex items-center gap-1">
+      <div className="shrink-0 px-3 pb-3 flex gap-1">
         {(["session", "tools", "prompt", "skills"] as const).map((item) => (
           <button
             key={item}
             onClick={() => onTabChange(item)}
             className={cn(
-              "flex-1 rounded-md px-2 py-1.5 text-[11px] font-mono capitalize cursor-pointer",
+              "flex-1 py-1.5 rounded-lg text-[13px] capitalize cursor-pointer transition-colors",
               tab === item
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/50",
+                ? "bg-background text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent",
             )}
           >
             {item}
@@ -655,120 +675,115 @@ function InspectPanel({
         ))}
       </div>
 
-      {tab === "session" && (
-        <div className="p-3 space-y-3 overflow-auto">
-          <dl className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-2 text-xs">
-            <dt className="font-mono text-muted-foreground/40">Channel</dt>
-            <dd className="truncate">{channelLabel(session.channel) || "unknown"}</dd>
-            <dt className="font-mono text-muted-foreground/40">Agent</dt>
-            <dd className="truncate">{session.agent_name || session.agent_id || "unknown"}</dd>
-            <dt className="font-mono text-muted-foreground/40">Active</dt>
-            <dd>{formatTime(session.last_active)}</dd>
-            <dt className="font-mono text-muted-foreground/40">Messages</dt>
-            <dd>{messages.length.toLocaleString()}</dd>
-            <dt className="font-mono text-muted-foreground/40">Tokens</dt>
-            <dd>{sessionTotalTokens > 0 ? sessionTotalTokens.toLocaleString() : "—"}</dd>
-          </dl>
-          <div className="pt-3 border-t border-border">
-            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40 mb-2">
-              Session ID
+      <div className="flex-1 overflow-auto">
+        {tab === "session" && (
+          <div className="px-5 py-4">
+            <div className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-3.5 text-sm">
+              <span className="text-muted-foreground">Agent</span>
+              <span className="truncate">
+                {session.agent_name || session.agent_id || "unknown"}
+              </span>
+
+              <span className="text-muted-foreground">Channel</span>
+              <span className="truncate">{channelLabel(session.channel) || "unknown"}</span>
+
+              <span className="text-muted-foreground">Active</span>
+              <span>{formatTime(session.last_active)}</span>
+
+              <span className="text-muted-foreground">Messages</span>
+              <span>{messages.length.toLocaleString()}</span>
+
+              <span className="text-muted-foreground">Tokens</span>
+              <span>{sessionTotalTokens > 0 ? sessionTotalTokens.toLocaleString() : "—"}</span>
             </div>
-            <button
-              onClick={onCopyID}
-              className="w-full text-left text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border rounded-lg px-2 py-1.5 truncate cursor-pointer flex items-center gap-2"
-              title="Copy session ID"
-            >
-              <span className="truncate flex-1">{session.id}</span>
-              <span className="text-[10px] text-muted-foreground/40 shrink-0">copy</span>
-            </button>
+
+            <div className="mt-5 pt-4 border-t border-accent">
+              <div className="text-xs text-muted-foreground mb-2">Session ID</div>
+              <button
+                onClick={onCopyID}
+                className="w-full text-left font-mono text-xs text-muted-foreground hover:border-border border border-accent bg-background rounded-[11px] px-3 py-2.5 truncate cursor-pointer flex items-center gap-2 transition-colors"
+                title="Copy session ID"
+              >
+                <span className="truncate flex-1">{session.id}</span>
+                <span className="text-xs text-primary shrink-0">Copy</span>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === "tools" && (
-        <div className="overflow-auto">
-          {toolsLoading ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading tools…</div>
-          ) : tools.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">
-              No tools loaded.
-            </div>
-          ) : (
-            <div className="p-2 space-y-2">
-              {tools.map((tool) => (
-                <ToolRow key={tool.name} tool={tool} compact />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "skills" && (
-        <div className="overflow-auto">
-          {skillsLoading ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading skills…</div>
-          ) : skills.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">
-              No enabled skills available for this session.
-            </div>
-          ) : (
-            <div className="p-2 space-y-2">
-              {skills.map((skill) => (
-                <SkillRow key={skill.id} skill={skill} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "prompt" && (
-        <div className="p-3 overflow-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono text-muted-foreground/40">
-              ~{Math.round(systemPrompt.length / 4)} tokens
-            </span>
-            <button
-              onClick={() => navigator.clipboard.writeText(systemPrompt).catch(console.error)}
-              className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              Copy
-            </button>
+        {tab === "tools" && (
+          <div>
+            {toolsLoading ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">Loading tools…</div>
+            ) : tools.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">No tools available.</div>
+            ) : (
+              <div className="p-2 space-y-1.5">
+                {tools.map((tool) => (
+                  <ToolRow key={tool.name} tool={tool} />
+                ))}
+              </div>
+            )}
           </div>
-          <pre className="text-[11px] font-mono text-muted-foreground/70 whitespace-pre-wrap leading-relaxed bg-muted/50 rounded-lg p-3">
-            {systemPrompt || "No system prompt available."}
-          </pre>
-        </div>
-      )}
+        )}
+
+        {tab === "skills" && (
+          <div>
+            {skillsLoading ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">Loading skills…</div>
+            ) : skills.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">
+                No skills available for this session.
+              </div>
+            ) : (
+              <div className="p-2 space-y-1.5">
+                {skills.map((skill) => (
+                  <SkillRow key={skill.id} skill={skill} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "prompt" && (
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground">
+                ~{Math.round(systemPrompt.length / 4)} tokens
+              </span>
+              <button
+                onClick={() => navigator.clipboard.writeText(systemPrompt).catch(console.error)}
+                className="text-xs text-primary hover:text-foreground cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+            <pre className="text-[12px] font-mono text-muted-foreground/70 whitespace-pre-wrap leading-relaxed bg-background rounded-[11px] p-3.5">
+              {systemPrompt || "No system prompt available."}
+            </pre>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
 
 function SkillRow({ skill }: { skill: Skill }) {
   return (
-    <div className="border border-border rounded-lg px-2 py-2">
+    <div className="bg-background rounded-[11px] px-3 py-2.5">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm font-mono font-medium truncate">{skill.name || skill.id}</span>
-        <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5 shrink-0">
+        <span className="text-sm font-medium truncate">{skill.name || skill.id}</span>
+        <span className="text-[10px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5 shrink-0">
           {skill.scope}
         </span>
-        <span
-          className={cn(
-            "text-[9px] rounded-full px-1.5 py-0.5 shrink-0",
-            skill.status === "active"
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {skill.status}
-        </span>
+        {skill.status === "active" && (
+          <span className="text-[10px] text-primary bg-primary/10 rounded-full px-1.5 py-0.5 shrink-0">
+            active
+          </span>
+        )}
       </div>
       {skill.description && (
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{skill.description}</p>
-      )}
-      {skill.files && skill.files.length > 0 && (
-        <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">
-          {skill.files.length} files
-        </p>
       )}
     </div>
   );
@@ -780,22 +795,21 @@ function channelLabel(ch: string | null | undefined): string {
   return m ? m[1] : ch;
 }
 
-function ToolRow({ tool, compact = false }: { tool: Tool; compact?: boolean }) {
+function ToolRow({ tool }: { tool: Tool }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div>
+    <div className="bg-background rounded-[11px] overflow-hidden">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          "w-full text-left flex items-center gap-3 hover:bg-muted transition-colors cursor-pointer",
-          compact ? "px-2 py-2 border border-border rounded-lg" : "px-5 py-2.5",
-        )}
+        className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 hover:bg-accent transition-colors cursor-pointer"
       >
-        <span className="text-[10px] text-muted-foreground">{expanded ? "▾" : "▸"}</span>
+        <span className="text-[10px] text-muted-foreground w-3 text-center shrink-0">
+          {expanded ? "▾" : "▸"}
+        </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-mono font-medium">{tool.name}</span>
-            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">
+            <span className="text-sm font-medium">{tool.name}</span>
+            <span className="text-[10px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5">
               {tool.category}
             </span>
           </div>
@@ -803,8 +817,8 @@ function ToolRow({ tool, compact = false }: { tool: Tool; compact?: boolean }) {
         </div>
       </button>
       {expanded && (
-        <div className="px-5 pb-3">
-          <pre className="text-[10px] font-mono text-muted-foreground/70 bg-muted px-3 py-2 rounded overflow-x-auto">
+        <div className="px-3 pb-3">
+          <pre className="text-[11px] font-mono text-muted-foreground/70 bg-secondary px-3 py-2 rounded-lg overflow-x-auto">
             {JSON.stringify(tool.input_schema, null, 2)}
           </pre>
         </div>
