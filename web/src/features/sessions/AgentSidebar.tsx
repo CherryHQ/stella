@@ -602,7 +602,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   // The "home" session for the agent — prefer main, fall back to first chat.
   // Used by the home row so it navigates directly without a round-trip through AgentHome.
   const homeSession = useMemo(() => {
-    return sessions.find((s) => s.source === "main" && !s.archived) ?? null;
+    const active = sessions.filter((s) => !s.archived);
+    return active.find((s) => s.source === "main") ?? active[0] ?? null;
   }, [sessions]);
 
   const chatSessions = useMemo(() => {
