@@ -17,6 +17,10 @@ paths:
           in: query
           schema: { type: string, enum: [main, chat, scheduler, task] }
           description: Filter by session kind
+        - name: agent_id
+          in: query
+          schema: { type: string }
+          description: Filter by agent ID
         - name: project_id
           in: query
           schema: { type: string }

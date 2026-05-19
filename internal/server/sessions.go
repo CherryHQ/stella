@@ -434,6 +434,9 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	if params.Kind != nil {
 		opts.Kind = string(*params.Kind)
 	}
+	if params.AgentId != nil {
+		opts.AgentID = *params.AgentId
+	}
 	if params.ProjectId != nil {
 		opts.ProjectID = *params.ProjectId
 	}
