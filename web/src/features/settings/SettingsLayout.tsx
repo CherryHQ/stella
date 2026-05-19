@@ -214,7 +214,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-3.5 pt-5 pb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/70">
+            <div className="px-3.5 pt-5 pb-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
               {group.section}
             </div>
             {visibleItems.map((item) => (
@@ -223,10 +223,10 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 to={item.href as any}
                 onClick={onItemClick}
-                className="group/item flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 text-foreground/80 hover:bg-muted/50"
+                className="group/item flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150 text-foreground/80 hover:bg-muted/50"
                 activeProps={{
                   className:
-                    "group/item active flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sidebar-accent text-foreground transition-all duration-150",
+                    "group/item active flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[13px] font-medium bg-sidebar-accent text-foreground transition-all duration-150",
                 }}
               >
                 {item.icon}
@@ -254,7 +254,7 @@ export function SettingsLayout() {
   return (
     <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
       {/* Desktop sidebar — hidden on mobile */}
-      <nav className="hidden md:flex w-[200px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col">
+      <nav className="hidden md:flex w-[220px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col">
         <NavItems isAdmin={isAdmin} />
       </nav>
 

@@ -60,7 +60,7 @@ export function RecallyPage() {
         className={cn(
           "hidden md:flex flex-shrink-0 flex-col overflow-auto border-r border-border bg-sidebar transition-all duration-200 ease-out",
           filters.leftOpen
-            ? "w-[260px] min-w-[260px]"
+            ? "w-[280px] min-w-[280px]"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
       >

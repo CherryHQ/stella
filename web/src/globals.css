@@ -194,6 +194,7 @@
 
   body {
     @apply bg-background text-foreground;
+    font-size: 17px;
     letter-spacing: var(--tracking-normal);
   }
 }

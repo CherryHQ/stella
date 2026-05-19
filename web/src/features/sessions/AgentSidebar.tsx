@@ -280,7 +280,7 @@ function FolderTree({
           <div
             key={d.path}
             className={cn(
-              "flex items-center gap-1.5 px-2 py-1 cursor-pointer rounded text-[12px] transition-colors",
+              "flex items-center gap-1.5 px-2 py-1 cursor-pointer rounded text-[13px] transition-colors",
               isSelected
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -446,7 +446,7 @@ function SectionHeader({
       </span>
       <span
         className={cn(
-          "flex-1 text-[10px] font-mono font-medium uppercase tracking-widest transition-colors",
+          "flex-1 text-[11px] font-mono font-medium uppercase tracking-widest transition-colors",
           active ? "text-foreground" : "text-muted-foreground/70 group-hover:text-muted-foreground",
         )}
       >
@@ -498,14 +498,14 @@ function NavRow({
       <div className="flex-1 min-w-0">
         <p
           className={cn(
-            "text-[12px] truncate leading-snug",
+            "text-[13px] truncate leading-snug",
             active ? "text-foreground font-medium" : "text-foreground/80",
           )}
         >
           {title}
         </p>
         {sub && (
-          <p className="text-[10px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
+          <p className="text-[11px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
         )}
       </div>
       {meta && (
@@ -549,10 +549,10 @@ function SubFolder({
       >
         <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
       </svg>
-      <span className="flex-1 text-[11px] text-muted-foreground/70 group-hover:text-foreground transition-colors truncate">
+      <span className="flex-1 text-xs text-muted-foreground/70 group-hover:text-foreground transition-colors truncate">
         {label}
       </span>
-      <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
+      <span className="text-[11px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
     </div>
   );
 }
@@ -725,7 +725,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               {selectedAgent?.name?.[0]?.toUpperCase() ?? "?"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold truncate leading-snug">
+              <p className="text-sm font-semibold truncate leading-snug">
                 {selectedAgent?.name ?? "Select agent"}
               </p>
               <p className="text-xs font-mono text-muted-foreground truncate">
@@ -1100,7 +1100,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   <button
                     type="button"
                     onClick={() => void createSession()}
-                    className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
                   >
                     <IconPlus />
                     New

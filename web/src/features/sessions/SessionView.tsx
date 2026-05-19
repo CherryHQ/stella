@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { Session, Workspace } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
+import { useSidebarToggle } from "@/hooks/use-sidebar-toggle";
 import { cn } from "@/lib/utils";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
@@ -20,6 +21,7 @@ export function SessionView() {
     projectId?: string;
   };
   const navigate = useNavigate();
+  const { toggleSidebar } = useSidebarToggle();
   const { data: me } = useQuery(meQueryOptions);
   const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
@@ -131,7 +133,7 @@ export function SessionView() {
             void navigate({ to: "/agents/$agentId", params: { agentId } });
           }}
           onSessionUpdate={(s) => setSessionDetail(s)}
-          onToggleLeft={() => {}}
+          onToggleLeft={toggleSidebar}
           onToggleRight={() => setRightOpen((v) => !v)}
         />
       </div>
