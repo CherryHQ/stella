@@ -505,7 +505,7 @@ export type CreateProjectRequest = {
 
 export type ComponentsCreateSessionRequest = {
   agent_id?: string;
-  source?: "main" | "chat" | "scheduler" | "task";
+  kind?: "main" | "chat" | "scheduler" | "task";
   project_id?: string;
 };
 
@@ -950,7 +950,7 @@ export type ComponentsSendMessageRequest = {
 export type ComponentsSession = {
   id: string;
   channel: string;
-  source: "main" | "chat" | "scheduler" | "task";
+  kind: "main" | "chat" | "scheduler" | "task";
   project_id?: string;
   title: string;
   agent_id: string;
@@ -4671,9 +4671,9 @@ export type ListSessionsData = {
      */
     offset?: number;
     /**
-     * Filter by session source
+     * Filter by session kind
      */
-    source?: "main" | "chat" | "scheduler" | "task";
+    kind?: "main" | "chat" | "scheduler" | "task";
     /**
      * Filter by project ID
      */

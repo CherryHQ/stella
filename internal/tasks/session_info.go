@@ -31,7 +31,7 @@ func saveTaskSessionInfo(ctx context.Context, mem memory.Provider, task sqlc.Age
 		AgentID:    session.AgentID,
 		UserID:     session.UserID,
 		Channel:    "system",
-		Source:     "task",
+		Kind:       "task",
 		Title:      task.Title,
 		LastActive: time.Now().UTC(),
 	})

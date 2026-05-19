@@ -13,7 +13,7 @@ import (
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversations (id, session_id, title)
 VALUES (?, ?, ?)
-RETURNING id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
+RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationParams struct {
@@ -30,7 +30,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.SessionID,
 		&i.Title,
 		&i.Channel,
-		&i.Source,
+		&i.Kind,
 		&i.ProjectID,
 		&i.Archived,
 		&i.LastActive,
@@ -44,9 +44,9 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const createConversationFull = `-- name: CreateConversationFull :one
-INSERT INTO ctx_conversations (id, session_id, title, channel, source, project_id, archived, last_active, agent_id, user_id)
+INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
+RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationFullParams struct {
@@ -54,7 +54,7 @@ type CreateConversationFullParams struct {
 	SessionID  string         `json:"session_id"`
 	Title      sql.NullString `json:"title"`
 	Channel    string         `json:"channel"`
-	Source     string         `json:"source"`
+	Kind       string         `json:"kind"`
 	ProjectID  sql.NullString `json:"project_id"`
 	Archived   int64          `json:"archived"`
 	LastActive string         `json:"last_active"`
@@ -68,7 +68,7 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 		arg.SessionID,
 		arg.Title,
 		arg.Channel,
-		arg.Source,
+		arg.Kind,
 		arg.ProjectID,
 		arg.Archived,
 		arg.LastActive,
@@ -81,7 +81,7 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 		&i.SessionID,
 		&i.Title,
 		&i.Channel,
-		&i.Source,
+		&i.Kind,
 		&i.ProjectID,
 		&i.Archived,
 		&i.LastActive,
@@ -95,7 +95,7 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE id = ?
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE id = ?
 `
 
 func (q *Queries) GetConversation(ctx context.Context, id string) (CtxConversation, error) {
@@ -106,7 +106,7 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (CtxConversati
 		&i.SessionID,
 		&i.Title,
 		&i.Channel,
-		&i.Source,
+		&i.Kind,
 		&i.ProjectID,
 		&i.Archived,
 		&i.LastActive,
@@ -120,7 +120,7 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (CtxConversati
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE session_id = ?
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE session_id = ?
 `
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID string) (CtxConversation, error) {
@@ -131,7 +131,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 		&i.SessionID,
 		&i.Title,
 		&i.Channel,
-		&i.Source,
+		&i.Kind,
 		&i.ProjectID,
 		&i.Archived,
 		&i.LastActive,
@@ -145,7 +145,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 }
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE project_id = ? AND source = 'main' AND archived = 0 LIMIT 1
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE project_id = ? AND kind = 'main' AND archived = 0 LIMIT 1
 `
 
 func (q *Queries) GetMainConversationByProject(ctx context.Context, projectID sql.NullString) (CtxConversation, error) {
@@ -156,7 +156,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, projectID sq
 		&i.SessionID,
 		&i.Title,
 		&i.Channel,
-		&i.Source,
+		&i.Kind,
 		&i.ProjectID,
 		&i.Archived,
 		&i.LastActive,
@@ -170,7 +170,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, projectID sq
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, error) {
@@ -187,7 +187,7 @@ func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, err
 			&i.SessionID,
 			&i.Title,
 			&i.Channel,
-			&i.Source,
+			&i.Kind,
 			&i.ProjectID,
 			&i.Archived,
 			&i.LastActive,
@@ -211,7 +211,7 @@ func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, err
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, error) {
@@ -228,7 +228,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, 
 			&i.SessionID,
 			&i.Title,
 			&i.Channel,
-			&i.Source,
+			&i.Kind,
 			&i.ProjectID,
 			&i.Archived,
 			&i.LastActive,
@@ -251,18 +251,18 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, 
 	return items, nil
 }
 
-const listConversationsBySource = `-- name: ListConversationsBySource :many
-SELECT id, session_id, title, channel, source, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND source = ? AND archived = 0 ORDER BY last_active DESC
+const listConversationsByKind = `-- name: ListConversationsByKind :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC
 `
 
-type ListConversationsBySourceParams struct {
+type ListConversationsByKindParams struct {
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
-	Source  string         `json:"source"`
+	Kind    string         `json:"kind"`
 }
 
-func (q *Queries) ListConversationsBySource(ctx context.Context, arg ListConversationsBySourceParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listConversationsBySource, arg.AgentID, arg.UserID, arg.Source)
+func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversationsByKindParams) ([]CtxConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsByKind, arg.AgentID, arg.UserID, arg.Kind)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (q *Queries) ListConversationsBySource(ctx context.Context, arg ListConvers
 			&i.SessionID,
 			&i.Title,
 			&i.Channel,
-			&i.Source,
+			&i.Kind,
 			&i.ProjectID,
 			&i.Archived,
 			&i.LastActive,
@@ -336,27 +336,27 @@ func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, id string)
 	return err
 }
 
+const updateConversationKindProject = `-- name: UpdateConversationKindProject :exec
+UPDATE ctx_conversations SET kind = ?, project_id = ?, updated_at = datetime('now') WHERE session_id = ?
+`
+
+type UpdateConversationKindProjectParams struct {
+	Kind      string         `json:"kind"`
+	ProjectID sql.NullString `json:"project_id"`
+	SessionID string         `json:"session_id"`
+}
+
+func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateConversationKindProjectParams) error {
+	_, err := q.db.ExecContext(ctx, updateConversationKindProject, arg.Kind, arg.ProjectID, arg.SessionID)
+	return err
+}
+
 const updateConversationLastActive = `-- name: UpdateConversationLastActive :exec
 UPDATE ctx_conversations SET last_active = datetime('now'), updated_at = datetime('now') WHERE session_id = ?
 `
 
 func (q *Queries) UpdateConversationLastActive(ctx context.Context, sessionID string) error {
 	_, err := q.db.ExecContext(ctx, updateConversationLastActive, sessionID)
-	return err
-}
-
-const updateConversationSourceProject = `-- name: UpdateConversationSourceProject :exec
-UPDATE ctx_conversations SET source = ?, project_id = ?, updated_at = datetime('now') WHERE session_id = ?
-`
-
-type UpdateConversationSourceProjectParams struct {
-	Source    string         `json:"source"`
-	ProjectID sql.NullString `json:"project_id"`
-	SessionID string         `json:"session_id"`
-}
-
-func (q *Queries) UpdateConversationSourceProject(ctx context.Context, arg UpdateConversationSourceProjectParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationSourceProject, arg.Source, arg.ProjectID, arg.SessionID)
 	return err
 }
 

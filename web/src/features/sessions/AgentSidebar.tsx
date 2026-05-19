@@ -568,7 +568,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<string[]>(["project"]);
   const [openFolders, setOpenFolders] = useState<string[]>([]);
-  const [historySource, setHistorySource] = useState("");
+  const [historyKind, setHistoryKind] = useState("");
   const [showCreateProject, setShowCreateProject] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -603,20 +603,20 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   // Used by the home row so it navigates directly without a round-trip through AgentHome.
   const homeSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
-    return active.find((s) => s.source === "main") ?? active[0] ?? null;
+    return active.find((s) => s.kind === "main") ?? active[0] ?? null;
   }, [sessions]);
 
   const chatSessions = useMemo(() => {
     const base = sessions.filter((s) => {
       if (s.archived) return false;
       if (s.id === "main") return false;
-      if (historySource) return s.source === historySource;
+      if (historyKind) return s.kind === historyKind;
       return true;
     });
     if (search)
       return base.filter((s) => sessionTitle(s).toLowerCase().includes(search.toLowerCase()));
     return base;
-  }, [sessions, search, historySource]);
+  }, [sessions, search, historyKind]);
 
   const filteredSkills = useMemo(() => {
     if (!search) return skills;
@@ -827,7 +827,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 if (!sid) {
                   const sess = await api<Session>("POST", "/api/sessions", {
                     agent_id: agentId,
-                    source: "main",
+                    kind: "main",
                   });
                   await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
                   sid = sess.id;
@@ -1048,8 +1048,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               <>
                 <div className="flex items-center gap-1 px-4 py-1">
                   <select
-                    value={historySource}
-                    onChange={(e) => setHistorySource(e.target.value)}
+                    value={historyKind}
+                    onChange={(e) => setHistoryKind(e.target.value)}
                     className="text-xs font-mono bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
                   >
                     <option value="">all</option>

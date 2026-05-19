@@ -18,9 +18,7 @@ export function AgentHome() {
   // Prefer main session, then any chat session — never redirect to scheduler/task sessions.
   const targetSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
-    return (
-      active.find((s) => s.source === "main") ?? active.find((s) => s.source === "chat") ?? null
-    );
+    return active.find((s) => s.kind === "main") ?? active.find((s) => s.kind === "chat") ?? null;
   }, [sessions]);
 
   useEffect(() => {

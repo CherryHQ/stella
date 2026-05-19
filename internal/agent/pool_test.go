@@ -734,8 +734,8 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 	if info.ID != "legacy-abc" {
 		t.Errorf("expected legacy session to be promoted, got %q", info.ID)
 	}
-	if info.Source != "main" {
-		t.Errorf("Source = %q, want main", info.Source)
+	if info.Kind != "main" {
+		t.Errorf("Kind = %q, want main", info.Kind)
 	}
 }
 

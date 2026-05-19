@@ -1334,7 +1334,7 @@ components:
       required: [
         id,
         channel,
-        source,
+        kind,
         title,
         agent_id,
         user_id,
@@ -1347,7 +1347,7 @@ components:
           type: string
         channel:
           type: string
-        source:
+        kind:
           type: string
           enum: [main, chat, scheduler, task]
         project_id:
@@ -1376,7 +1376,7 @@ components:
       properties:
         agent_id:
           type: string
-        source:
+        kind:
           type: string
           enum: [main, chat, scheduler, task]
         project_id:

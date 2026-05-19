@@ -13,20 +13,20 @@ import (
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
 func (p *Pool) CreateSession(channel string, userID ...string) (SessionInfo, error) {
-	return p.CreateSessionWithSource(channel, "chat", "", userID...)
+	return p.CreateSessionWithKind(channel, "chat", "", userID...)
 }
 
-// CreateSessionWithSource creates a new session with explicit source and projectID.
-func (p *Pool) CreateSessionWithSource(channel, source, projectID string, userID ...string) (SessionInfo, error) {
-	if source == "" {
-		source = "chat"
+// CreateSessionWithKind creates a new session with explicit kind and projectID.
+func (p *Pool) CreateSessionWithKind(channel, kind, projectID string, userID ...string) (SessionInfo, error) {
+	if kind == "" {
+		kind = "chat"
 	}
 	p.mu.Lock()
 	info := p.createSessionLocked(channel, userID...)
-	info.Source = source
+	info.Kind = kind
 	info.ProjectID = projectID
 	if sess, ok := p.sessions[info.ID]; ok {
-		sess.Info.Source = source
+		sess.Info.Kind = kind
 		sess.Info.ProjectID = projectID
 	}
 	p.mu.Unlock()
@@ -109,12 +109,12 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 // map and persistent store. Caller must hold p.mu.
 func (p *Pool) mainSessionLocked() (SessionInfo, bool) {
 	for _, sess := range p.sessions {
-		if !sess.Info.Archived && sess.Info.Source == "main" {
+		if !sess.Info.Archived && sess.Info.Kind == "main" {
 			return sess.Info, true
 		}
 	}
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		items, err := sm.ListInfo(context.Background(), memory.ListOptions{Source: "main"})
+		items, err := sm.ListInfo(context.Background(), memory.ListOptions{Kind: "main"})
 		if err == nil {
 			for _, info := range items {
 				return info, true
@@ -179,9 +179,9 @@ func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...str
 
 	// 2. Promote the latest active session (any channel) to main.
 	if info, ok := p.latestSessionLocked(); ok {
-		info.Source = "main"
+		info.Kind = "main"
 		if sess, exists := p.sessions[info.ID]; exists {
-			sess.Info.Source = "main"
+			sess.Info.Kind = "main"
 		}
 		ensurer := p.projectEnsurer
 		p.mu.Unlock()
@@ -195,9 +195,9 @@ func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...str
 
 	// 3. Create a new main session.
 	info := p.createSessionLocked(channel, userID...)
-	info.Source = "main"
+	info.Kind = "main"
 	if sess, exists := p.sessions[info.ID]; exists {
-		sess.Info.Source = "main"
+		sess.Info.Kind = "main"
 	}
 	ensurer := p.projectEnsurer
 	p.mu.Unlock()
