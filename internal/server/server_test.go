@@ -74,31 +74,11 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := notify.NewDispatcher()
-	stateStore := pluginstate.New(db)
-	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
-	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
-	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
-	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-		return func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			return nil, nil
-		}, nil
-	})
-	phost := pluginhost.New(store,
-		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
-		pluginhost.WithNotificationService(dispatcher),
-		pluginhost.WithStateStore(stateStore),
-		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
-		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
-	)
-	phost.RegisterBuiltinTools(mcp.NewManager())
-	if err := phost.LoadDefaultCatalog(); err != nil {
-		t.Fatalf("LoadDefaultCatalog: %v", err)
-	}
-	phost.SetSkillStore(skills.New(db))
-	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
-		t.Fatalf("ApplyPlugin(mcp): %v", err)
-	}
-	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
+
+	// Override channel runtime factories BEFORE LoadDefaultCatalog so the closures
+	// inside plugin.Register (RuntimeFactory: newRuntime) capture the test factories,
+	// not the real ones. The real factories start actual bots (Lark SDK cron goroutines,
+	// Weixin notifystart HTTP calls) that make network calls and starve SQLite goroutines.
 	runtimeCtx, cancelRuntimes := context.WithCancel(context.Background())
 	t.Cleanup(cancelRuntimes)
 	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
@@ -134,6 +114,32 @@ func setupAdmin(t *testing.T) *testEnv {
 		}), nil
 	})
 	t.Cleanup(resetWeixinRuntime)
+
+	stateStore := pluginstate.New(db)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+		return func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			return nil, nil
+		}, nil
+	})
+	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
+		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
+	phost.RegisterBuiltinTools(mcp.NewManager())
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+	phost.SetSkillStore(skills.New(db))
+	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+		t.Fatalf("ApplyPlugin(mcp): %v", err)
+	}
+	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
 	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
