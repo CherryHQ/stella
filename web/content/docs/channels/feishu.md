@@ -148,15 +148,14 @@ You can also set per-group overrides with the `groups` map in channel config.
 
 Feishu supports the standard chat commands:
 
-| Command    | Description                        |
-| ---------- | ---------------------------------- |
-| `/new`     | Clear context (compact or archive) |
-| `/temp`    | Start a temporary blank session    |
-| `/compact` | Compact session history            |
-| `/abort`   | Cancel the in-progress response    |
-| `/model`   | List or switch models              |
-| `/agent`   | List or switch agents              |
-| `/whoami`  | Show your platform identity        |
+| Command    | Description                     |
+| ---------- | ------------------------------- |
+| `/new`     | Compact conversation context    |
+| `/compact` | Compact session history         |
+| `/abort`   | Cancel the in-progress response |
+| `/model`   | List or switch models           |
+| `/agent`   | List or switch agents           |
+| `/whoami`  | Show your platform identity     |
 
 ## Config Reference
 

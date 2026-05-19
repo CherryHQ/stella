@@ -121,11 +121,11 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 
 func TestBotCommands(t *testing.T) {
 	commands := botCommands()
-	if len(commands) != 8 {
-		t.Fatalf("len(commands) = %d, want 8", len(commands))
+	if len(commands) != 7 {
+		t.Fatalf("len(commands) = %d, want 7", len(commands))
 	}
 
-	want := []string{"start", "new", "temp", "compact", "abort", "model", "agent", "whoami"}
+	want := []string{"start", "new", "compact", "abort", "model", "agent", "whoami"}
 	for i, cmd := range commands {
 		if cmd.Text != want[i] {
 			t.Errorf("commands[%d].Text = %q, want %q", i, cmd.Text, want[i])

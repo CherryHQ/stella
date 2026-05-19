@@ -20,33 +20,11 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 	switch cmd {
 	case "/start", "/help":
 		return pkgchannel.WelcomeMessage, true
-	case "/new":
-		info, err := rc.ResolveSession()
-		if err != nil {
-			return fmt.Sprintf("Error: %v", err), true
-		}
-		if info.Source == "chat" {
-			// Temp chat: archive it and return to the main session.
-			if err := rc.Pool.ArchiveSession(info.ID); err != nil {
-				return fmt.Sprintf("Error archiving session: %v", err), true
-			}
-			return "Session archived. Returning to main session.", true
-		}
-		// Main session: compact context instead of rotating.
-		if _, err := rc.CompactSession(ctx); err != nil {
-			return fmt.Sprintf("Compaction failed: %v", err), true
-		}
-		return "Context compacted.", true
-	case "/compact":
+	case "/new", "/compact":
 		if _, err := rc.CompactSession(ctx); err != nil {
 			return fmt.Sprintf("Compaction failed: %v", err), true
 		}
 		return "Session compacted.", true
-	case "/temp":
-		if _, err := rc.RotateSession(); err != nil {
-			return fmt.Sprintf("Error creating temp session: %v", err), true
-		}
-		return "Temporary session started. Use /new to return to your main session.", true
 	case "/whoami":
 		return fmt.Sprintf("Your ID: %s", senderID), true
 	}

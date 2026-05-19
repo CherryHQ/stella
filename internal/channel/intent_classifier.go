@@ -37,7 +37,7 @@ If the message could reasonably be a normal chat request, return {"action":"none
 
 Action meanings:
 - help: user wants help, available commands, or usage instructions
-- new: user wants to clear context / start over (compacts main session or archives temp session)
+- new: user wants to clear context / start over (compacts conversation history)
 - abort: user wants to cancel/stop the in-progress response
 - compact: user wants to compact/compress/summarize conversation history
 - none: anything else
