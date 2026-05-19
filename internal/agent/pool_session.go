@@ -128,7 +128,11 @@ func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...str
 	p.mu.Unlock()
 
 	if info.ProjectID == "" && ensurer != nil && info.UserID != "" {
-		if projID, err := ensurer(ctx, p.agentID, info.UserID); err == nil && projID != "" {
+		projID, err := ensurer(ctx, p.agentID, info.UserID)
+		if err != nil {
+			p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
+		}
+		if err == nil && projID != "" {
 			info.ProjectID = projID
 			p.mu.Lock()
 			if sess, ok := p.sessions[info.ID]; ok {

@@ -413,13 +413,15 @@ function TreeWithSearch({
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
 
   const prefix = projectDir ? projectDir + "/" : "";
-  const toDisplay = (p: string) => (prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p);
-  const toApi = (p: string) => (prefix ? prefix + p : p);
+  const toDisplay = useCallback(
+    (p: string) => (prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p),
+    [prefix],
+  );
+  const toApi = useCallback((p: string) => (prefix ? prefix + p : p), [prefix]);
 
   const displayPaths = useMemo(
     () => (workspace.paths ?? []).map((p) => toDisplay(p)).filter(Boolean),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspace.paths, prefix],
+    [workspace.paths, toDisplay],
   );
 
   const loadedPathSet = useRef(new Set(displayPaths));

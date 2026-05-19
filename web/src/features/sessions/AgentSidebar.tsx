@@ -677,6 +677,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   const deleteProject = useCallback(
     async (projectId: string) => {
+      if (!window.confirm("Delete this project? Sessions will be kept.")) return;
       await api("DELETE", `/api/agents/${agentId}/projects/${projectId}`);
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
     },

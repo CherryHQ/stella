@@ -71,7 +71,7 @@ Send these commands as text messages to the bot:
 | ------------------- | ------------------------------- |
 | `/start` or `/help` | Welcome and help                |
 | `/new`              | Compact conversation context    |
-| `/compact`          | Compress conversation history   |
+| `/compact`          | Compact conversation context    |
 | `/abort`            | Cancel the in-progress response |
 | `/model`            | List available models           |
 | `/model <p/m>`      | Switch to model by name         |

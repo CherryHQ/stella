@@ -35,14 +35,19 @@ export function ProjectHome() {
     api<Session>("POST", "/api/sessions", {
       agent_id: agentId,
       project_id: projectId,
-    }).then(async (sess) => {
-      await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
-      void navigate({
-        to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
-        params: { agentId, projectId, sessionId: sess.id },
-        replace: true,
+    })
+      .then(async (sess) => {
+        await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+        void navigate({
+          to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+          params: { agentId, projectId, sessionId: sess.id },
+          replace: true,
+        });
+      })
+      .catch((err) => {
+        console.error(err);
+        creating.current = false;
       });
-    }, console.error);
   }, [targetSession, sessionsQuery.isLoading, agentId, projectId, navigate, queryClient]);
 
   return (

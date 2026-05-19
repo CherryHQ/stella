@@ -498,40 +498,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}
 			return p.BaseDir, nil
 		}),
-		agent.WithProjectEnsurerPM(func(ctx context.Context, agentID, userID string) (string, error) {
-			q := sqlc.New(db)
-			projects, err := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID})
-			if err != nil {
-				return "", err
-			}
-			if len(projects) > 0 {
-				return projects[0].ID, nil
-			}
-			// Auto-create root project.
-			agentName := agentID
-			if ag, err := store.GetAgent(ctx, agentID); err == nil && ag.Name != "" {
-				agentName = ag.Name
-			}
-			userRoot, err := agent.SetupUserWorkspace(agentID, config.StellaHome(), userID)
-			if err != nil {
-				return "", err
-			}
-			p, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
-				ID:      uuid.NewString(),
-				AgentID: agentID,
-				UserID:  userID,
-				Name:    agentName,
-				BaseDir: userRoot,
-			})
-			if err != nil {
-				// Concurrent creation — retry with lookup.
-				if existing, err2 := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {
-					return existing[0].ID, nil
-				}
-				return "", err
-			}
-			return p.ID, nil
-		}),
+		agent.WithProjectEnsurerPM(buildProjectEnsurer(db, store)),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -631,6 +598,41 @@ func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGrou
 func (s *setupResult) waitBackgroundTasks() {
 	if s != nil && s.backgroundTasks != nil {
 		s.backgroundTasks.Wait()
+	}
+}
+
+func buildProjectEnsurer(db *sql.DB, store config.Store) agent.ProjectEnsurerFunc {
+	return func(ctx context.Context, agentID, userID string) (string, error) {
+		q := sqlc.New(db)
+		projects, err := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID})
+		if err != nil {
+			return "", err
+		}
+		if len(projects) > 0 {
+			return projects[0].ID, nil
+		}
+		agentName := agentID
+		if ag, err := store.GetAgent(ctx, agentID); err == nil && ag.Name != "" {
+			agentName = ag.Name
+		}
+		userRoot, err := agent.SetupUserWorkspace(agentID, config.StellaHome(), userID)
+		if err != nil {
+			return "", err
+		}
+		p, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
+			ID:      uuid.NewString(),
+			AgentID: agentID,
+			UserID:  userID,
+			Name:    agentName,
+			BaseDir: userRoot,
+		})
+		if err != nil {
+			if existing, err2 := q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {
+				return existing[0].ID, nil
+			}
+			return "", err
+		}
+		return p.ID, nil
 	}
 }
 
