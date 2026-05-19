@@ -9,7 +9,7 @@ export function ResizableSidePanel({ children }: { children: React.ReactNode }) 
 
   return (
     <div
-      className="relative flex-shrink-0 border-l border-border/60 flex flex-col overflow-hidden bg-background"
+      className="relative flex-shrink-0 border-l border-border/60 flex flex-col overflow-hidden bg-secondary"
       style={{ width, minWidth: MIN_WIDTH }}
     >
       <div

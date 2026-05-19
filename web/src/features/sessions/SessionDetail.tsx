@@ -625,7 +625,7 @@ function InspectPanel({
 }) {
   const sessionTotalTokens = messages.reduce((sum, m) => sum + (m.token_count ?? 0), 0);
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background">
+    <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-secondary">
       <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
         <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
           Inspect

@@ -195,7 +195,7 @@ export function WorkspacePanel({
 
   if (!sessionID) {
     return (
-      <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+      <div className="w-full flex flex-col overflow-hidden bg-secondary h-full">
         <div className="flex h-11 items-center justify-between px-3 border-b border-border flex-shrink-0">
           <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wider">
             {t("sessions.workspace.title")}
@@ -224,7 +224,7 @@ export function WorkspacePanel({
   }
 
   return (
-    <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+    <div className="w-full flex flex-col overflow-hidden bg-secondary h-full">
       {/* Header */}
       <div className="flex h-11 items-center justify-between px-2 border-b border-border flex-shrink-0">
         <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wider pl-1">
