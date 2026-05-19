@@ -385,54 +385,28 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
 
   return (
     <section className="relative overflow-hidden py-[clamp(6rem,10vw,11rem)] pb-[clamp(4rem,7vw,8rem)]">
-      {/* Orb */}
-      <div
-        className="pointer-events-none absolute -top-[20%] -right-[10%] h-[120%] w-[70%] animate-orb-drift rounded-full blur-[80px]"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, rgba(0,102,204,0.06) 0%, rgba(245,245,247,0.03) 40%, transparent 70%)",
-        }}
-      />
-      {/* Grain */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.02]"
-        style={{
-          backgroundImage:
-            "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
-          backgroundRepeat: "repeat",
-          backgroundSize: "200px 200px",
-        }}
-      />
-
       <div className="mx-auto w-[min(100%-3rem,72rem)]">
         <div className="grid grid-cols-1 items-center gap-[clamp(2.5rem,5vw,5rem)] lg:grid-cols-[1fr_1.3fr]">
           {/* Copy */}
           <div className="relative animate-fade-up motion-reduce:animate-none">
-            <span
-              className="inline-block animate-shimmer rounded-full bg-primary/[0.12] px-3.5 py-1.5 font-mono text-[0.7rem] font-medium uppercase tracking-wider text-primary motion-reduce:animate-none"
-              style={{
-                backgroundSize: "200% 100%",
-                backgroundImage:
-                  "linear-gradient(90deg, rgba(0,102,204,0.12) 40%, rgba(0,102,204,0.24) 50%, rgba(0,102,204,0.12) 60%)",
-              }}
-            >
+            <span className="inline-block rounded-full bg-primary/[0.12] px-3.5 py-1.5 text-[12px] font-semibold uppercase tracking-[-0.12px] text-primary">
               {c.heroEyebrow}
             </span>
-            <h1 className="mt-7 mb-6 text-[clamp(2.6rem,6vw,4.5rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+            <h1 className="mt-7 mb-6 text-[clamp(2rem,5vw,56px)] font-semibold leading-[1.07] tracking-[-0.28px] text-foreground">
               {c.heroTitle[0]}{" "}
               <em className="relative not-italic text-primary after:absolute after:inset-x-[-0.05em] after:bottom-[0.02em] after:h-[0.12em] after:rounded-[0.06em] after:bg-primary/20 after:content-['']">
                 {c.heroTitle[1]}
               </em>{" "}
               {c.heroTitle[2]}
             </h1>
-            <p className="max-w-[36rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+            <p className="max-w-[36rem] text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
               {c.heroSub}
             </p>
             <div className="mt-9 flex flex-wrap gap-3 max-sm:flex-col">
               <Link
                 to="/docs/$"
                 params={{ _splat: "" }}
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-normal text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-lg active:scale-[0.97] max-sm:min-h-11 max-sm:justify-center"
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-primary-foreground transition-transform active:scale-95 max-sm:min-h-11 max-sm:justify-center"
               >
                 {tr.readTheDocs}
                 <ArrowRight aria-hidden className="size-4" />
@@ -441,7 +415,7 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
                 href="https://github.com/CherryHQ/stella"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-foreground/[0.12] bg-transparent px-6 py-3 text-sm font-normal text-foreground transition-all hover:-translate-y-px hover:bg-foreground/[0.08] active:scale-[0.97] max-sm:min-h-11 max-sm:justify-center"
+                className="inline-flex items-center gap-2 rounded-full border border-primary bg-transparent px-[22px] py-[11px] text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-primary transition-transform active:scale-95 max-sm:min-h-11 max-sm:justify-center"
               >
                 <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
                   <path d={siGithub.path} />
@@ -464,7 +438,7 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border border-foreground/[0.12] bg-card shadow-xl animate-fade-up [animation-delay:300ms] motion-reduce:animate-none"
+      className="relative overflow-hidden rounded-[18px] border border-border bg-card animate-fade-up [animation-delay:300ms] motion-reduce:animate-none"
       aria-label={c.productLabel}
     >
       {/* Chrome bar */}
@@ -472,7 +446,7 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
         <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
         <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
         <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
-        <span className="ml-auto font-mono text-[0.68rem] font-medium tracking-wide text-muted-foreground">
+        <span className="ml-auto text-[12px] font-normal leading-[1.0] tracking-[-0.12px] text-muted-foreground">
           {c.productLabel}
         </span>
       </div>
@@ -519,12 +493,12 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
               <div className="inline-flex w-fit items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[0.65rem] text-muted-foreground">
                 <Zap className="size-3" />
                 <span>read_file</span>
-                <span className="font-semibold text-emerald-500">✓</span>
+                <span className="font-semibold text-primary">✓</span>
               </div>
               <div className="inline-flex w-fit items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[0.65rem] text-muted-foreground">
                 <Zap className="size-3" />
                 <span>github_pr_diff</span>
-                <span className="font-semibold text-emerald-500">✓</span>
+                <span className="font-semibold text-primary">✓</span>
               </div>
               <p className="m-0 text-[0.78rem] leading-relaxed text-foreground">
                 {isZh
@@ -593,7 +567,7 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
         ].map(({ label, icon: Icon, pos, delay }) => (
           <span
             key={label}
-            className={`absolute inline-flex animate-badge-in items-center gap-1.5 whitespace-nowrap rounded-lg border border-foreground/[0.12] bg-card px-2.5 py-1 text-[0.65rem] font-medium text-muted-foreground opacity-0 shadow-md motion-reduce:animate-none motion-reduce:opacity-100 max-lg:hidden ${pos}`}
+            className={`absolute inline-flex animate-badge-in items-center gap-1.5 whitespace-nowrap rounded-lg border border-foreground/[0.12] bg-card px-2.5 py-1 text-[0.65rem] font-medium text-muted-foreground opacity-0 motion-reduce:animate-none motion-reduce:opacity-100 max-lg:hidden ${pos}`}
             style={{ animationDelay: delay }}
           >
             <Icon className="size-3" />
@@ -611,13 +585,13 @@ function SystemsSection({ lang }: { lang: keyof typeof copy }) {
   const HeroIcon = ICON_MAP[hero.icon as keyof typeof ICON_MAP];
 
   return (
-    <section className="border-t border-foreground/[0.12] bg-secondary py-[clamp(4rem,8vw,8rem)]">
+    <section className="bg-secondary py-[clamp(4rem,8vw,8rem)]">
       <div className="mx-auto w-[min(100%-3rem,72rem)]">
         <div data-reveal className={`mb-14 opacity-0 translate-y-5 ${REVEAL_BASE}`}>
-          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+          <h2 className="text-[clamp(2rem,4vw,40px)] font-semibold leading-[1.1] tracking-[0] text-foreground">
             {c.systemsTitle}
           </h2>
-          <p className="mt-4 max-w-[38rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+          <p className="mt-4 max-w-[38rem] text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
             {c.systemsSub}
           </p>
         </div>
@@ -625,16 +599,16 @@ function SystemsSection({ lang }: { lang: keyof typeof copy }) {
         {/* Hero system card */}
         <div
           data-reveal
-          className={`mb-6 grid items-center gap-10 rounded-2xl border border-foreground/[0.12] bg-card p-8 opacity-0 translate-y-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg lg:grid-cols-[1fr_auto] ${REVEAL_BASE}`}
+          className={`mb-6 grid items-center gap-10 rounded-[18px] border border-border bg-card p-[24px] opacity-0 translate-y-5 lg:grid-cols-[1fr_auto] ${REVEAL_BASE}`}
         >
           <div>
             <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <HeroIcon className="size-5" aria-hidden />
             </div>
-            <h3 className="mb-2.5 text-lg font-semibold tracking-[-0.022em] text-foreground">
+            <h3 className="mb-2.5 text-[17px] font-semibold leading-[1.24] tracking-[-0.374px] text-foreground">
               {hero.title}
             </h3>
-            <p className="text-sm font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+            <p className="text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
               {hero.desc}
             </p>
           </div>
@@ -658,16 +632,16 @@ function SystemsSection({ lang }: { lang: keyof typeof copy }) {
               <div
                 key={system.title}
                 data-reveal
-                className={`rounded-2xl border border-foreground/[0.12] bg-card p-8 opacity-0 translate-y-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg ${REVEAL_BASE}`}
+                className={`rounded-[18px] border border-border bg-card p-[24px] opacity-0 translate-y-5 ${REVEAL_BASE}`}
                 style={{ transitionDelay: `${(i + 1) * 100}ms` }}
               >
                 <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Icon className="size-5" aria-hidden />
                 </div>
-                <h3 className="mb-2.5 text-lg font-semibold tracking-[-0.022em] text-foreground">
+                <h3 className="mb-2.5 text-[17px] font-semibold leading-[1.24] tracking-[-0.374px] text-foreground">
                   {system.title}
                 </h3>
-                <p className="text-sm font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+                <p className="text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
                   {system.desc}
                 </p>
                 <ul className="mt-5 flex list-none flex-wrap gap-2 p-0">
@@ -693,9 +667,9 @@ function PillarsSection({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="border-t border-foreground/[0.12] bg-foreground py-[clamp(5rem,9vw,9rem)] text-background">
+    <section className="bg-[#1d1d1f] py-[clamp(5rem,9vw,9rem)] text-white">
       <div className="mx-auto w-[min(100%-3rem,72rem)]">
-        <h2 className="mb-12 font-mono text-xs font-semibold uppercase tracking-widest text-primary">
+        <h2 className="mb-12 text-[14px] font-semibold uppercase leading-[1.29] tracking-[-0.224px] text-[#2997ff]">
           {lang === "zh" ? "设计原则" : "How Stella works"}
         </h2>
         <ol className="m-0 flex list-none flex-col p-0">
@@ -703,17 +677,17 @@ function PillarsSection({ lang }: { lang: keyof typeof copy }) {
             <li
               key={pillar.title}
               data-reveal
-              className={`group grid grid-cols-[3.5rem_1fr] items-baseline gap-4 border-t border-background/10 py-8 opacity-0 translate-y-5 last:pb-0 max-sm:grid-cols-[2.5rem_1fr] ${REVEAL_BASE}`}
+              className={`group grid grid-cols-[3.5rem_1fr] items-baseline gap-4 border-t border-white/[0.15] py-8 opacity-0 translate-y-5 last:pb-0 max-sm:grid-cols-[2.5rem_1fr] ${REVEAL_BASE}`}
               style={{ transitionDelay: `${i * 80}ms` }}
             >
-              <span className="font-mono text-xs font-medium tracking-wide text-primary">
+              <span className="text-[14px] font-semibold leading-[1.29] tracking-[-0.224px] text-[#2997ff]">
                 {String(i + 1).padStart(2, "0")}
               </span>
               <div>
-                <h3 className="mb-2.5 text-[clamp(1.3rem,2.5vw,1.65rem)] font-semibold leading-[1.15] tracking-[-0.02em] text-background/[0.94] transition-colors group-hover:text-primary">
+                <h3 className="mb-2.5 text-[clamp(1.3rem,2.5vw,28px)] font-normal leading-[1.14] tracking-[0.196px] text-white transition-colors group-hover:text-[#2997ff]">
                   {pillar.title}
                 </h3>
-                <p className="max-w-3xl text-[0.92rem] font-normal leading-[1.47] tracking-[-0.022em] text-background/[0.56]">
+                <p className="max-w-3xl text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-white/70">
                   {pillar.body}
                 </p>
               </div>
@@ -729,13 +703,13 @@ function CapabilitiesSection({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="border-t border-foreground/[0.12] py-[clamp(4rem,6vw,6rem)]">
+    <section className="py-[clamp(4rem,6vw,6rem)]">
       <div className="mx-auto w-[min(100%-3rem,72rem)]">
         <div data-reveal className={`mb-14 opacity-0 translate-y-5 ${REVEAL_BASE}`}>
-          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+          <h2 className="text-[clamp(2rem,4vw,40px)] font-semibold leading-[1.1] tracking-[0] text-foreground">
             {lang === "zh" ? "一切内置" : "Everything built in"}
           </h2>
-          <p className="mt-4 max-w-[38rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+          <p className="mt-4 max-w-[38rem] text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
             {lang === "zh"
               ? "无需插件迷宫。你需要的能力随 Stella 一起发布。"
               : "No plugin maze. The capabilities you need ship with Stella."}
@@ -744,7 +718,7 @@ function CapabilitiesSection({ lang }: { lang: keyof typeof copy }) {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
           {c.capGroups.map((group) => (
             <div key={group.label}>
-              <h3 className="mb-5 border-b-2 border-primary pb-3 font-mono text-xs font-semibold uppercase tracking-wider text-primary">
+              <h3 className="mb-5 border-b-2 border-primary pb-3 text-[14px] font-semibold uppercase leading-[1.29] tracking-[-0.224px] text-primary">
                 {group.label}
               </h3>
               <div className="flex flex-col gap-6">
@@ -756,11 +730,11 @@ function CapabilitiesSection({ lang }: { lang: keyof typeof copy }) {
                       data-reveal
                       className={`opacity-0 translate-y-5 ${REVEAL_BASE}`}
                     >
-                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold tracking-[-0.022em] text-foreground">
+                      <h4 className="mb-1 flex items-center gap-1.5 text-[14px] font-semibold leading-[1.29] tracking-[-0.224px] text-foreground">
                         <Icon aria-hidden className="size-3.5 shrink-0 text-primary" />
                         {item.title}
                       </h4>
-                      <p className="text-[0.82rem] font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+                      <p className="text-[14px] font-normal leading-[1.43] tracking-[-0.224px] text-muted-foreground">
                         {item.desc}
                       </p>
                     </div>
@@ -779,28 +753,28 @@ function FooterCTA({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="border-t border-foreground/[0.12] bg-secondary py-[clamp(5rem,8vw,8rem)]">
+    <section className="bg-secondary py-[clamp(5rem,8vw,8rem)]">
       <div className="mx-auto grid w-[min(100%-3rem,72rem)] items-center gap-16 max-lg:grid-cols-1 lg:grid-cols-2">
         <div data-reveal className={`max-w-md opacity-0 translate-y-5 ${REVEAL_BASE}`}>
-          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+          <h2 className="text-[clamp(2rem,4vw,40px)] font-semibold leading-[1.1] tracking-[0] text-foreground">
             {c.ctaTitle}
           </h2>
-          <p className="mt-4 text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+          <p className="mt-4 text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-muted-foreground">
             {c.ctaSub}
           </p>
         </div>
         <div
           data-reveal
-          className={`grid gap-2 rounded-2xl bg-foreground p-5 text-background opacity-0 translate-y-5 shadow-xl ${REVEAL_BASE}`}
+          className={`grid gap-2 rounded-[18px] bg-[#1d1d1f] p-5 text-white opacity-0 translate-y-5 ${REVEAL_BASE}`}
           style={{ transitionDelay: "150ms" }}
         >
-          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-background/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
-            <span className="mr-2 text-primary">$</span> brew install CherryHQ/tap/stella
+          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-white/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
+            <span className="mr-2 text-[#2997ff]">$</span> brew install CherryHQ/tap/stella
           </code>
-          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-background/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
-            <span className="mr-2 text-primary">$</span> stella server
+          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-white/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
+            <span className="mr-2 text-[#2997ff]">$</span> stella server
           </code>
-          <p className="mt-1 px-3.5 text-xs text-background/[0.52]">{c.ctaAlt}</p>
+          <p className="mt-1 px-3.5 text-xs text-white/50">{c.ctaAlt}</p>
         </div>
       </div>
     </section>
