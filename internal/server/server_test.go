@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -41,12 +42,16 @@ type testEnv struct {
 	store      config.Store
 	pluginHost *pluginhost.Host
 	authStore  auth.AuthStore
+	mem        memory.Provider
 	adminUser  auth.AuthUser
 	sessionID  string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
 	t.Helper()
+	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
@@ -169,6 +174,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		store:      store,
 		pluginHost: phost,
 		authStore:  as,
+		mem:        mem,
 		adminUser:  user,
 		sessionID:  sessionID,
 	}
