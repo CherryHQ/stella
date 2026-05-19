@@ -193,6 +193,30 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
+// Defines values for CreateSessionRequestSource.
+const (
+	CreateSessionRequestSourceChat      CreateSessionRequestSource = "chat"
+	CreateSessionRequestSourceMain      CreateSessionRequestSource = "main"
+	CreateSessionRequestSourceScheduler CreateSessionRequestSource = "scheduler"
+	CreateSessionRequestSourceTask      CreateSessionRequestSource = "task"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRequestSource enum.
+func (e CreateSessionRequestSource) Valid() bool {
+	switch e {
+	case CreateSessionRequestSourceChat:
+		return true
+	case CreateSessionRequestSourceMain:
+		return true
+	case CreateSessionRequestSourceScheduler:
+		return true
+	case CreateSessionRequestSourceTask:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FeedEntryStatus.
 const (
 	FeedEntryStatusError   FeedEntryStatus = "error"
@@ -232,6 +256,54 @@ func (e MessagePartType) Valid() bool {
 	case Image:
 		return true
 	case Text:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionSource.
+const (
+	SessionSourceChat      SessionSource = "chat"
+	SessionSourceMain      SessionSource = "main"
+	SessionSourceScheduler SessionSource = "scheduler"
+	SessionSourceTask      SessionSource = "task"
+)
+
+// Valid indicates whether the value is a known member of the SessionSource enum.
+func (e SessionSource) Valid() bool {
+	switch e {
+	case SessionSourceChat:
+		return true
+	case SessionSourceMain:
+		return true
+	case SessionSourceScheduler:
+		return true
+	case SessionSourceTask:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionDetailSource.
+const (
+	Chat      SessionDetailSource = "chat"
+	Main      SessionDetailSource = "main"
+	Scheduler SessionDetailSource = "scheduler"
+	Task      SessionDetailSource = "task"
+)
+
+// Valid indicates whether the value is a known member of the SessionDetailSource enum.
+func (e SessionDetailSource) Valid() bool {
+	switch e {
+	case Chat:
+		return true
+	case Main:
+		return true
+	case Scheduler:
+		return true
+	case Task:
 		return true
 	default:
 		return false
@@ -548,10 +620,22 @@ type CreateFeedRequest struct {
 	Url   string  `json:"url"`
 }
 
+// CreateProjectRequest defines model for CreateProjectRequest.
+type CreateProjectRequest struct {
+	BaseDir     string  `json:"base_dir"`
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+}
+
 // CreateSessionRequest defines model for CreateSessionRequest.
 type CreateSessionRequest struct {
-	AgentId *string `json:"agent_id,omitempty"`
+	AgentId   *string                     `json:"agent_id,omitempty"`
+	ProjectId *string                     `json:"project_id,omitempty"`
+	Source    *CreateSessionRequestSource `json:"source,omitempty"`
 }
+
+// CreateSessionRequestSource defines model for CreateSessionRequest.Source.
+type CreateSessionRequestSource string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
@@ -882,6 +966,19 @@ type ProfileInstallSkillRequest struct {
 	Source string `json:"source"`
 }
 
+// Project defines model for Project.
+type Project struct {
+	AgentId     string  `json:"agent_id"`
+	Archived    bool    `json:"archived"`
+	BaseDir     string  `json:"base_dir"`
+	CreatedAt   string  `json:"created_at"`
+	Description *string `json:"description,omitempty"`
+	Id          string  `json:"id"`
+	Name        string  `json:"name"`
+	UpdatedAt   string  `json:"updated_at"`
+	UserId      string  `json:"user_id"`
+}
+
 // Provider defines model for Provider.
 type Provider struct {
 	ApiKey  string                    `json:"api_key"`
@@ -994,29 +1091,39 @@ type SendMessageRequest struct {
 
 // Session defines model for Session.
 type Session struct {
-	AgentId    string `json:"agent_id"`
-	Archived   bool   `json:"archived"`
-	Channel    string `json:"channel"`
-	CreatedAt  string `json:"created_at"`
-	Id         string `json:"id"`
-	LastActive string `json:"last_active"`
-	Title      string `json:"title"`
-	UserId     string `json:"user_id"`
+	AgentId    string        `json:"agent_id"`
+	Archived   bool          `json:"archived"`
+	Channel    string        `json:"channel"`
+	CreatedAt  string        `json:"created_at"`
+	Id         string        `json:"id"`
+	LastActive string        `json:"last_active"`
+	ProjectId  *string       `json:"project_id,omitempty"`
+	Source     SessionSource `json:"source"`
+	Title      string        `json:"title"`
+	UserId     string        `json:"user_id"`
 }
+
+// SessionSource defines model for Session.Source.
+type SessionSource string
 
 // SessionDetail defines model for SessionDetail.
 type SessionDetail struct {
-	AgentId    string  `json:"agent_id"`
-	AgentName  *string `json:"agent_name,omitempty"`
-	Archived   bool    `json:"archived"`
-	Channel    string  `json:"channel"`
-	CreatedAt  string  `json:"created_at"`
-	Id         string  `json:"id"`
-	LastActive string  `json:"last_active"`
-	Title      string  `json:"title"`
-	UserId     string  `json:"user_id"`
-	UserName   *string `json:"user_name,omitempty"`
+	AgentId    string              `json:"agent_id"`
+	AgentName  *string             `json:"agent_name,omitempty"`
+	Archived   bool                `json:"archived"`
+	Channel    string              `json:"channel"`
+	CreatedAt  string              `json:"created_at"`
+	Id         string              `json:"id"`
+	LastActive string              `json:"last_active"`
+	ProjectId  *string             `json:"project_id,omitempty"`
+	Source     SessionDetailSource `json:"source"`
+	Title      string              `json:"title"`
+	UserId     string              `json:"user_id"`
+	UserName   *string             `json:"user_name,omitempty"`
 }
+
+// SessionDetailSource defines model for SessionDetail.Source.
+type SessionDetailSource string
 
 // SessionWorkspace defines model for SessionWorkspace.
 type SessionWorkspace struct {
@@ -1263,6 +1370,13 @@ type UpdateNotifyIdentityRequest struct {
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
 type UpdatePluginConfigRequest struct {
 	Config *map[string]interface{} `json:"config,omitempty"`
+}
+
+// UpdateProjectRequest defines model for UpdateProjectRequest.
+type UpdateProjectRequest struct {
+	BaseDir     *string `json:"base_dir,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
 }
 
 // UpdateRoleRequest defines model for UpdateRoleRequest.

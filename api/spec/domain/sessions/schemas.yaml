@@ -10,6 +10,7 @@ components:
       required: [
         id,
         channel,
+        source,
         title,
         agent_id,
         user_id,
@@ -20,6 +21,10 @@ components:
       properties:
         id: { type: string }
         channel: { type: string }
+        source:
+          type: string
+          enum: [main, chat, scheduler, task]
+        project_id: { type: string }
         title: { type: string }
         agent_id: { type: string }
         user_id: { type: string }
@@ -39,6 +44,10 @@ components:
       type: object
       properties:
         agent_id: { type: string }
+        source:
+          type: string
+          enum: [main, chat, scheduler, task]
+        project_id: { type: string }
 
     MessagePart:
       type: object

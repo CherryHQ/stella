@@ -29,6 +29,9 @@ import type {
   CreateFeedData,
   CreateFeedErrors,
   CreateFeedResponses,
+  CreateProjectData,
+  CreateProjectErrors,
+  CreateProjectResponses,
   CreateProviderData,
   CreateProviderErrors,
   CreateProviderResponses,
@@ -80,6 +83,9 @@ import type {
   DeleteProfileSkillFileErrors,
   DeleteProfileSkillFileResponses,
   DeleteProfileSkillResponses,
+  DeleteProjectData,
+  DeleteProjectErrors,
+  DeleteProjectResponses,
   DeleteProviderData,
   DeleteProviderErrors,
   DeleteProviderResponses,
@@ -167,6 +173,9 @@ import type {
   GetProfileSkillFileErrors,
   GetProfileSkillFileResponses,
   GetProfileSkillResponses,
+  GetProjectData,
+  GetProjectErrors,
+  GetProjectResponses,
   GetProviderData,
   GetProviderErrors,
   GetProviderResponses,
@@ -265,6 +274,9 @@ import type {
   ListProfileSkillsData,
   ListProfileSkillsErrors,
   ListProfileSkillsResponses,
+  ListProjectsData,
+  ListProjectsErrors,
+  ListProjectsResponses,
   ListProviderModelsData,
   ListProviderModelsErrors,
   ListProviderModelsResponses,
@@ -412,6 +424,9 @@ import type {
   UpdateProfileSkillData,
   UpdateProfileSkillErrors,
   UpdateProfileSkillResponses,
+  UpdateProjectData,
+  UpdateProjectErrors,
+  UpdateProjectResponses,
   UpdateProviderData,
   UpdateProviderErrors,
   UpdateProviderResponses,
@@ -827,6 +842,94 @@ export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{id}/skills/{skillId}/file",
     ...options,
+  });
+
+/**
+ * List projects for an agent
+ */
+export const listProjects = <ThrowOnError extends boolean = false>(
+  options: Options<ListProjectsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListProjectsResponses,
+    ListProjectsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentId}/projects",
+    ...options,
+  });
+
+/**
+ * Create a project
+ */
+export const createProject = <ThrowOnError extends boolean = false>(
+  options: Options<CreateProjectData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateProjectResponses,
+    CreateProjectErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentId}/projects",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Delete a project
+ */
+export const deleteProject = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteProjectData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteProjectResponses,
+    DeleteProjectErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentId}/projects/{projectId}",
+    ...options,
+  });
+
+/**
+ * Get a project
+ */
+export const getProject = <ThrowOnError extends boolean = false>(
+  options: Options<GetProjectData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetProjectResponses,
+    GetProjectErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentId}/projects/{projectId}",
+    ...options,
+  });
+
+/**
+ * Update a project
+ */
+export const updateProject = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateProjectData, ThrowOnError>,
+) =>
+  (options.client ?? client).put<
+    UpdateProjectResponses,
+    UpdateProjectErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentId}/projects/{projectId}",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
   });
 
 /**

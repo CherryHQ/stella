@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -15,15 +15,23 @@ export function AgentHome() {
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
+  // Prefer main session, then any chat session — never redirect to scheduler/task sessions.
+  const targetSession = useMemo(() => {
+    const active = sessions.filter((s) => !s.archived);
+    return (
+      active.find((s) => s.source === "main") ?? active.find((s) => s.source === "chat") ?? null
+    );
+  }, [sessions]);
+
   useEffect(() => {
-    if (!sessionsQuery.isLoading && sessions.length > 0) {
+    if (!sessionsQuery.isLoading && targetSession) {
       void navigate({
         to: "/agents/$agentId/sessions/$sessionId",
-        params: { agentId, sessionId: sessions[0].id },
+        params: { agentId, sessionId: targetSession.id },
         replace: true,
       });
     }
-  }, [sessions, sessionsQuery.isLoading, agentId, navigate]);
+  }, [targetSession, sessionsQuery.isLoading, agentId, navigate]);
 
   const createSession = useCallback(async () => {
     const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentId });
@@ -42,7 +50,7 @@ export function AgentHome() {
     );
   }
 
-  if (sessions.length === 0) {
+  if (!targetSession) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4">
         <p className="text-sm text-muted-foreground/60 font-mono">

@@ -64,6 +64,8 @@ type SessionInfo struct {
 	AgentID    string
 	UserID     string
 	Channel    string
+	Source     string // session kind: main, chat, scheduler, task
+	ProjectID  string // associated project (required for source=main)
 	Title      string // auto-generated from first message
 	CreatedAt  time.Time
 	LastActive time.Time
@@ -74,6 +76,8 @@ type SessionInfo struct {
 type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
 	UserID          string // filter by user (empty = all)
+	Source          string // filter by source (empty = all)
+	ProjectID       string // filter by project (empty = all)
 	IncludeArchived bool
 	Limit           int // 0 = no limit
 	Offset          int // skip first N matching results
