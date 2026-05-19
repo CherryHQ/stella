@@ -592,8 +592,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           </div>
         )}
 
-        {/* Projects — folders only, no home row */}
-        {!search && projects.length > 0 && (
+        {/* Projects — folders only */}
+        {!search && (
           <div>
             <SectionHeader
               icon={<IconFolder />}
