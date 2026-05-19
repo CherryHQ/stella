@@ -15,6 +15,7 @@ import {
   changePassword,
   createAgent,
   createAgentTask,
+  createArtifactShare,
   createChannel,
   createFeed,
   createProject,
@@ -67,6 +68,8 @@ import {
   getProfileSkillFile,
   getProject,
   getProvider,
+  getPublicArtifactShare,
+  getPublicArtifactShareContent,
   getSession,
   getSessionMessages,
   getSessionSystemPrompt,
@@ -86,6 +89,7 @@ import {
   listAgentTasks,
   listAgentUsers,
   listArticles,
+  listArtifactShares,
   listAuthUserAgents,
   listAuthUsers,
   listBuiltinResources,
@@ -122,6 +126,7 @@ import {
   pollWeixinQrStatus,
   register,
   removeAgentUser,
+  revokeArtifactShare,
   saveArticle,
   saveDigest,
   saveManifestPlugins,
@@ -176,6 +181,9 @@ import type {
   CreateAgentTaskData,
   CreateAgentTaskError,
   CreateAgentTaskResponse,
+  CreateArtifactShareData,
+  CreateArtifactShareError,
+  CreateArtifactShareResponse2,
   CreateChannelData,
   CreateChannelError,
   CreateChannelResponse,
@@ -332,6 +340,12 @@ import type {
   GetProviderData,
   GetProviderError,
   GetProviderResponse,
+  GetPublicArtifactShareContentData,
+  GetPublicArtifactShareContentError,
+  GetPublicArtifactShareContentResponse,
+  GetPublicArtifactShareData,
+  GetPublicArtifactShareError,
+  GetPublicArtifactShareResponse,
   GetSessionData,
   GetSessionError,
   GetSessionMessagesData,
@@ -388,6 +402,9 @@ import type {
   ListArticlesData,
   ListArticlesError,
   ListArticlesResponse,
+  ListArtifactSharesData,
+  ListArtifactSharesError,
+  ListArtifactSharesResponse,
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
@@ -491,6 +508,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
+  RevokeArtifactShareData,
+  RevokeArtifactShareError,
+  RevokeArtifactShareResponse,
   SaveArticleData,
   SaveArticleError,
   SaveArticleResponse,
@@ -3239,6 +3259,144 @@ export const getSessionSystemPromptOptions = (
       return data;
     },
     queryKey: getSessionSystemPromptQueryKey(options),
+  });
+
+export const listArtifactSharesQueryKey = (
+  options?: Options<ListArtifactSharesData>,
+) => createQueryKey("listArtifactShares", options);
+
+/**
+ * List artifact shares for the current user
+ */
+export const listArtifactSharesOptions = (
+  options?: Options<ListArtifactSharesData>,
+) =>
+  queryOptions<
+    ListArtifactSharesResponse,
+    ListArtifactSharesError,
+    ListArtifactSharesResponse,
+    ReturnType<typeof listArtifactSharesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listArtifactShares({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listArtifactSharesQueryKey(options),
+  });
+
+/**
+ * Create a public artifact share from a workspace file
+ */
+export const createArtifactShareMutation = (
+  options?: Partial<Options<CreateArtifactShareData>>,
+): UseMutationOptions<
+  CreateArtifactShareResponse2,
+  CreateArtifactShareError,
+  Options<CreateArtifactShareData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateArtifactShareResponse2,
+    CreateArtifactShareError,
+    Options<CreateArtifactShareData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createArtifactShare({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Revoke an artifact share
+ */
+export const revokeArtifactShareMutation = (
+  options?: Partial<Options<RevokeArtifactShareData>>,
+): UseMutationOptions<
+  RevokeArtifactShareResponse,
+  RevokeArtifactShareError,
+  Options<RevokeArtifactShareData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RevokeArtifactShareResponse,
+    RevokeArtifactShareError,
+    Options<RevokeArtifactShareData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await revokeArtifactShare({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getPublicArtifactShareQueryKey = (
+  options: Options<GetPublicArtifactShareData>,
+) => createQueryKey("getPublicArtifactShare", options);
+
+/**
+ * Get public artifact share metadata
+ */
+export const getPublicArtifactShareOptions = (
+  options: Options<GetPublicArtifactShareData>,
+) =>
+  queryOptions<
+    GetPublicArtifactShareResponse,
+    GetPublicArtifactShareError,
+    GetPublicArtifactShareResponse,
+    ReturnType<typeof getPublicArtifactShareQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPublicArtifactShare({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getPublicArtifactShareQueryKey(options),
+  });
+
+export const getPublicArtifactShareContentQueryKey = (
+  options: Options<GetPublicArtifactShareContentData>,
+) => createQueryKey("getPublicArtifactShareContent", options);
+
+/**
+ * Get public artifact share content
+ */
+export const getPublicArtifactShareContentOptions = (
+  options: Options<GetPublicArtifactShareContentData>,
+) =>
+  queryOptions<
+    GetPublicArtifactShareContentResponse,
+    GetPublicArtifactShareContentError,
+    GetPublicArtifactShareContentResponse,
+    ReturnType<typeof getPublicArtifactShareContentQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPublicArtifactShareContent({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getPublicArtifactShareContentQueryKey(options),
   });
 
 /**

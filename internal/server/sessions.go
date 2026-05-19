@@ -321,17 +321,17 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 
 // partsToMessageContent converts API MessageParts to internal MessageContent.
 func partsToMessageContent(parts []apitypes.MessagePart) agent.MessageContent {
-	if len(parts) == 1 && parts[0].Type == apitypes.Text && parts[0].Text != nil {
+	if len(parts) == 1 && parts[0].Type == apitypes.MessagePartTypeText && parts[0].Text != nil {
 		return *parts[0].Text
 	}
 	var blocks []ai.ContentBlock
 	for _, p := range parts {
 		switch p.Type {
-		case apitypes.Text:
+		case apitypes.MessagePartTypeText:
 			if p.Text != nil {
 				blocks = append(blocks, ai.TextContent{Text: *p.Text})
 			}
-		case apitypes.Image:
+		case apitypes.MessagePartTypeImage:
 			if p.Image != nil {
 				mime := "image/png"
 				if p.MimeType != nil {

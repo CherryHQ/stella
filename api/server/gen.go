@@ -575,6 +575,9 @@ type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
+// CreateArtifactShareJSONRequestBody defines body for CreateArtifactShare for application/json ContentType.
+type CreateArtifactShareJSONRequestBody = externalRef0.CreateArtifactShareRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = externalRef0.LoginRequest
 
@@ -787,6 +790,15 @@ type ServerInterface interface {
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
 	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string)
+	// List artifact shares for the current user
+	// (GET /api/artifact-shares)
+	ListArtifactShares(w http.ResponseWriter, r *http.Request)
+	// Create a public artifact share from a workspace file
+	// (POST /api/artifact-shares)
+	CreateArtifactShare(w http.ResponseWriter, r *http.Request)
+	// Revoke an artifact share
+	// (DELETE /api/artifact-shares/{id})
+	RevokeArtifactShare(w http.ResponseWriter, r *http.Request, id string)
 	// Authenticate and start a session
 	// (POST /api/auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -982,6 +994,12 @@ type ServerInterface interface {
 	// Fetch and cache models from upstream provider (admin only)
 	// (POST /api/providers/{id}/models)
 	FetchProviderModels(w http.ResponseWriter, r *http.Request, id string)
+	// Get public artifact share metadata
+	// (GET /api/public/artifact-shares/{token})
+	GetPublicArtifactShare(w http.ResponseWriter, r *http.Request, token string)
+	// Get public artifact share content
+	// (GET /api/public/artifact-shares/{token}/content)
+	GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request, token string)
 	// List or search articles
 	// (GET /api/recally/articles)
 	ListArticles(w http.ResponseWriter, r *http.Request, params ListArticlesParams)
@@ -2075,6 +2093,78 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveAgentUser(w, r, id, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListArtifactShares operation middleware
+func (siw *ServerInterfaceWrapper) ListArtifactShares(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListArtifactShares(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) CreateArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateArtifactShare(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) RevokeArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeArtifactShare(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3965,6 +4055,58 @@ func (siw *ServerInterfaceWrapper) FetchProviderModels(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.FetchProviderModels(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicArtifactShare(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicArtifactShareContent operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicArtifactShareContent(w, r, token)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6250,6 +6392,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/artifact-shares", wrapper.ListArtifactShares)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/artifact-shares", wrapper.CreateArtifactShare)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/artifact-shares/{id}", wrapper.RevokeArtifactShare)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login", wrapper.Login)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
@@ -6315,6 +6460,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/providers/{id}", wrapper.UpdateProvider)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.ListProviderModels)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.FetchProviderModels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/public/artifact-shares/{token}", wrapper.GetPublicArtifactShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/public/artifact-shares/{token}/content", wrapper.GetPublicArtifactShareContent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.DeleteArticle)

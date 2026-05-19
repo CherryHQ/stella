@@ -23,6 +23,9 @@ import type {
   CreateAgentTaskData,
   CreateAgentTaskErrors,
   CreateAgentTaskResponses,
+  CreateArtifactShareData,
+  CreateArtifactShareErrors,
+  CreateArtifactShareResponses,
   CreateChannelData,
   CreateChannelErrors,
   CreateChannelResponses,
@@ -179,6 +182,12 @@ import type {
   GetProviderData,
   GetProviderErrors,
   GetProviderResponses,
+  GetPublicArtifactShareContentData,
+  GetPublicArtifactShareContentErrors,
+  GetPublicArtifactShareContentResponses,
+  GetPublicArtifactShareData,
+  GetPublicArtifactShareErrors,
+  GetPublicArtifactShareResponses,
   GetSessionData,
   GetSessionErrors,
   GetSessionMessagesData,
@@ -235,6 +244,9 @@ import type {
   ListArticlesData,
   ListArticlesErrors,
   ListArticlesResponses,
+  ListArtifactSharesData,
+  ListArtifactSharesErrors,
+  ListArtifactSharesResponses,
   ListAuthUserAgentsData,
   ListAuthUserAgentsErrors,
   ListAuthUserAgentsResponses,
@@ -339,6 +351,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
+  RevokeArtifactShareData,
+  RevokeArtifactShareErrors,
+  RevokeArtifactShareResponses,
   SaveArticleData,
   SaveArticleErrors,
   SaveArticleResponses,
@@ -2105,6 +2120,84 @@ export const getSessionSystemPrompt = <ThrowOnError extends boolean = false>(
     url: "/api/sessions/{sessionID}/system-prompt",
     ...options,
   });
+
+/**
+ * List artifact shares for the current user
+ */
+export const listArtifactShares = <ThrowOnError extends boolean = false>(
+  options?: Options<ListArtifactSharesData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListArtifactSharesResponses,
+    ListArtifactSharesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/artifact-shares",
+    ...options,
+  });
+
+/**
+ * Create a public artifact share from a workspace file
+ */
+export const createArtifactShare = <ThrowOnError extends boolean = false>(
+  options: Options<CreateArtifactShareData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateArtifactShareResponses,
+    CreateArtifactShareErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/artifact-shares",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Revoke an artifact share
+ */
+export const revokeArtifactShare = <ThrowOnError extends boolean = false>(
+  options: Options<RevokeArtifactShareData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RevokeArtifactShareResponses,
+    RevokeArtifactShareErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/artifact-shares/{id}",
+    ...options,
+  });
+
+/**
+ * Get public artifact share metadata
+ */
+export const getPublicArtifactShare = <ThrowOnError extends boolean = false>(
+  options: Options<GetPublicArtifactShareData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetPublicArtifactShareResponses,
+    GetPublicArtifactShareErrors,
+    ThrowOnError
+  >({ url: "/api/public/artifact-shares/{token}", ...options });
+
+/**
+ * Get public artifact share content
+ */
+export const getPublicArtifactShareContent = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<GetPublicArtifactShareContentData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetPublicArtifactShareContentResponses,
+    GetPublicArtifactShareContentErrors,
+    ThrowOnError
+  >({ url: "/api/public/artifact-shares/{token}/content", ...options });
 
 /**
  * Update the default agent for a user (admin only)

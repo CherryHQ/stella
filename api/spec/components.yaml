@@ -232,6 +232,86 @@ components:
           type: string
         name:
           type: string
+    ArtifactShareKind:
+      type: string
+      enum: [html, markdown, image, pdf]
+    ArtifactShare:
+      type: object
+      required: [
+        id,
+        url,
+        title,
+        source_session_id,
+        source_path,
+        media_type,
+        kind,
+        size_bytes,
+        created_at,
+        revoked,
+      ]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        source_session_id:
+          type: string
+        source_path:
+          type: string
+        media_type:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ArtifactShareKind"
+        size_bytes:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          nullable: true
+        revoked:
+          type: boolean
+        created_at:
+          type: string
+        last_accessed_at:
+          type: string
+          nullable: true
+    CreateArtifactShareRequest:
+      type: object
+      required: [session_id, path]
+      properties:
+        session_id:
+          type: string
+        path:
+          type: string
+        expires_in:
+          type: string
+          enum: [1h, 1d, 7d, never]
+          default: 7d
+    CreateArtifactShareResponse:
+      allOf:
+        - $ref: "#/components/schemas/ArtifactShare"
+    PublicArtifactShare:
+      type: object
+      required: [title, media_type, kind, size_bytes, created_at, content_url]
+      properties:
+        title:
+          type: string
+        media_type:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ArtifactShareKind"
+        size_bytes:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+        content_url:
+          type: string
     LoginRequest:
       type: object
       required: [username, password]

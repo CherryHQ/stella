@@ -193,6 +193,54 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
+// Defines values for ArtifactShareKind.
+const (
+	ArtifactShareKindHtml     ArtifactShareKind = "html"
+	ArtifactShareKindImage    ArtifactShareKind = "image"
+	ArtifactShareKindMarkdown ArtifactShareKind = "markdown"
+	ArtifactShareKindPdf      ArtifactShareKind = "pdf"
+)
+
+// Valid indicates whether the value is a known member of the ArtifactShareKind enum.
+func (e ArtifactShareKind) Valid() bool {
+	switch e {
+	case ArtifactShareKindHtml:
+		return true
+	case ArtifactShareKindImage:
+		return true
+	case ArtifactShareKindMarkdown:
+		return true
+	case ArtifactShareKindPdf:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateArtifactShareRequestExpiresIn.
+const (
+	N1d   CreateArtifactShareRequestExpiresIn = "1d"
+	N1h   CreateArtifactShareRequestExpiresIn = "1h"
+	N7d   CreateArtifactShareRequestExpiresIn = "7d"
+	Never CreateArtifactShareRequestExpiresIn = "never"
+)
+
+// Valid indicates whether the value is a known member of the CreateArtifactShareRequestExpiresIn enum.
+func (e CreateArtifactShareRequestExpiresIn) Valid() bool {
+	switch e {
+	case N1d:
+		return true
+	case N1h:
+		return true
+	case N7d:
+		return true
+	case Never:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRequestKind.
 const (
 	CreateSessionRequestKindChat      CreateSessionRequestKind = "chat"
@@ -243,19 +291,19 @@ func (e FeedEntryStatus) Valid() bool {
 
 // Defines values for MessagePartType.
 const (
-	File  MessagePartType = "file"
-	Image MessagePartType = "image"
-	Text  MessagePartType = "text"
+	MessagePartTypeFile  MessagePartType = "file"
+	MessagePartTypeImage MessagePartType = "image"
+	MessagePartTypeText  MessagePartType = "text"
 )
 
 // Valid indicates whether the value is a known member of the MessagePartType enum.
 func (e MessagePartType) Valid() bool {
 	switch e {
-	case File:
+	case MessagePartTypeFile:
 		return true
-	case Image:
+	case MessagePartTypeImage:
 		return true
-	case Text:
+	case MessagePartTypeText:
 		return true
 	default:
 		return false
@@ -506,6 +554,25 @@ type ArticleList struct {
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus string
 
+// ArtifactShare defines model for ArtifactShare.
+type ArtifactShare struct {
+	CreatedAt       string            `json:"created_at"`
+	ExpiresAt       *string           `json:"expires_at,omitempty"`
+	Id              string            `json:"id"`
+	Kind            ArtifactShareKind `json:"kind"`
+	LastAccessedAt  *string           `json:"last_accessed_at,omitempty"`
+	MediaType       string            `json:"media_type"`
+	Revoked         bool              `json:"revoked"`
+	SizeBytes       int64             `json:"size_bytes"`
+	SourcePath      string            `json:"source_path"`
+	SourceSessionId string            `json:"source_session_id"`
+	Title           string            `json:"title"`
+	Url             string            `json:"url"`
+}
+
+// ArtifactShareKind defines model for ArtifactShareKind.
+type ArtifactShareKind string
+
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest struct {
 	UserId string `json:"user_id"`
@@ -610,6 +677,19 @@ type CreateAgentRequest struct {
 	TemplateId   *string        `json:"template_id,omitempty"`
 	Workspace    *string        `json:"workspace,omitempty"`
 }
+
+// CreateArtifactShareRequest defines model for CreateArtifactShareRequest.
+type CreateArtifactShareRequest struct {
+	ExpiresIn *CreateArtifactShareRequestExpiresIn `json:"expires_in,omitempty"`
+	Path      string                               `json:"path"`
+	SessionId string                               `json:"session_id"`
+}
+
+// CreateArtifactShareRequestExpiresIn defines model for CreateArtifactShareRequest.ExpiresIn.
+type CreateArtifactShareRequestExpiresIn string
+
+// CreateArtifactShareResponse defines model for CreateArtifactShareResponse.
+type CreateArtifactShareResponse = ArtifactShare
 
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
@@ -1025,6 +1105,17 @@ type ProviderType struct {
 	DefaultUrl string `json:"default_url"`
 	Id         string `json:"id"`
 	Name       string `json:"name"`
+}
+
+// PublicArtifactShare defines model for PublicArtifactShare.
+type PublicArtifactShare struct {
+	ContentUrl string            `json:"content_url"`
+	CreatedAt  string            `json:"created_at"`
+	ExpiresAt  *string           `json:"expires_at,omitempty"`
+	Kind       ArtifactShareKind `json:"kind"`
+	MediaType  string            `json:"media_type"`
+	SizeBytes  int64             `json:"size_bytes"`
+	Title      string            `json:"title"`
 }
 
 // PublicChannel defines model for PublicChannel.

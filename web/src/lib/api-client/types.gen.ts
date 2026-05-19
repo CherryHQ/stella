@@ -389,6 +389,23 @@ export type ComponentsArticleList = {
 
 export type ComponentsArticleStatus = "unread" | "read" | "archived";
 
+export type ArtifactShare = {
+  id: string;
+  url: string;
+  title: string;
+  source_session_id: string;
+  source_path: string;
+  media_type: string;
+  kind: ArtifactShareKind;
+  size_bytes: number;
+  expires_at?: string | null;
+  revoked: boolean;
+  created_at: string;
+  last_accessed_at?: string | null;
+};
+
+export type ArtifactShareKind = "html" | "markdown" | "image" | "pdf";
+
 export type ComponentsAssignAgentUserRequest = {
   user_id: string;
 };
@@ -487,6 +504,14 @@ export type ComponentsCreateAgentRequest = {
   enabled?: boolean;
   template_id?: string;
 };
+
+export type CreateArtifactShareRequest = {
+  session_id: string;
+  path: string;
+  expires_in?: "1h" | "1d" | "7d" | "never";
+};
+
+export type CreateArtifactShareResponse = ArtifactShare;
 
 export type ComponentsCreateFeedRequest = {
   url: string;
@@ -884,6 +909,16 @@ export type ComponentsProviderType = {
   id: string;
   name: string;
   default_url: string;
+};
+
+export type PublicArtifactShare = {
+  title: string;
+  media_type: string;
+  kind: ArtifactShareKind;
+  size_bytes: number;
+  expires_at?: string | null;
+  created_at: string;
+  content_url: string;
 };
 
 export type ComponentsPublicChannel = {
@@ -1339,6 +1374,14 @@ export type _1Api1Agents1Id1Skills1SkillId1File = unknown;
 export type _1Api1Agents1Id1Users = unknown;
 
 export type _1Api1Agents1Id1Users1UserId = unknown;
+
+export type _1Api1ArtifactShares = unknown;
+
+export type _1Api1ArtifactShares1Id = unknown;
+
+export type _1Api1Public1ArtifactShares1Token = unknown;
+
+export type _1Api1Public1ArtifactShares1Token1Content = unknown;
 
 export type _1Api1Auth1Login = unknown;
 
@@ -5285,6 +5328,181 @@ export type GetSessionSystemPromptResponses = {
 
 export type GetSessionSystemPromptResponse =
   GetSessionSystemPromptResponses[keyof GetSessionSystemPromptResponses];
+
+export type ListArtifactSharesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/artifact-shares";
+};
+
+export type ListArtifactSharesErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListArtifactSharesError =
+  ListArtifactSharesErrors[keyof ListArtifactSharesErrors];
+
+export type ListArtifactSharesResponses = {
+  /**
+   * ok
+   */
+  200: Array<ArtifactShare>;
+};
+
+export type ListArtifactSharesResponse =
+  ListArtifactSharesResponses[keyof ListArtifactSharesResponses];
+
+export type CreateArtifactShareData = {
+  body: CreateArtifactShareRequest;
+  path?: never;
+  query?: never;
+  url: "/api/artifact-shares";
+};
+
+export type CreateArtifactShareErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type CreateArtifactShareError =
+  CreateArtifactShareErrors[keyof CreateArtifactShareErrors];
+
+export type CreateArtifactShareResponses = {
+  /**
+   * created
+   */
+  201: CreateArtifactShareResponse;
+};
+
+export type CreateArtifactShareResponse2 =
+  CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
+
+export type RevokeArtifactShareData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/artifact-shares/{id}";
+};
+
+export type RevokeArtifactShareErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type RevokeArtifactShareError =
+  RevokeArtifactShareErrors[keyof RevokeArtifactShareErrors];
+
+export type RevokeArtifactShareResponses = {
+  /**
+   * revoked
+   */
+  204: void;
+};
+
+export type RevokeArtifactShareResponse =
+  RevokeArtifactShareResponses[keyof RevokeArtifactShareResponses];
+
+export type GetPublicArtifactShareData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: "/api/public/artifact-shares/{token}";
+};
+
+export type GetPublicArtifactShareErrors = {
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetPublicArtifactShareError =
+  GetPublicArtifactShareErrors[keyof GetPublicArtifactShareErrors];
+
+export type GetPublicArtifactShareResponses = {
+  /**
+   * ok
+   */
+  200: PublicArtifactShare;
+};
+
+export type GetPublicArtifactShareResponse =
+  GetPublicArtifactShareResponses[keyof GetPublicArtifactShareResponses];
+
+export type GetPublicArtifactShareContentData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: "/api/public/artifact-shares/{token}/content";
+};
+
+export type GetPublicArtifactShareContentErrors = {
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetPublicArtifactShareContentError =
+  GetPublicArtifactShareContentErrors[keyof GetPublicArtifactShareContentErrors];
+
+export type GetPublicArtifactShareContentResponses = {
+  /**
+   * ok
+   */
+  200: Blob | File;
+};
+
+export type GetPublicArtifactShareContentResponse =
+  GetPublicArtifactShareContentResponses[keyof GetPublicArtifactShareContentResponses];
 
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;
