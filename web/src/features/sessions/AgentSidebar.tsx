@@ -7,11 +7,7 @@ import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
-import {
-  agentSchedulerJobsOptions,
-  agentSkillsOptions,
-  agentMemoriesOptions,
-} from "@/lib/queries/agents";
+import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 
 interface Props {
@@ -29,10 +25,6 @@ function agentColor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-
-function isTaskSession(s: Session): boolean {
-  return s.source === "task";
 }
 
 function sessionTitle(s: Session): string {
@@ -190,39 +182,25 @@ function IconFolder() {
 function SectionHeader({
   icon,
   label,
-  count,
   open,
   active,
   onToggle,
-  onAdd,
 }: {
   icon: React.ReactNode;
   label: string;
-  count: number;
   open?: boolean;
   active?: boolean;
   onToggle: () => void;
-  onAdd?: () => void;
 }) {
   const expandable = open !== undefined;
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 px-3.5 pt-3 pb-1.5 cursor-pointer select-none group",
-        active && "bg-sidebar-accent rounded-lg mx-2 px-3",
+        "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer select-none group transition-all duration-150",
+        active ? "bg-sidebar-accent" : "hover:bg-muted/50",
       )}
       onClick={onToggle}
     >
-      {expandable ? (
-        <ChevRight
-          className={cn(
-            "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
-            open && "rotate-90",
-          )}
-        />
-      ) : (
-        <span className="w-2.5 h-2.5 flex-shrink-0" />
-      )}
       <span
         className={cn(
           "flex-shrink-0 transition-colors",
@@ -239,19 +217,13 @@ function SectionHeader({
       >
         {label}
       </span>
-      <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
-      {onAdd && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAdd();
-          }}
-          className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:bg-muted hover:text-foreground transition-colors"
-          title={`New ${label.toLowerCase().replace(/s$/, "")}`}
-        >
-          <IconPlus />
-        </button>
+      {expandable && (
+        <ChevRight
+          className={cn(
+            "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/40 transition-transform duration-150",
+            open && "rotate-90",
+          )}
+        />
       )}
     </div>
   );
@@ -264,7 +236,7 @@ function NavRow({
   sub,
   meta,
   onClick,
-  className,
+  indent,
 }: {
   active: boolean;
   icon?: React.ReactNode;
@@ -272,15 +244,15 @@ function NavRow({
   sub?: string;
   meta?: string;
   onClick: () => void;
-  className?: string;
+  indent?: boolean;
 }) {
   return (
     <div
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-150",
+        indent && "ml-5",
         active ? "bg-sidebar-accent" : "hover:bg-muted/50",
-        className,
       )}
     >
       {icon && (
@@ -378,7 +350,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const { data: schedulerJobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
   const { data: memories = [] } = useQuery(agentMemoriesOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
@@ -411,16 +382,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
       return base.filter((s) => sessionTitle(s).toLowerCase().includes(search.toLowerCase()));
     return base;
   }, [sessions, search, historySource]);
-
-  const taskSessions = useMemo(
-    () => sessions.filter((s) => !s.archived && isTaskSession(s)),
-    [sessions],
-  );
-
-  const filteredJobs = useMemo(() => {
-    if (!search) return schedulerJobs;
-    return schedulerJobs.filter((j) => j.name.toLowerCase().includes(search.toLowerCase()));
-  }, [schedulerJobs, search]);
 
   const filteredSkills = useMemo(() => {
     if (!search) return skills;
@@ -598,7 +559,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             }
             icon={<IconHome />}
             title={selectedAgent?.name ?? "Home"}
-            className="pl-[22px]"
             onClick={() => {
               if (homeSession) {
                 void navigate({
@@ -618,14 +578,12 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             <SectionHeader
               icon={<IconTask />}
               label={t("sessions.sidebar.tasks")}
-              count={taskSessions.length}
               active={isActive(`/agents/${agentId}/tasks`)}
               onToggle={() => void navigate({ to: "/agents/$agentId/tasks", params: { agentId } })}
             />
             <SectionHeader
               icon={<IconClock />}
               label={t("sessions.sidebar.automations")}
-              count={filteredJobs.length}
               active={isActive(`/agents/${agentId}/automations`)}
               onToggle={() =>
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } })
@@ -640,7 +598,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             <SectionHeader
               icon={<IconFolder />}
               label="Projects"
-              count={projects.length}
               open={isOpen("project")}
               onToggle={() => toggleSection("project")}
             />
@@ -651,6 +608,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   active={false}
                   icon={<IconFolder />}
                   title={p.name}
+                  indent
                   onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
                 />
               ))}
@@ -663,12 +621,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             <SectionHeader
               icon={<IconStar />}
               label={t("sessions.sidebar.skills")}
-              count={filteredSkills.length}
               open={isOpen("skill")}
               onToggle={() => toggleSection("skill")}
-              onAdd={() =>
-                void navigate({ to: "/agents/$agentId/skills/new", params: { agentId } })
-              }
             />
             {isOpen("skill") && (
               <>
@@ -688,6 +642,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                           icon={<IconStar />}
                           title={s.name}
                           sub={s.description}
+                          indent
                           onClick={() =>
                             void navigate({
                               to: "/agents/$agentId/skills/$skillId",
@@ -705,6 +660,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     icon={<IconStar />}
                     title={s.name}
                     sub={s.description}
+                    indent
                     onClick={() =>
                       void navigate({
                         to: "/agents/$agentId/skills/$skillId",
@@ -731,7 +687,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             <SectionHeader
               icon={<IconBrain />}
               label={t("sessions.sidebar.memory")}
-              count={memories.length}
               open={isOpen("memory")}
               onToggle={() => toggleSection("memory")}
             />
@@ -742,6 +697,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   icon={<IconBrain />}
                   title={t("sessions.sidebar.agentSoul")}
                   sub={t("sessions.sidebar.soulSubtitle")}
+                  indent
                   onClick={() =>
                     void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } })
                   }
@@ -755,6 +711,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                       ? formatTime(userMemory.updated_at)
                       : t("sessions.sidebar.noMemory")
                   }
+                  indent
                   onClick={() =>
                     void navigate({
                       to: "/agents/$agentId/memories/profile",
@@ -773,7 +730,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             <SectionHeader
               icon={<IconChat />}
               label="History"
-              count={chatSessions.length}
               open={isOpen("history")}
               onToggle={() => toggleSection("history")}
             />
@@ -798,6 +754,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     icon={<IconChat />}
                     title={sessionTitle(s)}
                     meta={formatTime(s.last_active)}
+                    indent
                     onClick={() =>
                       void navigate({
                         to: "/agents/$agentId/sessions/$sessionId",
