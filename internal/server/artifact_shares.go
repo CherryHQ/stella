@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -9,8 +10,10 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,11 +152,43 @@ func (s *Server) RevokeArtifactShare(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s *Server) GetPublicArtifactShare(w http.ResponseWriter, r *http.Request, token string) {
-	writeError(w, http.StatusNotImplemented, "artifact sharing is not implemented")
+	share, ok := s.publicArtifactShare(w, r, token)
+	if !ok {
+		return
+	}
+	contentURL := "/api/public/artifact-shares/" + url.PathEscape(token) + "/content"
+	writeData(w, http.StatusOK, apitypes.PublicArtifactShare{
+		Title:      share.Title,
+		MediaType:  share.MediaType,
+		Kind:       apitypes.ArtifactShareKind(share.Kind),
+		SizeBytes:  share.SizeBytes,
+		ExpiresAt:  nullStringPtr(share.ExpiresAt),
+		CreatedAt:  share.CreatedAt,
+		ContentUrl: contentURL,
+	})
 }
 
 func (s *Server) GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request, token string) {
-	writeError(w, http.StatusNotImplemented, "artifact sharing is not implemented")
+	share, ok := s.publicArtifactShare(w, r, token)
+	if !ok {
+		return
+	}
+	_ = s.q.UpdateArtifactShareLastAccessed(r.Context(), share.ID)
+	setArtifactShareContentHeaders(w, share)
+	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(share.Content))
+}
+
+func (s *Server) publicArtifactShare(w http.ResponseWriter, r *http.Request, token string) (sqlc.ArtifactShare, bool) {
+	if token == "" {
+		writeError(w, http.StatusNotFound, "artifact share not found")
+		return sqlc.ArtifactShare{}, false
+	}
+	share, err := s.q.GetArtifactShareByTokenHash(r.Context(), artifactShareTokenHash(token))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "artifact share not found")
+		return sqlc.ArtifactShare{}, false
+	}
+	return share, true
 }
 
 func artifactShareResponse(r *http.Request, share sqlc.ArtifactShare, token string) apitypes.ArtifactShare {
@@ -235,8 +270,28 @@ func newArtifactShareToken() (string, string, error) {
 		return "", "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(buf)
+	return token, artifactShareTokenHash(token), nil
+}
+
+func artifactShareTokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
-	return token, hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
+}
+
+func setArtifactShareContentHeaders(w http.ResponseWriter, share sqlc.ArtifactShare) {
+	w.Header().Set("Content-Type", share.MediaType)
+	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	switch share.Kind {
+	case string(apitypes.ArtifactShareKindHtml):
+		w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups allow-downloads; default-src 'self' https: data: blob:; img-src * data: blob:; style-src 'unsafe-inline' https:; script-src 'unsafe-inline' 'unsafe-eval' https:; connect-src https:; object-src 'none'; base-uri 'none'; form-action 'none'")
+	case string(apitypes.ArtifactShareKindMarkdown):
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+	default:
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+	}
 }
 
 func nullStringPtr(v sql.NullString) *string {

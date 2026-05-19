@@ -47,6 +47,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		if path == "/login" ||
 			strings.HasPrefix(path, "/assets/") ||
 			strings.HasPrefix(path, "/static/") ||
+			strings.HasPrefix(path, "/s/") ||
+			strings.HasPrefix(path, "/api/public/artifact-shares/") ||
 			path == "/api/auth/login" ||
 			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||

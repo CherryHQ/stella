@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestArtifactShareLifecycle(t *testing.T) {
@@ -70,6 +73,89 @@ func TestArtifactShareLifecycle(t *testing.T) {
 	revoke := doRequest(t, env, http.MethodDelete, "/api/artifact-shares/"+url.PathEscape(envelope.Data.ID), nil)
 	if revoke.Code != http.StatusNoContent {
 		t.Fatalf("revoke status = %d body = %s", revoke.Code, revoke.Body.String())
+	}
+}
+
+func TestPublicArtifactShareAccess(t *testing.T) {
+	env := setupArtifactShareWorkspace(t)
+	create := doRequest(t, env, http.MethodPost, "/api/artifact-shares", map[string]any{
+		"session_id": "artifact-session",
+		"path":       "report.html",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body = %s", create.Code, create.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	token := strings.TrimPrefix(envelope.Data.URL, "http://example.com/s/")
+	if token == envelope.Data.URL || token == "" {
+		t.Fatalf("could not extract token from %q", envelope.Data.URL)
+	}
+
+	metadata := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token), nil)
+	if metadata.Code != http.StatusOK {
+		t.Fatalf("metadata status = %d body = %s", metadata.Code, metadata.Body.String())
+	}
+	if !strings.Contains(metadata.Body.String(), "content_url") {
+		t.Fatalf("metadata missing content_url: %s", metadata.Body.String())
+	}
+
+	content := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token)+"/content", nil)
+	if content.Code != http.StatusOK {
+		t.Fatalf("content status = %d body = %s", content.Code, content.Body.String())
+	}
+	if content.Header().Get("Content-Security-Policy") == "" || !strings.Contains(content.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("missing HTML sandbox CSP: %s", content.Header().Get("Content-Security-Policy"))
+	}
+	if content.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("missing nosniff header")
+	}
+	if !strings.Contains(content.Body.String(), "<h1>Hello</h1>") {
+		t.Fatalf("content body = %s", content.Body.String())
+	}
+
+	hash := sha256.Sum256([]byte(token))
+	share, err := sqlc.New(env.db).GetArtifactShareByTokenHash(context.Background(), hex.EncodeToString(hash[:]))
+	if err != nil {
+		t.Fatalf("lookup share by hash: %v", err)
+	}
+	if string(share.Content) == token || share.TokenHash == token {
+		t.Fatal("plaintext token should not be stored")
+	}
+}
+
+func TestPublicArtifactShareExpiredOrRevokedReturnsNotFound(t *testing.T) {
+	env := setupArtifactShareWorkspace(t)
+	create := doRequest(t, env, http.MethodPost, "/api/artifact-shares", map[string]any{
+		"session_id": "artifact-session",
+		"path":       "report.html",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body = %s", create.Code, create.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			ID  string `json:"id"`
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	token := strings.TrimPrefix(envelope.Data.URL, "http://example.com/s/")
+	revoke := doRequest(t, env, http.MethodDelete, "/api/artifact-shares/"+url.PathEscape(envelope.Data.ID), nil)
+	if revoke.Code != http.StatusNoContent {
+		t.Fatalf("revoke status = %d body = %s", revoke.Code, revoke.Body.String())
+	}
+	metadata := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token), nil)
+	if metadata.Code != http.StatusNotFound {
+		t.Fatalf("metadata status = %d body = %s", metadata.Code, metadata.Body.String())
 	}
 }
 
