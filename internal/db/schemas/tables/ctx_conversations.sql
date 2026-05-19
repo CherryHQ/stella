@@ -11,10 +11,9 @@ CREATE TABLE ctx_conversations (
     agent_id TEXT,
     user_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    CHECK (source != 'main' OR project_id IS NOT NULL)
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_one_main_per_project
-  ON ctx_conversations(project_id)
-  WHERE source = 'main' AND archived = 0 AND project_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_one_main_per_agent_user
+  ON ctx_conversations(agent_id, user_id)
+  WHERE source = 'main' AND archived = 0;

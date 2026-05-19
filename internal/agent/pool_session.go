@@ -105,6 +105,60 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 	return *best, true
 }
 
+// mainSessionLocked returns the non-archived main session from the in-memory
+// map and persistent store. Caller must hold p.mu.
+func (p *Pool) mainSessionLocked() (SessionInfo, bool) {
+	for _, sess := range p.sessions {
+		if !sess.Info.Archived && sess.Info.Source == "main" {
+			return sess.Info, true
+		}
+	}
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		items, err := sm.ListInfo(context.Background(), memory.ListOptions{Source: "main"})
+		if err == nil {
+			for _, info := range items {
+				return info, true
+			}
+		}
+	}
+	return SessionInfo{}, false
+}
+
+// latestSessionLocked returns the most recent non-archived session across all
+// channels. Caller must hold p.mu.
+func (p *Pool) latestSessionLocked() (SessionInfo, bool) {
+	var best *SessionInfo
+	seen := make(map[string]struct{})
+	for _, sess := range p.sessions {
+		if sess.Info.Archived {
+			continue
+		}
+		seen[sess.Info.ID] = struct{}{}
+		if best == nil || sess.Info.LastActive.After(best.LastActive) {
+			info := sess.Info
+			best = &info
+		}
+	}
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		items, err := sm.ListInfo(context.Background(), memory.ListOptions{})
+		if err == nil {
+			for _, info := range items {
+				if _, inSeen := seen[info.ID]; inSeen {
+					continue
+				}
+				if best == nil || info.LastActive.After(best.LastActive) {
+					info := info
+					best = &info
+				}
+			}
+		}
+	}
+	if best == nil {
+		return SessionInfo{}, false
+	}
+	return *best, true
+}
+
 // ActiveSession returns the most recent non-archived session for a channel.
 func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 	p.mu.Lock()
@@ -112,33 +166,45 @@ func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 	return p.activeSessionLocked(channel)
 }
 
-// ResolveSession returns the active session for a channel, creating one if needed.
-// The check-and-create is atomic to prevent duplicate sessions under concurrent access.
+// ResolveSession returns the main session for a channel, creating or promoting one if needed.
 // An optional userID associates the session with a user (stored in conversations table).
-// When creating a new session, if no project is set and a ProjectEnsurer is configured,
-// a default project is auto-created for the agent+user pair.
 func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
-	if info, ok := p.activeSessionLocked(channel); ok {
+
+	// 1. Look for an existing main session.
+	if info, ok := p.mainSessionLocked(); ok {
 		p.mu.Unlock()
 		return info, nil
 	}
+
+	// 2. Promote the latest active session (any channel) to main.
+	if info, ok := p.latestSessionLocked(); ok {
+		info.Source = "main"
+		if sess, exists := p.sessions[info.ID]; exists {
+			sess.Info.Source = "main"
+		}
+		ensurer := p.projectEnsurer
+		p.mu.Unlock()
+		if ensurer != nil && info.UserID != "" {
+			if _, err := ensurer(ctx, p.agentID, info.UserID); err != nil {
+				p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
+			}
+		}
+		return p.persistNewSession(info)
+	}
+
+	// 3. Create a new main session.
 	info := p.createSessionLocked(channel, userID...)
+	info.Source = "main"
+	if sess, exists := p.sessions[info.ID]; exists {
+		sess.Info.Source = "main"
+	}
 	ensurer := p.projectEnsurer
 	p.mu.Unlock()
 
-	if info.ProjectID == "" && ensurer != nil && info.UserID != "" {
-		projID, err := ensurer(ctx, p.agentID, info.UserID)
-		if err != nil {
+	if ensurer != nil && info.UserID != "" {
+		if _, err := ensurer(ctx, p.agentID, info.UserID); err != nil {
 			p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
-		}
-		if err == nil && projID != "" {
-			info.ProjectID = projID
-			p.mu.Lock()
-			if sess, ok := p.sessions[info.ID]; ok {
-				sess.Info.ProjectID = projID
-			}
-			p.mu.Unlock()
 		}
 	}
 

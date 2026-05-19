@@ -726,16 +726,16 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 		t.Error("legacy session with empty Channel should not match 'cli'")
 	}
 
-	// ResolveSession should create a new one instead.
+	// ResolveSession promotes the latest session to main.
 	info, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Channel != "cli" {
-		t.Errorf("Channel = %q, want cli", info.Channel)
+	if info.ID != "legacy-abc" {
+		t.Errorf("expected legacy session to be promoted, got %q", info.ID)
 	}
-	if info.ID == "legacy-abc" {
-		t.Error("should not reuse legacy session")
+	if info.Source != "main" {
+		t.Errorf("Source = %q, want main", info.Source)
 	}
 }
 
