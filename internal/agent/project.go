@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -41,7 +40,8 @@ func ValidateProjectDir(baseDir, userRoot string) error {
 		for dir != "/" && dir != "." {
 			parent := filepath.Dir(dir)
 			if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-				cleanBase = filepath.Join(resolved, cleanBase[len(parent):])
+				tail, _ := filepath.Rel(parent, cleanBase)
+				cleanBase = filepath.Join(resolved, tail)
 				break
 			}
 			dir = parent
@@ -67,8 +67,3 @@ func ValidateProjectDir(baseDir, userRoot string) error {
 // ProjectEnsurerFunc ensures a default project exists for an agent+user pair.
 // Returns the project ID. Called when a session is created without a project.
 type ProjectEnsurerFunc func(ctx context.Context, agentID, userID string) (projectID string, err error)
-
-// EnsureProjectDir creates the project directory if it doesn't exist.
-func EnsureProjectDir(baseDir string) error {
-	return os.MkdirAll(baseDir, 0o755)
-}

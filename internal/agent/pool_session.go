@@ -117,7 +117,7 @@ func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 // An optional userID associates the session with a user (stored in conversations table).
 // When creating a new session, if no project is set and a ProjectEnsurer is configured,
 // a default project is auto-created for the agent+user pair.
-func (p *Pool) ResolveSession(channel string, userID ...string) (SessionInfo, error) {
+func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
 	if info, ok := p.activeSessionLocked(channel); ok {
 		p.mu.Unlock()
@@ -128,7 +128,7 @@ func (p *Pool) ResolveSession(channel string, userID ...string) (SessionInfo, er
 	p.mu.Unlock()
 
 	if info.ProjectID == "" && ensurer != nil && info.UserID != "" {
-		if projID, err := ensurer(context.Background(), p.agentID, info.UserID); err == nil && projID != "" {
+		if projID, err := ensurer(ctx, p.agentID, info.UserID); err == nil && projID != "" {
 			info.ProjectID = projID
 			p.mu.Lock()
 			if sess, ok := p.sessions[info.ID]; ok {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -80,8 +81,13 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 			// Resolve project directory when session has a project.
 			var projectRoot string
 			if params.ProjectID != "" && cfg.ProjectResolver != nil {
-				if dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID); err == nil && dir != "" {
-					if err := ValidateProjectDir(dir, userRoot); err == nil {
+				dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID)
+				if err != nil {
+					slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
+				} else if dir != "" {
+					if err := ValidateProjectDir(dir, userRoot); err != nil {
+						slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
+					} else {
 						projectRoot = dir
 					}
 				}
