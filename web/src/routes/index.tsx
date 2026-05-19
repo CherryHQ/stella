@@ -21,21 +21,32 @@ import { siGithub } from "simple-icons";
 import { t } from "@/lib/docs/translations";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useI18n } from "@/lib/i18n";
-import "./index.css";
+
+const REVEAL_HIDDEN = ["opacity-0", "translate-y-5"];
+const REVEAL_VISIBLE = ["opacity-100", "translate-y-0"];
+const REVEAL_BASE =
+  "transition-[opacity,transform] duration-[600ms] [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]";
 
 function useReveal() {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const targets = el.querySelectorAll(
-      ".home-pillar, .home-cap, .home-caps-header, .home-cta-copy, .home-terminal, .home-product, .home-product-features, .home-system, .home-system--hero",
-    );
+    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const targets = el.querySelectorAll("[data-reveal]");
+    if (prefersReduced) {
+      for (const target of targets) {
+        target.classList.remove(...REVEAL_HIDDEN);
+        target.classList.add(...REVEAL_VISIBLE);
+      }
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            entry.target.classList.add("is-visible");
+            entry.target.classList.remove(...REVEAL_HIDDEN);
+            entry.target.classList.add(...REVEAL_VISIBLE);
             observer.unobserve(entry.target);
           }
         }
@@ -345,13 +356,19 @@ function Home() {
   const progress = useScrollProgress();
 
   return (
-    <div className="relative isolate flex min-h-svh flex-col bg-background text-foreground">
-      <a href="#main-content" className="home-skip-link">
+    <div className="relative isolate flex min-h-svh flex-col bg-background font-sans text-foreground">
+      <a
+        href="#main-content"
+        className="absolute -top-full left-4 z-[200] rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background no-underline focus:top-4"
+      >
         {lang === "zh" ? "跳到主要内容" : "Skip to main content"}
       </a>
-      <div className="home-progress" style={{ transform: `scaleX(${progress})` }} />
+      <div
+        className="fixed top-0 right-0 left-0 z-[100] h-0.5 origin-left bg-primary will-change-transform"
+        style={{ transform: `scaleX(${progress})` }}
+      />
       <SiteHeader />
-      <main ref={mainRef} id="main-content" className="home-page flex-1">
+      <main ref={mainRef} id="main-content" className="flex-1">
         <HeroSection lang={lang} />
         <SystemsSection lang={lang} />
         <PillarsSection lang={lang} />
@@ -367,19 +384,56 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="home-hero">
-      <div className="home-hero-orb" />
-      <div className="home-hero-grain" />
-      <div className="home-shell">
-        <div className="home-hero-layout">
-          <div className="home-hero-copy">
-            <span className="home-eyebrow">{c.heroEyebrow}</span>
-            <h1 className="home-hero-title">
-              {c.heroTitle[0]} <em>{c.heroTitle[1]}</em> {c.heroTitle[2]}
+    <section className="relative overflow-hidden py-[clamp(6rem,10vw,11rem)] pb-[clamp(4rem,7vw,8rem)]">
+      {/* Orb */}
+      <div
+        className="pointer-events-none absolute -top-[20%] -right-[10%] h-[120%] w-[70%] animate-orb-drift rounded-full blur-[80px]"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, rgba(0,102,204,0.06) 0%, rgba(245,245,247,0.03) 40%, transparent 70%)",
+        }}
+      />
+      {/* Grain */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.02]"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
+          backgroundRepeat: "repeat",
+          backgroundSize: "200px 200px",
+        }}
+      />
+
+      <div className="mx-auto w-[min(100%-3rem,72rem)]">
+        <div className="grid grid-cols-1 items-center gap-[clamp(2.5rem,5vw,5rem)] lg:grid-cols-[1fr_1.3fr]">
+          {/* Copy */}
+          <div className="relative animate-fade-up motion-reduce:animate-none">
+            <span
+              className="inline-block animate-shimmer rounded-full bg-primary/[0.12] px-3.5 py-1.5 font-mono text-[0.7rem] font-medium uppercase tracking-wider text-primary motion-reduce:animate-none"
+              style={{
+                backgroundSize: "200% 100%",
+                backgroundImage:
+                  "linear-gradient(90deg, rgba(0,102,204,0.12) 40%, rgba(0,102,204,0.24) 50%, rgba(0,102,204,0.12) 60%)",
+              }}
+            >
+              {c.heroEyebrow}
+            </span>
+            <h1 className="mt-7 mb-6 text-[clamp(2.6rem,6vw,4.5rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+              {c.heroTitle[0]}{" "}
+              <em className="relative not-italic text-primary after:absolute after:inset-x-[-0.05em] after:bottom-[0.02em] after:h-[0.12em] after:rounded-[0.06em] after:bg-primary/20 after:content-['']">
+                {c.heroTitle[1]}
+              </em>{" "}
+              {c.heroTitle[2]}
             </h1>
-            <p className="home-hero-body">{c.heroSub}</p>
-            <div className="home-actions">
-              <Link to="/docs/$" params={{ _splat: "" }} className="home-btn home-btn-primary">
+            <p className="max-w-[36rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+              {c.heroSub}
+            </p>
+            <div className="mt-9 flex flex-wrap gap-3 max-sm:flex-col">
+              <Link
+                to="/docs/$"
+                params={{ _splat: "" }}
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-normal text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-lg active:scale-[0.97] max-sm:min-h-11 max-sm:justify-center"
+              >
                 {tr.readTheDocs}
                 <ArrowRight aria-hidden className="size-4" />
               </Link>
@@ -387,7 +441,7 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
                 href="https://github.com/CherryHQ/stella"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="home-btn home-btn-ghost"
+                className="inline-flex items-center gap-2 rounded-full border border-foreground/[0.12] bg-transparent px-6 py-3 text-sm font-normal text-foreground transition-all hover:-translate-y-px hover:bg-foreground/[0.08] active:scale-[0.97] max-sm:min-h-11 max-sm:justify-center"
               >
                 <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
                   <path d={siGithub.path} />
@@ -409,104 +463,143 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
   const isZh = lang === "zh";
 
   return (
-    <div className="home-product" aria-label={c.productLabel}>
-      <div className="home-product-chrome">
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
-        <span className="home-product-title">{c.productLabel}</span>
+    <div
+      className="relative overflow-hidden rounded-2xl border border-foreground/[0.12] bg-card shadow-xl animate-fade-up [animation-delay:300ms] motion-reduce:animate-none"
+      aria-label={c.productLabel}
+    >
+      {/* Chrome bar */}
+      <div className="flex items-center gap-1.5 border-b border-foreground/[0.12] bg-foreground/[0.02] px-4 py-2.5">
+        <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
+        <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
+        <span className="size-[9px] rounded-full bg-foreground/[0.14]" />
+        <span className="ml-auto font-mono text-[0.68rem] font-medium tracking-wide text-muted-foreground">
+          {c.productLabel}
+        </span>
       </div>
-      <div className="home-product-body">
-        <div className="home-product-sidebar">
-          <div className="home-product-nav-item home-product-nav-active">
+
+      {/* Body */}
+      <div className="grid min-h-[320px] grid-cols-[7.5rem_1fr] max-sm:grid-cols-1">
+        {/* Sidebar */}
+        <div className="border-r border-foreground/[0.12] bg-foreground/[0.015] py-3 max-sm:hidden">
+          <div className="flex items-center gap-2 border-r-2 border-primary bg-primary/[0.08] px-3 py-2 text-[0.72rem] font-medium text-primary">
             <MessageCircle className="size-3.5" />
             <span>{isZh ? "会话" : "Sessions"}</span>
           </div>
-          <div className="home-product-nav-item">
-            <Bot className="size-3.5" />
-            <span>{isZh ? "智能体" : "Agents"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <BookOpen className="size-3.5" />
-            <span>{isZh ? "阅读" : "Recally"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <CalendarClock className="size-3.5" />
-            <span>{isZh ? "调度" : "Scheduler"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <ListTodo className="size-3.5" />
-            <span>{isZh ? "任务" : "Tasks"}</span>
-          </div>
+          {[
+            { icon: Bot, label: isZh ? "智能体" : "Agents" },
+            { icon: BookOpen, label: isZh ? "阅读" : "Recally" },
+            { icon: CalendarClock, label: isZh ? "调度" : "Scheduler" },
+            { icon: ListTodo, label: isZh ? "任务" : "Tasks" },
+          ].map(({ icon: Icon, label }) => (
+            <div
+              key={label}
+              className="flex cursor-default items-center gap-2 px-3 py-2 text-[0.72rem] font-medium text-muted-foreground"
+            >
+              <Icon className="size-3.5" />
+              <span>{label}</span>
+            </div>
+          ))}
         </div>
 
-        <div className="home-product-chat">
-          <div className="home-product-msg home-product-msg-user">
-            <p>
+        {/* Chat */}
+        <div className="flex flex-col gap-3 overflow-hidden p-4">
+          <div className="max-w-[92%] self-end">
+            <p className="m-0 rounded-xl rounded-br-sm bg-foreground/[0.06] px-3.5 py-2 text-[0.78rem] leading-normal text-foreground">
               {isZh
                 ? "帮我审查这个 PR 的安全性，重点关注 auth 中间件的改动"
                 : "Review this PR for security issues, focus on the auth middleware changes"}
             </p>
           </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool">
+
+          <div className="flex max-w-[92%] items-start gap-2">
+            <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/[0.14] text-[0.65rem] font-semibold text-primary">
+              S
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="inline-flex w-fit items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[0.65rem] text-muted-foreground">
                 <Zap className="size-3" />
                 <span>read_file</span>
-                <span className="home-product-tool-status">✓</span>
+                <span className="font-semibold text-emerald-500">✓</span>
               </div>
-              <div className="home-product-tool">
+              <div className="inline-flex w-fit items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[0.65rem] text-muted-foreground">
                 <Zap className="size-3" />
                 <span>github_pr_diff</span>
-                <span className="home-product-tool-status">✓</span>
+                <span className="font-semibold text-emerald-500">✓</span>
               </div>
-              <p>
+              <p className="m-0 text-[0.78rem] leading-relaxed text-foreground">
                 {isZh
                   ? "发现两个问题：1) session token 未设置 httpOnly 标志 2) CORS 配置允许通配符来源..."
                   : "Found 2 issues: 1) session token missing httpOnly flag 2) CORS config allows wildcard origins..."}
               </p>
             </div>
           </div>
-          <div className="home-product-msg home-product-msg-user">
-            <p>{isZh ? "修复它们并提交" : "Fix them and commit"}</p>
+
+          <div className="max-w-[92%] self-end">
+            <p className="m-0 rounded-xl rounded-br-sm bg-foreground/[0.06] px-3.5 py-2 text-[0.78rem] leading-normal text-foreground">
+              {isZh ? "修复它们并提交" : "Fix them and commit"}
+            </p>
           </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool home-product-tool-running">
+
+          <div className="flex max-w-[92%] items-start gap-2">
+            <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/[0.14] text-[0.65rem] font-semibold text-primary">
+              S
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="inline-flex w-fit items-center gap-1.5 rounded-md border border-primary/20 bg-primary/[0.05] px-2 py-1 font-mono text-[0.65rem] text-muted-foreground">
                 <Zap className="size-3" />
                 <span>edit_file</span>
-                <span className="home-product-dots">
-                  <span />
-                  <span />
-                  <span />
+                <span className="ml-1 inline-flex gap-0.5">
+                  {[0, 150, 300].map((delay) => (
+                    <span
+                      key={delay}
+                      className="size-1 animate-dot-bounce rounded-full bg-primary motion-reduce:animate-none"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="home-product-input">
-            <span className="home-product-input-placeholder">
+          <div className="mt-auto rounded-xl border border-foreground/[0.12] bg-background px-3.5 py-2.5">
+            <span className="text-xs text-foreground/30">
               {isZh ? "发送消息..." : "Send a message..."}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="home-product-features">
-        <span className="home-product-badge home-product-badge-1">
-          <Brain className="size-3" />
-          {isZh ? "记住你的偏好" : "Remembers your style"}
-        </span>
-        <span className="home-product-badge home-product-badge-2">
-          <Shield className="size-3" />
-          {isZh ? "沙箱执行" : "Sandboxed execution"}
-        </span>
-        <span className="home-product-badge home-product-badge-3">
-          <Lock className="size-3" />
-          {isZh ? "自托管" : "Self-hosted"}
-        </span>
+      {/* Feature badges */}
+      <div className="pointer-events-none absolute inset-0">
+        {[
+          {
+            label: isZh ? "记住你的偏好" : "Remembers your style",
+            icon: Brain,
+            pos: "top-[12%] right-[-3rem]",
+            delay: "1.2s",
+          },
+          {
+            label: isZh ? "沙箱执行" : "Sandboxed execution",
+            icon: Shield,
+            pos: "right-[-2.5rem] bottom-[30%]",
+            delay: "1.6s",
+          },
+          {
+            label: isZh ? "自托管" : "Self-hosted",
+            icon: Lock,
+            pos: "bottom-[8%] left-[-2rem]",
+            delay: "2s",
+          },
+        ].map(({ label, icon: Icon, pos, delay }) => (
+          <span
+            key={label}
+            className={`absolute inline-flex animate-badge-in items-center gap-1.5 whitespace-nowrap rounded-lg border border-foreground/[0.12] bg-card px-2.5 py-1 text-[0.65rem] font-medium text-muted-foreground opacity-0 shadow-md motion-reduce:animate-none motion-reduce:opacity-100 max-lg:hidden ${pos}`}
+            style={{ animationDelay: delay }}
+          >
+            <Icon className="size-3" />
+            {label}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -518,39 +611,73 @@ function SystemsSection({ lang }: { lang: keyof typeof copy }) {
   const HeroIcon = ICON_MAP[hero.icon as keyof typeof ICON_MAP];
 
   return (
-    <section className="home-systems">
-      <div className="home-shell">
-        <div className="home-caps-header">
-          <h2 className="home-section-title">{c.systemsTitle}</h2>
-          <p className="home-section-sub">{c.systemsSub}</p>
+    <section className="border-t border-foreground/[0.12] bg-secondary py-[clamp(4rem,8vw,8rem)]">
+      <div className="mx-auto w-[min(100%-3rem,72rem)]">
+        <div data-reveal className={`mb-14 opacity-0 translate-y-5 ${REVEAL_BASE}`}>
+          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+            {c.systemsTitle}
+          </h2>
+          <p className="mt-4 max-w-[38rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+            {c.systemsSub}
+          </p>
         </div>
-        <div className="home-system home-system--hero">
-          <div className="home-system-hero-copy">
-            <div className="home-system-icon">
+
+        {/* Hero system card */}
+        <div
+          data-reveal
+          className={`mb-6 grid items-center gap-10 rounded-2xl border border-foreground/[0.12] bg-card p-8 opacity-0 translate-y-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg lg:grid-cols-[1fr_auto] ${REVEAL_BASE}`}
+        >
+          <div>
+            <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <HeroIcon className="size-5" aria-hidden />
             </div>
-            <h3 className="home-system-title">{hero.title}</h3>
-            <p className="home-system-desc">{hero.desc}</p>
+            <h3 className="mb-2.5 text-lg font-semibold tracking-[-0.022em] text-foreground">
+              {hero.title}
+            </h3>
+            <p className="text-sm font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+              {hero.desc}
+            </p>
           </div>
-          <ul className="home-system-highlights home-system-highlights--hero">
+          <ul className="flex list-none flex-col gap-2.5 p-0 lg:m-0">
             {hero.highlights.map((h) => (
-              <li key={h}>{h}</li>
+              <li
+                key={h}
+                className="rounded-md bg-primary/[0.08] px-3 py-1 text-xs font-medium text-primary"
+              >
+                {h}
+              </li>
             ))}
           </ul>
         </div>
-        <div className="home-systems-grid">
-          {rest.map((system) => {
+
+        {/* Grid */}
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {rest.map((system, i) => {
             const Icon = ICON_MAP[system.icon as keyof typeof ICON_MAP];
             return (
-              <div key={system.title} className="home-system">
-                <div className="home-system-icon">
+              <div
+                key={system.title}
+                data-reveal
+                className={`rounded-2xl border border-foreground/[0.12] bg-card p-8 opacity-0 translate-y-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg ${REVEAL_BASE}`}
+                style={{ transitionDelay: `${(i + 1) * 100}ms` }}
+              >
+                <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Icon className="size-5" aria-hidden />
                 </div>
-                <h3 className="home-system-title">{system.title}</h3>
-                <p className="home-system-desc">{system.desc}</p>
-                <ul className="home-system-highlights">
+                <h3 className="mb-2.5 text-lg font-semibold tracking-[-0.022em] text-foreground">
+                  {system.title}
+                </h3>
+                <p className="text-sm font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+                  {system.desc}
+                </p>
+                <ul className="mt-5 flex list-none flex-wrap gap-2 p-0">
                   {system.highlights.map((h) => (
-                    <li key={h}>{h}</li>
+                    <li
+                      key={h}
+                      className="rounded-md bg-primary/[0.08] px-3 py-1 text-xs font-medium text-primary"
+                    >
+                      {h}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -566,18 +693,29 @@ function PillarsSection({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="home-pillars">
-      <div className="home-shell">
-        <h2 className="home-pillars-heading">{lang === "zh" ? "设计原则" : "How Stella works"}</h2>
-        <ol className="home-pillars-list">
+    <section className="border-t border-foreground/[0.12] bg-foreground py-[clamp(5rem,9vw,9rem)] text-background">
+      <div className="mx-auto w-[min(100%-3rem,72rem)]">
+        <h2 className="mb-12 font-mono text-xs font-semibold uppercase tracking-widest text-primary">
+          {lang === "zh" ? "设计原则" : "How Stella works"}
+        </h2>
+        <ol className="m-0 flex list-none flex-col p-0">
           {c.pillars.map((pillar, i) => (
-            <li key={pillar.title} className="home-pillar">
-              <span className="home-pillar-num" aria-hidden>
+            <li
+              key={pillar.title}
+              data-reveal
+              className={`group grid grid-cols-[3.5rem_1fr] items-baseline gap-4 border-t border-background/10 py-8 opacity-0 translate-y-5 last:pb-0 max-sm:grid-cols-[2.5rem_1fr] ${REVEAL_BASE}`}
+              style={{ transitionDelay: `${i * 80}ms` }}
+            >
+              <span className="font-mono text-xs font-medium tracking-wide text-primary">
                 {String(i + 1).padStart(2, "0")}
               </span>
               <div>
-                <h3 className="home-pillar-title">{pillar.title}</h3>
-                <p className="home-pillar-body">{pillar.body}</p>
+                <h3 className="mb-2.5 text-[clamp(1.3rem,2.5vw,1.65rem)] font-semibold leading-[1.15] tracking-[-0.02em] text-background/[0.94] transition-colors group-hover:text-primary">
+                  {pillar.title}
+                </h3>
+                <p className="max-w-3xl text-[0.92rem] font-normal leading-[1.47] tracking-[-0.022em] text-background/[0.56]">
+                  {pillar.body}
+                </p>
               </div>
             </li>
           ))}
@@ -591,32 +729,40 @@ function CapabilitiesSection({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="home-caps">
-      <div className="home-shell">
-        <div className="home-caps-header">
-          <h2 className="home-section-title">
+    <section className="border-t border-foreground/[0.12] py-[clamp(4rem,6vw,6rem)]">
+      <div className="mx-auto w-[min(100%-3rem,72rem)]">
+        <div data-reveal className={`mb-14 opacity-0 translate-y-5 ${REVEAL_BASE}`}>
+          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
             {lang === "zh" ? "一切内置" : "Everything built in"}
           </h2>
-          <p className="home-section-sub">
+          <p className="mt-4 max-w-[38rem] text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
             {lang === "zh"
               ? "无需插件迷宫。你需要的能力随 Stella 一起发布。"
               : "No plugin maze. The capabilities you need ship with Stella."}
           </p>
         </div>
-        <div className="home-caps-groups">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
           {c.capGroups.map((group) => (
-            <div key={group.label} className="home-cap-group">
-              <h3 className="home-cap-group-label">{group.label}</h3>
-              <div className="home-cap-group-items">
+            <div key={group.label}>
+              <h3 className="mb-5 border-b-2 border-primary pb-3 font-mono text-xs font-semibold uppercase tracking-wider text-primary">
+                {group.label}
+              </h3>
+              <div className="flex flex-col gap-6">
                 {group.items.map((item) => {
                   const Icon = ICON_MAP[item.icon as keyof typeof ICON_MAP];
                   return (
-                    <div key={item.title} className="home-cap">
-                      <h4>
-                        <Icon aria-hidden className="home-cap-inline-icon" />
+                    <div
+                      key={item.title}
+                      data-reveal
+                      className={`opacity-0 translate-y-5 ${REVEAL_BASE}`}
+                    >
+                      <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold tracking-[-0.022em] text-foreground">
+                        <Icon aria-hidden className="size-3.5 shrink-0 text-primary" />
                         {item.title}
                       </h4>
-                      <p>{item.desc}</p>
+                      <p className="text-[0.82rem] font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+                        {item.desc}
+                      </p>
                     </div>
                   );
                 })}
@@ -633,20 +779,28 @@ function FooterCTA({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
 
   return (
-    <section className="home-cta">
-      <div className="home-shell home-cta-layout">
-        <div className="home-cta-copy">
-          <h2 className="home-section-title">{c.ctaTitle}</h2>
-          <p className="home-section-sub">{c.ctaSub}</p>
+    <section className="border-t border-foreground/[0.12] bg-secondary py-[clamp(5rem,8vw,8rem)]">
+      <div className="mx-auto grid w-[min(100%-3rem,72rem)] items-center gap-16 max-lg:grid-cols-1 lg:grid-cols-2">
+        <div data-reveal className={`max-w-md opacity-0 translate-y-5 ${REVEAL_BASE}`}>
+          <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-semibold leading-[1.07] tracking-[-0.02em] text-foreground">
+            {c.ctaTitle}
+          </h2>
+          <p className="mt-4 text-lg font-normal leading-[1.47] tracking-[-0.022em] text-muted-foreground">
+            {c.ctaSub}
+          </p>
         </div>
-        <div className="home-terminal">
-          <code>
-            <span className="home-terminal-prompt">$</span> brew install CherryHQ/tap/stella
+        <div
+          data-reveal
+          className={`grid gap-2 rounded-2xl bg-foreground p-5 text-background opacity-0 translate-y-5 shadow-xl ${REVEAL_BASE}`}
+          style={{ transitionDelay: "150ms" }}
+        >
+          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-background/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
+            <span className="mr-2 text-primary">$</span> brew install CherryHQ/tap/stella
           </code>
-          <code>
-            <span className="home-terminal-prompt">$</span> stella server
+          <code className="block overflow-x-auto whitespace-nowrap rounded-xl bg-background/[0.08] px-3.5 py-3 font-mono text-sm leading-normal">
+            <span className="mr-2 text-primary">$</span> stella server
           </code>
-          <p className="home-terminal-alt">{c.ctaAlt}</p>
+          <p className="mt-1 px-3.5 text-xs text-background/[0.52]">{c.ctaAlt}</p>
         </div>
       </div>
     </section>
