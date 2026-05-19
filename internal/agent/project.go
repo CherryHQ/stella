@@ -64,6 +64,10 @@ func ValidateProjectDir(baseDir, userRoot string) error {
 	return nil
 }
 
+// ProjectEnsurerFunc ensures a default project exists for an agent+user pair.
+// Returns the project ID. Called when a session is created without a project.
+type ProjectEnsurerFunc func(ctx context.Context, agentID, userID string) (projectID string, err error)
+
 // EnsureProjectDir creates the project directory if it doesn't exist.
 func EnsureProjectDir(baseDir string) error {
 	return os.MkdirAll(baseDir, 0o755)

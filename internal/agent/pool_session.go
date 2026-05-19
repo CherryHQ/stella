@@ -115,6 +115,8 @@ func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 // ResolveSession returns the active session for a channel, creating one if needed.
 // The check-and-create is atomic to prevent duplicate sessions under concurrent access.
 // An optional userID associates the session with a user (stored in conversations table).
+// When creating a new session, if no project is set and a ProjectEnsurer is configured,
+// a default project is auto-created for the agent+user pair.
 func (p *Pool) ResolveSession(channel string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
 	if info, ok := p.activeSessionLocked(channel); ok {
@@ -122,7 +124,20 @@ func (p *Pool) ResolveSession(channel string, userID ...string) (SessionInfo, er
 		return info, nil
 	}
 	info := p.createSessionLocked(channel, userID...)
+	ensurer := p.projectEnsurer
 	p.mu.Unlock()
+
+	if info.ProjectID == "" && ensurer != nil && info.UserID != "" {
+		if projID, err := ensurer(context.Background(), p.agentID, info.UserID); err == nil && projID != "" {
+			info.ProjectID = projID
+			p.mu.Lock()
+			if sess, ok := p.sessions[info.ID]; ok {
+				sess.Info.ProjectID = projID
+			}
+			p.mu.Unlock()
+		}
+	}
+
 	return p.persistNewSession(info)
 }
 

@@ -145,6 +145,12 @@ func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {
 	}
 }
 
+func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.projectEnsurer = fn
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -167,6 +173,7 @@ type PoolManager struct {
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	projectResolver          ProjectResolverFunc
+	projectEnsurer           ProjectEnsurerFunc
 	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
@@ -310,6 +317,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
 		WithBeforeRunBuilder(pm.beforeRunBuilder),
+		WithProjectEnsurer(pm.projectEnsurer),
 		pm.buildSnapshotPromptOption(snap),
 	}
 

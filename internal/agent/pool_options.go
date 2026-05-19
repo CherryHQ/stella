@@ -67,6 +67,13 @@ func WithBeforeRunBuilder(b BeforeRunBuilder) PoolOption {
 	}
 }
 
+// WithProjectEnsurer sets the function that ensures a default project exists.
+func WithProjectEnsurer(fn ProjectEnsurerFunc) PoolOption {
+	return func(p *Pool) {
+		p.projectEnsurer = fn
+	}
+}
+
 // WithSnapshotPromptBuilder sets the function used to build per-turn system prompts
 // from a frozen snapshot version. When set, the pool calls this on every Chat
 // to produce a stable system prompt for the session's snapshot version.

@@ -25,6 +25,7 @@ type Pool struct {
 	compaction       CompactionConfig
 	defaultModel     string // default model ID for new runners
 	fastModel        string // model ID used for compaction / fast tasks
+	projectEnsurer   ProjectEnsurerFunc
 	log              *slog.Logger
 }
 
