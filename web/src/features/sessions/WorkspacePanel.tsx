@@ -197,14 +197,12 @@ export function WorkspacePanel({
     return (
       <div className="w-full flex flex-col overflow-hidden bg-background h-full">
         <div className="flex h-11 items-center justify-between px-3 border-b border-border flex-shrink-0">
-          <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+          <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wider">
             {t("sessions.workspace.title")}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-muted-foreground/50 font-mono">
-            Select a session to see its workspace
-          </p>
+          <p className="text-sm text-muted-foreground/50">Pick a conversation to browse files</p>
         </div>
       </div>
     );
@@ -229,7 +227,7 @@ export function WorkspacePanel({
     <div className="w-full flex flex-col overflow-hidden bg-background h-full">
       {/* Header */}
       <div className="flex h-11 items-center justify-between px-2 border-b border-border flex-shrink-0">
-        <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider pl-1">
+        <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wider pl-1">
           Workspace
         </span>
         <div className="flex items-center gap-0">
@@ -238,6 +236,7 @@ export function WorkspacePanel({
             size="xs"
             onClick={() => setNewItemType("file")}
             title="New file"
+            aria-label="New file"
             className="px-1 h-6"
           >
             <FilePlus className="w-3.5 h-3.5" />
@@ -247,6 +246,7 @@ export function WorkspacePanel({
             size="xs"
             onClick={() => setNewItemType("dir")}
             title="New folder"
+            aria-label="New folder"
             className="px-1 h-6"
           >
             <FolderPlus className="w-3.5 h-3.5" />
@@ -257,6 +257,7 @@ export function WorkspacePanel({
             disabled={!selectedPath}
             onClick={() => selectedPath && deleteItem(selectedPath).catch(console.error)}
             title="Delete selected"
+            aria-label="Delete selected"
             className={cn(
               "px-1 h-6",
               selectedPath
@@ -272,6 +273,7 @@ export function WorkspacePanel({
             onClick={reload}
             disabled={workspaceLoading}
             title="Refresh"
+            aria-label="Refresh workspace"
             className="px-1 h-6"
           >
             <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />
@@ -280,7 +282,7 @@ export function WorkspacePanel({
           {workspaceLoading ? (
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
           ) : (
-            <span className="text-[10px] font-mono text-muted-foreground/30 mx-1">
+            <span className="text-[11px] font-mono text-muted-foreground/30 mx-1">
               <span
                 title={
                   workspace?.root
@@ -305,7 +307,7 @@ export function WorkspacePanel({
             }}
             className="flex items-center gap-1.5"
           >
-            <span className="text-[10px] font-mono text-muted-foreground/50">
+            <span className="text-[11px] font-mono text-muted-foreground/50">
               {newItemType === "dir" ? "dir" : "file"}:
             </span>
             <input
@@ -313,7 +315,7 @@ export function WorkspacePanel({
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && (setNewItemType(null), setNewItemName(""))}
-              className="flex-1 text-[11px] font-mono border border-border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:border-primary/60 h-6"
+              className="flex-1 text-xs font-mono border border-border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:border-primary/60 h-6"
               placeholder="name..."
               autoComplete="off"
             />
@@ -337,7 +339,7 @@ export function WorkspacePanel({
       {/* Empty state */}
       {!workspaceLoading && workspace && entryCount === 0 && !newItemType && (
         <div className="px-4 py-8 text-center">
-          <p className="text-[11px] font-mono text-muted-foreground/40">Empty workspace</p>
+          <p className="text-sm text-muted-foreground/40">No files yet</p>
         </div>
       )}
 

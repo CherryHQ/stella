@@ -268,11 +268,12 @@ export function SessionDetail({
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center justify-between">
+        <div className="flex-shrink-0 h-14 px-4 border-b border-border/60 bg-background flex items-center justify-between">
           <button
             onClick={onToggleLeft}
             className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
             title="Toggle sessions"
+            aria-label="Toggle sidebar"
           >
             <svg
               className="w-4 h-4"
@@ -292,6 +293,7 @@ export function SessionDetail({
             onClick={onToggleRight}
             className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
             title="Toggle workspace"
+            aria-label="Toggle workspace"
           >
             <svg
               className="w-4 h-4"
@@ -309,10 +311,8 @@ export function SessionDetail({
           </button>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground/70">Select a session from the sidebar</p>
-          <p className="text-[11px] text-muted-foreground/40 font-mono">
-            or create a new one with + New
-          </p>
+          <p className="text-sm text-muted-foreground/70">Pick a conversation to continue</p>
+          <p className="text-xs text-muted-foreground/50">or start something new</p>
         </div>
       </div>
     );
@@ -321,12 +321,13 @@ export function SessionDetail({
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center">
+      <div className="flex-shrink-0 h-14 px-4 border-b border-border/60 bg-background flex items-center">
         <div className="flex items-center gap-2.5 w-full min-w-0">
           <button
             onClick={onToggleLeft}
             className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
             title="Toggle sessions"
+            aria-label="Toggle sidebar"
           >
             <svg
               className="w-4 h-4"
@@ -345,10 +346,11 @@ export function SessionDetail({
           <button
             onClick={onBack}
             className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
+            aria-label="Go back"
           >
             ←
           </button>
-          <h1 className="flex-1 text-[15px] font-medium tracking-tight truncate min-w-0">
+          <h1 className="flex-1 text-base font-medium tracking-tight truncate min-w-0">
             {session.title || "Untitled session"}
           </h1>
           <div className="flex items-center gap-1 shrink-0">
@@ -358,6 +360,7 @@ export function SessionDetail({
               onClick={toggleInspect}
               className={cn(inspectOpen ? "text-primary" : "text-muted-foreground")}
               title="Inspect session"
+              aria-label="Inspect session"
             >
               <svg
                 className="w-[15px] h-[15px]"
@@ -378,6 +381,7 @@ export function SessionDetail({
             onClick={onToggleRight}
             className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
             title="Toggle workspace"
+            aria-label="Toggle workspace"
           >
             <svg
               className="w-4 h-4"
@@ -510,14 +514,12 @@ export function SessionDetail({
                 />
                 <div className="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
                   {!isStreaming && (
-                    <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
+                    <span className="text-[10px] text-muted-foreground/50 select-none">
                       ↵ send · ⇧↵ new line
                     </span>
                   )}
                   {isStreaming && (
-                    <span className="text-[10px] font-mono text-primary/50 select-none">
-                      generating…
-                    </span>
+                    <span className="text-[10px] text-primary/60 select-none">generating…</span>
                   )}
                   <div className="flex items-center gap-1 pointer-events-auto">
                     {!isStreaming && (
@@ -527,6 +529,7 @@ export function SessionDetail({
                         onClick={() => fileInputRef.current?.click()}
                         className="text-muted-foreground rounded-lg"
                         title="Attach files"
+                        aria-label="Attach files"
                       >
                         <svg
                           className="w-4 h-4"
@@ -624,7 +627,7 @@ function InspectPanel({
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background">
       <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
           Inspect
         </span>
         <button
@@ -641,7 +644,7 @@ function InspectPanel({
             key={item}
             onClick={() => onTabChange(item)}
             className={cn(
-              "flex-1 rounded-md px-2 py-1.5 text-[10px] font-mono capitalize cursor-pointer",
+              "flex-1 rounded-md px-2 py-1.5 text-[11px] font-mono capitalize cursor-pointer",
               tab === item
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/50",
@@ -667,7 +670,7 @@ function InspectPanel({
             <dd>{sessionTotalTokens > 0 ? sessionTotalTokens.toLocaleString() : "—"}</dd>
           </dl>
           <div className="pt-3 border-t border-border">
-            <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40 mb-2">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40 mb-2">
               Session ID
             </div>
             <button
@@ -731,7 +734,7 @@ function InspectPanel({
               Copy
             </button>
           </div>
-          <pre className="text-[10px] font-mono text-muted-foreground/70 whitespace-pre-wrap leading-relaxed bg-muted/50 rounded-lg p-3">
+          <pre className="text-[11px] font-mono text-muted-foreground/70 whitespace-pre-wrap leading-relaxed bg-muted/50 rounded-lg p-3">
             {systemPrompt || "No system prompt available."}
           </pre>
         </div>
@@ -760,9 +763,7 @@ function SkillRow({ skill }: { skill: Skill }) {
         </span>
       </div>
       {skill.description && (
-        <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-          {skill.description}
-        </p>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{skill.description}</p>
       )}
       {skill.files && skill.files.length > 0 && (
         <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">
@@ -798,7 +799,7 @@ function ToolRow({ tool, compact = false }: { tool: Tool; compact?: boolean }) {
               {tool.category}
             </span>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tool.description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{tool.description}</p>
         </div>
       </button>
       {expanded && (

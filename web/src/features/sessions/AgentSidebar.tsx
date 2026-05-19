@@ -446,7 +446,7 @@ function SectionHeader({
       </span>
       <span
         className={cn(
-          "flex-1 text-[11px] font-mono font-medium uppercase tracking-widest transition-colors",
+          "flex-1 text-[11px] font-medium uppercase tracking-widest transition-colors",
           active ? "text-foreground" : "text-muted-foreground/70 group-hover:text-muted-foreground",
         )}
       >
@@ -504,9 +504,7 @@ function NavRow({
         >
           {title}
         </p>
-        {sub && (
-          <p className="text-[11px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
-        )}
+        {sub && <p className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{sub}</p>}
       </div>
       {meta && (
         <span className="flex-shrink-0 text-[10px] font-mono text-muted-foreground/50">{meta}</span>
@@ -796,7 +794,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("sessions.sidebar.search")}
-            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
+            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
           />
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
@@ -983,7 +981,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 {userSkills.length === 0 &&
                   agentSkills.length === 0 &&
                   systemSkills.length === 0 && (
-                    <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                    <p className="px-7 py-2 text-xs text-muted-foreground">
                       {t("sessions.sidebar.noSkills")}
                     </p>
                   )}
@@ -1050,7 +1048,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   <select
                     value={historyKind}
                     onChange={(e) => setHistoryKind(e.target.value)}
-                    className="text-xs font-mono bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
+                    className="text-xs bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
                   >
                     <option value="">all</option>
                     <option value="chat">chat</option>
@@ -1075,23 +1073,21 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   />
                 ))}
                 {chatSessions.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
+                  <p className="px-7 py-2 text-xs text-muted-foreground">
                     {t("sessions.sidebar.noChats")}
                   </p>
                 )}
                 {sessionsQuery.isLoading && (
                   <div className="px-7 py-1.5 flex items-center gap-2">
                     <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {t("common.loading")}
-                    </span>
+                    <span className="text-xs text-muted-foreground">{t("common.loading")}</span>
                   </div>
                 )}
                 {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
                   <button
                     type="button"
                     onClick={() => void sessionsQuery.fetchNextPage()}
-                    className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
+                    className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground text-left transition-colors"
                   >
                     {t("sessions.sidebar.loadMore")}
                   </button>
@@ -1100,7 +1096,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   <button
                     type="button"
                     onClick={() => void createSession()}
-                    className="flex items-center gap-1 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
                   >
                     <IconPlus />
                     New

@@ -21,17 +21,15 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
       {messagesLoading && messages.length > 0 && (
         <div className="flex items-center justify-center gap-2 mb-4">
           <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-          <span className="text-[10px] font-mono text-muted-foreground">
-            Loading earlier messages…
-          </span>
+          <span className="text-xs text-muted-foreground">Loading earlier messages…</span>
         </div>
       )}
       {messages.length === 0 && !messagesLoading && (
         <div className="text-center py-16">
-          <p className="text-xs text-muted-foreground font-mono">Empty session.</p>
+          <p className="text-sm text-muted-foreground">Start a conversation</p>
         </div>
       )}
-      <div className="space-y-3">
+      <div className="space-y-5">
         {processed.map((msg, idx) => (
           <div key={idx} className={cn(msg.sameRoleAsPrev ? "-mt-1" : "")}>
             {msg.role === "user" && <UserMessage msg={msg} />}
@@ -46,17 +44,19 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
 function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] min-w-0">
+      <div className="max-w-[75%] min-w-0">
         <div className="bg-muted rounded-2xl rounded-tr-md px-4 py-2.5">
           <div className="prose prose-sm max-w-none text-foreground">
             <Streamdown>{extractUserText(msg)}</Streamdown>
           </div>
         </div>
         {msg.showTimestamp && (
-          <div className="flex items-center justify-end gap-2 text-[10px] font-mono text-muted-foreground/40 mt-1 pr-1">
+          <div className="flex items-center justify-end gap-2 text-[11px] text-muted-foreground/40 mt-1 pr-1">
             <span>{formatTime(msg.timestamp)}</span>
             {(msg.token_count ?? 0) > 0 && (
-              <span className="text-primary/40">{msg.token_count!.toLocaleString()} tok</span>
+              <span className="font-mono text-primary/40">
+                {msg.token_count!.toLocaleString()} tok
+              </span>
             )}
           </div>
         )}
@@ -75,16 +75,18 @@ function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
           </svg>
         </div>
       )}
-      <div className={cn("flex-1 min-w-0 space-y-2", msg.sameRoleAsPrev && "pl-[34px]")}>
+      <div className={cn("flex-1 min-w-0 space-y-2 pb-1", msg.sameRoleAsPrev && "pl-[34px]")}>
         {(msg.blocks ?? []).map((block, bi) => (
           <BlockRenderer key={bi} block={block} />
         ))}
         {msg.showTimestamp && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/30">
-            {msg.model && <span>{msg.model}</span>}
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground/30">
+            {msg.model && <span className="font-mono">{msg.model}</span>}
             <span>{formatTime(msg.timestamp)}</span>
             {(msg.token_count ?? 0) > 0 && (
-              <span className="text-primary/40">{msg.token_count!.toLocaleString()} tok</span>
+              <span className="font-mono text-primary/40">
+                {msg.token_count!.toLocaleString()} tok
+              </span>
             )}
           </div>
         )}
@@ -108,10 +110,10 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
 function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="pl-3 rounded-md bg-muted/30">
+    <div className="pl-3 rounded-md bg-muted/40">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1 py-0.5"
+        className="text-[11px] font-mono text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1 py-0.5"
       >
         <span>{expanded ? "▾" : "▸"}</span>
         <span className="italic">{block.redacted ? "thinking (redacted)" : "thinking"}</span>
@@ -137,27 +139,27 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
   const colorClass = toolColor(block.name ?? "");
 
   return (
-    <div className="pl-3 rounded-lg bg-muted/20">
+    <div className="pl-3 rounded-lg bg-muted/40">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="text-xs font-mono cursor-pointer flex items-center gap-1.5 py-0.5 w-full min-w-0"
       >
-        <span className="text-muted-foreground text-[10px] shrink-0">{expanded ? "▾" : "▸"}</span>
+        <span className="text-muted-foreground text-[11px] shrink-0">{expanded ? "▾" : "▸"}</span>
         <span className={cn("font-semibold shrink-0", colorClass)}>{block.name}</span>
         {block.id && (
-          <span className="text-muted-foreground/30 text-[10px] shrink-0">
+          <span className="text-muted-foreground/30 text-[11px] shrink-0">
             #{block.id.slice(-4)}
           </span>
         )}
         {!expanded && (
-          <span className="text-muted-foreground/50 text-[10px] truncate min-w-0 flex-1 text-left">
+          <span className="text-muted-foreground/50 text-[11px] truncate min-w-0 flex-1 text-left">
             {toolPreview(block)}
           </span>
         )}
         {!expanded && block.result && (
           <span
             className={cn(
-              "ml-auto shrink-0 text-[10px] font-mono",
+              "ml-auto shrink-0 text-[11px] font-mono",
               block.result.is_error ? "text-destructive" : "text-success",
             )}
           >
@@ -170,18 +172,9 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
         )}
         {!expanded && !block.result && (
           <span className="ml-auto shrink-0 flex gap-0.5">
-            <span
-              className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
-              style={{ animationDelay: "0ms" }}
-            />
-            <span
-              className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
-              style={{ animationDelay: "150ms" }}
-            />
-            <span
-              className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
-              style={{ animationDelay: "300ms" }}
-            />
+            <span className="w-1 h-1 rounded-full bg-primary/50 animate-pulse" />
+            <span className="w-1 h-1 rounded-full bg-primary/50 animate-pulse" />
+            <span className="w-1 h-1 rounded-full bg-primary/50 animate-pulse" />
           </span>
         )}
       </button>
@@ -198,7 +191,7 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
             >
               <div
                 className={cn(
-                  "px-2.5 py-1 text-[9px] font-mono border-b flex items-center gap-1.5",
+                  "px-2.5 py-1 text-[10px] font-mono border-b flex items-center gap-1.5",
                   block.result.is_error
                     ? "text-destructive border-destructive/30 bg-destructive/5"
                     : "text-success border-success/20 bg-success/5",
@@ -241,7 +234,7 @@ function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call
   if (n === "bash")
     return (
       <div className="bg-muted/60 rounded overflow-hidden">
-        <div className="px-2.5 py-1 text-[9px] font-mono text-muted-foreground/50 border-b border-border flex gap-1.5 items-center">
+        <div className="px-2.5 py-1 text-[10px] font-mono text-muted-foreground/50 border-b border-border flex gap-1.5 items-center">
           <span className="text-warning font-bold">$</span>
           <span>bash</span>
         </div>
@@ -254,7 +247,7 @@ function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call
   if (n === "read" || n === "write" || n === "edit")
     return (
       <div className="bg-muted rounded overflow-hidden">
-        <div className="px-2.5 py-1 text-[9px] font-mono text-muted-foreground/50 border-b border-border">
+        <div className="px-2.5 py-1 text-[10px] font-mono text-muted-foreground/50 border-b border-border">
           {n}
         </div>
         <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground/70">
@@ -265,7 +258,7 @@ function ToolInputRenderer({ block }: { block: ContentBlock & { type: "tool_call
 
   return (
     <div className="bg-muted rounded overflow-hidden">
-      <div className="px-2.5 py-1 text-[9px] font-mono text-muted-foreground/50 border-b border-border">
+      <div className="px-2.5 py-1 text-[10px] font-mono text-muted-foreground/50 border-b border-border">
         input
       </div>
       <pre className="text-[10px] font-mono text-muted-foreground/70 px-3 py-2 overflow-x-auto max-h-64 overflow-y-auto">
