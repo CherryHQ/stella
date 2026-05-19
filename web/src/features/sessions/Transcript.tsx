@@ -7,11 +7,12 @@ import { cn } from "@/lib/utils";
 interface Props {
   messages: Message[];
   messagesLoading: boolean;
+  isStreaming: boolean;
   onScroll: () => void;
 }
 
 export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
-  { messages, messagesLoading, onScroll },
+  { messages, messagesLoading, isStreaming, onScroll },
   ref,
 ) {
   const processed = processMessages(messages);
@@ -42,11 +43,22 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
               {msg.role === "assistant" && <AssistantMessage msg={msg} />}
             </div>
           ))}
+          {isStreaming && <TypingIndicator />}
         </div>
       </div>
     </div>
   );
 });
+
+function TypingIndicator() {
+  return (
+    <div className="flex gap-[5px] items-center pl-[40px] pt-1">
+      <span className="w-[7px] h-[7px] rounded-full bg-primary animate-[pulse-dot_1.4s_ease-in-out_infinite]" />
+      <span className="w-[7px] h-[7px] rounded-full bg-primary animate-[pulse-dot_1.4s_ease-in-out_0.2s_infinite]" />
+      <span className="w-[7px] h-[7px] rounded-full bg-primary animate-[pulse-dot_1.4s_ease-in-out_0.4s_infinite]" />
+    </div>
+  );
+}
 
 function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (

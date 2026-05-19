@@ -126,6 +126,7 @@ export function SessionConversation({
         ref={transcriptRef}
         messages={messages}
         messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
+        isStreaming={isStreaming}
         onScroll={() => void loadOlderMessages()}
       />
       <div className="flex flex-col gap-2 border-t border-border p-2 sm:flex-row sm:p-3">

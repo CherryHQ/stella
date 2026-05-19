@@ -415,6 +415,7 @@ export function SessionDetail({
             ref={transcriptRef}
             messages={messages}
             messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
+            isStreaming={isStreaming}
             onScroll={handleTranscriptScroll}
           />
 
