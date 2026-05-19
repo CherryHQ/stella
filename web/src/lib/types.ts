@@ -2,7 +2,7 @@ export interface Session {
   id: string;
   title: string;
   channel: string;
-  source: "main" | "chat" | "scheduler" | "task";
+  kind: "main" | "chat" | "scheduler" | "task";
   project_id?: string;
   agent_id: string;
   agent_name: string;

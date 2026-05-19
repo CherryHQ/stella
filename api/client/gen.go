@@ -22,16 +22,16 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "BearerAuth.Scopes"
 )
 
-// Defines values for ListSessionsParamsSource.
+// Defines values for ListSessionsParamsKind.
 const (
-	Chat      ListSessionsParamsSource = "chat"
-	Main      ListSessionsParamsSource = "main"
-	Scheduler ListSessionsParamsSource = "scheduler"
-	Task      ListSessionsParamsSource = "task"
+	Chat      ListSessionsParamsKind = "chat"
+	Main      ListSessionsParamsKind = "main"
+	Scheduler ListSessionsParamsKind = "scheduler"
+	Task      ListSessionsParamsKind = "task"
 )
 
-// Valid indicates whether the value is a known member of the ListSessionsParamsSource enum.
-func (e ListSessionsParamsSource) Valid() bool {
+// Valid indicates whether the value is a known member of the ListSessionsParamsKind enum.
+func (e ListSessionsParamsKind) Valid() bool {
 	switch e {
 	case Chat:
 		return true
@@ -480,15 +480,15 @@ type ListSessionsParams struct {
 	// Offset Number of sessions to skip
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// Source Filter by session source
-	Source *ListSessionsParamsSource `form:"source,omitempty" json:"source,omitempty"`
+	// Kind Filter by session kind
+	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
 
 	// ProjectId Filter by project ID
 	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
-// ListSessionsParamsSource defines parameters for ListSessions.
-type ListSessionsParamsSource string
+// ListSessionsParamsKind defines parameters for ListSessions.
+type ListSessionsParamsKind string
 
 // GetSessionMessagesParams defines parameters for GetSessionMessages.
 type GetSessionMessagesParams struct {
@@ -8384,9 +8384,9 @@ func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Re
 
 		}
 
-		if params.Source != nil {
+		if params.Kind != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source", *params.Source, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

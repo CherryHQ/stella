@@ -20,9 +20,9 @@ Some agents/channels also support a few short natural-language controls.
 For those shortcuts, keep them short and command-like.
 
 Session control
-  /new       Start a fresh session
+  /new       Compact conversation context (same as /compact)
              When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
-  /compact   Compress conversation history
+  /compact   Compact conversation context
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply
              When enabled, short phrases like: "abort", "cancel", "取消", "停止回复"

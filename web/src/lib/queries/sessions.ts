@@ -2,16 +2,16 @@ import { infiniteQueryOptions } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Session } from "@/lib/types";
 
-export function sessionsInfiniteQueryOptions(agentId: string, source?: string) {
+export function sessionsInfiniteQueryOptions(agentId: string, kind?: string) {
   return infiniteQueryOptions({
-    queryKey: ["sessions", agentId, source],
+    queryKey: ["sessions", agentId, kind],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
       const agentParam = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : "";
-      const sourceParam = source ? `&source=${encodeURIComponent(source)}` : "";
+      const kindParam = kind ? `&kind=${encodeURIComponent(kind)}` : "";
       return api<Session[]>(
         "GET",
-        `/api/sessions?limit=20&offset=${pageParam}${agentParam}${sourceParam}`,
+        `/api/sessions?limit=20&offset=${pageParam}${agentParam}${kindParam}`,
       );
     },
     getNextPageParam: (lastPage, allPages) =>

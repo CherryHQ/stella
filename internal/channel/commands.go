@@ -20,12 +20,7 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 	switch cmd {
 	case "/start", "/help":
 		return pkgchannel.WelcomeMessage, true
-	case "/new":
-		if _, err := rc.RotateSession(); err != nil {
-			return fmt.Sprintf("Error creating new session: %v", err), true
-		}
-		return "New session started.", true
-	case "/compact":
+	case "/new", "/compact":
 		if _, err := rc.CompactSession(ctx); err != nil {
 			return fmt.Sprintf("Compaction failed: %v", err), true
 		}

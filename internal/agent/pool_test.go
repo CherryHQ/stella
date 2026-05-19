@@ -585,7 +585,7 @@ func TestPoolResolveSession(t *testing.T) {
 	defer func() { _ = pool.Close() }()
 
 	// First call creates a new session.
-	info1, err := pool.ResolveSession("cli")
+	info1, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +594,7 @@ func TestPoolResolveSession(t *testing.T) {
 	}
 
 	// Second call returns the same session.
-	info2, err := pool.ResolveSession("cli")
+	info2, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestPoolResolveSession(t *testing.T) {
 
 	// Archive and resolve again — should create a new session.
 	_ = pool.ArchiveSession(info1.ID)
-	info3, err := pool.ResolveSession("cli")
+	info3, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -680,7 +680,7 @@ func TestPoolResolveSessionConcurrent(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			info, err := pool.ResolveSession("concurrent")
+			info, err := pool.ResolveSession(context.Background(), "concurrent")
 			if err != nil {
 				t.Errorf("ResolveSession: %v", err)
 				return
@@ -726,16 +726,16 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 		t.Error("legacy session with empty Channel should not match 'cli'")
 	}
 
-	// ResolveSession should create a new one instead.
-	info, err := pool.ResolveSession("cli")
+	// ResolveSession promotes the latest session to main.
+	info, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Channel != "cli" {
-		t.Errorf("Channel = %q, want cli", info.Channel)
+	if info.ID != "legacy-abc" {
+		t.Errorf("expected legacy session to be promoted, got %q", info.ID)
 	}
-	if info.ID == "legacy-abc" {
-		t.Error("should not reuse legacy session")
+	if info.Kind != "main" {
+		t.Errorf("Kind = %q, want main", info.Kind)
 	}
 }
 

@@ -28,8 +28,8 @@ func atoiOr(s string, fallback int) int {
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
-		{Text: "new", Description: "Start a new session"},
-		{Text: "compact", Description: "Compact session history"},
+		{Text: "new", Description: "Compact conversation context"},
+		{Text: "compact", Description: "Compact conversation context"},
 		{Text: "abort", Description: "Cancel the in-progress response"},
 		{Text: "model", Description: "List or switch models"},
 		{Text: "agent", Description: "List or switch agents"},

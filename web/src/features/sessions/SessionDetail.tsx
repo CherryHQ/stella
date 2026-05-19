@@ -482,7 +482,7 @@ export function SessionDetail({
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       sendMessage().catch(console.error);
                     }
@@ -511,7 +511,7 @@ export function SessionDetail({
                 <div className="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
                   {!isStreaming && (
                     <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
-                      ⌘↵ to send
+                      ↵ send · ⇧↵ new line
                     </span>
                   )}
                   {isStreaming && (

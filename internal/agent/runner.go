@@ -61,6 +61,7 @@ type RunnerParams struct {
 	Memory     any                       // memory.Provider — typed as any to avoid circular imports
 	UserID     string                    // auth user ID for user-scoped runner creation
 	AgentID    string                    // agent ID for profile loading
+	ProjectID  string                    // associated project ID (empty = no project)
 	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
 	ExtraTools []tools.Tool              // additional tools appended to the runner's registry
 }

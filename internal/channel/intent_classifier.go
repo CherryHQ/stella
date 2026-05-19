@@ -37,9 +37,9 @@ If the message could reasonably be a normal chat request, return {"action":"none
 
 Action meanings:
 - help: user wants help, available commands, or usage instructions
-- new: user wants a fresh/new session or to start over
+- new: user wants to clear context, start over, compact, or compress conversation history
 - abort: user wants to cancel/stop the in-progress response
-- compact: user wants to compact/compress/summarize conversation history
+- compact: same as new — user wants to compact/compress/summarize conversation history
 - none: anything else
 
 Examples:
@@ -47,6 +47,7 @@ Examples:
 "what can you do" -> {"action":"help"}
 "new session" -> {"action":"new"}
 "start over" -> {"action":"new"}
+"clear context" -> {"action":"new"}
 "cancel" -> {"action":"abort"}
 "abort" -> {"action":"abort"}
 "compact chat" -> {"action":"compact"}
@@ -54,6 +55,7 @@ Examples:
 "帮助" -> {"action":"help"}
 "新会话" -> {"action":"new"}
 "重新开始" -> {"action":"new"}
+"清除上下文" -> {"action":"new"}
 "取消" -> {"action":"abort"}
 "停止回复" -> {"action":"abort"}
 "压缩会话" -> {"action":"compact"}

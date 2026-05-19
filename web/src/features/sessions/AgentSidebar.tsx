@@ -9,6 +9,16 @@ import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogPopup,
+  DialogTitle,
+  DialogFooter,
+  DialogHeader,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 interface Props {
   agents: Agent[];
@@ -177,6 +187,231 @@ function IconFolder() {
   );
 }
 
+function IconTrash() {
+  return (
+    <svg
+      className="w-3 h-3"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </svg>
+  );
+}
+
+interface DirEntry {
+  path: string;
+  name: string;
+  depth: number;
+}
+
+function parseDirs(paths: string[]): DirEntry[] {
+  return paths
+    .filter((p) => p.endsWith("/"))
+    .map((p) => {
+      const clean = p.replace(/\/$/, "");
+      const parts = clean.split("/");
+      return { path: clean, name: parts[parts.length - 1], depth: parts.length - 1 };
+    });
+}
+
+function FolderTree({
+  sessionId,
+  selected,
+  onSelect,
+  onRootResolved,
+}: {
+  sessionId: string;
+  selected: string;
+  onSelect: (path: string) => void;
+  onRootResolved?: (root: string) => void;
+}) {
+  const [dirs, setDirs] = useState<DirEntry[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const enc = encodeURIComponent(sessionId);
+    api<{ root: string; paths: string[] }>("GET", `/api/sessions/${enc}/workspace?depth=4`).then(
+      (ws) => {
+        setDirs(parseDirs(ws.paths));
+        if (ws.root) onRootResolved?.(ws.root);
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+  }, [sessionId, onRootResolved]);
+
+  const toggle = (path: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+
+  const visibleDirs = useMemo(() => {
+    return dirs.filter((d) => {
+      if (d.depth === 0) return true;
+      const parentPath = d.path.split("/").slice(0, -1).join("/");
+      return expanded.has(parentPath);
+    });
+  }, [dirs, expanded]);
+
+  if (loading) {
+    return <p className="text-xs text-muted-foreground px-2 py-3">Loading folders…</p>;
+  }
+  if (dirs.length === 0) {
+    return <p className="text-xs text-muted-foreground px-2 py-3">No folders found</p>;
+  }
+
+  return (
+    <div className="max-h-48 overflow-y-auto">
+      {visibleDirs.map((d) => {
+        const hasChildren = dirs.some(
+          (c) => c.depth === d.depth + 1 && c.path.startsWith(d.path + "/"),
+        );
+        const isSelected = selected === d.path;
+        return (
+          <div
+            key={d.path}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 cursor-pointer rounded text-[12px] transition-colors",
+              isSelected
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+            )}
+            style={{ paddingLeft: `${d.depth * 16 + 8}px` }}
+            onClick={() => onSelect(d.path)}
+          >
+            {hasChildren ? (
+              <button
+                type="button"
+                className="p-0 flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle(d.path);
+                }}
+              >
+                <ChevRight
+                  className={cn(
+                    "w-2.5 h-2.5 text-muted-foreground/50 transition-transform",
+                    expanded.has(d.path) && "rotate-90",
+                  )}
+                />
+              </button>
+            ) : (
+              <span className="w-2.5" />
+            )}
+            <IconFolder />
+            <span className="truncate">{d.name}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CreateProjectDialog({
+  agentId,
+  sessionId,
+  onCreated,
+  onClose,
+}: {
+  agentId: string;
+  sessionId: string;
+  onCreated: () => void;
+  onClose: () => void;
+}) {
+  const [userRoot, setUserRoot] = useState("");
+  const [selectedDir, setSelectedDir] = useState("");
+  const [name, setName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const folderName = selectedDir ? (selectedDir.split("/").pop() ?? "") : "";
+  const effectiveName = name || folderName;
+  const canSubmit = selectedDir !== "" && effectiveName !== "" && userRoot !== "" && !submitting;
+
+  const handleRootResolved = useCallback((root: string) => setUserRoot(root), []);
+
+  const handleSelect = useCallback((path: string) => {
+    setSelectedDir(path);
+    setName("");
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const baseDir = `${userRoot}/${selectedDir}`;
+      await api("POST", `/api/agents/${agentId}/projects`, {
+        name: effectiveName,
+        base_dir: baseDir,
+      });
+      onCreated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create project");
+      setSubmitting(false);
+    }
+  }, [canSubmit, userRoot, selectedDir, effectiveName, agentId, onCreated]);
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogPopup showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>New Project</DialogTitle>
+          <DialogDescription>Select a workspace folder for this agent.</DialogDescription>
+        </DialogHeader>
+        <div className="px-6 py-2 space-y-3">
+          {sessionId ? (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <FolderTree
+                sessionId={sessionId}
+                selected={selectedDir}
+                onSelect={handleSelect}
+                onRootResolved={handleRootResolved}
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No active session to browse folders.</p>
+          )}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Project name</label>
+            <Input
+              placeholder={folderName || "Select a folder above"}
+              value={name}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === "Enter") void handleSubmit();
+              }}
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()}>
+            {submitting ? "Creating…" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
 // ── sub-components ───────────────────────────────────────────────────────────
 
 function SectionHeader({
@@ -333,7 +568,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<string[]>(["project"]);
   const [openFolders, setOpenFolders] = useState<string[]>([]);
-  const [historySource, setHistorySource] = useState("");
+  const [historyKind, setHistoryKind] = useState("");
+  const [showCreateProject, setShowCreateProject] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const isFolderOpen = (key: string) => openFolders.includes(key);
@@ -356,7 +592,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
-  const activeSessionId = pathname.match(/\/agents\/[^/]+\/sessions\/([^/]+)/)?.[1] ?? "";
+  const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
+  const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
 
   // ── derived lists ────────────────────────────────────────────────────────
   const selectedAgent = agents.find((a) => a.id === agentId);
@@ -366,22 +603,20 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   // Used by the home row so it navigates directly without a round-trip through AgentHome.
   const homeSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
-    return (
-      active.find((s) => s.source === "main") ?? active.find((s) => s.source === "chat") ?? null
-    );
+    return active.find((s) => s.kind === "main") ?? active[0] ?? null;
   }, [sessions]);
 
   const chatSessions = useMemo(() => {
     const base = sessions.filter((s) => {
       if (s.archived) return false;
       if (s.id === "main") return false;
-      if (historySource) return s.source === historySource;
+      if (historyKind) return s.kind === historyKind;
       return true;
     });
     if (search)
       return base.filter((s) => sessionTitle(s).toLowerCase().includes(search.toLowerCase()));
     return base;
-  }, [sessions, search, historySource]);
+  }, [sessions, search, historyKind]);
 
   const filteredSkills = useMemo(() => {
     if (!search) return skills;
@@ -419,6 +654,33 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
       params: { agentId, sessionId: sess.id },
     });
   }, [agentId, queryClient, navigate]);
+
+  const openProject = useCallback(
+    async (projectId: string) => {
+      const existing = sessions.find((s) => s.project_id === projectId && !s.archived);
+      if (existing) {
+        void navigate({
+          to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+          params: { agentId, projectId, sessionId: existing.id },
+        });
+        return;
+      }
+      void navigate({
+        to: "/agents/$agentId/projects/$projectId",
+        params: { agentId, projectId },
+      });
+    },
+    [agentId, sessions, navigate],
+  );
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      if (!window.confirm("Delete this project? Sessions will be kept.")) return;
+      await api("DELETE", `/api/agents/${agentId}/projects/${projectId}`);
+      await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
+    },
+    [agentId, queryClient],
+  );
 
   // ── infinite scroll ──────────────────────────────────────────────────────
   const handleScroll = useCallback(() => {
@@ -560,14 +822,22 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
             icon={<IconHome />}
             title={selectedAgent?.name ?? "Home"}
             onClick={() => {
-              if (homeSession) {
+              const go = async () => {
+                let sid = homeSession?.id;
+                if (!sid) {
+                  const sess = await api<Session>("POST", "/api/sessions", {
+                    agent_id: agentId,
+                    kind: "main",
+                  });
+                  await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+                  sid = sess.id;
+                }
                 void navigate({
                   to: "/agents/$agentId/sessions/$sessionId",
-                  params: { agentId, sessionId: homeSession.id },
+                  params: { agentId, sessionId: sid },
                 });
-              } else {
-                void navigate({ to: "/agents/$agentId", params: { agentId } });
-              }
+              };
+              void go();
             }}
           />
         )}
@@ -592,27 +862,68 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           </div>
         )}
 
-        {/* Projects — folders only */}
+        {/* Projects */}
         {!search && (
           <div>
-            <SectionHeader
-              icon={<IconFolder />}
-              label="Projects"
-              open={isOpen("project")}
-              onToggle={() => toggleSection("project")}
-            />
-            {isOpen("project") &&
-              (projects as Project[]).map((p) => (
-                <NavRow
-                  key={p.id}
-                  active={false}
+            <div className="flex items-center">
+              <div className="flex-1">
+                <SectionHeader
                   icon={<IconFolder />}
-                  title={p.name}
-                  indent
-                  onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
+                  label="Projects"
+                  open={isOpen("project")}
+                  onToggle={() => toggleSection("project")}
                 />
-              ))}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCreateProject(true);
+                }}
+                className="mr-3 p-0.5 text-muted-foreground/40 hover:text-foreground transition-colors"
+                title="New project"
+              >
+                <IconPlus />
+              </button>
+            </div>
+            {isOpen("project") &&
+              (projects as Project[]).map((p) => {
+                return (
+                  <div key={p.id} className="group/proj flex items-center">
+                    <div className="flex-1 min-w-0">
+                      <NavRow
+                        active={activeProjectId === p.id}
+                        icon={<IconFolder />}
+                        title={p.name}
+                        indent
+                        onClick={() => void openProject(p.id)}
+                      />
+                    </div>
+                    {(projects as Project[]).length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteProject(p.id)}
+                        className="mr-3 p-0.5 opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-destructive transition-all"
+                        title="Delete project"
+                      >
+                        <IconTrash />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
           </div>
+        )}
+        {showCreateProject && (
+          <CreateProjectDialog
+            agentId={agentId}
+            sessionId={homeSession?.id ?? ""}
+            onCreated={() => {
+              setShowCreateProject(false);
+              void queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
+            }}
+            onClose={() => setShowCreateProject(false)}
+          />
         )}
 
         {/* Skills */}
@@ -737,8 +1048,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               <>
                 <div className="flex items-center gap-1 px-4 py-1">
                   <select
-                    value={historySource}
-                    onChange={(e) => setHistorySource(e.target.value)}
+                    value={historyKind}
+                    onChange={(e) => setHistoryKind(e.target.value)}
                     className="text-xs font-mono bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
                   >
                     <option value="">all</option>

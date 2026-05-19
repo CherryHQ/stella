@@ -67,12 +67,34 @@ Tailwind utility classes map to those tokens via `@theme inline`.
 
 ### URL state
 
-**All navigable UI state MUST be represented in the URL.** Every panel, selected item, and view mode must have its own addressable route or search param. Never use React state (`useState`) for navigation or selection that should be bookmarkable, shareable, or work with browser back/forward.
+**The URL is the single source of truth.** When the URL changes, everything on the page must update to reflect it. A component that ignores a URL param change is a bug.
 
-- Use TanStack Router file-based routes for resource selection (e.g., `/agents/{id}/tasks/{taskId}`).
-- Use TanStack Router search params for secondary state (filters, tabs) when a full route is overkill.
+**Hard rules:**
+
+- All navigable UI state MUST live in the URL — route params or search params. Never use `useState` for anything that should survive a page refresh or browser back/forward.
+- Derive component state from URL params, never the reverse. Read params with `useParams` or `useSearch`; write them with `navigate` or `Link`.
+- When the same component renders under different routes (e.g., `/sessions/$sessionId` and `/projects/$projectId/sessions/$sessionId`), use a `key` derived from all URL params in the route wrapper so React fully remounts the component when the URL identity changes. This guarantees all internal state, hooks, and queries reset.
+- Never use `useEffect` to "sync" URL params into local state — that creates two sources of truth and stale-state bugs. If you need derived values, use `useMemo` on the params directly.
 - Never use `history.pushState` directly.
-- Derive selected items from URL params, not internal component state.
+
+**TanStack Router patterns:**
+
+- Use file-based routes for resource identity (e.g., `/agents/$agentId/sessions/$sessionId`).
+- Use `useParams` with a `from` route ID for type-safe param access.
+- Use search params (`useSearch` / `navigate({ search })`) for secondary UI state (filters, tabs, view modes).
+- Route wrapper components should add `key` props when the same feature component is shared across routes:
+  ```tsx
+  function SessionViewKeyed() {
+    const { agentId, sessionId } = useParams({ from: "/_app/agents/$agentId/sessions/$sessionId" });
+    return <SessionView key={`${agentId}/${sessionId}`} />;
+  }
+  ```
+
+**TanStack Query patterns:**
+
+- Query keys MUST include all URL params that affect the query result. When params change, the query automatically refetches.
+- Use `enabled: !!param` to defer queries until required params are available.
+- Never capture derived variables (like `encodeURIComponent(id)`) in `queryFn` closures — compute them inline or pass params directly to avoid stale closures.
 
 ### Commands
 

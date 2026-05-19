@@ -193,24 +193,24 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
-// Defines values for CreateSessionRequestSource.
+// Defines values for CreateSessionRequestKind.
 const (
-	CreateSessionRequestSourceChat      CreateSessionRequestSource = "chat"
-	CreateSessionRequestSourceMain      CreateSessionRequestSource = "main"
-	CreateSessionRequestSourceScheduler CreateSessionRequestSource = "scheduler"
-	CreateSessionRequestSourceTask      CreateSessionRequestSource = "task"
+	CreateSessionRequestKindChat      CreateSessionRequestKind = "chat"
+	CreateSessionRequestKindMain      CreateSessionRequestKind = "main"
+	CreateSessionRequestKindScheduler CreateSessionRequestKind = "scheduler"
+	CreateSessionRequestKindTask      CreateSessionRequestKind = "task"
 )
 
-// Valid indicates whether the value is a known member of the CreateSessionRequestSource enum.
-func (e CreateSessionRequestSource) Valid() bool {
+// Valid indicates whether the value is a known member of the CreateSessionRequestKind enum.
+func (e CreateSessionRequestKind) Valid() bool {
 	switch e {
-	case CreateSessionRequestSourceChat:
+	case CreateSessionRequestKindChat:
 		return true
-	case CreateSessionRequestSourceMain:
+	case CreateSessionRequestKindMain:
 		return true
-	case CreateSessionRequestSourceScheduler:
+	case CreateSessionRequestKindScheduler:
 		return true
-	case CreateSessionRequestSourceTask:
+	case CreateSessionRequestKindTask:
 		return true
 	default:
 		return false
@@ -262,40 +262,40 @@ func (e MessagePartType) Valid() bool {
 	}
 }
 
-// Defines values for SessionSource.
+// Defines values for SessionKind.
 const (
-	SessionSourceChat      SessionSource = "chat"
-	SessionSourceMain      SessionSource = "main"
-	SessionSourceScheduler SessionSource = "scheduler"
-	SessionSourceTask      SessionSource = "task"
+	SessionKindChat      SessionKind = "chat"
+	SessionKindMain      SessionKind = "main"
+	SessionKindScheduler SessionKind = "scheduler"
+	SessionKindTask      SessionKind = "task"
 )
 
-// Valid indicates whether the value is a known member of the SessionSource enum.
-func (e SessionSource) Valid() bool {
+// Valid indicates whether the value is a known member of the SessionKind enum.
+func (e SessionKind) Valid() bool {
 	switch e {
-	case SessionSourceChat:
+	case SessionKindChat:
 		return true
-	case SessionSourceMain:
+	case SessionKindMain:
 		return true
-	case SessionSourceScheduler:
+	case SessionKindScheduler:
 		return true
-	case SessionSourceTask:
+	case SessionKindTask:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for SessionDetailSource.
+// Defines values for SessionDetailKind.
 const (
-	Chat      SessionDetailSource = "chat"
-	Main      SessionDetailSource = "main"
-	Scheduler SessionDetailSource = "scheduler"
-	Task      SessionDetailSource = "task"
+	Chat      SessionDetailKind = "chat"
+	Main      SessionDetailKind = "main"
+	Scheduler SessionDetailKind = "scheduler"
+	Task      SessionDetailKind = "task"
 )
 
-// Valid indicates whether the value is a known member of the SessionDetailSource enum.
-func (e SessionDetailSource) Valid() bool {
+// Valid indicates whether the value is a known member of the SessionDetailKind enum.
+func (e SessionDetailKind) Valid() bool {
 	switch e {
 	case Chat:
 		return true
@@ -629,13 +629,13 @@ type CreateProjectRequest struct {
 
 // CreateSessionRequest defines model for CreateSessionRequest.
 type CreateSessionRequest struct {
-	AgentId   *string                     `json:"agent_id,omitempty"`
-	ProjectId *string                     `json:"project_id,omitempty"`
-	Source    *CreateSessionRequestSource `json:"source,omitempty"`
+	AgentId   *string                   `json:"agent_id,omitempty"`
+	Kind      *CreateSessionRequestKind `json:"kind,omitempty"`
+	ProjectId *string                   `json:"project_id,omitempty"`
 }
 
-// CreateSessionRequestSource defines model for CreateSessionRequest.Source.
-type CreateSessionRequestSource string
+// CreateSessionRequestKind defines model for CreateSessionRequest.Kind.
+type CreateSessionRequestKind string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
@@ -1091,39 +1091,39 @@ type SendMessageRequest struct {
 
 // Session defines model for Session.
 type Session struct {
-	AgentId    string        `json:"agent_id"`
-	Archived   bool          `json:"archived"`
-	Channel    string        `json:"channel"`
-	CreatedAt  string        `json:"created_at"`
-	Id         string        `json:"id"`
-	LastActive string        `json:"last_active"`
-	ProjectId  *string       `json:"project_id,omitempty"`
-	Source     SessionSource `json:"source"`
-	Title      string        `json:"title"`
-	UserId     string        `json:"user_id"`
+	AgentId    string      `json:"agent_id"`
+	Archived   bool        `json:"archived"`
+	Channel    string      `json:"channel"`
+	CreatedAt  string      `json:"created_at"`
+	Id         string      `json:"id"`
+	Kind       SessionKind `json:"kind"`
+	LastActive string      `json:"last_active"`
+	ProjectId  *string     `json:"project_id,omitempty"`
+	Title      string      `json:"title"`
+	UserId     string      `json:"user_id"`
 }
 
-// SessionSource defines model for Session.Source.
-type SessionSource string
+// SessionKind defines model for Session.Kind.
+type SessionKind string
 
 // SessionDetail defines model for SessionDetail.
 type SessionDetail struct {
-	AgentId    string              `json:"agent_id"`
-	AgentName  *string             `json:"agent_name,omitempty"`
-	Archived   bool                `json:"archived"`
-	Channel    string              `json:"channel"`
-	CreatedAt  string              `json:"created_at"`
-	Id         string              `json:"id"`
-	LastActive string              `json:"last_active"`
-	ProjectId  *string             `json:"project_id,omitempty"`
-	Source     SessionDetailSource `json:"source"`
-	Title      string              `json:"title"`
-	UserId     string              `json:"user_id"`
-	UserName   *string             `json:"user_name,omitempty"`
+	AgentId    string            `json:"agent_id"`
+	AgentName  *string           `json:"agent_name,omitempty"`
+	Archived   bool              `json:"archived"`
+	Channel    string            `json:"channel"`
+	CreatedAt  string            `json:"created_at"`
+	Id         string            `json:"id"`
+	Kind       SessionDetailKind `json:"kind"`
+	LastActive string            `json:"last_active"`
+	ProjectId  *string           `json:"project_id,omitempty"`
+	Title      string            `json:"title"`
+	UserId     string            `json:"user_id"`
+	UserName   *string           `json:"user_name,omitempty"`
 }
 
-// SessionDetailSource defines model for SessionDetail.Source.
-type SessionDetailSource string
+// SessionDetailKind defines model for SessionDetail.Kind.
+type SessionDetailKind string
 
 // SessionWorkspace defines model for SessionWorkspace.
 type SessionWorkspace struct {

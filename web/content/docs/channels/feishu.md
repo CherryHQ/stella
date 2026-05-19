@@ -150,8 +150,8 @@ Feishu supports the standard chat commands:
 
 | Command    | Description                     |
 | ---------- | ------------------------------- |
-| `/new`     | Start a fresh session           |
-| `/compact` | Compact session history         |
+| `/new`     | Compact conversation context    |
+| `/compact` | Compact conversation context    |
 | `/abort`   | Cancel the in-progress response |
 | `/model`   | List or switch models           |
 | `/agent`   | List or switch agents           |

@@ -16,7 +16,7 @@ UPDATE ctx_conversations SET title = ?, updated_at = datetime('now') WHERE id = 
 UPDATE ctx_conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now') WHERE id = ?;
 
 -- name: CreateConversationFull :one
-INSERT INTO ctx_conversations (id, session_id, title, channel, source, project_id, archived, last_active, agent_id, user_id)
+INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
@@ -38,12 +38,11 @@ SELECT * FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC;
 -- name: ListConversationsAll :many
 SELECT * FROM ctx_conversations ORDER BY last_active DESC;
 
--- name: ListConversationsBySource :many
-SELECT * FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND source = ? AND archived = 0 ORDER BY last_active DESC;
+-- name: ListConversationsByKind :many
+SELECT * FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC;
 
 -- name: GetMainConversationByProject :one
-SELECT * FROM ctx_conversations WHERE project_id = ? AND source = 'main' AND archived = 0 LIMIT 1;
+SELECT * FROM ctx_conversations WHERE project_id = ? AND kind = 'main' AND archived = 0 LIMIT 1;
 
--- name: UpdateConversationSourceProject :exec
-UPDATE ctx_conversations SET source = ?, project_id = ?, updated_at = datetime('now') WHERE session_id = ?;
-
+-- name: UpdateConversationKindProject :exec
+UPDATE ctx_conversations SET kind = ?, project_id = ?, updated_at = datetime('now') WHERE session_id = ?;

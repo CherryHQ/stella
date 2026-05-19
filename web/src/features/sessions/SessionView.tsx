@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Session, Workspace } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
+import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
@@ -13,17 +14,25 @@ const RIGHT_MAX_RATIO = 0.5;
 const RIGHT_DEFAULT = 300;
 
 export function SessionView() {
-  const { agentId, sessionId } = useParams({
-    from: "/_app/agents/$agentId/sessions/$sessionId",
-  });
+  const { agentId, sessionId, projectId } = useParams({ strict: false }) as {
+    agentId: string;
+    sessionId: string;
+    projectId?: string;
+  };
   const navigate = useNavigate();
   const { data: me } = useQuery(meQueryOptions);
   const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
+  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+  const project = useMemo(
+    () => (projectId ? projects.find((p) => p.id === projectId) : undefined),
+    [projects, projectId],
+  );
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [rightOpen, setRightOpen] = useState(true);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [projectDir, setProjectDir] = useState("");
 
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
   const dragging = useRef(false);
@@ -45,26 +54,40 @@ export function SessionView() {
     };
   }, [sessionId]);
 
-  const loadWorkspace = useCallback(async (sid: string) => {
-    setWorkspaceLoading(true);
-    try {
-      const data = await api<Workspace>(
-        "GET",
-        `/api/sessions/${encodeURIComponent(sid)}/workspace?show_hidden=true&depth=2`,
-      );
-      setWorkspace(data);
-    } catch {
-      setWorkspace(null);
-    } finally {
-      setWorkspaceLoading(false);
-    }
-  }, []);
+  const loadWorkspace = useCallback(
+    async (sid: string, scopePath?: string) => {
+      setWorkspaceLoading(true);
+      try {
+        const params = new URLSearchParams({ show_hidden: "true", depth: "2" });
+        if (scopePath) params.set("path", scopePath);
+        const data = await api<Workspace>(
+          "GET",
+          `/api/sessions/${encodeURIComponent(sid)}/workspace?${params}`,
+        );
+        setWorkspace(data);
+        if (
+          !scopePath &&
+          project?.base_dir &&
+          data.root &&
+          project.base_dir.startsWith(data.root + "/")
+        ) {
+          const rel = project.base_dir.slice(data.root.length + 1);
+          if (rel) setProjectDir(rel);
+        }
+      } catch {
+        setWorkspace(null);
+      } finally {
+        setWorkspaceLoading(false);
+      }
+    },
+    [project?.base_dir],
+  );
 
   useEffect(() => {
     if (rightOpen && sessionDetail) {
-      void loadWorkspace(sessionDetail.id);
+      void loadWorkspace(sessionDetail.id, projectDir || undefined);
     }
-  }, [rightOpen, sessionDetail?.id, loadWorkspace, sessionDetail]);
+  }, [rightOpen, sessionDetail?.id, loadWorkspace, projectDir, sessionDetail]);
 
   const onResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -133,6 +156,7 @@ export function SessionView() {
           workspace={workspace}
           workspaceLoading={workspaceLoading}
           onReload={loadWorkspace}
+          projectDir={projectDir}
         />
       </div>
     </div>

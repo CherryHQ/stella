@@ -22,16 +22,16 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if lastActive.IsZero() {
 			lastActive = time.Now().UTC()
 		}
-		source := info.Source
-		if source == "" {
-			source = "chat"
+		kind := info.Kind
+		if kind == "" {
+			kind = "chat"
 		}
 		_, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
 			ID:         uuid.NewString(),
 			SessionID:  info.ID,
 			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
 			Channel:    info.Channel,
-			Source:     source,
+			Kind:       kind,
 			ProjectID:  sql.NullString{String: info.ProjectID, Valid: info.ProjectID != ""},
 			Archived:   boolToInt(info.Archived),
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
@@ -118,7 +118,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		if opts.UserID != "" && info.UserID != opts.UserID {
 			continue
 		}
-		if opts.Source != "" && info.Source != opts.Source {
+		if opts.Kind != "" && info.Kind != opts.Kind {
 			continue
 		}
 		if opts.ProjectID != "" && info.ProjectID != opts.ProjectID {
@@ -158,7 +158,7 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	info := memory.SessionInfo{
 		ID:       conv.SessionID,
 		Channel:  conv.Channel,
-		Source:   conv.Source,
+		Kind:     conv.Kind,
 		Archived: conv.Archived != 0,
 	}
 	if conv.Title.Valid {

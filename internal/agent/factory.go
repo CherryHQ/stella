@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -32,6 +33,7 @@ type RunnerFactoryConfig struct {
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenService             *auth.TokenService
 	TokenManager             *oauth.TokenManager
+	ProjectResolver          ProjectResolverFunc
 }
 
 // NewRunnerFactory creates a NewRunnerFunc for a given config snapshot.
@@ -76,6 +78,21 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 			}
 			userRoot := userDir
 
+			// Resolve project directory when session has a project.
+			var projectRoot string
+			if params.ProjectID != "" && cfg.ProjectResolver != nil {
+				dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID)
+				if err != nil {
+					slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
+				} else if dir != "" {
+					if err := ValidateProjectDir(dir, userRoot); err != nil {
+						slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
+					} else {
+						projectRoot = dir
+					}
+				}
+			}
+
 			// Extract memory provider from params (typed as any to avoid circular imports).
 			var memProvider memory.Provider
 			if params.Memory != nil {
@@ -95,7 +112,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				StellaHome:          config.StellaHome(),
 				HomeDir:             homeDir,
 				AgentRoot:           cfg.Snap.Workspace,
-				ProjectRoot:         "",
+				ProjectRoot:         projectRoot,
 				UserID:              params.UserID,
 				AgentID:             params.AgentID,
 				UserRoot:            userRoot,
@@ -145,9 +162,10 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 					SandboxConfig:    cfg.Snap.Sandbox,
 					SandboxBackendFn: cfg.SandboxBackendFn,
 					Paths: sandbox.Paths{
-						StellaHome: config.StellaHome(),
-						AgentRoot:  cfg.Snap.Workspace,
-						UserRoot:   userRoot,
+						StellaHome:  config.StellaHome(),
+						AgentRoot:   cfg.Snap.Workspace,
+						UserRoot:    userRoot,
+						ProjectRoot: projectRoot,
 					},
 					UserID:          params.UserID,
 					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),

@@ -147,7 +147,7 @@ type CtxConversation struct {
 	SessionID      string         `json:"session_id"`
 	Title          sql.NullString `json:"title"`
 	Channel        string         `json:"channel"`
-	Source         string         `json:"source"`
+	Kind           string         `json:"kind"`
 	ProjectID      sql.NullString `json:"project_id"`
 	Archived       int64          `json:"archived"`
 	LastActive     string         `json:"last_active"`

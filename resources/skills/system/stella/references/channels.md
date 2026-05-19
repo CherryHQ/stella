@@ -12,8 +12,8 @@ All channel configuration is stored in the database and managed via the Web UI (
 Commands available in all channels:
 
 - `/agent` -- List available agents or switch to a specific one
-- `/new` -- Start a fresh session (with the current agent)
-- `/compact` -- Compress conversation history
+- `/new` -- Compact conversation context (same as `/compact`)
+- `/compact` -- Compact conversation context
 - `/model` -- Switch model interactively
 - `/whoami` -- Show your user/chat ID
 

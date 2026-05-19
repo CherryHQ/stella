@@ -13,10 +13,10 @@ paths:
           in: query
           schema: { type: integer, default: 0 }
           description: Number of sessions to skip
-        - name: source
+        - name: kind
           in: query
           schema: { type: string, enum: [main, chat, scheduler, task] }
-          description: Filter by session source
+          description: Filter by session kind
         - name: project_id
           in: query
           schema: { type: string }

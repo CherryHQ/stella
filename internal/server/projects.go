@@ -9,8 +9,23 @@ import (
 	"github.com/google/uuid"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func validateBaseDir(w http.ResponseWriter, agentID, userID, baseDir string) bool {
+	userRoot, err := agent.SetupUserWorkspace(agentID, config.StellaHome(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to resolve workspace")
+		return false
+	}
+	if err := agent.ValidateProjectDir(baseDir, userRoot); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid base_dir: "+err.Error())
+		return false
+	}
+	return true
+}
 
 func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListProjectsParams) {
 	auth := UserFromContext(r.Context())
@@ -65,6 +80,10 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	if body.BaseDir == "" {
 		writeError(w, http.StatusBadRequest, "base_dir is required")
+		return
+	}
+
+	if !validateBaseDir(w, agentID, auth.UserID, body.BaseDir) {
 		return
 	}
 
@@ -139,6 +158,9 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	baseDir := existing.BaseDir
 	if body.BaseDir != nil {
+		if !validateBaseDir(w, agentID, auth.UserID, *body.BaseDir) {
+			return
+		}
 		baseDir = *body.BaseDir
 	}
 	description := existing.Description

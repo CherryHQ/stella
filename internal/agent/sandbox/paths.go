@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
 )
@@ -19,6 +20,7 @@ type Paths struct {
 }
 
 // ResolvePaths validates cfg.Paths and fills derived fields (StellaHome default, WorkDir).
+// When ProjectRoot is set and is a valid subpath of UserRoot, WorkDir is set to ProjectRoot.
 func ResolvePaths(cfg Config) (Paths, error) {
 	p := cfg.Paths
 	if p.StellaHome == "" {
@@ -36,6 +38,19 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	}
 	p.UserRoot = userRoot
 	p.WorkDir = userRoot
+
+	if p.ProjectRoot != "" {
+		pr, err := filepath.Abs(p.ProjectRoot)
+		if err != nil {
+			return Paths{}, fmt.Errorf("resolve project_root: %w", err)
+		}
+		rel, relErr := filepath.Rel(userRoot, pr)
+		if relErr == nil && !strings.HasPrefix(rel, "..") {
+			p.ProjectRoot = pr
+			p.WorkDir = pr
+		}
+	}
+
 	return p, nil
 }
 

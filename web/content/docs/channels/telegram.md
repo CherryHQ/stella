@@ -126,8 +126,8 @@ You can switch models mid-conversation using the `/model` command, which opens a
 | Command             | Description                                             |
 | ------------------- | ------------------------------------------------------- |
 | `/start` or `/help` | Welcome and help                                        |
-| `/new`              | Start a fresh session                                   |
-| `/compact`          | Compress conversation history                           |
+| `/new`              | Compact conversation context                            |
+| `/compact`          | Compact conversation context                            |
 | `/abort`            | Cancel the in-progress response                         |
 | `/model`            | List available models                                   |
 | `/model <number>`   | Switch to model by number                               |

@@ -19,8 +19,8 @@ type ResolvedChat struct {
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
 
-func (rc *ResolvedChat) ResolveSession() (agent.SessionInfo, error) {
-	return rc.Pool.ResolveSession(rc.SessionKey, rc.User.ID)
+func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, error) {
+	return rc.Pool.ResolveSession(ctx, rc.SessionKey, rc.User.ID)
 }
 
 func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
@@ -28,7 +28,7 @@ func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
-	info, err := rc.ResolveSession()
+	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolve session: %w", err)
 	}
@@ -36,7 +36,7 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {
-	info, err := rc.ResolveSession()
+	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
