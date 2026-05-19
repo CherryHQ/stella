@@ -168,6 +168,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 						ProjectRoot: projectRoot,
 					},
 					UserID:          params.UserID,
+					SessionID:       params.SessionID,
 					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 					VaultEnvLoader:  cfg.VaultEnvLoader,
 					TokenService:    cfg.TokenService,
