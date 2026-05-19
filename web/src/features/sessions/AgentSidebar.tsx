@@ -388,6 +388,15 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const selectedAgent = agents.find((a) => a.id === agentId);
   const color = selectedAgent ? agentColor(selectedAgent.id) : "#888";
 
+  // The "home" session for the agent — prefer main, fall back to first chat.
+  // Used by the home row so it navigates directly without a round-trip through AgentHome.
+  const homeSession = useMemo(() => {
+    const active = sessions.filter((s) => !s.archived);
+    return (
+      active.find((s) => s.source === "main") ?? active.find((s) => s.source === "chat") ?? null
+    );
+  }, [sessions]);
+
   const chatSessions = useMemo(() => {
     const base = sessions.filter((s) => {
       if (s.archived) return false;
@@ -594,7 +603,16 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   active={isActive(`/agents/${agentId}`)}
                   icon={<IconHome />}
                   title={selectedAgent?.name ?? "Home"}
-                  onClick={() => void navigate({ to: "/agents/$agentId", params: { agentId } })}
+                  onClick={() => {
+                    if (homeSession) {
+                      void navigate({
+                        to: "/agents/$agentId/sessions/$sessionId",
+                        params: { agentId, sessionId: homeSession.id },
+                      });
+                    } else {
+                      void navigate({ to: "/agents/$agentId", params: { agentId } });
+                    }
+                  }}
                 />
                 {(projects as Project[]).map((p) => (
                   <NavRow
