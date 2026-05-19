@@ -38,7 +38,7 @@ func (p *Pool) CreateSessionWithSource(channel, source, projectID string, userID
 func (p *Pool) createSessionLocked(channel string, userID ...string) SessionInfo {
 	now := time.Now()
 	info := SessionInfo{
-		ID:         channel + "-" + uuid.New().String()[:8],
+		ID:         uuid.New().String(),
 		Channel:    channel,
 		CreatedAt:  now,
 		LastActive: now,
