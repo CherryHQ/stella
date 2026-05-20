@@ -220,8 +220,23 @@ func (s *Server) GetShare(w http.ResponseWriter, r *http.Request, token string) 
 		writeError(w, http.StatusNotFound, "share not found")
 		return
 	}
-	setShareContentHeaders(w, share)
-	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(share.Content))
+
+	content := share.Content
+	mediaType := share.MediaType
+	if strings.HasPrefix(mediaType, "text/markdown") {
+		expiresAt := ""
+		if share.ExpiresAt.Valid {
+			expiresAt = share.ExpiresAt.String
+		}
+		rendered, renderErr := renderMarkdownPage(share.Title, "", expiresAt, share.Content)
+		if renderErr == nil {
+			content = rendered
+			mediaType = "text/html; charset=utf-8"
+		}
+	}
+
+	setShareContentHeaders(w, share, mediaType)
+	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(content))
 }
 
 func shareURL(r *http.Request, token string) string {
@@ -291,22 +306,20 @@ func shareTokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share) {
-	w.Header().Set("Content-Type", share.MediaType)
+func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMediaType string) {
+	w.Header().Set("Content-Type", effectiveMediaType)
 	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.Header().Set("X-Share-Title", share.Title)
+	w.Header().Set("X-Share-Media-Type", share.MediaType)
 	if share.ExpiresAt.Valid {
 		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.String)
 	}
-	mt := share.MediaType
 	switch {
-	case strings.HasPrefix(mt, "text/html"):
+	case strings.HasPrefix(effectiveMediaType, "text/html"):
 		w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups allow-downloads; default-src 'self' https: data: blob:; img-src * data: blob:; style-src 'unsafe-inline' https:; script-src 'unsafe-inline' 'unsafe-eval' https:; connect-src https:; object-src 'none'; base-uri 'none'; form-action 'none'")
-	case strings.HasPrefix(mt, "text/markdown"):
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	default:
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	}

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 interface ShareMeta {
   title: string;
@@ -8,82 +8,72 @@ interface ShareMeta {
 }
 
 export const Route = createFileRoute("/s/$token")({
-  component: PublicArtifactSharePage,
+  component: PublicSharePage,
 });
 
-function PublicArtifactSharePage() {
+function PublicSharePage() {
   const { token } = Route.useParams();
   const contentUrl = `/api/shares/${encodeURIComponent(token)}`;
   const [meta, setMeta] = useState<ShareMeta | null>(null);
-  const [markdown, setMarkdown] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(contentUrl)
+    fetch(contentUrl, { method: "HEAD" })
       .then((res) => {
         if (!res.ok) {
-          if (!cancelled) setError("Artifact not found");
+          if (!cancelled) setError("Share not found or expired");
           return;
         }
-        const title = res.headers.get("X-Share-Title") ?? "Shared artifact";
-        const mediaType = res.headers.get("Content-Type") ?? "";
+        const title = res.headers.get("X-Share-Title") ?? "Shared content";
+        const mediaType =
+          res.headers.get("X-Share-Media-Type") ?? res.headers.get("Content-Type") ?? "";
         const expiresAt = res.headers.get("X-Share-Expires-At") ?? undefined;
         if (!cancelled) setMeta({ title, mediaType, expiresAt });
-
-        if (mediaType.startsWith("text/markdown")) {
-          res.text().then((text) => {
-            if (!cancelled) setMarkdown(text);
-          });
-        }
       })
       .catch(() => {
-        if (!cancelled) setError("Artifact not found");
+        if (!cancelled) setError("Share not found or expired");
       });
     return () => {
       cancelled = true;
     };
   }, [contentUrl]);
 
-  const renderedMarkdown = useMemo(
-    () => (markdown == null ? "" : renderSafeMarkdown(markdown)),
-    [markdown],
-  );
-
   if (error) {
     return (
-      <PublicShell title="Artifact unavailable">
+      <PublicShell title="Share unavailable">
         <p className="text-sm text-muted-foreground">{error}</p>
       </PublicShell>
     );
   }
   if (!meta) {
     return (
-      <PublicShell title="Loading artifact…">
+      <PublicShell title="Loading…">
         <div className="h-4 w-4 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
       </PublicShell>
     );
   }
 
   const mt = meta.mediaType;
+  const isMarkdown = mt.startsWith("text/markdown");
+  const isHTML = mt.startsWith("text/html");
+  const isImage = mt.startsWith("image/");
+  const isPDF = mt === "application/pdf";
+
+  if (isMarkdown || isHTML) {
+    return (
+      <iframe
+        title={meta.title}
+        className="h-screen w-full"
+        sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+        src={contentUrl}
+      />
+    );
+  }
 
   return (
     <PublicShell title={meta.title} expiresAt={meta.expiresAt} contentUrl={contentUrl}>
-      {mt.startsWith("text/html") && (
-        <iframe
-          title={meta.title}
-          className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-white"
-          sandbox="allow-scripts allow-forms allow-popups allow-downloads"
-          src={contentUrl}
-        />
-      )}
-      {mt.startsWith("text/markdown") && (
-        <article
-          className="prose prose-neutral dark:prose-invert mx-auto max-w-3xl rounded-xl border bg-card p-6"
-          dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
-        />
-      )}
-      {mt.startsWith("image/") && (
+      {isImage && (
         <div className="flex justify-center rounded-xl border bg-card p-4">
           <img
             alt={meta.title}
@@ -92,7 +82,7 @@ function PublicArtifactSharePage() {
           />
         </div>
       )}
-      {mt === "application/pdf" && (
+      {isPDF && (
         <iframe
           title={meta.title}
           className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-card"
@@ -139,32 +129,4 @@ function PublicShell({
       <div className="mx-auto max-w-6xl p-4">{children}</div>
     </main>
   );
-}
-
-function renderSafeMarkdown(input: string): string {
-  const escaped = input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-  return escaped
-    .split(/\n{2,}/)
-    .map((block) => {
-      const lines = block.split("\n");
-      if (lines[0]?.startsWith("# ")) return `<h1>${inlineMarkdown(lines[0].slice(2))}</h1>`;
-      if (lines[0]?.startsWith("## ")) return `<h2>${inlineMarkdown(lines[0].slice(3))}</h2>`;
-      if (lines.every((line) => line.startsWith("- "))) {
-        return `<ul>${lines.map((line) => `<li>${inlineMarkdown(line.slice(2))}</li>`).join("")}</ul>`;
-      }
-      return `<p>${inlineMarkdown(lines.join("<br />"))}</p>`;
-    })
-    .join("\n");
-}
-
-function inlineMarkdown(input: string): string {
-  return input
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
