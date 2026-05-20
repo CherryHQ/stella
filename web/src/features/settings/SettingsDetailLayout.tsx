@@ -22,7 +22,7 @@ export function SettingsDetailLayout({
   }, [hasDetail]);
 
   return (
-    <div className="flex min-h-[640px] overflow-hidden rounded-[22px] bg-card/85">
+    <div className="flex h-full min-h-0 overflow-hidden bg-card/85">
       {/* Left list panel — full width on mobile when mobileView=list, hidden otherwise */}
       <div
         className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-y-auto border-r border-border/70 bg-sidebar/80 md:flex md:w-[220px]`}

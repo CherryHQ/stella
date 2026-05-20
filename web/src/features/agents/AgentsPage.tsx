@@ -1071,7 +1071,7 @@ export function AgentsPage() {
 
   return (
     // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
-    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+    <div className="h-full">
       <SettingsDetailLayout
         listHeader={listHeader}
         list={list}

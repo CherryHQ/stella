@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { AppSidebar } from "@/components/AppSidebar";
 
 const settingsNav: {
   section: string;
@@ -254,17 +255,12 @@ export function SettingsLayout() {
   return (
     <div className="flex h-full overflow-hidden bg-gradient-to-b from-card/80 to-card">
       {/* Desktop sidebar — hidden on mobile */}
-      <nav className="hidden w-[230px] shrink-0 overflow-y-auto border-r border-border/70 bg-sidebar/80 p-2 md:flex md:flex-col">
-        <div className="px-3 pt-3 pb-2">
-          <div className="grid size-10 place-items-center rounded-[14px] bg-foreground text-sm font-bold text-background shadow-sm">
-            S
+      <nav className="hidden w-[260px] shrink-0 border-r border-border/70 bg-sidebar/80 md:flex md:flex-col">
+        <AppSidebar>
+          <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+            <NavItems isAdmin={isAdmin} />
           </div>
-          <h2 className="mt-4 text-xl font-semibold tracking-[-0.04em]">Settings</h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Appearance, agents, channels, plugins, and account preferences.
-          </p>
-        </div>
-        <NavItems isAdmin={isAdmin} />
+        </AppSidebar>
       </nav>
 
       {/* Mobile overlay */}
@@ -306,32 +302,9 @@ export function SettingsLayout() {
           {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-8 lg:px-10">
-          <div className="mx-auto max-w-6xl">
-            <div className="mb-6 hidden rounded-[22px] border border-border/80 bg-card/80 p-5 shadow-[0_14px_38px_rgba(29,29,31,0.055)] md:block">
-              <div className="flex items-end justify-between gap-6">
-                <div>
-                  <h1 className="text-4xl font-bold tracking-[-0.055em]">
-                    Make Stella feel like your workspace.
-                  </h1>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    Tune the interface, model access, channels, credentials, plugins, and user scope
-                    without leaving the product shell.
-                  </p>
-                </div>
-                {me && (
-                  <div className="rounded-[18px] bg-foreground px-4 py-3 text-background shadow-sm">
-                    <div className="text-sm font-semibold">{me.username}</div>
-                    <div className="mt-1 text-xs text-background/60">
-                      {me.is_admin ? "Admin" : "Member"}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="rounded-[22px] border border-border/80 bg-card/85 shadow-[0_14px_38px_rgba(29,29,31,0.055)]">
-              <Outlet />
-            </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="h-full">
+            <Outlet />
           </div>
         </div>
       </div>

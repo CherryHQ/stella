@@ -780,7 +780,7 @@ export function UsersPage() {
   ) : undefined;
 
   return (
-    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+    <div className="h-full">
       <SettingsDetailLayout
         listHeader={listHeader}
         list={list}

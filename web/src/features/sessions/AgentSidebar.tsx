@@ -10,6 +10,7 @@ import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
+import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -432,16 +433,6 @@ function NavItem({
   );
 }
 
-// ── section label ───────────────────────────────────────────────────────────
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-2 pb-1.5 pt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
-      {children}
-    </div>
-  );
-}
-
 // ── main component ───────────────────────────────────────────────────────────
 
 export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props) {
@@ -450,7 +441,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const queryClient = useQueryClient();
 
   const [projectsOpen, setProjectsOpen] = useState(true);
-  const [chatsOpen, setChatsOpen] = useState(true);
+  const [chatsOpen, setChatsOpen] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -531,9 +522,9 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   }, [sessionsQuery]);
 
   return (
-    <aside className="flex h-full w-full flex-col overflow-hidden">
+    <AppSidebar>
       {/* ── Agents ──────────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-3 pt-3">
+      <div className="shrink-0 px-3">
         <SectionLabel>Agents</SectionLabel>
         <div className="grid gap-1.5">
           {agents.map((ag, idx) => {
@@ -776,6 +767,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           )}
         </section>
       </div>
-    </aside>
+    </AppSidebar>
   );
 }

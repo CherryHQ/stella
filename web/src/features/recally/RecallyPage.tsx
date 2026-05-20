@@ -11,6 +11,7 @@ import { RecallyArticleList } from "./components/RecallyArticleList";
 import { RecallyDigestView } from "./components/RecallyDigestView";
 import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
+import { AppSidebar } from "@/components/AppSidebar";
 import { ToastAlert } from "./components/ToastAlert";
 
 export function RecallyPage() {
@@ -54,47 +55,71 @@ export function RecallyPage() {
     filters.digestView && !!filters.selectedDigestDate && !selectedId && !!filters.selectedDigest;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden bg-background">
+    <div className="relative flex h-full min-h-0 overflow-hidden bg-background">
       {/* Left sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-shrink-0 flex-col overflow-auto border-r border-border bg-sidebar transition-all duration-200 ease-out",
+          "hidden md:flex flex-shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar transition-all duration-200 ease-out",
           filters.leftOpen
             ? "w-[260px] min-w-[260px]"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
       >
-        <RecallySidebar
-          t={t}
-          searchText={filters.searchText}
-          setSearchText={filters.setSearchText}
-          statusFilter={filters.statusFilter}
-          setStatusFilter={filters.setStatusFilter}
-          sourceTypeFilter={filters.sourceTypeFilter}
-          setSourceTypeFilter={filters.setSourceTypeFilter}
-          starredFilter={filters.starredFilter}
-          setStarredFilter={filters.setStarredFilter}
-          tagFilter={filters.tagFilter}
-          setTagFilter={filters.setTagFilter}
-          showAllTags={filters.showAllTags}
-          setShowAllTags={filters.setShowAllTags}
-          digest={filters.digest}
-          digestView={filters.digestView}
-          setDigestView={filters.setDigestView}
-          sortedTags={filters.sortedTags}
-          visibleTags={filters.visibleTags}
-          hasMoreTags={filters.hasMoreTags}
-          tagCounts={filters.tagCounts}
-          feeds={feeds.feeds}
-          feedsQuery={feeds.feedsQuery}
-          feedUrl={feeds.feedUrl}
-          setFeedUrl={feeds.setFeedUrl}
-          createFeedMut={feeds.createFeedMut}
-          pollFeedMut={feeds.pollFeedMut}
-          feedPollResults={feeds.feedPollResults}
-          clearFilters={filters.clearFilters}
-        />
+        <AppSidebar>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <RecallySidebar
+              t={t}
+              searchText={filters.searchText}
+              setSearchText={filters.setSearchText}
+              statusFilter={filters.statusFilter}
+              setStatusFilter={filters.setStatusFilter}
+              sourceTypeFilter={filters.sourceTypeFilter}
+              setSourceTypeFilter={filters.setSourceTypeFilter}
+              starredFilter={filters.starredFilter}
+              setStarredFilter={filters.setStarredFilter}
+              tagFilter={filters.tagFilter}
+              setTagFilter={filters.setTagFilter}
+              showAllTags={filters.showAllTags}
+              setShowAllTags={filters.setShowAllTags}
+              digest={filters.digest}
+              digestView={filters.digestView}
+              setDigestView={filters.setDigestView}
+              sortedTags={filters.sortedTags}
+              visibleTags={filters.visibleTags}
+              hasMoreTags={filters.hasMoreTags}
+              tagCounts={filters.tagCounts}
+              feeds={feeds.feeds}
+              feedsQuery={feeds.feedsQuery}
+              feedUrl={feeds.feedUrl}
+              setFeedUrl={feeds.setFeedUrl}
+              createFeedMut={feeds.createFeedMut}
+              pollFeedMut={feeds.pollFeedMut}
+              feedPollResults={feeds.feedPollResults}
+              clearFilters={filters.clearFilters}
+            />
+          </div>
+        </AppSidebar>
       </aside>
+
+      <button
+        type="button"
+        onClick={() => filters.setLeftOpen((v) => !v)}
+        className={cn(
+          "absolute top-3 z-20 hidden h-[34px] w-[18px] place-items-center rounded-full border border-border/60 bg-card text-muted-foreground/50 shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground md:grid",
+          filters.leftOpen ? "left-[250px]" : "-left-[9px]",
+        )}
+        aria-label={filters.leftOpen ? "Hide sidebar" : "Show sidebar"}
+      >
+        <svg
+          className={cn("size-3 transition-transform", !filters.leftOpen && "rotate-180")}
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="m10 4-4 4 4 4" />
+        </svg>
+      </button>
 
       {/* Main area */}
       <div
@@ -122,7 +147,6 @@ export function RecallyPage() {
             setSearchText={filters.setSearchText}
             statusFilter={filters.statusFilter}
             setStatusFilter={filters.setStatusFilter}
-            setLeftOpen={filters.setLeftOpen}
           />
         )}
 

@@ -16,7 +16,6 @@ export function RecallyArticleList({
   setSearchText,
   statusFilter,
   setStatusFilter,
-  setLeftOpen,
 }: {
   t: TFunction;
   displayArticles: Article[];
@@ -35,7 +34,6 @@ export function RecallyArticleList({
   setSearchText: Dispatch<SetStateAction<string>>;
   statusFilter: ArticleStatus | null;
   setStatusFilter: Dispatch<SetStateAction<ArticleStatus | null>>;
-  setLeftOpen: Dispatch<SetStateAction<boolean>>;
 }) {
   return (
     <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
@@ -43,22 +41,6 @@ export function RecallyArticleList({
       <div className="shrink-0 border-b border-border bg-background px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setLeftOpen((v) => !v)}
-              className="hidden shrink-0 text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
-              title={t("recally.toggleSidebar")}
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 3v18" />
-              </svg>
-            </button>
             <h1 className="text-[13px] font-semibold tracking-tight text-foreground">
               {t("recally.title")}
             </h1>

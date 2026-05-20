@@ -28,7 +28,7 @@ export function AppLayout() {
       data-left-collapsed={leftCollapsed ? "true" : "false"}
       className="relative isolate flex h-svh flex-col overflow-hidden bg-background text-foreground"
     >
-      <header className="relative z-40 flex h-[52px] shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-3 shadow-[0_1px_0_rgba(255,255,255,0.55)_inset] backdrop-blur-xl supports-[backdrop-filter]:bg-background/75 sm:px-4">
+      <header className="relative z-40 flex h-[52px] shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-3 shadow-[0_1px_0_rgba(255,255,255,0.55)_inset] backdrop-blur-xl supports-[backdrop-filter]:bg-background/75 sm:px-4 md:hidden">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
@@ -131,7 +131,7 @@ function ShellNavLink({
       to={href as never}
       onClick={onClick}
       className={cn(
-        "flex h-9 items-center rounded-xl px-3 text-sm font-medium transition-colors",
+        "flex h-9 items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors",
         active
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",

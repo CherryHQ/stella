@@ -469,10 +469,11 @@ export function CredentialsPage() {
                   >
                     Connect
                   </Button>
-                ) : oauthStatus[p.provider] === "connected" ? (
+                ) : oauthStatus[p.provider] === "connected" && p.available ? (
                   <Button
                     size="sm"
                     variant="destructive-outline"
+                    className="text-destructive"
                     onClick={() => disconnectOAuth(p.provider)}
                   >
                     Disconnect
@@ -574,7 +575,7 @@ export function CredentialsPage() {
 
   return (
     // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
-    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+    <div className="h-full">
       <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
     </div>
   );
