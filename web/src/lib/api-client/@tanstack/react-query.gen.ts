@@ -21,6 +21,7 @@ import {
   createProvider,
   createSchedulerJob,
   createSession,
+  createShare,
   createSkill,
   createWorkspaceFile,
   deleteAgent,
@@ -71,6 +72,7 @@ import {
   getSessionMessages,
   getSessionSystemPrompt,
   getSessionWorkspace,
+  getShareContent,
   getSkill,
   getSkillFile,
   getStatus,
@@ -107,6 +109,7 @@ import {
   listSchedulerJobRuns,
   listSchedulerJobs,
   listSessions,
+  listShares,
   listSkills,
   listStoredDigests,
   listTools,
@@ -122,6 +125,7 @@ import {
   pollWeixinQrStatus,
   register,
   removeAgentUser,
+  revokeShare,
   saveArticle,
   saveDigest,
   saveManifestPlugins,
@@ -194,6 +198,9 @@ import type {
   CreateSessionData,
   CreateSessionError,
   CreateSessionResponse,
+  CreateShareData,
+  CreateShareError,
+  CreateShareResponse,
   CreateSkillData,
   CreateSkillError,
   CreateSkillResponse,
@@ -344,6 +351,9 @@ import type {
   GetSessionWorkspaceData,
   GetSessionWorkspaceError,
   GetSessionWorkspaceResponse,
+  GetShareContentData,
+  GetShareContentError,
+  GetShareContentResponse,
   GetSkillData,
   GetSkillError,
   GetSkillFileData,
@@ -451,6 +461,9 @@ import type {
   ListSessionsData,
   ListSessionsError,
   ListSessionsResponse,
+  ListSharesData,
+  ListSharesError,
+  ListSharesResponse,
   ListSkillsData,
   ListSkillsError,
   ListSkillsResponse,
@@ -491,6 +504,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
+  RevokeShareData,
+  RevokeShareError,
+  RevokeShareResponse,
   SaveArticleData,
   SaveArticleError,
   SaveArticleResponse,
@@ -3289,6 +3305,111 @@ export const getSessionSystemPromptOptions = (
       return data;
     },
     queryKey: getSessionSystemPromptQueryKey(options),
+  });
+
+export const listSharesQueryKey = (options?: Options<ListSharesData>) =>
+  createQueryKey("listShares", options);
+
+/**
+ * List shares for the current user
+ */
+export const listSharesOptions = (options?: Options<ListSharesData>) =>
+  queryOptions<
+    ListSharesResponse,
+    ListSharesError,
+    ListSharesResponse,
+    ReturnType<typeof listSharesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listShares({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listSharesQueryKey(options),
+  });
+
+/**
+ * Create a public share link
+ */
+export const createShareMutation = (
+  options?: Partial<Options<CreateShareData>>,
+): UseMutationOptions<
+  CreateShareResponse,
+  CreateShareError,
+  Options<CreateShareData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateShareResponse,
+    CreateShareError,
+    Options<CreateShareData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createShare({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Revoke a share
+ */
+export const revokeShareMutation = (
+  options?: Partial<Options<RevokeShareData>>,
+): UseMutationOptions<
+  RevokeShareResponse,
+  RevokeShareError,
+  Options<RevokeShareData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RevokeShareResponse,
+    RevokeShareError,
+    Options<RevokeShareData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await revokeShare({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getShareContentQueryKey = (
+  options: Options<GetShareContentData>,
+) => createQueryKey("getShareContent", options);
+
+/**
+ * Get shared content by token (public, no auth)
+ */
+export const getShareContentOptions = (options: Options<GetShareContentData>) =>
+  queryOptions<
+    GetShareContentResponse,
+    GetShareContentError,
+    GetShareContentResponse,
+    ReturnType<typeof getShareContentQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getShareContent({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getShareContentQueryKey(options),
   });
 
 /**

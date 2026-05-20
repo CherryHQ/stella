@@ -217,6 +217,48 @@ func (e CreateSessionRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateShareRequestExpiresIn.
+const (
+	N1d   CreateShareRequestExpiresIn = "1d"
+	N1h   CreateShareRequestExpiresIn = "1h"
+	N7d   CreateShareRequestExpiresIn = "7d"
+	Never CreateShareRequestExpiresIn = "never"
+)
+
+// Valid indicates whether the value is a known member of the CreateShareRequestExpiresIn enum.
+func (e CreateShareRequestExpiresIn) Valid() bool {
+	switch e {
+	case N1d:
+		return true
+	case N1h:
+		return true
+	case N7d:
+		return true
+	case Never:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateShareRequestSource.
+const (
+	CreateShareRequestSourceArticle  CreateShareRequestSource = "article"
+	CreateShareRequestSourceArtifact CreateShareRequestSource = "artifact"
+)
+
+// Valid indicates whether the value is a known member of the CreateShareRequestSource enum.
+func (e CreateShareRequestSource) Valid() bool {
+	switch e {
+	case CreateShareRequestSourceArticle:
+		return true
+	case CreateShareRequestSourceArtifact:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FeedEntryStatus.
 const (
 	FeedEntryStatusError   FeedEntryStatus = "error"
@@ -636,6 +678,21 @@ type CreateSessionRequest struct {
 
 // CreateSessionRequestKind defines model for CreateSessionRequest.Kind.
 type CreateSessionRequestKind string
+
+// CreateShareRequest defines model for CreateShareRequest.
+type CreateShareRequest struct {
+	ArticleId *string                      `json:"article_id,omitempty"`
+	ExpiresIn *CreateShareRequestExpiresIn `json:"expires_in,omitempty"`
+	Path      *string                      `json:"path,omitempty"`
+	SessionId *string                      `json:"session_id,omitempty"`
+	Source    CreateShareRequestSource     `json:"source"`
+}
+
+// CreateShareRequestExpiresIn defines model for CreateShareRequest.ExpiresIn.
+type CreateShareRequestExpiresIn string
+
+// CreateShareRequestSource defines model for CreateShareRequest.Source.
+type CreateShareRequestSource string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
@@ -1156,6 +1213,16 @@ type SetSoulRequest struct {
 // SetVaultEntryRequest defines model for SetVaultEntryRequest.
 type SetVaultEntryRequest struct {
 	Value string `json:"value"`
+}
+
+// Share defines model for Share.
+type Share struct {
+	CreatedAt string  `json:"created_at"`
+	ExpiresAt *string `json:"expires_at,omitempty"`
+	Id        string  `json:"id"`
+	MediaType string  `json:"media_type"`
+	Title     string  `json:"title"`
+	Url       string  `json:"url"`
 }
 
 // Skill defines model for Skill.

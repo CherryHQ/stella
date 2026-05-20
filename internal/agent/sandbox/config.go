@@ -21,6 +21,7 @@ type Config struct {
 	SandboxBackendFn func(ctx context.Context) string
 	Paths            Paths
 	UserID           string
+	SessionID        string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
 	TokenService     *auth.TokenService

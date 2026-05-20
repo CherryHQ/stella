@@ -41,6 +41,9 @@ import type {
   CreateSessionData,
   CreateSessionErrors,
   CreateSessionResponses,
+  CreateShareData,
+  CreateShareErrors,
+  CreateShareResponses,
   CreateSkillData,
   CreateSkillErrors,
   CreateSkillResponses,
@@ -191,6 +194,9 @@ import type {
   GetSessionWorkspaceData,
   GetSessionWorkspaceErrors,
   GetSessionWorkspaceResponses,
+  GetShareContentData,
+  GetShareContentErrors,
+  GetShareContentResponses,
   GetSkillData,
   GetSkillErrors,
   GetSkillFileData,
@@ -298,6 +304,9 @@ import type {
   ListSessionsData,
   ListSessionsErrors,
   ListSessionsResponses,
+  ListSharesData,
+  ListSharesErrors,
+  ListSharesResponses,
   ListSkillsData,
   ListSkillsErrors,
   ListSkillsResponses,
@@ -339,6 +348,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
+  RevokeShareData,
+  RevokeShareErrors,
+  RevokeShareResponses,
   SaveArticleData,
   SaveArticleErrors,
   SaveArticleResponses,
@@ -2105,6 +2117,70 @@ export const getSessionSystemPrompt = <ThrowOnError extends boolean = false>(
     url: "/api/sessions/{sessionID}/system-prompt",
     ...options,
   });
+
+/**
+ * List shares for the current user
+ */
+export const listShares = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSharesData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListSharesResponses,
+    ListSharesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/shares",
+    ...options,
+  });
+
+/**
+ * Create a public share link
+ */
+export const createShare = <ThrowOnError extends boolean = false>(
+  options: Options<CreateShareData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateShareResponses,
+    CreateShareErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/shares",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Revoke a share
+ */
+export const revokeShare = <ThrowOnError extends boolean = false>(
+  options: Options<RevokeShareData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RevokeShareResponses,
+    RevokeShareErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/shares/{id}",
+    ...options,
+  });
+
+/**
+ * Get shared content by token (public, no auth)
+ */
+export const getShareContent = <ThrowOnError extends boolean = false>(
+  options: Options<GetShareContentData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetShareContentResponses,
+    GetShareContentErrors,
+    ThrowOnError
+  >({ url: "/api/shares/public/{token}", ...options });
 
 /**
  * Update the default agent for a user (admin only)

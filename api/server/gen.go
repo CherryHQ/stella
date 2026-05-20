@@ -690,6 +690,9 @@ type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
 // UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
 type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
 
+// CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
+type CreateShareJSONRequestBody = externalRef0.CreateShareRequest
+
 // CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
 type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
@@ -1097,6 +1100,18 @@ type ServerInterface interface {
 	// Upload a file to the session workspace assets directory
 	// (POST /api/sessions/{sessionID}/workspace/upload)
 	UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
+	// List shares for the current user
+	// (GET /api/shares)
+	ListShares(w http.ResponseWriter, r *http.Request)
+	// Create a public share link
+	// (POST /api/shares)
+	CreateShare(w http.ResponseWriter, r *http.Request)
+	// Get shared content by token (public, no auth)
+	// (GET /api/shares/public/{token})
+	GetShareContent(w http.ResponseWriter, r *http.Request, token string)
+	// Revoke a share
+	// (DELETE /api/shares/{id})
+	RevokeShare(w http.ResponseWriter, r *http.Request, id string)
 	// List all skills (admin only)
 	// (GET /api/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request)
@@ -5403,6 +5418,104 @@ func (siw *ServerInterfaceWrapper) UploadWorkspaceFile(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListShares operation middleware
+func (siw *ServerInterfaceWrapper) ListShares(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListShares(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateShare operation middleware
+func (siw *ServerInterfaceWrapper) CreateShare(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateShare(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetShareContent operation middleware
+func (siw *ServerInterfaceWrapper) GetShareContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShareContent(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeShare operation middleware
+func (siw *ServerInterfaceWrapper) RevokeShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeShare(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkills operation middleware
 func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -6397,6 +6510,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares", wrapper.ListShares)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shares", wrapper.CreateShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares/public/{token}", wrapper.GetShareContent)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shares/{id}", wrapper.RevokeShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)

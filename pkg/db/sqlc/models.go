@@ -417,6 +417,18 @@ type SettingsProvider struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type Share struct {
+	ID        string         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    string         `json:"user_id"`
+	Title     string         `json:"title"`
+	MediaType string         `json:"media_type"`
+	Content   []byte         `json:"content"`
+	ExpiresAt sql.NullString `json:"expires_at"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
 type Skill struct {
 	ID                     string         `json:"id"`
 	Scope                  string         `json:"scope"`

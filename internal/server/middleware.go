@@ -43,14 +43,16 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Exempt paths: login page, static assets, auth endpoints, OAuth callbacks.
+		// Exempt paths: login page, static assets, public shares, auth endpoints, OAuth callbacks.
 		if path == "/login" ||
 			strings.HasPrefix(path, "/assets/") ||
 			strings.HasPrefix(path, "/static/") ||
+			strings.HasPrefix(path, "/s/") ||
+			(r.Method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/")) ||
 			path == "/api/auth/login" ||
 			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
-			strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback") {
+			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) {
 			next.ServeHTTP(w, r)
 			return
 		}

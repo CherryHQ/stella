@@ -9,6 +9,7 @@
     "models",
     "agent-templates",
     "tasks",
+    "artifact-sharing",
     "notifications",
     "oauth-connections"
   ]

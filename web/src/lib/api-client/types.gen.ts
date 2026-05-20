@@ -509,6 +509,14 @@ export type ComponentsCreateSessionRequest = {
   project_id?: string;
 };
 
+export type CreateShareRequest = {
+  source: "artifact" | "article";
+  session_id?: string;
+  path?: string;
+  article_id?: string;
+  expires_in?: "1h" | "1d" | "7d" | "never";
+};
+
 export type ComponentsCreateSkillRequest = {
   scope?: string;
   user_id?: string;
@@ -1000,6 +1008,15 @@ export type ComponentsSetVaultEntryRequest = {
   value: string;
 };
 
+export type Share = {
+  id: string;
+  url: string;
+  title: string;
+  media_type: string;
+  expires_at?: string | null;
+  created_at: string;
+};
+
 export type ComponentsSkill = {
   id?: string;
   scope?: string;
@@ -1465,6 +1482,12 @@ export type _1Api1Sessions1SessionId1Workspace1FileContent = unknown;
 export type _1Api1Sessions1SessionId1Workspace1Files = unknown;
 
 export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
+
+export type _1Api1Shares = unknown;
+
+export type _1Api1Shares1Public1Token = unknown;
+
+export type _1Api1Shares1Id = unknown;
 
 export type _1Api1Auth1Profile1Skills = unknown;
 
@@ -5293,6 +5316,146 @@ export type GetSessionSystemPromptResponses = {
 
 export type GetSessionSystemPromptResponse =
   GetSessionSystemPromptResponses[keyof GetSessionSystemPromptResponses];
+
+export type ListSharesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/shares";
+};
+
+export type ListSharesErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListSharesError = ListSharesErrors[keyof ListSharesErrors];
+
+export type ListSharesResponses = {
+  /**
+   * ok
+   */
+  200: Array<Share>;
+};
+
+export type ListSharesResponse = ListSharesResponses[keyof ListSharesResponses];
+
+export type CreateShareData = {
+  body: CreateShareRequest;
+  path?: never;
+  query?: never;
+  url: "/api/shares";
+};
+
+export type CreateShareErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type CreateShareError = CreateShareErrors[keyof CreateShareErrors];
+
+export type CreateShareResponses = {
+  /**
+   * created
+   */
+  201: Share;
+};
+
+export type CreateShareResponse =
+  CreateShareResponses[keyof CreateShareResponses];
+
+export type RevokeShareData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/shares/{id}";
+};
+
+export type RevokeShareErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type RevokeShareError = RevokeShareErrors[keyof RevokeShareErrors];
+
+export type RevokeShareResponses = {
+  /**
+   * revoked
+   */
+  204: void;
+};
+
+export type RevokeShareResponse =
+  RevokeShareResponses[keyof RevokeShareResponses];
+
+export type GetShareContentData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: "/api/shares/public/{token}";
+};
+
+export type GetShareContentErrors = {
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetShareContentError =
+  GetShareContentErrors[keyof GetShareContentErrors];
+
+export type GetShareContentResponses = {
+  /**
+   * Content with metadata in headers (X-Share-Title, X-Share-Media-Type, X-Share-Expires-At)
+   */
+  200: Blob | File;
+};
+
+export type GetShareContentResponse =
+  GetShareContentResponses[keyof GetShareContentResponses];
 
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;

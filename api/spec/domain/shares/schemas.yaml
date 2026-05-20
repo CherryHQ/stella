@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Share Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Share:
+      type: object
+      required: [id, url, title, media_type, created_at]
+      properties:
+        id: { type: string }
+        url: { type: string }
+        title: { type: string }
+        media_type: { type: string }
+        expires_at: { type: string, nullable: true }
+        created_at: { type: string }
+
+    CreateShareRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [artifact, article]
+        session_id: { type: string }
+        path: { type: string }
+        article_id: { type: string }
+        expires_in:
+          type: string
+          enum: [1h, 1d, 7d, never]
+          default: 7d

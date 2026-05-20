@@ -1,0 +1,75 @@
+paths:
+  /api/shares:
+    get:
+      tags: [shares]
+      summary: List shares for the current user
+      operationId: listShares
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "../../components.yaml#/components/schemas/Share"
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [shares]
+      summary: Create a public share link
+      operationId: createShare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../../components.yaml#/components/schemas/CreateShareRequest"
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/Share"
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/shares/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [shares]
+      summary: Revoke a share
+      operationId: revokeShare
+      responses:
+        "204": { description: revoked }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/shares/public/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    get:
+      security: []
+      tags: [shares]
+      summary: Get shared content by token (public, no auth)
+      operationId: getShareContent
+      responses:
+        "200":
+          description: Content with metadata in headers (X-Share-Title, X-Share-Media-Type, X-Share-Expires-At)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

@@ -1,0 +1,72 @@
+# 分享产物
+
+Stella 可以把生成的文件变成公开的只读链接。你可以用它把报告、原型、图片或文档发给没有 Stella 账号的人。
+
+## 可以分享什么
+
+### 会话产物
+
+你可以从会话工作区分享这些文件类型：
+
+- HTML 页面（`.html`、`.htm`）
+- Markdown 文档（`.md`、`.mdx`、`.markdown`）
+- 图片（`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`、`.svg`、`.avif`、`.bmp`、`.ico`）
+- PDF（`.pdf`）
+
+### Recally 文章
+
+你也可以分享 Recally 库中保存的文章。
+
+分享链接是一个快照。之后你修改原文件或文章，公开链接仍然显示创建链接时的版本。如果要发布新版本，请重新创建链接。
+
+## 在 Web UI 中分享
+
+1. 打开一个会话。
+2. 打开工作区面板。
+3. 右键点击支持的文件。
+4. 选择 **Share**。
+5. 选择过期时间：1 小时、1 天、7 天或永不过期。
+6. 点击 **Create link**。
+7. 复制公开链接并发送给需要查看的人。
+
+链接创建后，你也可以在同一个弹窗里撤销它。
+
+## 让 Stella 分享文件
+
+当你要求 Stella 分享生成的文件时，Stella 可以在 agent 会话中使用命令行：
+
+```bash
+stella share artifact assets/report.html
+stella share artifact assets/report.html --expires-in 1d
+stella share artifact assets/report.html --expires-in never
+```
+
+你也可以通过文章 ID 分享 Recally 文章：
+
+```bash
+stella share article <article-id>
+```
+
+命令会输出公开链接。在 Stella 内部运行时，它会自动使用当前会话。
+
+## 公开链接安全性
+
+任何拿到链接的人都可以在链接过期或被撤销之前打开这个产物。请像对待密钥一样对待分享链接。
+
+HTML 产物可以运行 JavaScript，因此交互式报告和原型仍然可用。Stella 会在沙盒查看器中打开分享的 HTML，并使用限制性的浏览器安全响应头，但你仍然不应该在生成产物里放入密钥或隐私数据。
+
+Markdown 会被渲染成安全文档，不会执行内嵌 HTML 或脚本。
+
+## 故障排查
+
+### 没有看到 Share 选项
+
+请确认文件属于上面列出的支持格式。对于其他文件，你可以下载文件，或让 Stella 把内容转换成 HTML、Markdown、图片或 PDF。
+
+### 链接显示产物不可用
+
+链接可能已经过期或被撤销。请从原文件重新创建分享链接。
+
+### HTML 页面和本地预览表现不同
+
+为了安全，分享的 HTML 会在沙盒中运行。有些浏览器能力可能会被阻止。如果页面依赖这些能力，可以让 Stella 生成更简单的单文件 HTML。

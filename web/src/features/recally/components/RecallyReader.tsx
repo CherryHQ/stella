@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Streamdown } from "streamdown";
 import {
@@ -10,9 +10,13 @@ import {
   Sparkles,
   ChevronDown,
   BookOpen,
+  Share2,
+  Link,
+  Loader2,
 } from "lucide-react";
 import type { TFunction } from "../constants";
 import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
+import { api } from "@/lib/api";
 import { formatSavedAt, SOURCE_LABEL_KEYS } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 
@@ -35,6 +39,32 @@ export function RecallyReader({
 }) {
   const [summaryExpanded, setSummaryExpanded] = useState(true);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setShareUrl(null);
+    setShareError(null);
+  }, [selectedId]);
+
+  const createArticleShare = useCallback(async (articleId: string) => {
+    setSharing(true);
+    setShareError(null);
+    try {
+      const result = await api<{ id: string; url: string }>("POST", "/api/shares", {
+        source: "article",
+        article_id: articleId,
+        expires_in: "7d",
+      });
+      setShareUrl(result.url);
+      await navigator.clipboard?.writeText(result.url);
+    } catch (e) {
+      setShareError(e instanceof Error ? e.message : "Failed to share");
+    } finally {
+      setSharing(false);
+    }
+  }, []);
 
   const articleQuery = useQuery({
     ...getArticleOptions({
@@ -148,6 +178,29 @@ export function RecallyReader({
                 />
                 {selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")}
               </button>
+              {shareUrl ? (
+                <button
+                  onClick={() => navigator.clipboard?.writeText(shareUrl)}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/20"
+                >
+                  <Link className="size-3" />
+                  {t("recally.action.copyLink")}
+                </button>
+              ) : (
+                <button
+                  onClick={() => createArticleShare(selectedArticle.id)}
+                  disabled={sharing}
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {sharing ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Share2 className="size-3" />
+                  )}
+                  {t("recally.action.share")}
+                </button>
+              )}
+              {shareError && <span className="text-xs text-destructive">{shareError}</span>}
               {confirmingDeleteId === selectedArticle.id ? (
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-medium text-destructive">

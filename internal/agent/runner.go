@@ -60,6 +60,7 @@ type RunnerParams struct {
 	Model      string                    // model ID (empty = use default)
 	Memory     any                       // memory.Provider — typed as any to avoid circular imports
 	UserID     string                    // auth user ID for user-scoped runner creation
+	SessionID  string                    // current Stella session ID for sandbox helpers
 	AgentID    string                    // agent ID for profile loading
 	ProjectID  string                    // associated project ID (empty = no project)
 	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
