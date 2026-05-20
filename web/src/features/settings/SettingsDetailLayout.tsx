@@ -22,10 +22,10 @@ export function SettingsDetailLayout({
   }, [hasDetail]);
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex min-h-[640px] overflow-hidden rounded-[22px] bg-card/85">
       {/* Left list panel — full width on mobile when mobileView=list, hidden otherwise */}
       <div
-        className={`${mobileView === "list" ? "flex" : "hidden"} md:flex w-full md:w-[200px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col`}
+        className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-y-auto border-r border-border/70 bg-sidebar/80 md:flex md:w-[220px]`}
       >
         <div className="shrink-0">{listHeader}</div>
         <div className="flex-1 overflow-y-auto">{list}</div>
@@ -33,12 +33,12 @@ export function SettingsDetailLayout({
 
       {/* Right detail panel — full width on mobile when mobileView=detail, hidden otherwise */}
       <div
-        className={`${mobileView === "detail" ? "flex" : "hidden"} md:flex flex-1 flex-col overflow-hidden bg-background`}
+        className={`${mobileView === "detail" ? "flex" : "hidden"} flex-1 flex-col overflow-hidden bg-card md:flex`}
       >
         {/* Mobile back button */}
         <button
           onClick={() => setMobileView("list")}
-          className="md:hidden shrink-0 flex items-center gap-1 px-4 py-2 text-sm text-muted-foreground border-b border-border hover:text-foreground"
+          className="flex shrink-0 items-center gap-1 border-b border-border/70 px-4 py-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
         >
           <svg
             viewBox="0 0 24 24"

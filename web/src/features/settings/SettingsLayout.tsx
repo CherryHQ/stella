@@ -214,7 +214,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-3.5 pt-5 pb-1.5 text-[10px] font-mono font-medium uppercase tracking-widest text-muted-foreground/70">
+            <div className="px-4 pt-5 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
               {group.section}
             </div>
             {visibleItems.map((item) => (
@@ -223,10 +223,10 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 to={item.href as any}
                 onClick={onItemClick}
-                className="group/item flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150 text-foreground/80 hover:bg-muted/50"
+                className="group/item mx-2 flex items-center gap-2 rounded-[11px] px-2.5 py-2 text-[12px] font-medium text-foreground/80 transition-all duration-150 hover:bg-foreground/[0.045]"
                 activeProps={{
                   className:
-                    "group/item active flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg text-[12px] font-medium bg-sidebar-accent text-foreground transition-all duration-150",
+                    "group/item active mx-2 flex items-center gap-2 rounded-[11px] bg-accent px-2.5 py-2 text-[12px] font-semibold text-accent-foreground transition-all duration-150",
                 }}
               >
                 {item.icon}
@@ -252,28 +252,38 @@ export function SettingsLayout() {
   const activeLabel = activeItem ? t(activeItem.label) : "";
 
   return (
-    <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
+    <div className="flex h-full overflow-hidden bg-gradient-to-b from-card/80 to-card">
       {/* Desktop sidebar — hidden on mobile */}
-      <nav className="hidden md:flex w-[200px] shrink-0 border-r border-border bg-sidebar overflow-y-auto flex-col">
+      <nav className="hidden w-[230px] shrink-0 overflow-y-auto border-r border-border/70 bg-sidebar/80 p-2 md:flex md:flex-col">
+        <div className="px-3 pt-3 pb-2">
+          <div className="grid size-10 place-items-center rounded-[14px] bg-foreground text-sm font-bold text-background shadow-sm">
+            S
+          </div>
+          <h2 className="mt-4 text-xl font-semibold tracking-[-0.04em]">Settings</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Appearance, agents, channels, plugins, and account preferences.
+          </p>
+        </div>
         <NavItems isAdmin={isAdmin} />
       </nav>
 
       {/* Mobile overlay */}
       {mobileNavOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
-          {/* Slide-in panel */}
-          <nav className="absolute left-0 top-0 bottom-0 w-64 bg-background overflow-y-auto shadow-xl">
+        <div className="fixed inset-x-0 top-[52px] bottom-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-foreground/20 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <nav className="absolute top-0 bottom-0 left-0 w-[min(82vw,300px)] overflow-y-auto border-r border-border bg-sidebar p-3 shadow-2xl">
             <NavItems isAdmin={isAdmin} onItemClick={() => setMobileNavOpen(false)} />
           </nav>
         </div>
       )}
 
       {/* Content area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-background">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile top bar */}
-        <div className="md:hidden shrink-0 flex items-center gap-3 px-4 border-b border-border h-11">
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/65 px-4 md:hidden">
           <button
             onClick={() => setMobileNavOpen(true)}
             className="text-muted-foreground hover:text-foreground"
@@ -284,7 +294,7 @@ export function SettingsLayout() {
               fill="none"
               stroke="currentColor"
               strokeWidth="1.8"
-              className="w-5 h-5"
+              className="size-5"
             >
               <path
                 strokeLinecap="round"
@@ -293,12 +303,36 @@ export function SettingsLayout() {
               />
             </svg>
           </button>
-          {activeLabel && <span className="text-sm font-medium">{activeLabel}</span>}
+          {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
         </div>
 
-        {/* Scrollable outlet — keeps exact p-8 px-10 for pages that depend on it */}
-        <div className="flex-1 overflow-y-auto p-8 px-10">
-          <Outlet />
+        <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-8 lg:px-10">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-6 hidden rounded-[22px] border border-border/80 bg-card/80 p-5 shadow-[0_14px_38px_rgba(29,29,31,0.055)] md:block">
+              <div className="flex items-end justify-between gap-6">
+                <div>
+                  <h1 className="text-4xl font-bold tracking-[-0.055em]">
+                    Make Stella feel like your workspace.
+                  </h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                    Tune the interface, model access, channels, credentials, plugins, and user scope
+                    without leaving the product shell.
+                  </p>
+                </div>
+                {me && (
+                  <div className="rounded-[18px] bg-foreground px-4 py-3 text-background shadow-sm">
+                    <div className="text-sm font-semibold">{me.username}</div>
+                    <div className="mt-1 text-xs text-background/60">
+                      {me.is_admin ? "Admin" : "Member"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="rounded-[22px] border border-border/80 bg-card/85 shadow-[0_14px_38px_rgba(29,29,31,0.055)]">
+              <Outlet />
+            </div>
+          </div>
         </div>
       </div>
     </div>
