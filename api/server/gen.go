@@ -498,6 +498,12 @@ type GetSessionMessagesParams struct {
 
 	// Skip Number of messages to skip from the end
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+
+	// After Only return messages created at or after this timestamp
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only return messages created at or before this timestamp
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
 }
 
 // GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
@@ -4996,6 +5002,32 @@ func (siw *ServerInterfaceWrapper) GetSessionMessages(w http.ResponseWriter, r *
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "skip"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skip", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
 		}
 		return
 	}

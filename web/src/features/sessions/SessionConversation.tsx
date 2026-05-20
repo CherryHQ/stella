@@ -24,6 +24,8 @@ interface Props {
   placeholder?: string;
   className?: string;
   bodyClassName?: string;
+  after?: string;
+  before?: string;
 }
 
 export function SessionConversation({
@@ -31,6 +33,8 @@ export function SessionConversation({
   placeholder = "Ask Stella about this…",
   className = "",
   bodyClassName = "h-[28rem]",
+  after,
+  before,
 }: Props) {
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -54,10 +58,14 @@ export function SessionConversation({
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["session-messages", sessionId],
+    queryKey: ["session-messages", sessionId, after, before],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api<Message[]>("GET", `/api/sessions/${enc}/messages?limit=20&skip=${pageParam}`),
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: "20", skip: String(pageParam) });
+      if (after) params.set("after", after);
+      if (before) params.set("before", before);
+      return api<Message[]>("GET", `/api/sessions/${enc}/messages?${params}`);
+    },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });

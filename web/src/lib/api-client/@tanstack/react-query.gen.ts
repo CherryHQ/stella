@@ -3022,6 +3022,56 @@ export const getSessionMessagesOptions = (
     queryKey: getSessionMessagesQueryKey(options),
   });
 
+export const getSessionMessagesInfiniteQueryKey = (
+  options: Options<GetSessionMessagesData>,
+): QueryKey<Options<GetSessionMessagesData>> =>
+  createQueryKey("getSessionMessages", options, true);
+
+/**
+ * Get messages for a session
+ */
+export const getSessionMessagesInfiniteOptions = (
+  options: Options<GetSessionMessagesData>,
+) =>
+  infiniteQueryOptions<
+    GetSessionMessagesResponse,
+    GetSessionMessagesError,
+    InfiniteData<GetSessionMessagesResponse>,
+    QueryKey<Options<GetSessionMessagesData>>,
+    | string
+    | Pick<
+        QueryKey<Options<GetSessionMessagesData>>[0],
+        "body" | "headers" | "path" | "query"
+      >
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<GetSessionMessagesData>>[0],
+          "body" | "headers" | "path" | "query"
+        > =
+          typeof pageParam === "object"
+            ? pageParam
+            : {
+                query: {
+                  after: pageParam,
+                },
+              };
+        const params = createInfiniteParams(queryKey, page);
+        const { data } = await getSessionMessages({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true,
+        });
+        return data;
+      },
+      queryKey: getSessionMessagesInfiniteQueryKey(options),
+    },
+  );
+
 export const getSessionWorkspaceQueryKey = (
   options: Options<GetSessionWorkspaceData>,
 ) => createQueryKey("getSessionWorkspace", options);

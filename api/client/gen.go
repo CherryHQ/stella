@@ -500,6 +500,12 @@ type GetSessionMessagesParams struct {
 
 	// Skip Number of messages to skip from the end
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+
+	// After Only return messages created at or after this timestamp
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only return messages created at or before this timestamp
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
 }
 
 // GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
@@ -8561,6 +8567,30 @@ func NewGetSessionMessagesRequest(server string, sessionID string, params *GetSe
 		if params.Skip != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "skip", *params.Skip, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Before != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

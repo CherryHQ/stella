@@ -190,6 +190,7 @@ export interface SchedulerJobRun {
   id: string;
   status: string;
   started_at: string;
+  finished_at?: string;
   duration: string;
   session_id: string;
   error: string;

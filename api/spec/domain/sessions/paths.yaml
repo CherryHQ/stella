@@ -101,6 +101,14 @@ paths:
           in: query
           schema: { type: integer, default: 0 }
           description: Number of messages to skip from the end
+        - name: after
+          in: query
+          schema: { type: string }
+          description: Only return messages created at or after this timestamp
+        - name: before
+          in: query
+          schema: { type: string }
+          description: Only return messages created at or before this timestamp
       responses:
         "200":
           description: ok

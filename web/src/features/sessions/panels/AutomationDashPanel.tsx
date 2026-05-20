@@ -539,6 +539,8 @@ function RunDetailPanel({ run, onClose }: { run: RunWithMeta; onClose: () => voi
             placeholder="Ask about this run..."
             className="h-full"
             bodyClassName="min-h-0 flex-1"
+            after={run.started_at}
+            before={run.finished_at}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
