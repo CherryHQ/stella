@@ -36,9 +36,9 @@ export function RecallyArticleList({
   setStatusFilter: Dispatch<SetStateAction<ArticleStatus | null>>;
 }) {
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-background">
+    <section className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-card/70">
       {/* Header */}
-      <div className="shrink-0 border-b border-border bg-background px-4 py-3">
+      <div className="shrink-0 border-b border-border bg-card/85 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h1 className="text-[13px] font-semibold tracking-tight text-foreground">
@@ -105,7 +105,7 @@ export function RecallyArticleList({
       </div>
 
       {/* Articles */}
-      <div className="flex-1 space-y-1 overflow-auto p-2">
+      <div className="flex-1 space-y-1 overflow-auto p-2.5">
         {articlesQuery.isLoading && (
           <div className="flex items-center justify-center h-32">
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />

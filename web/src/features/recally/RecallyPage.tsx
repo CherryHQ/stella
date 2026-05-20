@@ -123,7 +123,7 @@ export function RecallyPage() {
 
       {/* Main area */}
       <div
-        className="flex-1 min-w-0 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
+        className="min-w-0 flex-1 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
         style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
       >
         {/* Center panel */}
@@ -156,7 +156,7 @@ export function RecallyPage() {
             type="button"
             aria-label={t("recally.resizeList")}
             onMouseDown={startResize}
-            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border transition-colors hover:bg-accent"
+            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
           />
           {showDigestDetail ? (
             <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
