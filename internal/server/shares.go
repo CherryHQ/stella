@@ -180,16 +180,28 @@ func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusBadRequest, "article has no content")
 		return "", "", nil, errors.New("no content")
 	}
-	path := article.FilePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(config.StellaHome(), path)
+	filePath := article.FilePath
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(config.StellaHome(), filePath)
 	}
-	md, err := s.recally.files.ReadArticle(path)
+	md, err := s.recally.files.ReadArticle(filePath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to read article content")
 		return "", "", nil, err
 	}
-	return article.Title, "text/markdown; charset=utf-8", []byte(md), nil
+
+	rendered, err := renderMarkdownPage(renderMarkdownOpts{
+		Title:     article.Title,
+		Author:    article.Author,
+		SourceURL: article.URL,
+		Summary:   article.Summary,
+		Tags:      article.Tags,
+	}, []byte(md))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to render article")
+		return "", "", nil, err
+	}
+	return article.Title, "text/html; charset=utf-8", rendered, nil
 }
 
 func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) {
@@ -228,7 +240,10 @@ func (s *Server) GetShare(w http.ResponseWriter, r *http.Request, token string) 
 		if share.ExpiresAt.Valid {
 			expiresAt = share.ExpiresAt.String
 		}
-		rendered, renderErr := renderMarkdownPage(share.Title, "", expiresAt, share.Content)
+		rendered, renderErr := renderMarkdownPage(renderMarkdownOpts{
+			Title:     share.Title,
+			ExpiresAt: expiresAt,
+		}, share.Content)
 		if renderErr == nil {
 			content = rendered
 			mediaType = "text/html; charset=utf-8"

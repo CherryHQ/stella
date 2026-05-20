@@ -56,8 +56,30 @@ body{
 }
 header{margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:1px solid var(--border)}
 header h1{margin:0 0 .25rem;font-size:1.75rem;font-weight:700;line-height:1.3;letter-spacing:-.02em}
-header .meta{font-size:.85rem;color:var(--fg2)}
+header .meta{font-size:.85rem;color:var(--fg2);margin-top:.35rem}
 header .meta span+span::before{content:"·";margin:0 .5em;opacity:.5}
+header .meta a{color:var(--accent);text-decoration:none}
+header .meta a:hover{text-decoration:underline}
+
+.summary{
+  margin-bottom:1.5rem;padding:1rem 1.25rem;
+  background:var(--accent-bg);border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;font-size:.9rem;line-height:1.6;
+}
+.summary-label{
+  display:flex;align-items:center;gap:.4em;
+  font-size:.75rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--accent);margin-bottom:.5rem;
+}
+.summary-label svg{width:14px;height:14px}
+.summary p{margin:.25rem 0}
+
+.tags{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.5rem}
+.tags span{
+  font-size:.75rem;font-weight:500;
+  padding:.2rem .6rem;border-radius:999px;
+  background:var(--bg2);border:1px solid var(--border);color:var(--fg2);
+}
 
 article h1{font-size:1.6rem;margin:2rem 0 .75rem;font-weight:700;letter-spacing:-.01em}
 article h2{font-size:1.3rem;margin:1.75rem 0 .5rem;font-weight:650}
@@ -122,36 +144,70 @@ article .footnotes{font-size:.85rem;color:var(--fg2);margin-top:2rem;padding-top
     {{- if .HasMeta}}
     <div class="meta">
       {{- if .Author}}<span>{{.Author}}</span>{{end}}
+      {{- if .SourceURL}}<span><a href="{{.SourceURL}}" target="_blank" rel="noopener">Source</a></span>{{end}}
       {{- if .ExpiresAt}}<span>Expires {{.ExpiresAt}}</span>{{end}}
     </div>
     {{- end}}
   </header>
+  {{- if .Summary}}
+  <div class="summary">
+    <div class="summary-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>AI Summary</div>
+    {{.RenderedSummary}}
+  </div>
+  {{- end}}
+  {{- if .Tags}}
+  <div class="tags">{{range .Tags}}<span>{{.}}</span>{{end}}</div>
+  {{- end}}
   <article>{{.Body}}</article>
 </div>
 </body>
 </html>`
 
 type mdTemplateData struct {
-	Title     string
-	Author    string
-	ExpiresAt string
-	Body      template.HTML
+	Title           string
+	Author          string
+	SourceURL       string
+	ExpiresAt       string
+	Summary         string
+	RenderedSummary template.HTML
+	Tags            []string
+	Body            template.HTML
 }
 
 func (d mdTemplateData) HasMeta() bool {
-	return d.Author != "" || d.ExpiresAt != ""
+	return d.Author != "" || d.SourceURL != "" || d.ExpiresAt != ""
 }
 
-func renderMarkdownPage(title, author, expiresAt string, markdown []byte) ([]byte, error) {
+type renderMarkdownOpts struct {
+	Title     string
+	Author    string
+	SourceURL string
+	ExpiresAt string
+	Summary   string
+	Tags      []string
+}
+
+func renderMarkdownPage(opts renderMarkdownOpts, markdown []byte) ([]byte, error) {
 	var body bytes.Buffer
 	if err := mdConverter.Convert(markdown, &body); err != nil {
 		return nil, err
 	}
+	var renderedSummary template.HTML
+	if opts.Summary != "" {
+		var sb bytes.Buffer
+		if err := mdConverter.Convert([]byte(opts.Summary), &sb); err == nil {
+			renderedSummary = template.HTML(sb.String())
+		}
+	}
 	data := mdTemplateData{
-		Title:     title,
-		Author:    author,
-		ExpiresAt: expiresAt,
-		Body:      template.HTML(body.String()),
+		Title:           opts.Title,
+		Author:          opts.Author,
+		SourceURL:       opts.SourceURL,
+		ExpiresAt:       opts.ExpiresAt,
+		Summary:         opts.Summary,
+		RenderedSummary: renderedSummary,
+		Tags:            opts.Tags,
+		Body:            template.HTML(body.String()),
 	}
 	var page bytes.Buffer
 	if err := mdTemplate.Execute(&page, data); err != nil {

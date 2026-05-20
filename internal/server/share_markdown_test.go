@@ -7,7 +7,11 @@ import (
 
 func TestRenderMarkdownPage(t *testing.T) {
 	md := []byte("# Hello\n\nThis is **bold** and a [link](https://example.com).\n\n```go\nfmt.Println(\"hi\")\n```\n")
-	out, err := renderMarkdownPage("Test Article", "Alice", "2026-06-01", md)
+	out, err := renderMarkdownPage(renderMarkdownOpts{
+		Title:     "Test Article",
+		Author:    "Alice",
+		ExpiresAt: "2026-06-01",
+	}, md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +38,7 @@ func TestRenderMarkdownPage(t *testing.T) {
 
 func TestRenderMarkdownPageNoMeta(t *testing.T) {
 	md := []byte("Just a paragraph.")
-	out, err := renderMarkdownPage("Untitled", "", "", md)
+	out, err := renderMarkdownPage(renderMarkdownOpts{Title: "Untitled"}, md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +50,41 @@ func TestRenderMarkdownPageNoMeta(t *testing.T) {
 
 func TestRenderMarkdownPageGFMTable(t *testing.T) {
 	md := []byte("| A | B |\n|---|---|\n| 1 | 2 |\n")
-	out, err := renderMarkdownPage("Table Test", "", "", md)
+	out, err := renderMarkdownPage(renderMarkdownOpts{Title: "Table Test"}, md)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(out), "<table>") {
 		t.Error("GFM table not rendered")
+	}
+}
+
+func TestRenderMarkdownPageWithArticleMeta(t *testing.T) {
+	md := []byte("Article body content.")
+	out, err := renderMarkdownPage(renderMarkdownOpts{
+		Title:     "Deep Learning Guide",
+		Author:    "Bob",
+		SourceURL: "https://example.com/article",
+		Summary:   "A comprehensive guide to **deep learning** techniques.",
+		Tags:      []string{"AI", "ML", "tutorial"},
+	}, md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(out)
+	if !strings.Contains(html, "Bob") {
+		t.Error("missing author")
+	}
+	if !strings.Contains(html, "https://example.com/article") {
+		t.Error("missing source URL")
+	}
+	if !strings.Contains(html, "AI Summary") {
+		t.Error("missing summary section")
+	}
+	if !strings.Contains(html, "<strong>deep learning</strong>") {
+		t.Error("summary markdown not rendered")
+	}
+	if !strings.Contains(html, "AI") || !strings.Contains(html, "ML") || !strings.Contains(html, "tutorial") {
+		t.Error("missing tags")
 	}
 }
