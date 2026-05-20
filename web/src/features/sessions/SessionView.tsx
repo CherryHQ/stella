@@ -6,6 +6,7 @@ import type { Session, Workspace } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
+import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SessionDetail } from "./SessionDetail";
 import { WorkspacePanel } from "./WorkspacePanel";
 
@@ -31,6 +32,7 @@ export function SessionView() {
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [rightOpen, setRightOpen] = useState(true);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [projectDir, setProjectDir] = useState("");
@@ -133,6 +135,7 @@ export function SessionView() {
             void navigate({ to: "/agents/$agentId", params: { agentId } });
           }}
           onSessionUpdate={(s) => setSessionDetail(s)}
+          onToggleWorkspace={() => setMobileSheetOpen(true)}
         />
       </div>
 
@@ -156,7 +159,7 @@ export function SessionView() {
 
       <div
         className={cn(
-          "stella-right-panel relative flex-shrink-0 bg-sidebar/70 transition-[width,min-width,opacity] duration-200 ease-out",
+          "stella-right-panel relative hidden flex-shrink-0 bg-sidebar/70 transition-[width,min-width,opacity] duration-200 ease-out md:block",
           showWorkspace
             ? "border-l border-border/70"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
@@ -177,6 +180,22 @@ export function SessionView() {
           projectDir={projectDir}
         />
       </div>
+
+      <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
+        <SheetPopup side="right" showCloseButton={false} className="w-[85%] max-w-sm md:hidden">
+          <SheetTitle className="sr-only">Workspace</SheetTitle>
+          <SheetDescription className="sr-only">Session workspace files</SheetDescription>
+          <div className="flex h-full flex-col overflow-hidden">
+            <WorkspacePanel
+              sessionID={sessionDetail?.id ?? ""}
+              workspace={workspace}
+              workspaceLoading={workspaceLoading}
+              onReload={loadWorkspace}
+              projectDir={projectDir}
+            />
+          </div>
+        </SheetPopup>
+      </Sheet>
     </div>
   );
 }
