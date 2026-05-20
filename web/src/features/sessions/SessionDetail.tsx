@@ -21,18 +21,9 @@ interface Props {
   initialDraft?: string;
   onBack: () => void;
   onSessionUpdate: (s: Session) => void;
-  onToggleLeft: () => void;
-  onToggleRight: () => void;
 }
 
-export function SessionDetail({
-  session,
-  currentUserID,
-  initialDraft,
-  onBack,
-  onToggleLeft,
-  onToggleRight,
-}: Props) {
+export function SessionDetail({ session, currentUserID, initialDraft, onBack }: Props) {
   const { t } = useI18n();
   const [systemPrompt, setSystemPrompt] = useState("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -277,46 +268,7 @@ export function SessionDetail({
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center justify-between">
-          <button
-            onClick={onToggleLeft}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
-            title="Toggle sessions"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.8"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm6 0v16.5"
-              />
-            </svg>
-          </button>
-          <button
-            onClick={onToggleRight}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer"
-            title="Toggle workspace"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.8"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
-              />
-            </svg>
-          </button>
-        </div>
+        <div className="flex-shrink-0 h-12 border-b border-border/60 bg-background" />
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <p className="text-sm text-muted-foreground/70">Select a session from the sidebar</p>
           <p className="text-[11px] text-muted-foreground/40 font-mono">
@@ -332,25 +284,6 @@ export function SessionDetail({
       {/* Header */}
       <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
         <div className="flex items-center gap-2.5 w-full min-w-0">
-          <button
-            onClick={onToggleLeft}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
-            title="Toggle sessions"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.8"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm6 0v16.5"
-              />
-            </svg>
-          </button>
           <button
             onClick={onBack}
             className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
@@ -388,25 +321,6 @@ export function SessionDetail({
               </svg>
             </Button>
           </div>
-          <button
-            onClick={onToggleRight}
-            className="text-muted-foreground/60 hover:text-foreground transition-colors duration-150 cursor-pointer shrink-0"
-            title="Toggle workspace"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="1.8"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 3.75v16.5h16.5V3.75H3.75Zm10.5 0v16.5"
-              />
-            </svg>
-          </button>
         </div>
       </div>
 

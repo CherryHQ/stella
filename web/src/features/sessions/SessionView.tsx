@@ -123,7 +123,7 @@ export function SessionView() {
   const showWorkspace = rightOpen;
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-w-0 overflow-hidden bg-card/70">
+    <div ref={containerRef} className="relative flex flex-1 min-w-0 overflow-hidden bg-card/70">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <SessionDetail
           session={sessionDetail}
@@ -133,10 +133,26 @@ export function SessionView() {
             void navigate({ to: "/agents/$agentId", params: { agentId } });
           }}
           onSessionUpdate={(s) => setSessionDetail(s)}
-          onToggleLeft={() => {}}
-          onToggleRight={() => setRightOpen((v) => !v)}
         />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setRightOpen((v) => !v)}
+        className="absolute top-3 z-30 hidden h-[34px] w-[18px] place-items-center rounded-full border border-border/60 bg-card text-muted-foreground/50 shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground md:grid"
+        style={{ right: showWorkspace ? rightWidth - 9 : -9 }}
+        aria-label={showWorkspace ? "Hide workspace" : "Show workspace"}
+      >
+        <svg
+          className={cn("size-3 transition-transform", !showWorkspace && "rotate-180")}
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="m6 4 4 4-4 4" />
+        </svg>
+      </button>
 
       <div
         className={cn(

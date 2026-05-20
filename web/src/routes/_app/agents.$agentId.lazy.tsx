@@ -76,7 +76,7 @@ function AgentLayout() {
         onClick={toggle}
         className={cn(
           "absolute top-3 z-20 hidden h-[34px] w-[18px] place-items-center rounded-full border border-border/60 bg-card text-muted-foreground/50 shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground md:grid",
-          collapsed ? "left-1" : "left-[250px]",
+          collapsed ? "-left-[9px]" : "left-[250px]",
         )}
         aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
       >
