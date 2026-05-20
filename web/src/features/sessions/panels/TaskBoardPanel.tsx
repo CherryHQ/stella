@@ -290,6 +290,7 @@ function TaskDetail({
             placeholder="Ask about this task..."
             className="h-full"
             bodyClassName="min-h-0 flex-1"
+            inline
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
