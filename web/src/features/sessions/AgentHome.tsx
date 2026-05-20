@@ -1,10 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Agent, Session } from "@/lib/types";
+import type { Session } from "@/lib/types";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import { useI18n } from "@/lib/i18n";
 
 const SUGGESTION_CARDS = [
@@ -81,8 +80,6 @@ export function AgentHome() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [prompt, setPrompt] = useState("");
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const agent = useMemo(() => (agents as Agent[]).find((a) => a.id === agentId), [agents, agentId]);
 
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
@@ -199,56 +196,6 @@ export function AgentHome() {
             </button>
           ))}
         </section>
-      </div>
-
-      {/* Bottom composer */}
-      <div className="sticky bottom-0 bg-gradient-to-t from-card via-card/96 to-transparent px-4 pb-5 pt-3 sm:px-8">
-        <div className="mx-auto max-w-[880px] overflow-hidden rounded-[22px] border border-border/80 bg-card shadow-[0_18px_42px_rgba(29,29,31,0.09)]">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void goToSession(prompt);
-              }
-            }}
-            rows={1}
-            placeholder={`Continue in ${agent?.name ?? "main"}'s main session…`}
-            className="max-h-[170px] min-h-[54px] w-full resize-none border-0 bg-transparent px-[17px] pt-4 pb-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
-          <div className="flex items-center justify-between px-[9px] pb-[9px] pt-[7px]">
-            <div className="flex flex-wrap gap-[7px]">
-              {["Attach file", "Automation", "Project context"].map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setPrompt(label)}
-                  className="h-[30px] rounded-full bg-muted px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => void goToSession(prompt)}
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_18px_color-mix(in_oklch,var(--primary)_25%,transparent)] transition-transform active:scale-95"
-              aria-label={t("sessions.sidebar.newChat")}
-            >
-              <svg
-                className="size-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-              >
-                <path d="M22 2 11 13" />
-                <path d="m22 2-7 20-4-9-9-4 20-7z" />
-              </svg>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
