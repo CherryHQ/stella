@@ -500,6 +500,12 @@ type GetSessionMessagesParams struct {
 
 	// Skip Number of messages to skip from the end
 	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+
+	// After Only return messages created at or after this timestamp
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only return messages created at or before this timestamp
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
 }
 
 // GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
@@ -547,7 +553,8 @@ type GetSkillFileParams struct {
 
 // ListAgentTasksParams defines parameters for ListAgentTasks.
 type ListAgentTasksParams struct {
-	Status *string `form:"status,omitempty" json:"status,omitempty"`
+	Status  *string `form:"status,omitempty" json:"status,omitempty"`
+	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 }
 
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
@@ -8570,6 +8577,30 @@ func NewGetSessionMessagesRequest(server string, sessionID string, params *GetSe
 
 		}
 
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Before != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -9499,6 +9530,18 @@ func NewListAgentTasksRequest(server string, params *ListAgentTasksParams) (*htt
 		if params.Status != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.AgentId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

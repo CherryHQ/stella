@@ -245,6 +245,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				}
 				oauthRegistry.Register(oauth.ProviderConfig{
 					ID:           op.ID,
+					Icon:         op.Icon,
 					Scopes:       op.Scopes,
 					VaultKey:     op.VaultKey,
 					Flows:        flows,

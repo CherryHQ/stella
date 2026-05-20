@@ -9,14 +9,11 @@ RETURNING *;
 -- name: GetAgentTask :one
 SELECT * FROM agent_task WHERE id = ?;
 
--- name: ListAgentTasks :many
-SELECT * FROM agent_task ORDER BY created_at DESC;
-
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC;
 
--- name: ListAgentTasksByStatus :many
-SELECT * FROM agent_task WHERE status = ? ORDER BY created_at DESC;
+-- name: ListAgentTasksByUserAndAgent :many
+SELECT * FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC;
 
 -- name: ListPendingAgentTasks :many
 SELECT * FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC;

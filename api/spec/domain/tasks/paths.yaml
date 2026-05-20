@@ -9,6 +9,10 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
       responses:
         "200":
           description: ok

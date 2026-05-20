@@ -5,6 +5,7 @@ import "time"
 // ProviderStatus describes the availability of an OAuth provider.
 type ProviderStatus struct {
 	Provider    string `json:"provider"`
+	Icon        string `json:"icon,omitempty"`
 	Available   bool   `json:"available"`
 	Configured  bool   `json:"configured"` // true when DB or YAML has a client_id
 	Connected   bool   `json:"connected"`

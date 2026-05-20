@@ -4796,6 +4796,14 @@ export type GetSessionMessagesData = {
      * Number of messages to skip from the end
      */
     skip?: number;
+    /**
+     * Only return messages created at or after this timestamp
+     */
+    after?: string;
+    /**
+     * Only return messages created at or before this timestamp
+     */
+    before?: string;
   };
   url: "/api/sessions/{sessionID}/messages";
 };
@@ -6782,6 +6790,7 @@ export type ListAgentTasksData = {
   path?: never;
   query?: {
     status?: string;
+    agent_id?: string;
   };
   url: "/api/tasks";
 };

@@ -354,6 +354,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		ps.Unavailable = fmt.Sprintf("unknown provider: %s", provider)
 		return ps
 	}
+	ps.Icon = providerCfg.Icon
 
 	// Configured = DB row exists with a client_id OR YAML has a client_id.
 	if providerCfg.ClientID != "" {

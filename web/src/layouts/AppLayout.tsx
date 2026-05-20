@@ -1,11 +1,9 @@
 import { Outlet } from "@tanstack/react-router";
-import { SiteHeader } from "@/components/SiteHeader";
 
 export function AppLayout() {
   return (
-    <div className="relative isolate flex h-svh flex-col overflow-hidden bg-background text-foreground">
-      <SiteHeader />
-      <main className="min-h-0 flex-1 w-full overflow-hidden">
+    <div className="flex h-svh flex-col overflow-hidden bg-background text-foreground">
+      <main className="flex min-h-0 flex-1 flex-col">
         <Outlet />
       </main>
     </div>

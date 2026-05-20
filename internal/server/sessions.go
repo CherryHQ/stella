@@ -534,6 +534,22 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
+	// Filter by time range when after/before are provided (used by automation
+	// run detail to show only messages from a specific run).
+	if params.After != nil || params.Before != nil {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if params.After != nil && row.CreatedAt < *params.After {
+				continue
+			}
+			if params.Before != nil && row.CreatedAt > *params.Before {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
+	}
+
 	// Serialize first so that skip/limit count logical (serialized) messages,
 	// matching what the frontend tracks in sessionMessagesSkip. Without this,
 	// consecutive assistant rows (tool-call turns) collapse into fewer messages

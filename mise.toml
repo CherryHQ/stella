@@ -19,6 +19,10 @@ node = "24.14.1"
 [env]
 BINARY = "./dist/bin/stella"
 LOG_LEVEL = "trace"
+DEV_ADMIN_USER = "admin@admin.com"
+DEV_ADMIN_PASS = "adminadmin"
+DEV_USER = "vaayne"
+DEV_PASS = "passwd00"
 
 # ============================================================================
 # Build
