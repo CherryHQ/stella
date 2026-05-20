@@ -189,8 +189,6 @@ paths:
     $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1artifact-shares~1{id}"
   /api/public/artifact-shares/{token}:
     $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1public~1artifact-shares~1{token}"
-  /api/public/artifact-shares/{token}/content:
-    $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1public~1artifact-shares~1{token}~1content"
   # ── Users ──────────────────────────────────────────────────────────────────
   /api/users/{id}/default-agent:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent"

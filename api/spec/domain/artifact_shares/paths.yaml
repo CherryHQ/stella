@@ -62,28 +62,11 @@ paths:
     get:
       security: []
       tags: [artifact-shares]
-      summary: Get public artifact share metadata
+      summary: Get public artifact share content
       operationId: getPublicArtifactShare
       responses:
         "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "../../components.yaml#/components/schemas/PublicArtifactShare"
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-
-  /api/public/artifact-shares/{token}/content:
-    parameters:
-      - { name: token, in: path, required: true, schema: { type: string } }
-    get:
-      security: []
-      tags: [artifact-shares]
-      summary: Get public artifact share content
-      operationId: getPublicArtifactShareContent
-      responses:
-        "200":
-          description: ok
+          description: Content served with metadata in headers (X-Share-Title, X-Share-Expires-At)
           content:
             application/octet-stream:
               schema:

@@ -994,12 +994,9 @@ type ServerInterface interface {
 	// Fetch and cache models from upstream provider (admin only)
 	// (POST /api/providers/{id}/models)
 	FetchProviderModels(w http.ResponseWriter, r *http.Request, id string)
-	// Get public artifact share metadata
+	// Get public artifact share content
 	// (GET /api/public/artifact-shares/{token})
 	GetPublicArtifactShare(w http.ResponseWriter, r *http.Request, token string)
-	// Get public artifact share content
-	// (GET /api/public/artifact-shares/{token}/content)
-	GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request, token string)
 	// List or search articles
 	// (GET /api/recally/articles)
 	ListArticles(w http.ResponseWriter, r *http.Request, params ListArticlesParams)
@@ -4090,32 +4087,6 @@ func (siw *ServerInterfaceWrapper) GetPublicArtifactShare(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// GetPublicArtifactShareContent operation middleware
-func (siw *ServerInterfaceWrapper) GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "token" -------------
-	var token string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetPublicArtifactShareContent(w, r, token)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListArticles operation middleware
 func (siw *ServerInterfaceWrapper) ListArticles(w http.ResponseWriter, r *http.Request) {
 
@@ -6461,7 +6432,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.ListProviderModels)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.FetchProviderModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/public/artifact-shares/{token}", wrapper.GetPublicArtifactShare)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/public/artifact-shares/{token}/content", wrapper.GetPublicArtifactShareContent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.DeleteArticle)

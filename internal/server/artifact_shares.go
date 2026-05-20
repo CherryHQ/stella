@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -165,21 +164,6 @@ func (s *Server) GetPublicArtifactShare(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	contentURL := "/api/public/artifact-shares/" + url.PathEscape(token) + "/content"
-	writeData(w, http.StatusOK, apitypes.PublicArtifactShare{
-		Title:      filepath.Base(share.Path),
-		MediaType:  share.MediaType,
-		ExpiresAt:  nullStringPtr(share.ExpiresAt),
-		CreatedAt:  share.CreatedAt,
-		ContentUrl: contentURL,
-	})
-}
-
-func (s *Server) GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Request, token string) {
-	share, ok := s.publicArtifactShare(w, r, token)
-	if !ok {
-		return
-	}
 	setArtifactShareContentHeaders(w, share)
 	http.ServeContent(w, r, filepath.Base(share.Path), time.Time{}, bytes.NewReader(share.Content))
 }
@@ -270,6 +254,10 @@ func setArtifactShareContentHeaders(w http.ResponseWriter, share sqlc.ArtifactSh
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Share-Title", filepath.Base(share.Path))
+	if share.ExpiresAt.Valid {
+		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.String)
+	}
 	mt := share.MediaType
 	switch {
 	case strings.HasPrefix(mt, "text/html"):

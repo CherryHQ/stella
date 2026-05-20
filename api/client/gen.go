@@ -1128,9 +1128,6 @@ type ClientInterface interface {
 	// GetPublicArtifactShare request
 	GetPublicArtifactShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetPublicArtifactShareContent request
-	GetPublicArtifactShareContent(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListArticles request
 	ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2821,18 +2818,6 @@ func (c *Client) FetchProviderModels(ctx context.Context, id string, body FetchP
 
 func (c *Client) GetPublicArtifactShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetPublicArtifactShareRequest(c.Server, token)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetPublicArtifactShareContent(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetPublicArtifactShareContentRequest(c.Server, token)
 	if err != nil {
 		return nil, err
 	}
@@ -7486,40 +7471,6 @@ func NewGetPublicArtifactShareRequest(server string, token string) (*http.Reques
 	return req, nil
 }
 
-// NewGetPublicArtifactShareContentRequest generates requests for GetPublicArtifactShareContent
-func NewGetPublicArtifactShareContentRequest(server string, token string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/public/artifact-shares/%s/content", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListArticlesRequest generates requests for ListArticles
 func NewListArticlesRequest(server string, params *ListArticlesParams) (*http.Request, error) {
 	var err error
@@ -10651,9 +10602,6 @@ type ClientWithResponsesInterface interface {
 
 	// GetPublicArtifactShareWithResponse request
 	GetPublicArtifactShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetPublicArtifactShareResponse, error)
-
-	// GetPublicArtifactShareContentWithResponse request
-	GetPublicArtifactShareContentWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetPublicArtifactShareContentResponse, error)
 
 	// ListArticlesWithResponse request
 	ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error)
@@ -13889,7 +13837,6 @@ func (r FetchProviderModelsResponse) ContentType() string {
 type GetPublicArtifactShareResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.PublicArtifactShare
 	JSON404      *externalRef0.NotFound
 }
 
@@ -13911,36 +13858,6 @@ func (r GetPublicArtifactShareResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetPublicArtifactShareResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetPublicArtifactShareContentResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetPublicArtifactShareContentResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetPublicArtifactShareContentResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetPublicArtifactShareContentResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -16949,15 +16866,6 @@ func (c *ClientWithResponses) GetPublicArtifactShareWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseGetPublicArtifactShareResponse(rsp)
-}
-
-// GetPublicArtifactShareContentWithResponse request returning *GetPublicArtifactShareContentResponse
-func (c *ClientWithResponses) GetPublicArtifactShareContentWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetPublicArtifactShareContentResponse, error) {
-	rsp, err := c.GetPublicArtifactShareContent(ctx, token, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetPublicArtifactShareContentResponse(rsp)
 }
 
 // ListArticlesWithResponse request returning *ListArticlesResponse
@@ -21570,39 +21478,6 @@ func ParseGetPublicArtifactShareResponse(rsp *http.Response) (*GetPublicArtifact
 	}
 
 	response := &GetPublicArtifactShareResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.PublicArtifactShare
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetPublicArtifactShareContentResponse parses an HTTP response from a GetPublicArtifactShareContentWithResponse call
-func ParseGetPublicArtifactShareContentResponse(rsp *http.Response) (*GetPublicArtifactShareContentResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetPublicArtifactShareContentResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

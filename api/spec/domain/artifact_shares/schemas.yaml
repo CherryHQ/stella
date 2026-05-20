@@ -28,13 +28,3 @@ components:
           type: string
           enum: [1h, 1d, 7d, never]
           default: 7d
-
-    PublicArtifactShare:
-      type: object
-      required: [title, media_type, created_at, content_url]
-      properties:
-        title: { type: string }
-        media_type: { type: string }
-        expires_at: { type: string, nullable: true }
-        created_at: { type: string }
-        content_url: { type: string }

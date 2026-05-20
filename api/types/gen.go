@@ -1073,15 +1073,6 @@ type ProviderType struct {
 	Name       string `json:"name"`
 }
 
-// PublicArtifactShare defines model for PublicArtifactShare.
-type PublicArtifactShare struct {
-	ContentUrl string  `json:"content_url"`
-	CreatedAt  string  `json:"created_at"`
-	ExpiresAt  *string `json:"expires_at,omitempty"`
-	MediaType  string  `json:"media_type"`
-	Title      string  `json:"title"`
-}
-
 // PublicChannel defines model for PublicChannel.
 type PublicChannel struct {
 	AgentId   *string `json:"agent_id,omitempty"`

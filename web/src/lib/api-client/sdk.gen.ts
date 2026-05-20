@@ -182,9 +182,6 @@ import type {
   GetProviderData,
   GetProviderErrors,
   GetProviderResponses,
-  GetPublicArtifactShareContentData,
-  GetPublicArtifactShareContentErrors,
-  GetPublicArtifactShareContentResponses,
   GetPublicArtifactShareData,
   GetPublicArtifactShareErrors,
   GetPublicArtifactShareResponses,
@@ -2174,7 +2171,7 @@ export const revokeArtifactShare = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get public artifact share metadata
+ * Get public artifact share content
  */
 export const getPublicArtifactShare = <ThrowOnError extends boolean = false>(
   options: Options<GetPublicArtifactShareData, ThrowOnError>,
@@ -2184,20 +2181,6 @@ export const getPublicArtifactShare = <ThrowOnError extends boolean = false>(
     GetPublicArtifactShareErrors,
     ThrowOnError
   >({ url: "/api/public/artifact-shares/{token}", ...options });
-
-/**
- * Get public artifact share content
- */
-export const getPublicArtifactShareContent = <
-  ThrowOnError extends boolean = false,
->(
-  options: Options<GetPublicArtifactShareContentData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetPublicArtifactShareContentResponses,
-    GetPublicArtifactShareContentErrors,
-    ThrowOnError
-  >({ url: "/api/public/artifact-shares/{token}/content", ...options });
 
 /**
  * Update the default agent for a user (admin only)

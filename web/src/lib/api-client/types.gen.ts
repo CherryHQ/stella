@@ -903,14 +903,6 @@ export type ComponentsProviderType = {
   default_url: string;
 };
 
-export type PublicArtifactShare = {
-  title: string;
-  media_type: string;
-  expires_at?: string | null;
-  created_at: string;
-  content_url: string;
-};
-
 export type ComponentsPublicChannel = {
   id: string;
   type: string;
@@ -1370,8 +1362,6 @@ export type _1Api1ArtifactShares = unknown;
 export type _1Api1ArtifactShares1Id = unknown;
 
 export type _1Api1Public1ArtifactShares1Token = unknown;
-
-export type _1Api1Public1ArtifactShares1Token1Content = unknown;
 
 export type _1Api1Auth1Login = unknown;
 
@@ -5455,44 +5445,13 @@ export type GetPublicArtifactShareError =
 
 export type GetPublicArtifactShareResponses = {
   /**
-   * ok
-   */
-  200: PublicArtifactShare;
-};
-
-export type GetPublicArtifactShareResponse =
-  GetPublicArtifactShareResponses[keyof GetPublicArtifactShareResponses];
-
-export type GetPublicArtifactShareContentData = {
-  body?: never;
-  path: {
-    token: string;
-  };
-  query?: never;
-  url: "/api/public/artifact-shares/{token}/content";
-};
-
-export type GetPublicArtifactShareContentErrors = {
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetPublicArtifactShareContentError =
-  GetPublicArtifactShareContentErrors[keyof GetPublicArtifactShareContentErrors];
-
-export type GetPublicArtifactShareContentResponses = {
-  /**
-   * ok
+   * Content served with metadata in headers (X-Share-Title, X-Share-Expires-At)
    */
   200: Blob | File;
 };
 
-export type GetPublicArtifactShareContentResponse =
-  GetPublicArtifactShareContentResponses[keyof GetPublicArtifactShareContentResponses];
+export type GetPublicArtifactShareResponse =
+  GetPublicArtifactShareResponses[keyof GetPublicArtifactShareResponses];
 
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;

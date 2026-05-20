@@ -69,7 +69,6 @@ import {
   getProject,
   getProvider,
   getPublicArtifactShare,
-  getPublicArtifactShareContent,
   getSession,
   getSessionMessages,
   getSessionSystemPrompt,
@@ -340,9 +339,6 @@ import type {
   GetProviderData,
   GetProviderError,
   GetProviderResponse,
-  GetPublicArtifactShareContentData,
-  GetPublicArtifactShareContentError,
-  GetPublicArtifactShareContentResponse,
   GetPublicArtifactShareData,
   GetPublicArtifactShareError,
   GetPublicArtifactShareResponse,
@@ -3348,7 +3344,7 @@ export const getPublicArtifactShareQueryKey = (
 ) => createQueryKey("getPublicArtifactShare", options);
 
 /**
- * Get public artifact share metadata
+ * Get public artifact share content
  */
 export const getPublicArtifactShareOptions = (
   options: Options<GetPublicArtifactShareData>,
@@ -3369,34 +3365,6 @@ export const getPublicArtifactShareOptions = (
       return data;
     },
     queryKey: getPublicArtifactShareQueryKey(options),
-  });
-
-export const getPublicArtifactShareContentQueryKey = (
-  options: Options<GetPublicArtifactShareContentData>,
-) => createQueryKey("getPublicArtifactShareContent", options);
-
-/**
- * Get public artifact share content
- */
-export const getPublicArtifactShareContentOptions = (
-  options: Options<GetPublicArtifactShareContentData>,
-) =>
-  queryOptions<
-    GetPublicArtifactShareContentResponse,
-    GetPublicArtifactShareContentError,
-    GetPublicArtifactShareContentResponse,
-    ReturnType<typeof getPublicArtifactShareContentQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getPublicArtifactShareContent({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true,
-      });
-      return data;
-    },
-    queryKey: getPublicArtifactShareContentQueryKey(options),
   });
 
 /**

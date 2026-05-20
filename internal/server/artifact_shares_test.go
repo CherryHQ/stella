@@ -95,15 +95,7 @@ func TestPublicArtifactShareAccess(t *testing.T) {
 		t.Fatalf("could not extract token from %q", envelope.Data.URL)
 	}
 
-	metadata := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token), nil)
-	if metadata.Code != http.StatusOK {
-		t.Fatalf("metadata status = %d body = %s", metadata.Code, metadata.Body.String())
-	}
-	if !strings.Contains(metadata.Body.String(), "content_url") {
-		t.Fatalf("metadata missing content_url: %s", metadata.Body.String())
-	}
-
-	content := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token)+"/content", nil)
+	content := doUnauthRequest(t, env.srv, http.MethodGet, "/api/public/artifact-shares/"+url.PathEscape(token), nil)
 	if content.Code != http.StatusOK {
 		t.Fatalf("content status = %d body = %s", content.Code, content.Body.String())
 	}
@@ -112,6 +104,9 @@ func TestPublicArtifactShareAccess(t *testing.T) {
 	}
 	if content.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("missing nosniff header")
+	}
+	if content.Header().Get("X-Share-Title") != "report.html" {
+		t.Fatalf("missing X-Share-Title header: %s", content.Header().Get("X-Share-Title"))
 	}
 	if !strings.Contains(content.Body.String(), "<h1>Hello</h1>") {
 		t.Fatalf("content body = %s", content.Body.String())

@@ -1,13 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "@/lib/api";
 
-interface PublicArtifactShare {
+interface ShareMeta {
   title: string;
-  media_type: string;
-  expires_at?: string | null;
-  created_at: string;
-  content_url: string;
+  mediaType: string;
+  expiresAt?: string;
 }
 
 export const Route = createFileRoute("/s/$token")({
@@ -16,39 +13,37 @@ export const Route = createFileRoute("/s/$token")({
 
 function PublicArtifactSharePage() {
   const { token } = Route.useParams();
-  const [share, setShare] = useState<PublicArtifactShare | null>(null);
+  const contentUrl = `/api/public/artifact-shares/${encodeURIComponent(token)}`;
+  const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api<PublicArtifactShare>("GET", `/api/public/artifact-shares/${encodeURIComponent(token)}`)
-      .then((data) => {
-        if (!cancelled) setShare(data);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Artifact not found");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    fetch(contentUrl)
+      .then((res) => {
+        if (!res.ok) {
+          if (!cancelled) setError("Artifact not found");
+          return;
+        }
+        const title = res.headers.get("X-Share-Title") ?? "Shared artifact";
+        const mediaType = res.headers.get("Content-Type") ?? "";
+        const expiresAt = res.headers.get("X-Share-Expires-At") ?? undefined;
+        if (!cancelled) setMeta({ title, mediaType, expiresAt });
 
-  useEffect(() => {
-    if (!share || !share.media_type.startsWith("text/markdown")) return;
-    let cancelled = false;
-    fetch(share.content_url)
-      .then((res) => (res.ok ? res.text() : Promise.reject(new Error("Failed to load markdown"))))
-      .then((text) => {
-        if (!cancelled) setMarkdown(text);
+        if (mediaType.startsWith("text/markdown")) {
+          res.text().then((text) => {
+            if (!cancelled) setMarkdown(text);
+          });
+        }
       })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load markdown");
+      .catch(() => {
+        if (!cancelled) setError("Artifact not found");
       });
     return () => {
       cancelled = true;
     };
-  }, [share]);
+  }, [contentUrl]);
 
   const renderedMarkdown = useMemo(
     () => (markdown == null ? "" : renderSafeMarkdown(markdown)),
@@ -62,7 +57,7 @@ function PublicArtifactSharePage() {
       </PublicShell>
     );
   }
-  if (!share) {
+  if (!meta) {
     return (
       <PublicShell title="Loading artifact…">
         <div className="h-4 w-4 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
@@ -70,16 +65,16 @@ function PublicArtifactSharePage() {
     );
   }
 
-  const mt = share.media_type;
+  const mt = meta.mediaType;
 
   return (
-    <PublicShell title={share.title} expiresAt={share.expires_at} contentUrl={share.content_url}>
+    <PublicShell title={meta.title} expiresAt={meta.expiresAt} contentUrl={contentUrl}>
       {mt.startsWith("text/html") && (
         <iframe
-          title={share.title}
+          title={meta.title}
           className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-white"
           sandbox="allow-scripts allow-forms allow-popups allow-downloads"
-          src={share.content_url}
+          src={contentUrl}
         />
       )}
       {mt.startsWith("text/markdown") && (
@@ -91,18 +86,18 @@ function PublicArtifactSharePage() {
       {mt.startsWith("image/") && (
         <div className="flex justify-center rounded-xl border bg-card p-4">
           <img
-            alt={share.title}
+            alt={meta.title}
             className="max-h-[calc(100vh-10rem)] max-w-full object-contain"
-            src={share.content_url}
+            src={contentUrl}
           />
         </div>
       )}
       {mt === "application/pdf" && (
         <iframe
-          title={share.title}
+          title={meta.title}
           className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-card"
           sandbox="allow-scripts allow-same-origin"
-          src={share.content_url}
+          src={contentUrl}
         />
       )}
     </PublicShell>
@@ -116,7 +111,7 @@ function PublicShell({
   children,
 }: {
   title: string;
-  expiresAt?: string | null;
+  expiresAt?: string;
   contentUrl?: string;
   children: ReactNode;
 }) {
