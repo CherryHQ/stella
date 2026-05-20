@@ -125,100 +125,61 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 	return i, err
 }
 
-const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task ORDER BY created_at DESC
-`
-
-func (q *Queries) ListAgentTasks(ctx context.Context) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasks)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAgentTasksByStatus = `-- name: ListAgentTasksByStatus :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = ? ORDER BY created_at DESC
-`
-
-func (q *Queries) ListAgentTasksByStatus(ctx context.Context, status string) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByStatus, status)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
 SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]AgentTask, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.SessionID,
+			&i.Context,
+			&i.ReviewRequest,
+			&i.Deps,
+			&i.NotifyAt,
+			&i.SchedulerJobID,
+			&i.SchedulerRunID,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTasksByUserAndAgent = `-- name: ListAgentTasksByUserAndAgent :many
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC
+`
+
+type ListAgentTasksByUserAndAgentParams struct {
+	UserID  string         `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
+}
+
+func (q *Queries) ListAgentTasksByUserAndAgent(ctx context.Context, arg ListAgentTasksByUserAndAgentParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTasksByUserAndAgent, arg.UserID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}

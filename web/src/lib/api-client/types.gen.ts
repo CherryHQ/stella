@@ -6790,6 +6790,7 @@ export type ListAgentTasksData = {
   path?: never;
   query?: {
     status?: string;
+    agent_id?: string;
   };
   url: "/api/tasks";
 };

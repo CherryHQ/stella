@@ -456,8 +456,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: _memories = [] } = useQuery(agentMemoriesOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
-    queryKey: ["tasks"],
-    queryFn: () => api<AgentTaskList>("GET", "/api/tasks"),
+    queryKey: ["tasks", agentId],
+    queryFn: () => api<AgentTaskList>("GET", `/api/tasks?agent_id=${encodeURIComponent(agentId)}`),
   });
   const taskCount = taskList?.items?.length ?? 0;
 
