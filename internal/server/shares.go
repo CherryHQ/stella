@@ -247,7 +247,11 @@ func shareURL(r *http.Request, token string) string {
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s/s/%s", scheme, r.Host, token)
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	return fmt.Sprintf("%s://%s/s/%s", scheme, host, token)
 }
 
 func artifactMediaType(path string) string {
