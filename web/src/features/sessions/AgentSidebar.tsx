@@ -12,6 +12,7 @@ import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
 import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
 import { Input } from "@/components/ui/input";
+import { useSidebar } from "@/components/ui/sidebar";
 import {
   Dialog,
   DialogPopup,
@@ -439,6 +440,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { setOpenMobile } = useSidebar();
+  const closeMobile = useCallback(() => setOpenMobile(false), [setOpenMobile]);
 
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -479,14 +482,16 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const createSession = useCallback(async () => {
     const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentId });
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    closeMobile();
     void navigate({
       to: "/agents/$agentId/sessions/$sessionId",
       params: { agentId, sessionId: sess.id },
     });
-  }, [agentId, queryClient, navigate]);
+  }, [agentId, queryClient, navigate, closeMobile]);
 
   const openProject = useCallback(
     async (projectId: string) => {
+      closeMobile();
       const existing = sessions.find((s) => s.project_id === projectId && !s.archived);
       if (existing) {
         void navigate({
@@ -500,7 +505,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
         params: { agentId, projectId },
       });
     },
-    [agentId, sessions, navigate],
+    [agentId, sessions, navigate, closeMobile],
   );
 
   const deleteProject = useCallback(
@@ -533,7 +538,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               <button
                 key={ag.id}
                 type="button"
-                onClick={() => onAgentChange(ag.id)}
+                onClick={() => {
+                  closeMobile();
+                  onAgentChange(ag.id);
+                }}
                 className={cn(
                   "group grid min-h-[46px] grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-[7px] py-1.5 text-left transition-all duration-150",
                   isCur
@@ -556,6 +564,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    closeMobile();
                     void navigate({ to: "/settings/agents" });
                   }}
                   className="grid size-7 place-items-center rounded-full text-muted-foreground/42 transition-all hover:bg-primary/10 hover:text-primary"
@@ -583,21 +592,28 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               icon={<IconTask />}
               label={t("sessions.sidebar.tasks")}
               badge={taskCount}
-              onClick={() => void navigate({ to: "/agents/$agentId/tasks", params: { agentId } })}
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
+              }}
             />
             <NavItem
               active={isActive(`/agents/${agentId}/automations`)}
               icon={<IconAutomation />}
               label={t("sessions.sidebar.automations")}
-              onClick={() =>
-                void navigate({ to: "/agents/$agentId/automations", params: { agentId } })
-              }
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
+              }}
             />
             <NavItem
               active={isActive(`/agents/${agentId}/skills`)}
               icon={<IconSkills />}
               label={t("sessions.sidebar.skills")}
-              onClick={() => void navigate({ to: "/agents/$agentId/skills", params: { agentId } })}
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
+              }}
             />
             <NavItem
               active={
@@ -606,9 +622,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               }
               icon={<IconMemory />}
               label={t("sessions.sidebar.memory")}
-              onClick={() =>
-                void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } })
-              }
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } });
+              }}
             />
           </div>
         </div>
@@ -722,12 +739,13 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    closeMobile();
                     void navigate({
                       to: "/agents/$agentId/sessions/$sessionId",
                       params: { agentId, sessionId: s.id },
-                    })
-                  }
+                    });
+                  }}
                   className={cn(
                     "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
                     activeSessionId === s.id

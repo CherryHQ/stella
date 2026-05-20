@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { ReactNode } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +5,13 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { AppSidebar } from "@/components/AppSidebar";
+import {
+  Sidebar,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
 
 const settingsNav: {
   section: string;
@@ -241,11 +247,21 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
   );
 }
 
+function SettingsNavSidebar({ isAdmin }: { isAdmin: boolean }) {
+  const { setOpenMobile } = useSidebar();
+  return (
+    <AppSidebar>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+        <NavItems isAdmin={isAdmin} onItemClick={() => setOpenMobile(false)} />
+      </div>
+    </AppSidebar>
+  );
+}
+
 export function SettingsLayout() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const allItems = settingsNav.flatMap((g) => g.items);
@@ -253,61 +269,25 @@ export function SettingsLayout() {
   const activeLabel = activeItem ? t(activeItem.label) : "";
 
   return (
-    <div className="flex h-full overflow-hidden bg-background">
-      {/* Desktop sidebar — hidden on mobile */}
-      <nav className="hidden w-[260px] shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
-        <AppSidebar>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-            <NavItems isAdmin={isAdmin} />
-          </div>
-        </AppSidebar>
-      </nav>
+    <SidebarProvider
+      className="h-full min-h-0"
+      style={{ "--sidebar-width": "260px" } as React.CSSProperties}
+    >
+      <Sidebar className="sticky top-0 h-full">
+        <SettingsNavSidebar isAdmin={isAdmin} />
+      </Sidebar>
 
-      {/* Mobile overlay */}
-      {mobileNavOpen && (
-        <div className="fixed inset-x-0 top-[52px] bottom-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-foreground/20 backdrop-blur-sm"
-            onClick={() => setMobileNavOpen(false)}
-          />
-          <nav className="absolute top-0 bottom-0 left-0 w-[min(82vw,300px)] overflow-y-auto border-r border-border bg-sidebar p-3 shadow-2xl">
-            <NavItems isAdmin={isAdmin} onItemClick={() => setMobileNavOpen(false)} />
-          </nav>
-        </div>
-      )}
-
-      {/* Content area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Mobile top bar */}
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
-          <button
-            onClick={() => setMobileNavOpen(true)}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="Open navigation menu"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              className="size-5"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-              />
-            </svg>
-          </button>
+      <SidebarInset className="flex flex-col overflow-hidden">
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
+          <SidebarTrigger />
           {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
-        </div>
-
+        </header>
         <div className="flex-1 overflow-y-auto">
           <div className="h-full">
             <Outlet />
           </div>
         </div>
-      </div>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

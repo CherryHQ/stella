@@ -1,5 +1,4 @@
 import { useState, type CSSProperties } from "react";
-import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { X } from "lucide-react";
 import { CENTER_WIDTH_DEFAULT, CENTER_WIDTH_MIN, CENTER_WIDTH_MAX } from "./constants";
@@ -13,6 +12,7 @@ import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ToastAlert } from "./components/ToastAlert";
+import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger } from "@/components/ui/sidebar";
 
 export function RecallyPage() {
   const { t } = useI18n();
@@ -55,16 +55,13 @@ export function RecallyPage() {
     filters.digestView && !!filters.selectedDigestDate && !selectedId && !!filters.selectedDigest;
 
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden bg-background">
-      {/* Left sidebar */}
-      <aside
-        className={cn(
-          "hidden md:flex flex-shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar transition-all duration-200 ease-out",
-          filters.leftOpen
-            ? "w-[260px] min-w-[260px]"
-            : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
-        )}
-      >
+    <SidebarProvider
+      className="relative h-full min-h-0"
+      style={{ "--sidebar-width": "260px" } as React.CSSProperties}
+      open={filters.leftOpen}
+      onOpenChange={filters.setLeftOpen}
+    >
+      <Sidebar className="sticky top-0 h-full" collapsible="offcanvas">
         <AppSidebar>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <RecallySidebar
@@ -99,118 +96,109 @@ export function RecallyPage() {
             />
           </div>
         </AppSidebar>
-      </aside>
-
-      <button
-        type="button"
-        onClick={() => filters.setLeftOpen((v) => !v)}
-        className={cn(
-          "absolute top-3 z-20 hidden h-[34px] w-[18px] place-items-center rounded-full border border-border/60 bg-card text-muted-foreground/50 shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground md:grid",
-          filters.leftOpen ? "left-[250px]" : "-left-[9px]",
-        )}
-        aria-label={filters.leftOpen ? "Hide sidebar" : "Show sidebar"}
-      >
-        <svg
-          className={cn("size-3 transition-transform", !filters.leftOpen && "rotate-180")}
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="m10 4-4 4 4 4" />
-        </svg>
-      </button>
+        <SidebarRail />
+      </Sidebar>
 
       {/* Main area */}
-      <div
-        className="min-w-0 flex-1 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
-        style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
-      >
-        {/* Center panel */}
-        {filters.digestView ? (
-          <RecallyDigestView
-            t={t}
-            storedDigests={filters.storedDigests}
-            storedDigestsLoading={filters.storedDigestsQuery.isLoading}
-            selectedDigestDate={filters.selectedDigestDate}
-            onSelectDigest={handleSelectDigest}
-          />
-        ) : (
-          <RecallyArticleList
-            t={t}
-            displayArticles={filters.displayArticles}
-            articlesQuery={filters.articlesQuery}
-            selectedId={selectedId}
-            setSelectedId={setSelectedId}
-            digest={filters.digest}
-            searchText={filters.searchText}
-            setSearchText={filters.setSearchText}
-            statusFilter={filters.statusFilter}
-            setStatusFilter={filters.setStatusFilter}
-          />
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
+          <SidebarTrigger />
+          <span className="text-sm font-semibold">{t("recally.title")}</span>
+        </header>
+        <div
+          className="min-w-0 flex-1 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
+          style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
+        >
+          {/* Center panel */}
+          {filters.digestView ? (
+            <RecallyDigestView
+              t={t}
+              storedDigests={filters.storedDigests}
+              storedDigestsLoading={filters.storedDigestsQuery.isLoading}
+              selectedDigestDate={filters.selectedDigestDate}
+              onSelectDigest={handleSelectDigest}
+            />
+          ) : (
+            <RecallyArticleList
+              t={t}
+              displayArticles={filters.displayArticles}
+              articlesQuery={filters.articlesQuery}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              digest={filters.digest}
+              searchText={filters.searchText}
+              setSearchText={filters.setSearchText}
+              statusFilter={filters.statusFilter}
+              setStatusFilter={filters.setStatusFilter}
+            />
+          )}
+
+          {/* Right reader panel — always in DOM */}
+          <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
+            <button
+              type="button"
+              aria-label={t("recally.resizeList")}
+              onMouseDown={startResize}
+              className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
+            />
+            {showDigestDetail ? (
+              <DigestDetail
+                t={t}
+                digest={filters.selectedDigest!}
+                onSelectArticle={setSelectedId}
+              />
+            ) : (
+              <RecallyReader
+                t={t}
+                selectedId={selectedId}
+                updateArticleMut={mutations.updateArticleMut}
+                deleteArticleMut={mutations.deleteArticleMut}
+              />
+            )}
+          </aside>
+        </div>
+
+        {/* Mobile digest detail overlay */}
+        {showDigestDetail && (
+          <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+              <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
+              <button
+                type="button"
+                onClick={() => filters.setSelectedDigestDate(null)}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
+          </div>
         )}
 
-        {/* Right reader panel — always in DOM */}
-        <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
-          <button
-            type="button"
-            aria-label={t("recally.resizeList")}
-            onMouseDown={startResize}
-            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
-          />
-          {showDigestDetail ? (
-            <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
-          ) : (
+        {/* Mobile reader overlay */}
+        {selectedId && (
+          <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+              <span className="text-sm font-medium">{t("recally.title")}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
             <RecallyReader
               t={t}
               selectedId={selectedId}
               updateArticleMut={mutations.updateArticleMut}
               deleteArticleMut={mutations.deleteArticleMut}
             />
-          )}
-        </aside>
+          </div>
+        )}
       </div>
 
-      {/* Mobile digest detail overlay */}
-      {showDigestDetail && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-            <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
-            <button
-              type="button"
-              onClick={() => filters.setSelectedDigestDate(null)}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-          <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
-        </div>
-      )}
-
-      {/* Mobile reader overlay */}
-      {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-            <span className="text-sm font-medium">{t("recally.title")}</span>
-            <button
-              type="button"
-              onClick={() => setSelectedId(null)}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-          <RecallyReader
-            t={t}
-            selectedId={selectedId}
-            updateArticleMut={mutations.updateArticleMut}
-            deleteArticleMut={mutations.deleteArticleMut}
-          />
-        </div>
-      )}
-
       <ToastAlert toast={mutations.toast} />
-    </div>
+    </SidebarProvider>
   );
 }
