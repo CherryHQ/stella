@@ -36,9 +36,15 @@ You can revoke the link from the same dialog after it is created.
 When you ask Stella to share a generated file, Stella can use the CLI from inside the agent session:
 
 ```bash
-stella artifact share assets/report.html
-stella artifact share assets/report.html --expires-in 1d
-stella artifact share assets/report.html --expires-in never
+stella share artifact assets/report.html
+stella share artifact assets/report.html --expires-in 1d
+stella share artifact assets/report.html --expires-in never
+```
+
+You can also share a Recally article by its ID:
+
+```bash
+stella share article <article-id>
 ```
 
 The command prints the public URL. It uses the current session automatically when it runs inside Stella.

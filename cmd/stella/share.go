@@ -12,20 +12,21 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
-func artifactCommand() *ucli.Command {
+func shareCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:     "artifact",
-		Usage:    "Manage generated artifacts",
+		Name:     "share",
+		Usage:    "Create public share links",
 		Category: "Feature",
 		Subcommands: []*ucli.Command{
-			artifactShareCommand(),
+			shareArtifactCommand(),
+			shareArticleCommand(),
 		},
 	}
 }
 
-func artifactShareCommand() *ucli.Command {
+func shareArtifactCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:      "share",
+		Name:      "artifact",
 		Usage:     "Create a public share link for a workspace artifact",
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
@@ -50,6 +51,35 @@ func artifactShareCommand() *ucli.Command {
 				Source:    source,
 				SessionId: &sessionID,
 				Path:      &path,
+				ExpiresIn: &expiresIn,
+			})
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(c.App.Writer, share.Url)
+			return err
+		},
+	}
+}
+
+func shareArticleCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "article",
+		Usage:     "Create a public share link for a Recally article",
+		ArgsUsage: "<article-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
+		},
+		Action: func(c *ucli.Context) error {
+			articleID := c.Args().First()
+			if articleID == "" {
+				return fmt.Errorf("article ID is required")
+			}
+			expiresIn := apitypes.CreateShareRequestExpiresIn(c.String("expires-in"))
+			source := apitypes.CreateShareRequestSourceArticle
+			share, err := createShare(c.Context, apiclient.CreateShareJSONRequestBody{
+				Source:    source,
+				ArticleId: &articleID,
 				ExpiresIn: &expiresIn,
 			})
 			if err != nil {

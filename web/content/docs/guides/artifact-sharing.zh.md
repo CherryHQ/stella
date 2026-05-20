@@ -36,9 +36,15 @@ Stella 可以把生成的文件变成公开的只读链接。你可以用它把�
 当你要求 Stella 分享生成的文件时，Stella 可以在 agent 会话中使用命令行：
 
 ```bash
-stella artifact share assets/report.html
-stella artifact share assets/report.html --expires-in 1d
-stella artifact share assets/report.html --expires-in never
+stella share artifact assets/report.html
+stella share artifact assets/report.html --expires-in 1d
+stella share artifact assets/report.html --expires-in never
+```
+
+你也可以通过文章 ID 分享 Recally 文章：
+
+```bash
+stella share article <article-id>
 ```
 
 命令会输出公开链接。在 Stella 内部运行时，它会自动使用当前会话。
