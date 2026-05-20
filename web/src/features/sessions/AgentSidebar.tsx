@@ -3,13 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent, Session, Project } from "@/lib/types";
 import { api } from "@/lib/api";
-import { formatTime } from "@/lib/time";
+import type { AgentTaskList } from "@/lib/api-client/types.gen";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogPopup,
@@ -18,7 +19,6 @@ import {
   DialogHeader,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 
 interface Props {
   agents: Agent[];
@@ -29,12 +29,35 @@ interface Props {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ["#e07340", "#5b8cff", "#4fc98e", "#b06ef5", "#e8b84b", "#e05050", "#3bc9db"];
+const AVATAR_COLORS = [
+  "linear-gradient(145deg, #111, #3d3d42)",
+  "linear-gradient(145deg, #005fb8, #2997ff)",
+  "linear-gradient(145deg, #2d6a4f, #52b788)",
+  "linear-gradient(145deg, #7b2d8e, #b06ef5)",
+  "linear-gradient(145deg, #b8860b, #e8b84b)",
+  "linear-gradient(145deg, #b02020, #e05050)",
+  "linear-gradient(145deg, #1a8a8a, #3bc9db)",
+];
 
-function agentColor(id: string): string {
+const PROJECT_COLORS = [
+  "#0071e3",
+  "#34c759",
+  "#ff9f0a",
+  "#af52de",
+  "#ff3b30",
+  "#5ac8fa",
+  "#ffcc00",
+];
+
+function agentGradient(id: string, index: number): string {
+  if (index < AVATAR_COLORS.length) return AVATAR_COLORS[index];
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function projectColor(index: number): string {
+  return PROJECT_COLORS[index % PROJECT_COLORS.length];
 }
 
 function sessionTitle(s: Session): string {
@@ -47,85 +70,61 @@ function ChevRight({ className }: { className?: string }) {
   return (
     <svg
       className={className}
-      viewBox="0 0 24 24"
+      viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.5"
+      strokeWidth="2"
     >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
-}
-
-function IconChat() {
-  return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function IconClock() {
-  return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
+      <path d="m6 4 4 4-4 4" />
     </svg>
   );
 }
 
 function IconTask() {
   return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="m9 11 3 3L22 4" />
       <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
     </svg>
   );
 }
 
-function IconStar() {
+function IconAutomation() {
   return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z" />
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M13 2 3 14h8l-1 8 11-13h-8l0-7z" />
     </svg>
   );
 }
 
-function IconBrain() {
+function IconSkills() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1" />
+    </svg>
+  );
+}
+
+function IconMemory() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7z" />
+      <circle cx="12" cy="10" r="2" />
+    </svg>
+  );
+}
+
+function IconSettings() {
   return (
     <svg
-      className="w-3 h-3"
+      className="size-3.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
     >
-      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.44-1.17A2.5 2.5 0 0 1 9.5 2z" />
-      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.44-1.17A2.5 2.5 0 0 0 14.5 2z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6V20a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1-.52 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1H4a2 2 0 1 1 0-4h.08a1.7 1.7 0 0 0 .52-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6V4a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1 .52 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.34.43.67.6 1H20a2 2 0 1 1 0 4h-.08c-.17.33-.37.66-.52 1z" />
     </svg>
   );
 }
@@ -133,7 +132,7 @@ function IconBrain() {
 function IconPlus() {
   return (
     <svg
-      className="w-2.5 h-2.5"
+      className="size-2.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -144,30 +143,9 @@ function IconPlus() {
   );
 }
 
-function IconHome() {
-  return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  );
-}
-
 function IconFolder() {
   return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
     </svg>
   );
@@ -175,19 +153,15 @@ function IconFolder() {
 
 function IconTrash() {
   return (
-    <svg
-      className="w-3 h-3"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
+    <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M3 6h18" />
       <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
       <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
     </svg>
   );
 }
+
+// ── FolderTree & CreateProjectDialog (unchanged) ────────────────────────────
 
 interface DirEntry {
   path: string;
@@ -249,10 +223,10 @@ function FolderTree({
   }, [dirs, expanded]);
 
   if (loading) {
-    return <p className="text-xs text-muted-foreground px-2 py-3">Loading folders…</p>;
+    return <p className="px-2 py-3 text-xs text-muted-foreground">Loading folders…</p>;
   }
   if (dirs.length === 0) {
-    return <p className="text-xs text-muted-foreground px-2 py-3">No folders found</p>;
+    return <p className="px-2 py-3 text-xs text-muted-foreground">No folders found</p>;
   }
 
   return (
@@ -266,7 +240,7 @@ function FolderTree({
           <div
             key={d.path}
             className={cn(
-              "flex items-center gap-1.5 px-2 py-1 cursor-pointer rounded text-[12px] transition-colors",
+              "flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-[12px] transition-colors",
               isSelected
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -277,7 +251,7 @@ function FolderTree({
             {hasChildren ? (
               <button
                 type="button"
-                className="p-0 flex-shrink-0"
+                className="flex-shrink-0 p-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggle(d.path);
@@ -285,13 +259,13 @@ function FolderTree({
               >
                 <ChevRight
                   className={cn(
-                    "w-2.5 h-2.5 text-muted-foreground/50 transition-transform",
+                    "size-2.5 text-muted-foreground/50 transition-transform",
                     expanded.has(d.path) && "rotate-90",
                   )}
                 />
               </button>
             ) : (
-              <span className="w-2.5" />
+              <span className="size-2.5" />
             )}
             <IconFolder />
             <span className="truncate">{d.name}</span>
@@ -359,9 +333,9 @@ function CreateProjectDialog({
           <DialogTitle>New Project</DialogTitle>
           <DialogDescription>Select a workspace folder for this agent.</DialogDescription>
         </DialogHeader>
-        <div className="px-6 py-2 space-y-3">
+        <div className="space-y-3 px-6 py-2">
           {sessionId ? (
-            <div className="border border-border rounded-lg overflow-hidden">
+            <div className="overflow-hidden rounded-lg border border-border">
               <FolderTree
                 sessionId={sessionId}
                 selected={selectedDir}
@@ -373,7 +347,7 @@ function CreateProjectDialog({
             <p className="text-xs text-muted-foreground">No active session to browse folders.</p>
           )}
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Project name</label>
+            <label className="mb-1 block text-xs text-muted-foreground">Project name</label>
             <Input
               placeholder={folderName || "Select a folder above"}
               value={name}
@@ -398,153 +372,51 @@ function CreateProjectDialog({
   );
 }
 
-// ── sub-components ───────────────────────────────────────────────────────────
+// ── nav item ────────────────────────────────────────────────────────────────
 
-function SectionHeader({
+function NavItem({
+  active,
   icon,
   label,
-  open,
-  active,
-  onToggle,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  open?: boolean;
-  active?: boolean;
-  onToggle: () => void;
-}) {
-  const expandable = open !== undefined;
-  return (
-    <div
-      className={cn(
-        "group mx-3 flex cursor-pointer select-none items-center gap-2 rounded-[10px] px-2.5 py-2 transition-all duration-150",
-        active
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
-      )}
-      onClick={onToggle}
-    >
-      <span
-        className={cn(
-          "flex-shrink-0 transition-colors",
-          active ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground",
-        )}
-      >
-        {icon}
-      </span>
-      <span
-        className={cn(
-          "flex-1 text-[10px] font-mono font-semibold uppercase tracking-[0.08em] transition-colors",
-          active
-            ? "text-accent-foreground"
-            : "text-muted-foreground/75 group-hover:text-foreground",
-        )}
-      >
-        {label}
-      </span>
-      {expandable && (
-        <ChevRight
-          className={cn(
-            "w-2.5 h-2.5 flex-shrink-0 text-muted-foreground/40 transition-transform duration-150",
-            open && "rotate-90",
-          )}
-        />
-      )}
-    </div>
-  );
-}
-
-function NavRow({
-  active,
-  icon,
-  title,
-  sub,
-  meta,
+  badge,
   onClick,
-  indent,
 }: {
   active: boolean;
-  icon?: React.ReactNode;
-  title: string;
-  sub?: string;
-  meta?: string;
+  icon: React.ReactNode;
+  label: string;
+  badge?: number;
   onClick: () => void;
-  indent?: boolean;
 }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
       className={cn(
-        "mx-3 flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-1.5 transition-all duration-150",
-        indent && "ml-8 border-l border-border/80 pl-3",
+        "flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] transition-all duration-150",
         active
-          ? "bg-accent text-accent-foreground"
+          ? "bg-primary/10 font-semibold text-primary"
           : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
       )}
     >
-      {icon && (
-        <span className={cn("flex-shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
-          {icon}
+      <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
+        {icon}
+      </span>
+      <span className="flex-1 truncate text-left">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="shrink-0 rounded-full bg-primary px-[7px] py-[2px] font-mono text-[10px] text-primary-foreground">
+          {badge}
         </span>
       )}
-      <div className="flex-1 min-w-0">
-        <p
-          className={cn(
-            "text-[12px] truncate leading-snug",
-            active ? "font-semibold text-accent-foreground" : "text-foreground/80",
-          )}
-        >
-          {title}
-        </p>
-        {sub && (
-          <p className="text-[10px] font-mono text-muted-foreground/50 truncate mt-0.5">{sub}</p>
-        )}
-      </div>
-      {meta && (
-        <span className="flex-shrink-0 text-[10px] font-mono text-muted-foreground/50">{meta}</span>
-      )}
-    </div>
+    </button>
   );
 }
 
-function SubFolder({
-  label,
-  count,
-  open,
-  onToggle,
-  indent = 6,
-}: {
-  label: string;
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-  indent?: number;
-}) {
+// ── section label ───────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="group mx-3 flex cursor-pointer select-none items-center gap-1.5 rounded-md py-1 transition-colors duration-150 hover:bg-foreground/[0.035]"
-      style={{ paddingLeft: `${indent * 4}px`, paddingRight: "10px" }}
-      onClick={onToggle}
-    >
-      <ChevRight
-        className={cn(
-          "w-2 h-2 flex-shrink-0 text-muted-foreground/40 transition-transform duration-150",
-          open && "rotate-90",
-        )}
-      />
-      <svg
-        className="w-3 h-3 flex-shrink-0 text-muted-foreground/50"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
-      </svg>
-      <span className="flex-1 text-[11px] text-muted-foreground/70 group-hover:text-foreground transition-colors truncate">
-        {label}
-      </span>
-      <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
+    <div className="px-2 pb-1.5 pt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+      {children}
     </div>
   );
 }
@@ -556,87 +428,54 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [openSections, setOpenSections] = useState<string[]>(["project"]);
-  const [openFolders, setOpenFolders] = useState<string[]>([]);
+  const [openProjects, setOpenProjects] = useState<string[]>([]);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [historyKind, setHistoryKind] = useState("");
   const [showCreateProject, setShowCreateProject] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const isFolderOpen = (key: string) => openFolders.includes(key);
-  const toggleFolder = (key: string) =>
-    setOpenFolders((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-
-  const isOpen = (key: string) => openSections.includes(key);
-  const toggleSection = (key: string) =>
-    setOpenSections((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-    );
+  const isProjectOpen = (id: string) => openProjects.includes(id);
+  const toggleProject = (id: string) =>
+    setOpenProjects((prev) => (prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]));
 
   // ── data ─────────────────────────────────────────────────────────────────
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
-  const { data: memories = [] } = useQuery(agentMemoriesOptions(agentId));
+  const { data: _skills = [] } = useQuery(agentSkillsOptions(agentId));
+  const { data: _memories = [] } = useQuery(agentMemoriesOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+  const { data: taskList } = useQuery({
+    queryKey: ["tasks"],
+    queryFn: () => api<AgentTaskList>("GET", "/api/tasks"),
+  });
+  const taskCount = taskList?.items?.length ?? 0;
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
 
-  // ── derived lists ────────────────────────────────────────────────────────
-  const selectedAgent = agents.find((a) => a.id === agentId);
-
-  // The "home" session for the agent — prefer main, fall back to first chat.
-  // Used by the home row so it navigates directly without a round-trip through AgentHome.
   const homeSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
     return active.find((s) => s.kind === "main") ?? active[0] ?? null;
   }, [sessions]);
 
   const chatSessions = useMemo(() => {
-    const base = sessions.filter((s) => {
+    return sessions.filter((s) => {
       if (s.archived) return false;
       if (s.id === "main") return false;
       if (historyKind) return s.kind === historyKind;
       return true;
     });
-    if (search)
-      return base.filter((s) => sessionTitle(s).toLowerCase().includes(search.toLowerCase()));
-    return base;
-  }, [sessions, search, historyKind]);
+  }, [sessions, historyKind]);
 
-  const filteredSkills = useMemo(() => {
-    if (!search) return skills;
-    return skills.filter(
-      (s) =>
-        s.name.toLowerCase().includes(search.toLowerCase()) ||
-        s.description.toLowerCase().includes(search.toLowerCase()),
-    );
-  }, [skills, search]);
-
-  const agentSkills = useMemo(
-    () => filteredSkills.filter((s) => s.scope === "agent"),
-    [filteredSkills],
-  );
-  const userSkills = useMemo(
-    () => filteredSkills.filter((s) => s.scope === "user"),
-    [filteredSkills],
-  );
-  const systemSkills = useMemo(
-    () => filteredSkills.filter((s) => s.scope === "system"),
-    [filteredSkills],
+  const archivedCount = useMemo(
+    () => sessions.filter((s) => !s.archived && s.kind !== "main").length,
+    [sessions],
   );
 
-  const userMemory = useMemo(
-    () => memories.find((m) => m.agent_id === agentId),
-    [memories, agentId],
-  );
-
-  // ── create session ───────────────────────────────────────────────────────
+  // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
     const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentId });
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
@@ -682,29 +521,13 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     }
   }, [sessionsQuery]);
 
-  // ── close switcher on outside click ──────────────────────────────────────
-  const switcherRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!switcherOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
-        setSwitcherOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [switcherOpen]);
-
   return (
-    <aside className="flex flex-col overflow-hidden w-full h-full">
-      {/* Agents */}
-      <div ref={switcherRef} className="flex-shrink-0 px-3 pt-3">
-        <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground/70">
-          Agents
-        </div>
-        <div className="grid gap-1">
-          {agents.map((ag) => {
-            const c = agentColor(ag.id);
+    <aside className="flex h-full w-full flex-col overflow-hidden">
+      {/* ── Agents ──────────────────────────────────────────────────────── */}
+      <div className="shrink-0 px-3 pt-3">
+        <SectionLabel>Agents</SectionLabel>
+        <div className="grid gap-1.5">
+          {agents.map((ag, idx) => {
             const isCur = ag.id === agentId;
             return (
               <button
@@ -712,15 +535,15 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 type="button"
                 onClick={() => onAgentChange(ag.id)}
                 className={cn(
-                  "grid min-h-12 grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-2 py-1.5 text-left transition-all duration-150",
+                  "group grid min-h-[46px] grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-[7px] py-1.5 text-left transition-all duration-150",
                   isCur
-                    ? "bg-card text-foreground shadow-[0_0_0_1px_var(--border),0_6px_18px_rgba(29,29,31,0.04)]"
+                    ? "bg-card text-foreground shadow-[0_0_0_0.5px_var(--border),0_6px_18px_rgba(29,29,31,0.04)]"
                     : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
                 )}
               >
                 <span
-                  className="grid size-8 place-items-center rounded-[10px] text-[13px] font-bold text-white shadow-sm"
-                  style={{ background: c }}
+                  className="grid size-8 place-items-center rounded-[10px] text-[13px] font-bold text-white shadow-[0_6px_14px_rgba(0,0,0,0.14)]"
+                  style={{ background: agentGradient(ag.id, idx) }}
                 >
                   {ag.name[0]?.toUpperCase()}
                 </span>
@@ -728,13 +551,18 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
                     {ag.name}
                   </span>
-                  <span className="block truncate font-mono text-[10.5px] leading-snug text-muted-foreground">
-                    {(ag as { model?: string }).model || "Main session"}
-                  </span>
                 </span>
-                {isCur && (
-                  <span className="size-2 rounded-full bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)]" />
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void navigate({ to: "/settings/agents" });
+                  }}
+                  className="grid size-7 place-items-center rounded-full text-muted-foreground/42 transition-all hover:bg-primary/10 hover:text-primary"
+                  aria-label={`${ag.name} settings`}
+                >
+                  <IconSettings />
+                </button>
               </button>
             );
           })}
@@ -744,135 +572,138 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
         </div>
       </div>
 
-      {/* Search */}
-      <div className="flex-shrink-0 px-3 pt-3">
-        <div className="relative">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("sessions.sidebar.search")}
-            className="w-full rounded-full border border-border/70 bg-card/70 py-1.5 pr-3 pl-7 font-mono text-xs text-foreground shadow-sm transition-all duration-150 placeholder:text-muted-foreground/50 hover:bg-card focus:border-primary/40 focus:outline-none"
-          />
-          <svg
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.35-4.35" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Scrollable nav */}
-      <div ref={listRef} className="flex-1 overflow-y-auto pb-2" onScroll={handleScroll}>
-        {/* Home row — standalone, above Tasks */}
-        {!search && (
-          <NavRow
-            active={
-              homeSession ? activeSessionId === homeSession.id : isActive(`/agents/${agentId}`)
-            }
-            icon={<IconHome />}
-            title={selectedAgent?.name ?? "Home"}
-            onClick={() => {
-              const go = async () => {
-                let sid = homeSession?.id;
-                if (!sid) {
-                  const sess = await api<Session>("POST", "/api/sessions", {
-                    agent_id: agentId,
-                    kind: "main",
-                  });
-                  await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
-                  sid = sess.id;
-                }
-                void navigate({
-                  to: "/agents/$agentId/sessions/$sessionId",
-                  params: { agentId, sessionId: sid },
-                });
-              };
-              void go();
-            }}
-          />
-        )}
-
-        {/* Workspace */}
-        {!search && (
-          <div>
-            <div className="px-5 pt-4 pb-1 text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground/70">
-              Workspace
-            </div>
-            <SectionHeader
+      {/* ── Scrollable nav ──────────────────────────────────────────────── */}
+      <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-2" onScroll={handleScroll}>
+        {/* ── Workspace ─────────────────────────────────────────────────── */}
+        <div>
+          <SectionLabel>Workspace</SectionLabel>
+          <div className="grid gap-0.5">
+            <NavItem
+              active={isActive(`/agents/${agentId}/tasks`)}
               icon={<IconTask />}
               label={t("sessions.sidebar.tasks")}
-              active={isActive(`/agents/${agentId}/tasks`)}
-              onToggle={() => void navigate({ to: "/agents/$agentId/tasks", params: { agentId } })}
+              badge={taskCount}
+              onClick={() => void navigate({ to: "/agents/$agentId/tasks", params: { agentId } })}
             />
-            <SectionHeader
-              icon={<IconClock />}
-              label={t("sessions.sidebar.automations")}
+            <NavItem
               active={isActive(`/agents/${agentId}/automations`)}
-              onToggle={() =>
+              icon={<IconAutomation />}
+              label={t("sessions.sidebar.automations")}
+              onClick={() =>
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } })
               }
             />
+            <NavItem
+              active={isActive(`/agents/${agentId}/skills`)}
+              icon={<IconSkills />}
+              label={t("sessions.sidebar.skills")}
+              onClick={() => void navigate({ to: "/agents/$agentId/skills", params: { agentId } })}
+            />
+            <NavItem
+              active={
+                isActive(`/agents/${agentId}/memories/soul`) ||
+                isActive(`/agents/${agentId}/memories/profile`)
+              }
+              icon={<IconMemory />}
+              label={t("sessions.sidebar.memory")}
+              onClick={() =>
+                void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } })
+              }
+            />
           </div>
-        )}
+        </div>
 
-        {/* Projects */}
-        {!search && (
-          <div>
-            <div className="flex items-center">
-              <div className="flex-1">
-                <SectionHeader
-                  icon={<IconFolder />}
-                  label="Project folders"
-                  open={isOpen("project")}
-                  onToggle={() => toggleSection("project")}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowCreateProject(true);
-                }}
-                className="mr-3 p-0.5 text-muted-foreground/40 hover:text-foreground transition-colors"
-                title="New project"
-              >
-                <IconPlus />
-              </button>
-            </div>
-            {isOpen("project") &&
-              (projects as Project[]).map((p) => {
-                return (
-                  <div key={p.id} className="group/proj flex items-center">
-                    <div className="flex-1 min-w-0">
-                      <NavRow
-                        active={activeProjectId === p.id}
-                        icon={<IconFolder />}
-                        title={p.name}
-                        indent
-                        onClick={() => void openProject(p.id)}
+        {/* ── Project folders ──────────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between pr-1">
+            <SectionLabel>Project folders</SectionLabel>
+            <button
+              type="button"
+              onClick={() => setShowCreateProject(true)}
+              className="mt-2 p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
+              title="New project"
+            >
+              <IconPlus />
+            </button>
+          </div>
+          <div className="grid gap-1">
+            {(projects as Project[]).map((p, idx) => {
+              const open = isProjectOpen(p.id);
+              const isActiveProject = activeProjectId === p.id;
+              const projectSessions = sessions.filter((s) => s.project_id === p.id && !s.archived);
+              return (
+                <div key={p.id} className="group/proj rounded-xl p-1.5 text-[12px]">
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      className="flex min-h-[30px] min-w-0 flex-1 cursor-pointer items-center gap-2 text-left font-semibold text-foreground"
+                      onClick={() => {
+                        toggleProject(p.id);
+                        void openProject(p.id);
+                      }}
+                    >
+                      <ChevRight
+                        className={cn(
+                          "size-2.5 shrink-0 text-muted-foreground/50 transition-transform duration-150",
+                          open && "rotate-90",
+                        )}
                       />
-                    </div>
+                      <span
+                        className="size-2.5 shrink-0 rounded-[3px]"
+                        style={{ background: projectColor(idx) }}
+                      />
+                      <span
+                        className={cn(
+                          "truncate",
+                          isActiveProject ? "text-primary" : "text-foreground",
+                        )}
+                      >
+                        {p.name}
+                      </span>
+                    </button>
                     {(projects as Project[]).length > 1 && (
                       <button
                         type="button"
                         onClick={() => void deleteProject(p.id)}
-                        className="mr-3 p-0.5 opacity-0 group-hover/proj:opacity-100 text-muted-foreground/40 hover:text-destructive transition-all"
+                        className="p-0.5 text-muted-foreground/40 opacity-0 transition-all hover:text-destructive group-hover/proj:opacity-100"
                         title="Delete project"
                       >
                         <IconTrash />
                       </button>
                     )}
                   </div>
-                );
-              })}
+                  {open && projectSessions.length > 0 && (
+                    <div className="ml-[30px] mt-1 grid gap-1 border-l border-border/70 pl-3">
+                      {projectSessions.map((s) => {
+                        const isActiveSess = activeSessionId === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() =>
+                              void navigate({
+                                to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+                                params: { agentId, projectId: p.id, sessionId: s.id },
+                              })
+                            }
+                            className={cn(
+                              "flex h-[25px] items-center rounded-[7px] px-2 text-left text-[11.5px] transition-colors",
+                              isActiveSess
+                                ? "bg-primary/10 text-primary"
+                                : "text-muted-foreground hover:bg-primary/[0.07] hover:text-primary",
+                            )}
+                          >
+                            {sessionTitle(s)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
+        </div>
         {showCreateProject && (
           <CreateProjectDialog
             agentId={agentId}
@@ -885,190 +716,92 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           />
         )}
 
-        {/* Skills */}
-        {(filteredSkills.length > 0 || !search) && (
-          <div>
-            <SectionHeader
-              icon={<IconStar />}
-              label={t("sessions.sidebar.skills")}
-              open={isOpen("skill")}
-              onToggle={() => toggleSection("skill")}
+        {/* ── Archive ──────────────────────────────────────────────────── */}
+        <div>
+          <SectionLabel>Archive</SectionLabel>
+          <button
+            type="button"
+            onClick={() => setArchiveOpen((v) => !v)}
+            className="flex h-8 w-full items-center gap-2 rounded-[10px] px-2.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground"
+          >
+            <ChevRight
+              className={cn(
+                "size-2.5 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+                archiveOpen && "rotate-90",
+              )}
             />
-            {isOpen("skill") && (
-              <>
-                {(agentSkills.length > 0 || systemSkills.length > 0) && (
-                  <>
-                    <SubFolder
-                      label={t("sessions.sidebar.builtin")}
-                      count={agentSkills.length + systemSkills.length}
-                      open={isFolderOpen("skill:builtin")}
-                      onToggle={() => toggleFolder("skill:builtin")}
-                    />
-                    {isFolderOpen("skill:builtin") &&
-                      [...systemSkills, ...agentSkills].map((s) => (
-                        <NavRow
-                          key={`${s.scope}:${s.id}`}
-                          active={pathname.includes(`/skills/${s.id}`)}
-                          icon={<IconStar />}
-                          title={s.name}
-                          sub={s.description}
-                          indent
-                          onClick={() =>
-                            void navigate({
-                              to: "/agents/$agentId/skills/$skillId",
-                              params: { agentId, skillId: s.id },
-                            })
-                          }
-                        />
-                      ))}
-                  </>
-                )}
-                {userSkills.map((s) => (
-                  <NavRow
-                    key={s.id}
-                    active={pathname.includes(`/skills/${s.id}`)}
-                    icon={<IconStar />}
-                    title={s.name}
-                    sub={s.description}
-                    indent
-                    onClick={() =>
-                      void navigate({
-                        to: "/agents/$agentId/skills/$skillId",
-                        params: { agentId, skillId: s.id },
-                      })
-                    }
-                  />
-                ))}
-                {userSkills.length === 0 &&
-                  agentSkills.length === 0 &&
-                  systemSkills.length === 0 && (
-                    <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                      {t("sessions.sidebar.noSkills")}
-                    </p>
-                  )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Memory */}
-        {!search && (
-          <div>
-            <SectionHeader
-              icon={<IconBrain />}
-              label={t("sessions.sidebar.memory")}
-              open={isOpen("memory")}
-              onToggle={() => toggleSection("memory")}
-            />
-            {isOpen("memory") && (
-              <>
-                <NavRow
-                  active={isActive(`/agents/${agentId}/memories/soul`)}
-                  icon={<IconBrain />}
-                  title={t("sessions.sidebar.agentSoul")}
-                  sub={t("sessions.sidebar.soulSubtitle")}
-                  indent
-                  onClick={() =>
-                    void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } })
-                  }
-                />
-                <NavRow
-                  active={isActive(`/agents/${agentId}/memories/profile`)}
-                  icon={<IconBrain />}
-                  title={t("sessions.sidebar.userProfile")}
-                  sub={
-                    userMemory?.updated_at
-                      ? formatTime(userMemory.updated_at)
-                      : t("sessions.sidebar.noMemory")
-                  }
-                  indent
+            <span className="flex-1">Archived sessions</span>
+            <span className="font-mono text-[10px] text-muted-foreground/50">{archivedCount}</span>
+          </button>
+          {archiveOpen && (
+            <div className="mt-1">
+              <div className="mb-1 flex items-center gap-1 px-2">
+                <select
+                  value={historyKind}
+                  onChange={(e) => setHistoryKind(e.target.value)}
+                  className="rounded border border-border/50 bg-muted/50 px-2 py-0.5 font-mono text-xs text-muted-foreground focus:outline-none"
+                >
+                  <option value="">all</option>
+                  <option value="chat">chat</option>
+                  <option value="scheduler">scheduler</option>
+                  <option value="task">task</option>
+                </select>
+              </div>
+              {chatSessions.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
                   onClick={() =>
                     void navigate({
-                      to: "/agents/$agentId/memories/profile",
-                      params: { agentId },
+                      to: "/agents/$agentId/sessions/$sessionId",
+                      params: { agentId, sessionId: s.id },
                     })
                   }
-                />
-              </>
-            )}
-          </div>
-        )}
-
-        {/* History (was Chats - moved to bottom, collapsed by default) */}
-        {(chatSessions.length > 0 || !search) && (
-          <div>
-            <SectionHeader
-              icon={<IconChat />}
-              label="Archive"
-              open={isOpen("history")}
-              onToggle={() => toggleSection("history")}
-            />
-            {isOpen("history") && (
-              <>
-                <div className="flex items-center gap-1 px-4 py-1">
-                  <select
-                    value={historyKind}
-                    onChange={(e) => setHistoryKind(e.target.value)}
-                    className="text-xs font-mono bg-muted/50 border border-border/50 rounded px-2 py-0.5 text-muted-foreground focus:outline-none"
-                  >
-                    <option value="">all</option>
-                    <option value="chat">chat</option>
-                    <option value="scheduler">scheduler</option>
-                    <option value="task">task</option>
-                  </select>
+                  className={cn(
+                    "w-full truncate rounded-[9px] px-3 py-[7px] text-left text-[12px] leading-snug transition-colors",
+                    activeSessionId === s.id
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                  )}
+                >
+                  {sessionTitle(s)}
+                </button>
+              ))}
+              {chatSessions.length === 0 && (
+                <p className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                  {t("sessions.sidebar.noChats")}
+                </p>
+              )}
+              {sessionsQuery.isLoading && (
+                <div className="flex items-center gap-2 px-3 py-1.5">
+                  <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground/70" />
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {t("common.loading")}
+                  </span>
                 </div>
-                {chatSessions.map((s) => (
-                  <NavRow
-                    key={s.id}
-                    active={activeSessionId === s.id}
-                    icon={<IconChat />}
-                    title={sessionTitle(s)}
-                    meta={formatTime(s.last_active)}
-                    indent
-                    onClick={() =>
-                      void navigate({
-                        to: "/agents/$agentId/sessions/$sessionId",
-                        params: { agentId, sessionId: s.id },
-                      })
-                    }
-                  />
-                ))}
-                {chatSessions.length === 0 && (
-                  <p className="px-7 py-2 text-xs text-muted-foreground font-mono">
-                    {t("sessions.sidebar.noChats")}
-                  </p>
-                )}
-                {sessionsQuery.isLoading && (
-                  <div className="px-7 py-1.5 flex items-center gap-2">
-                    <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground/70 rounded-full animate-spin" />
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {t("common.loading")}
-                    </span>
-                  </div>
-                )}
-                {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
-                  <button
-                    type="button"
-                    onClick={() => void sessionsQuery.fetchNextPage()}
-                    className="w-full px-7 py-1.5 text-xs text-muted-foreground hover:text-foreground font-mono text-left transition-colors"
-                  >
-                    {t("sessions.sidebar.loadMore")}
-                  </button>
-                )}
-                <div className="flex justify-end px-3 py-1">
-                  <button
-                    type="button"
-                    onClick={() => void createSession()}
-                    className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
-                  >
-                    <IconPlus />
-                    New
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+              )}
+              {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
+                <button
+                  type="button"
+                  onClick={() => void sessionsQuery.fetchNextPage()}
+                  className="w-full px-3 py-1.5 text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {t("sessions.sidebar.loadMore")}
+                </button>
+              )}
+              <div className="flex justify-end px-1 py-1">
+                <button
+                  type="button"
+                  onClick={() => void createSession()}
+                  className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground/60 transition-colors hover:text-foreground"
+                >
+                  <IconPlus />
+                  New
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </aside>
   );

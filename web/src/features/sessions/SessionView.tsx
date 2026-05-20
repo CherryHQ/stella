@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Session, Workspace } from "@/lib/types";
@@ -19,6 +19,7 @@ export function SessionView() {
     sessionId: string;
     projectId?: string;
   };
+  const { draft } = useSearch({ strict: false }) as { draft?: string };
   const navigate = useNavigate();
   const { data: me } = useQuery(meQueryOptions);
   const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
@@ -127,6 +128,7 @@ export function SessionView() {
         <SessionDetail
           session={sessionDetail}
           currentUserID={currentUserID}
+          initialDraft={draft}
           onBack={() => {
             void navigate({ to: "/agents/$agentId", params: { agentId } });
           }}

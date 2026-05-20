@@ -1,21 +1,35 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Menu, PanelLeftClose, PanelRightClose, Search, UserRound } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Menu, Search, UserRound } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
+import { agentsQueryOptions } from "@/lib/queries/agents";
+import { agentProjectsOptions } from "@/lib/queries/projects";
+import type { Agent, Project } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const LEFT_COLLAPSED_KEY = "stella-left-collapsed";
-const RIGHT_COLLAPSED_KEY = "stella-right-collapsed";
 
 export function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
   const me = queryClient.getQueryData(meQueryOptions.queryKey);
   const { t } = useI18n();
-  const [leftCollapsed, setLeftCollapsed] = useStoredPanelState(LEFT_COLLAPSED_KEY, false);
-  const [rightCollapsed, setRightCollapsed] = useStoredPanelState(RIGHT_COLLAPSED_KEY, false);
+
+  const agentId = pathname.match(/\/agents\/([^/]+)/)?.[1] ?? "";
+  const projectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
+  const { data: agents = [] } = useQuery(agentsQueryOptions);
+  const { data: projects = [] } = useQuery({
+    ...agentProjectsOptions(agentId),
+    enabled: !!agentId,
+  });
+  const agentName = (agents as Agent[]).find((a) => a.id === agentId)?.name;
+  const projectName = projectId
+    ? (projects as Project[]).find((p) => p.id === projectId)?.name
+    : undefined;
+
+  const [leftCollapsed] = useStoredPanelState(LEFT_COLLAPSED_KEY, false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navItems = [
@@ -28,7 +42,6 @@ export function AppLayout() {
   return (
     <div
       data-left-collapsed={leftCollapsed ? "true" : "false"}
-      data-right-collapsed={rightCollapsed ? "true" : "false"}
       className="relative isolate flex h-svh flex-col overflow-hidden bg-background text-foreground"
     >
       <header className="relative z-40 flex h-[52px] shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-3 shadow-[0_1px_0_rgba(255,255,255,0.55)_inset] backdrop-blur-xl supports-[backdrop-filter]:bg-background/75 sm:px-4">
@@ -54,6 +67,18 @@ export function AppLayout() {
           <div className="hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground md:flex">
             <span>/</span>
             <span className="truncate font-medium text-foreground">{routeCrumb(pathname)}</span>
+            {agentName && (
+              <>
+                <span>/</span>
+                <span className="truncate font-medium text-foreground">{agentName}</span>
+              </>
+            )}
+            {projectName && (
+              <>
+                <span>/</span>
+                <span className="truncate font-medium text-foreground">{projectName}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -70,16 +95,6 @@ export function AppLayout() {
         </button>
 
         <div className="flex items-center gap-1.5">
-          <PanelToggle
-            side="left"
-            collapsed={leftCollapsed}
-            onClick={() => setLeftCollapsed((value) => !value)}
-          />
-          <PanelToggle
-            side="right"
-            collapsed={rightCollapsed}
-            onClick={() => setRightCollapsed((value) => !value)}
-          />
           <Link
             to="/profile"
             className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -137,32 +152,6 @@ function useStoredPanelState(key: string, fallback: boolean) {
   }, [key, value]);
 
   return [value, setValue] as const;
-}
-
-function PanelToggle({
-  side,
-  collapsed,
-  onClick,
-}: {
-  side: "left" | "right";
-  collapsed: boolean;
-  onClick: () => void;
-}) {
-  const Icon = side === "left" ? PanelLeftClose : PanelRightClose;
-  const label = `${collapsed ? "Show" : "Hide"} ${side === "left" ? "left navigation" : "workspace"}`;
-
-  return (
-    <button
-      type="button"
-      className="hidden size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:grid"
-      aria-label={label}
-      aria-pressed={collapsed}
-      title={label}
-      onClick={onClick}
-    >
-      <Icon className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
-    </button>
-  );
 }
 
 function ShellNavLink({

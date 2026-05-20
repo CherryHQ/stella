@@ -18,6 +18,7 @@ import { Transcript } from "./Transcript";
 interface Props {
   session: Session | null;
   currentUserID: number;
+  initialDraft?: string;
   onBack: () => void;
   onSessionUpdate: (s: Session) => void;
   onToggleLeft: () => void;
@@ -27,6 +28,7 @@ interface Props {
 export function SessionDetail({
   session,
   currentUserID,
+  initialDraft,
   onBack,
   onToggleLeft,
   onToggleRight,
@@ -41,7 +43,7 @@ export function SessionDetail({
   const [inspectTab, setInspectTab] = useState<"session" | "tools" | "prompt" | "skills">(
     "session",
   );
-  const [userInput, setUserInput] = useState("");
+  const [userInput, setUserInput] = useState(initialDraft ?? "");
   const [attachments, setAttachments] = useState<
     { name: string; path: string; uploading: boolean }[]
   >([]);
