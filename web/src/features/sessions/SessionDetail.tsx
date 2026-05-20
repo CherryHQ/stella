@@ -52,6 +52,7 @@ export function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const autoSentRef = useRef(false);
 
   const enc = session ? encodeURIComponent(session.id) : "";
 
@@ -261,6 +262,12 @@ export function SessionDetail({
 
     void chatSendMessage({ text });
   }, [userInput, isStreaming, session, attachments, chatSendMessage]);
+
+  useEffect(() => {
+    if (!initialDraft?.trim() || !session || autoSentRef.current) return;
+    autoSentRef.current = true;
+    void sendMessage();
+  }, [initialDraft, session, sendMessage]);
 
   const copyID = useCallback(async () => {
     if (!session?.id) return;
