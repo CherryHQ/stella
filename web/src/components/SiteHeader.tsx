@@ -149,7 +149,7 @@ export function SiteHeader() {
   );
 }
 
-function ThemeSelector() {
+export function ThemeSelector() {
   const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
   useEffect(() => {
@@ -308,7 +308,7 @@ function GithubLink() {
   );
 }
 
-function UserMenu() {
+export function UserMenu() {
   const { data: me } = useQuery(meQueryOptions);
   const qc = useQueryClient();
   const navigate = useNavigate();

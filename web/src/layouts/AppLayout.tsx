@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Menu, Search, UserRound } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Menu } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
-import { agentsQueryOptions } from "@/lib/queries/agents";
-import { agentProjectsOptions } from "@/lib/queries/projects";
-import type { Agent, Project } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { ThemeSelector, UserMenu } from "@/components/SiteHeader";
 
 const LEFT_COLLAPSED_KEY = "stella-left-collapsed";
 
@@ -16,18 +14,6 @@ export function AppLayout() {
   const queryClient = useQueryClient();
   const me = queryClient.getQueryData(meQueryOptions.queryKey);
   const { t } = useI18n();
-
-  const agentId = pathname.match(/\/agents\/([^/]+)/)?.[1] ?? "";
-  const projectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const { data: projects = [] } = useQuery({
-    ...agentProjectsOptions(agentId),
-    enabled: !!agentId,
-  });
-  const agentName = (agents as Agent[]).find((a) => a.id === agentId)?.name;
-  const projectName = projectId
-    ? (projects as Project[]).find((p) => p.id === projectId)?.name
-    : undefined;
 
   const [leftCollapsed] = useStoredPanelState(LEFT_COLLAPSED_KEY, false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -45,7 +31,7 @@ export function AppLayout() {
       className="relative isolate flex h-svh flex-col overflow-hidden bg-background text-foreground"
     >
       <header className="relative z-40 flex h-[52px] shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-3 shadow-[0_1px_0_rgba(255,255,255,0.55)_inset] backdrop-blur-xl supports-[backdrop-filter]:bg-background/75 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
@@ -59,50 +45,26 @@ export function AppLayout() {
             className="flex shrink-0 items-center gap-2.5"
             aria-label="Stella home"
           >
-            <span className="grid size-6 place-items-center rounded-[7px] bg-foreground text-xs font-bold text-background shadow-sm">
-              S
+            <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
+            <span className="font-serif text-xl italic tracking-tight text-foreground select-none">
+              stella
             </span>
-            <span className="text-sm font-semibold tracking-[-0.01em]">Stella</span>
           </Link>
-          <div className="hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground md:flex">
-            <span>/</span>
-            <span className="truncate font-medium text-foreground">{routeCrumb(pathname)}</span>
-            {agentName && (
-              <>
-                <span>/</span>
-                <span className="truncate font-medium text-foreground">{agentName}</span>
-              </>
-            )}
-            {projectName && (
-              <>
-                <span>/</span>
-                <span className="truncate font-medium text-foreground">{projectName}</span>
-              </>
-            )}
-          </div>
+          <nav className="ml-2 hidden h-[52px] items-center md:flex">
+            {navItems.map((item) => (
+              <HeaderNavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                pathname={pathname}
+              />
+            ))}
+          </nav>
         </div>
 
-        <button
-          type="button"
-          className="hidden h-8 w-[min(420px,36vw)] items-center gap-2 rounded-full border border-border/70 bg-card/75 px-3 text-left text-xs text-muted-foreground shadow-sm transition-colors hover:bg-card md:flex"
-          aria-label="Search Stella"
-        >
-          <Search className="size-3.5" />
-          <span className="truncate">Search Stella</span>
-          <kbd className="ml-auto rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            ⌘K
-          </kbd>
-        </button>
-
         <div className="flex items-center gap-1.5">
-          <Link
-            to="/profile"
-            className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="Account"
-            title={me?.username ?? "Account"}
-          >
-            <UserRound className="size-4" />
-          </Link>
+          <ThemeSelector />
+          {me && <UserMenu />}
         </div>
       </header>
 
@@ -182,11 +144,28 @@ function ShellNavLink({
   );
 }
 
-function routeCrumb(pathname: string) {
-  if (pathname.startsWith("/settings")) return "Settings";
-  if (pathname.startsWith("/recally")) return "Recally";
-  if (pathname.startsWith("/automations")) return "Automations";
-  if (pathname.startsWith("/scheduler")) return "Scheduler";
-  if (pathname.startsWith("/agents")) return "Agents";
-  return "Workspace";
+function HeaderNavLink({
+  href,
+  label,
+  pathname,
+}: {
+  href: string;
+  label: string;
+  pathname: string;
+}) {
+  const active = pathname === href || pathname.startsWith(href + "/");
+  return (
+    <Link
+      to={href as never}
+      className={cn(
+        "relative flex h-full items-center px-3 text-sm font-medium transition-colors",
+        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+      {active && (
+        <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-foreground" />
+      )}
+    </Link>
+  );
 }
