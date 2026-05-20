@@ -1,5 +1,6 @@
 oauth_providers:
   - id: github
+    icon: simpleicons:github
     client_id: 178c6fc778ccc68e1d6a
     scopes:
       - repo
@@ -165,6 +166,7 @@ oauth_providers:
         auth_style: in_params
 
   - id: x
+    icon: simpleicons:x
     scopes:
       - tweet.read
       - tweet.write

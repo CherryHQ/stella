@@ -29,6 +29,7 @@ type ProviderFlowConfig struct {
 // take precedence at flow-start time.
 type ProviderConfig struct {
 	ID           string
+	Icon         string
 	Scopes       []string
 	VaultKey     string
 	Flows        []ProviderFlowConfig

@@ -9,9 +9,34 @@ import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import * as simpleIcons from "simple-icons";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 type Section = "vault" | "oauth";
+
+function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
+  if (!icon) {
+    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
+  }
+
+  const [family, name] = icon.split(":");
+  const path = family === "simpleicons" ? simpleIconPath(name) : undefined;
+  if (!path) {
+    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="currentColor" aria-label={label}>
+      <path d={path} />
+    </svg>
+  );
+}
+
+function simpleIconPath(name: string) {
+  const key = `si${name.replace(/(^|[-_. ])([a-z0-9])/g, (_, _sep: string, char: string) => char.toUpperCase())}`;
+  const icon = (simpleIcons as Record<string, { path?: string } | undefined>)[key];
+  return icon?.path;
+}
 
 export function CredentialsPage() {
   const { t } = useI18n();
@@ -437,6 +462,7 @@ export function CredentialsPage() {
           <div key={p.provider}>
             <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
               <div className="flex items-center gap-3">
+                <ProviderIcon icon={p.icon} label={p.provider} />
                 <span className="font-medium text-sm">{p.provider}</span>
                 {oauthStatus[p.provider] === "connected" && (
                   <Badge variant="success">Connected</Badge>

@@ -61,6 +61,7 @@ func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
 	}
 	return ManifestOAuthProvider{
 		ID:           ro.ID,
+		Icon:         ro.Icon,
 		Scopes:       ro.Scopes,
 		VaultKey:     ro.VaultKey,
 		Flows:        flows,
@@ -150,6 +151,7 @@ func manifestToRaw(m *Manifest) rawManifest {
 		}
 		rm.OAuthProviders = append(rm.OAuthProviders, rawManifestOAuthProvider{
 			ID:           o.ID,
+			Icon:         o.Icon,
 			Scopes:       o.Scopes,
 			VaultKey:     o.VaultKey,
 			Flows:        flows,

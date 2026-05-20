@@ -52,6 +52,7 @@ type ManifestOAuthFlow struct {
 
 type ManifestOAuthProvider struct {
 	ID           string              `json:"id" yaml:"id"`
+	Icon         string              `json:"icon,omitempty" yaml:"icon,omitempty"`
 	Scopes       []string            `json:"scopes" yaml:"scopes"`
 	VaultKey     string              `json:"vault_key" yaml:"vault_key"`
 	Flows        []ManifestOAuthFlow `json:"flows" yaml:"flows"`
@@ -89,6 +90,7 @@ type rawManifestOAuthFlow struct {
 
 type rawManifestOAuthProvider struct {
 	ID           string                 `yaml:"id"`
+	Icon         string                 `yaml:"icon,omitempty"`
 	Scopes       []string               `yaml:"scopes"`
 	VaultKey     string                 `yaml:"vault_key"`
 	Flows        []rawManifestOAuthFlow `yaml:"flows"`

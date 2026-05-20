@@ -360,6 +360,7 @@ export interface VaultEntry {
 
 export interface OAuthProvider {
   provider: string;
+  icon?: string;
   available: boolean;
   configured: boolean;
   connected: boolean;
