@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import {
@@ -15,8 +16,6 @@ import {
   SettingsListItem,
 } from "@/features/settings/SettingsListPanel";
 import * as simpleIcons from "simple-icons";
-
-type Toast = { message: string; type: "success" | "error" } | null;
 type Section = "vault" | "oauth";
 
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
@@ -69,15 +68,8 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
 
-  const [toast, setToast] = useState<Toast>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { toasts, showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
-
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
-  }, []);
 
   const loadVaultEntries = useCallback(async () => {
     setVaultLoading(true);
@@ -178,7 +170,6 @@ export function CredentialsPage() {
     };
     void init();
     return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       for (const key of Object.keys(pollAbortRef.current)) {
         pollAbortRef.current[key] = true;
       }
@@ -347,21 +338,8 @@ export function CredentialsPage() {
     </SettingsListBody>
   );
 
-  const toastBanner = toast ? (
-    <div
-      className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
-        toast.type === "error"
-          ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-          : "border-success/36 bg-success/8 text-success-foreground"
-      }`}
-    >
-      {toast.message}
-    </div>
-  ) : null;
-
   const vaultDetail = (
     <div className="p-6">
-      {toastBanner}
       <h2 className="font-serif text-xl mb-1">Vault</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Encrypted secrets injected as environment variables in sandbox sessions.
@@ -447,7 +425,6 @@ export function CredentialsPage() {
 
   const oauthDetail = (
     <div className="p-6">
-      {toastBanner}
       <h2 className="font-serif text-xl mb-1">OAuth Providers</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools and
@@ -600,6 +577,7 @@ export function CredentialsPage() {
     // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
     <div className="h-full">
       <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
+      <ToastContainer messages={toasts} />
     </div>
   );
 }

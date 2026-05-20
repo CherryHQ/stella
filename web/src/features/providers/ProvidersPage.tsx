@@ -12,15 +12,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogPopup,
-  DialogTitle,
-  DialogHeader,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  DetailPanel,
+  DetailPanelHeader,
+  FormSectionTitle,
+} from "@/features/settings/SettingsDetailPanel";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsListBody,
   SettingsListHeader,
@@ -122,36 +122,6 @@ function providerJSONValue(p: Provider): object {
     base_url: p.base_url,
     models: p.models || {},
   };
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-interface ToastMsg {
-  id: number;
-  text: string;
-  kind: "success" | "error";
-}
-
-let toastSeq = 0;
-
-function Toast({ messages }: { messages: ToastMsg[] }) {
-  if (messages.length === 0) return null;
-  return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
-      {messages.map((m) => (
-        <div
-          key={m.id}
-          className={`px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium pointer-events-auto ${
-            m.kind === "error"
-              ? "bg-destructive text-destructive-foreground"
-              : "bg-success text-success-foreground"
-          }`}
-        >
-          {m.text}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // ── ProviderDetail ────────────────────────────────────────────────────────────
@@ -331,435 +301,407 @@ function ProviderDetail({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Panel header */}
-        <div className="flex items-start justify-between gap-4">
+    <DetailPanel
+      footer={
+        <>
+          <Button onClick={handleSave} variant="default" size="sm">
+            {t("common.save")}
+          </Button>
+          <Button
+            onClick={() => setConfirmDeleteOpen(true)}
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            {t("common.delete")}
+          </Button>
+        </>
+      }
+    >
+      <DetailPanelHeader
+        title={provider.name || provider.id}
+        subtitle={
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
+            <Badge variant="outline" size="sm">
+              {provider.type}
+            </Badge>
+          </div>
+        }
+        action={
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={provider.enabled}
+              onCheckedChange={(checked) => updateField("enabled", checked)}
+            />
+            <span className="text-sm">{t("providers.enabled")}</span>
+          </div>
+        }
+      />
+
+      {/* Connection section */}
+      <div className="space-y-4">
+        <FormSectionTitle>Connection</FormSectionTitle>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <h2 className="font-serif text-xl tracking-tight">{provider.name || provider.id}</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
-              <Badge variant="outline" size="sm">
-                {provider.type}
-              </Badge>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={provider.enabled}
-                onCheckedChange={(checked) => updateField("enabled", checked)}
-              />
-              <span className="text-sm">{t("providers.enabled")}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Connection section */}
-        <div className="space-y-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Connection
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-medium mb-1 block">Type</label>
-              <select
-                value={provider.type}
-                onChange={(e) => updateField("type", e.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
-              >
-                {providerTypes.map((pt) => (
-                  <option key={pt.id} value={pt.id}>
-                    {pt.name} ({pt.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">Name</label>
-              <Input
-                type="text"
-                value={provider.name}
-                placeholder={provider.id}
-                onChange={(e) =>
-                  updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
-                nativeInput
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">API Key</label>
-              <Input
-                type="password"
-                value={provider.api_key}
-                placeholder="sk-..."
-                onChange={(e) =>
-                  updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
-                nativeInput
-                className="font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">Base URL</label>
-              <Input
-                type="text"
-                value={provider.base_url}
-                placeholder={providerDefaults[provider.type]?.base_url || ""}
-                onChange={(e) =>
-                  updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)
-                }
-                nativeInput
-                className="font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Models section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Models
-            </p>
-            <Button
-              onClick={() => {
-                setCustomModelForm(createCustomModelForm());
-                setShowCustomModelForm(true);
-              }}
-              variant="ghost"
-              size="sm"
+            <label className="text-xs font-medium mb-1 block">Type</label>
+            <select
+              value={provider.type}
+              onChange={(e) => updateField("type", e.target.value)}
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
             >
-              Add custom model
-            </Button>
+              {providerTypes.map((pt) => (
+                <option key={pt.id} value={pt.id}>
+                  {pt.name} ({pt.id})
+                </option>
+              ))}
+            </select>
           </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block">Name</label>
+            <Input
+              type="text"
+              value={provider.name}
+              placeholder={provider.id}
+              onChange={(e) =>
+                updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
+              }
+              nativeInput
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block">API Key</label>
+            <Input
+              type="password"
+              value={provider.api_key}
+              placeholder="sk-..."
+              onChange={(e) =>
+                updateField("api_key", (e as React.ChangeEvent<HTMLInputElement>).target.value)
+              }
+              nativeInput
+              className="font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block">Base URL</label>
+            <Input
+              type="text"
+              value={provider.base_url}
+              placeholder={providerDefaults[provider.type]?.base_url || ""}
+              onChange={(e) =>
+                updateField("base_url", (e as React.ChangeEvent<HTMLInputElement>).target.value)
+              }
+              nativeInput
+              className="font-mono"
+            />
+          </div>
+        </div>
+      </div>
 
-          {/* Custom model form */}
-          {showCustomModelForm && (
-            <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Model ID</label>
-                  <Input
-                    type="text"
-                    value={customModelForm.id}
-                    placeholder="llama3.1:8b"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        id: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                    className="font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Display name</label>
-                  <Input
-                    type="text"
-                    value={customModelForm.name}
-                    placeholder="Llama 3.1 8B (Local)"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        name: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Input</label>
-                  <Input
-                    type="text"
-                    value={customModelForm.input}
-                    placeholder="text, image"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        input: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Output</label>
-                  <Input
-                    type="text"
-                    value={customModelForm.output}
-                    placeholder="text"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        output: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Context window</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={customModelForm.context_window}
-                    placeholder="128000"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        context_window: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Max tokens</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={customModelForm.max_tokens}
-                    placeholder="32000"
-                    onChange={(e) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        max_tokens: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                      }))
-                    }
-                    nativeInput
-                  />
-                </div>
+      {/* Models section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <FormSectionTitle>Models</FormSectionTitle>
+          <Button
+            onClick={() => {
+              setCustomModelForm(createCustomModelForm());
+              setShowCustomModelForm(true);
+            }}
+            variant="ghost"
+            size="sm"
+          >
+            Add custom model
+          </Button>
+        </div>
+
+        {/* Custom model form */}
+        {showCustomModelForm && (
+          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium mb-1 block">Model ID</label>
+                <Input
+                  type="text"
+                  value={customModelForm.id}
+                  placeholder="llama3.1:8b"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      id: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                  className="font-mono"
+                />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-                  <Switch
-                    checked={customModelForm.enabled}
-                    onCheckedChange={(checked) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        enabled: checked,
-                      }))
-                    }
-                  />
-                  <div>
-                    <p className="text-sm">Enabled</p>
-                    <p className="text-xs text-muted-foreground">
-                      Persist model availability on this provider instance.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
-                  <Switch
-                    checked={customModelForm.reasoning}
-                    onCheckedChange={(checked) =>
-                      setCustomModelForm((f) => ({
-                        ...f,
-                        reasoning: checked,
-                      }))
-                    }
-                  />
-                  <div>
-                    <p className="text-sm">Reasoning</p>
-                    <p className="text-xs text-muted-foreground">
-                      Stores the provider-facing <span className="font-mono">reasoning</span> flag.
-                    </p>
-                  </div>
-                </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Display name</label>
+                <Input
+                  type="text"
+                  value={customModelForm.name}
+                  placeholder="Llama 3.1 8B (Local)"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      name: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {[
-                  { label: "Cost input", field: "cost_input" as const },
-                  { label: "Cost output", field: "cost_output" as const },
-                  { label: "Cost cacheRead", field: "cost_cache_read" as const },
-                  { label: "Cost cacheWrite", field: "cost_cache_write" as const },
-                ].map(({ label, field }) => (
-                  <div key={field}>
-                    <label className="text-xs font-medium mb-1 block">{label}</label>
-                    <Input
-                      type="number"
-                      step="any"
-                      value={customModelForm[field]}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setCustomModelForm((f) => ({
-                          ...f,
-                          [field]: (e as React.ChangeEvent<HTMLInputElement>).target.value,
-                        }))
-                      }
-                      nativeInput
-                    />
-                  </div>
-                ))}
+              <div>
+                <label className="text-xs font-medium mb-1 block">Input</label>
+                <Input
+                  type="text"
+                  value={customModelForm.input}
+                  placeholder="text, image"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      input: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                />
               </div>
-
-              <div className="flex items-center gap-3 justify-end">
-                <Button
-                  onClick={() => {
-                    setCustomModelForm(createCustomModelForm());
-                    setShowCustomModelForm(false);
-                  }}
-                  variant="ghost"
-                  size="sm"
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button onClick={handleSubmitCustomModel} variant="default" size="sm">
-                  {customModelForm.original_id
-                    ? t("providers.updateModel")
-                    : t("providers.addModel")}
-                </Button>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Output</label>
+                <Input
+                  type="text"
+                  value={customModelForm.output}
+                  placeholder="text"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      output: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Context window</label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={customModelForm.context_window}
+                  placeholder="128000"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      context_window: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Max tokens</label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={customModelForm.max_tokens}
+                  placeholder="32000"
+                  onChange={(e) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      max_tokens: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                    }))
+                  }
+                  nativeInput
+                />
               </div>
             </div>
-          )}
 
-          {/* Model list */}
-          {models.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Toggle models on or off, then save. Custom models can be edited with the form or in
-                the advanced JSON editor.
-              </p>
-              {models.map((m) => (
-                <div
-                  key={`${m.id}:${m.source}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-sm">{m.id}</span>
-                      <Badge variant="outline" size="sm">
-                        {m.source}
-                      </Badge>
-                      <Badge variant={m.enabled ? "success" : "outline"} size="sm">
-                        {m.enabled ? "enabled" : "disabled"}
-                      </Badge>
-                    </div>
-                    {m.name && m.name !== m.id && (
-                      <p className="text-xs text-muted-foreground">{m.name}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <Switch checked={m.enabled} onCheckedChange={() => handleToggleModel(m)} />
-                      <span className="text-sm">Enabled</span>
-                    </div>
-                    {m.source === "custom" && (
-                      <>
-                        <Button onClick={() => handleEditCustomModel(m)} variant="ghost" size="xs">
-                          edit
-                        </Button>
-                        <Button
-                          onClick={() => handleRemoveCustomModel(m.id)}
-                          variant="ghost"
-                          size="xs"
-                          className="text-destructive"
-                        >
-                          remove
-                        </Button>
-                      </>
-                    )}
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                <Switch
+                  checked={customModelForm.enabled}
+                  onCheckedChange={(checked) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      enabled: checked,
+                    }))
+                  }
+                />
+                <div>
+                  <p className="text-sm">Enabled</p>
+                  <p className="text-xs text-muted-foreground">
+                    Persist model availability on this provider instance.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                <Switch
+                  checked={customModelForm.reasoning}
+                  onCheckedChange={(checked) =>
+                    setCustomModelForm((f) => ({
+                      ...f,
+                      reasoning: checked,
+                    }))
+                  }
+                />
+                <div>
+                  <p className="text-sm">Reasoning</p>
+                  <p className="text-xs text-muted-foreground">
+                    Stores the provider-facing <span className="font-mono">reasoning</span> flag.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                { label: "Cost input", field: "cost_input" as const },
+                { label: "Cost output", field: "cost_output" as const },
+                { label: "Cost cacheRead", field: "cost_cache_read" as const },
+                { label: "Cost cacheWrite", field: "cost_cache_write" as const },
+              ].map(({ label, field }) => (
+                <div key={field}>
+                  <label className="text-xs font-medium mb-1 block">{label}</label>
+                  <Input
+                    type="number"
+                    step="any"
+                    value={customModelForm[field]}
+                    placeholder="0"
+                    onChange={(e) =>
+                      setCustomModelForm((f) => ({
+                        ...f,
+                        [field]: (e as React.ChangeEvent<HTMLInputElement>).target.value,
+                      }))
+                    }
+                    nativeInput
+                  />
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="text-xs text-muted-foreground py-2">
-              No models yet. Fetch from the provider or add custom models above.
+
+            <div className="flex items-center gap-3 justify-end">
+              <Button
+                onClick={() => {
+                  setCustomModelForm(createCustomModelForm());
+                  setShowCustomModelForm(false);
+                }}
+                variant="ghost"
+                size="sm"
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={handleSubmitCustomModel} variant="default" size="sm">
+                {customModelForm.original_id ? t("providers.updateModel") : t("providers.addModel")}
+              </Button>
             </div>
-          )}
-
-          {/* Fetch models button */}
-          <div>
-            <Button
-              onClick={handleFetchModels}
-              loading={fetching}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-            >
-              {fetching ? "Fetching..." : "Fetch models"}
-            </Button>
           </div>
-        </div>
+        )}
 
-        {/* Advanced JSON editor */}
-        <div className="border-t border-border pt-4 space-y-3">
-          <button
-            onClick={() => {
-              setProviderJSON(JSON.stringify(providerJSONValue(provider), null, 2));
-              setShowAdvancedJSON((v) => !v);
-            }}
-            className="text-xs font-mono text-muted-foreground hover:text-foreground"
-          >
-            {showAdvancedJSON ? "Hide advanced JSON editor" : "Show advanced JSON editor"}
-          </button>
-          {showAdvancedJSON && (
-            <div className="space-y-2">
-              <label className="text-xs font-medium mb-1 block">Provider JSON</label>
-              <Textarea
-                value={providerJSON}
-                onChange={(e) => setProviderJSON(e.target.value)}
-                rows={16}
-                placeholder={`{\n  "type": "openai",\n  "name": "Ollama",\n  "enabled": true,\n  "api_key": "ollama",\n  "base_url": "http://localhost:11434/v1",\n  "models": {}\n}`}
-                className="font-mono text-xs"
-              />
-              <div className="flex justify-end">
-                <Button onClick={handleApplyJSON} variant="ghost" size="xs">
-                  Apply JSON
-                </Button>
+        {/* Model list */}
+        {models.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Toggle models on or off, then save. Custom models can be edited with the form or in
+              the advanced JSON editor.
+            </p>
+            {models.map((m) => (
+              <div
+                key={`${m.id}:${m.source}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+              >
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-sm">{m.id}</span>
+                    <Badge variant="outline" size="sm">
+                      {m.source}
+                    </Badge>
+                    <Badge variant={m.enabled ? "success" : "outline"} size="sm">
+                      {m.enabled ? "enabled" : "disabled"}
+                    </Badge>
+                  </div>
+                  {m.name && m.name !== m.id && (
+                    <p className="text-xs text-muted-foreground">{m.name}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={m.enabled} onCheckedChange={() => handleToggleModel(m)} />
+                    <span className="text-sm">Enabled</span>
+                  </div>
+                  {m.source === "custom" && (
+                    <>
+                      <Button onClick={() => handleEditCustomModel(m)} variant="ghost" size="xs">
+                        edit
+                      </Button>
+                      <Button
+                        onClick={() => handleRemoveCustomModel(m.id)}
+                        variant="ghost"
+                        size="xs"
+                        className="text-destructive"
+                      >
+                        remove
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground py-2">
+            No models yet. Fetch from the provider or add custom models above.
+          </div>
+        )}
+
+        {/* Fetch models button */}
+        <div>
+          <Button
+            onClick={handleFetchModels}
+            loading={fetching}
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+          >
+            {fetching ? "Fetching..." : "Fetch models"}
+          </Button>
         </div>
       </div>
 
-      {/* Sticky footer */}
-      <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-background">
-        <Button onClick={handleSave} variant="default" size="sm">
-          {t("common.save")}
-        </Button>
-        <Button
-          onClick={() => setConfirmDeleteOpen(true)}
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground hover:text-destructive"
+      {/* Advanced JSON editor */}
+      <div className="border-t border-border pt-4 space-y-3">
+        <button
+          onClick={() => {
+            setProviderJSON(JSON.stringify(providerJSONValue(provider), null, 2));
+            setShowAdvancedJSON((v) => !v);
+          }}
+          className="text-xs font-mono text-muted-foreground hover:text-foreground"
         >
-          {t("common.delete")}
-        </Button>
+          {showAdvancedJSON ? "Hide advanced JSON editor" : "Show advanced JSON editor"}
+        </button>
+        {showAdvancedJSON && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium mb-1 block">Provider JSON</label>
+            <Textarea
+              value={providerJSON}
+              onChange={(e) => setProviderJSON(e.target.value)}
+              rows={16}
+              placeholder={`{\n  "type": "openai",\n  "name": "Ollama",\n  "enabled": true,\n  "api_key": "ollama",\n  "base_url": "http://localhost:11434/v1",\n  "models": {}\n}`}
+              className="font-mono text-xs"
+            />
+            <div className="flex justify-end">
+              <Button onClick={handleApplyJSON} variant="ghost" size="xs">
+                Apply JSON
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Confirm delete dialog */}
-      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <DialogPopup showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>Delete provider</DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-2">
-            <p className="text-sm">Delete provider {provider.id}?</p>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setConfirmDeleteOpen(false)} variant="ghost" size="sm">
-              {t("common.cancel")}
-            </Button>
-            <Button
-              onClick={() => {
-                setConfirmDeleteOpen(false);
-                onDelete(provider.id);
-              }}
-              variant="destructive"
-              size="sm"
-            >
-              {t("common.delete")}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-    </div>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title="Delete provider"
+        message={`Delete provider ${provider.id}?`}
+        onConfirm={() => onDelete(provider.id)}
+      />
+    </DetailPanel>
   );
 }
 
@@ -811,64 +753,65 @@ function NewProviderForm({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+    <DetailPanel
+      footer={
+        <>
+          <Button onClick={handleSubmit} disabled={!type || !id.trim()} variant="default" size="sm">
+            Add provider
+          </Button>
+          <Button onClick={onCancel} variant="ghost" size="sm">
+            {t("common.cancel")}
+          </Button>
+        </>
+      }
+    >
+      <DetailPanelHeader
+        title="New provider"
+        subtitle={
+          <p className="text-sm text-muted-foreground">Connect Stella to an LLM API provider.</p>
+        }
+      />
+      <div className="space-y-4">
         <div>
-          <h2 className="font-serif text-xl tracking-tight">New provider</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Connect Stella to an LLM API provider.
-          </p>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs font-medium mb-1 block">Type</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
-            >
-              <option value="" disabled>
-                Select provider type...
+          <label className="text-xs font-medium mb-1 block">Type</label>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
+          >
+            <option value="" disabled>
+              Select provider type...
+            </option>
+            {providerTypes.map((pt) => (
+              <option key={pt.id} value={pt.id}>
+                {pt.name} ({pt.id})
               </option>
-              {providerTypes.map((pt) => (
-                <option key={pt.id} value={pt.id}>
-                  {pt.name} ({pt.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium mb-1 block">Provider ID</label>
-            <Input
-              type="text"
-              value={id}
-              placeholder="e.g. openrouter"
-              onChange={(e) => setId((e as React.ChangeEvent<HTMLInputElement>).target.value)}
-              nativeInput
-              className="font-mono"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium mb-1 block">Display name</label>
-            <Input
-              type="text"
-              value={name}
-              placeholder={providerDefaults[type]?.name || ""}
-              onChange={(e) => setName((e as React.ChangeEvent<HTMLInputElement>).target.value)}
-              nativeInput
-            />
-          </div>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">Provider ID</label>
+          <Input
+            type="text"
+            value={id}
+            placeholder="e.g. openrouter"
+            onChange={(e) => setId((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            nativeInput
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">Display name</label>
+          <Input
+            type="text"
+            value={name}
+            placeholder={providerDefaults[type]?.name || ""}
+            onChange={(e) => setName((e as React.ChangeEvent<HTMLInputElement>).target.value)}
+            nativeInput
+          />
         </div>
       </div>
-      <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-background">
-        <Button onClick={handleSubmit} disabled={!type || !id.trim()} variant="default" size="sm">
-          Add provider
-        </Button>
-        <Button onClick={onCancel} variant="ghost" size="sm">
-          {t("common.cancel")}
-        </Button>
-      </div>
-    </div>
+    </DetailPanel>
   );
 }
 
@@ -883,13 +826,7 @@ export function ProvidersPage() {
   >({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [toasts, setToasts] = useState<ToastMsg[]>([]);
-
-  const showToast = useCallback((text: string, kind: "success" | "error" = "success") => {
-    const id = ++toastSeq;
-    setToasts((prev) => [...prev, { id, text, kind }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
-  }, []);
+  const { toasts, showToast } = useToast();
 
   const loadProviderTypes = useCallback(async () => {
     try {
@@ -1166,7 +1103,7 @@ export function ProvidersPage() {
         detail={detail}
         emptyState={emptyState}
       />
-      <Toast messages={toasts} />
+      <ToastContainer messages={toasts} />
     </div>
   );
 }

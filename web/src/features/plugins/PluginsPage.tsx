@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import {
   SettingsListBody,
@@ -44,14 +45,6 @@ import {
 } from "@/features/settings/SettingsListPanel";
 
 type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
-
-interface Toast {
-  id: number;
-  message: string;
-  type: "success" | "error";
-}
-
-let toastCounter = 0;
 
 export function PluginsPage() {
   const { t } = useI18n();
@@ -102,15 +95,7 @@ export function PluginsPage() {
   const [mcpSavedSignature, setMcpSavedSignature] = useState('{"servers":[]}');
   const [mcpLastSavedAt, setMcpLastSavedAt] = useState("");
 
-  // Toast
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  function showToast(message: string, type: "success" | "error" = "success") {
-    toastCounter += 1;
-    const id = toastCounter;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-  }
+  const { toasts, showToast } = useToast(4000);
 
   // Derived plugin lists
   const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins).filter(
@@ -1000,23 +985,7 @@ export function PluginsPage() {
   return (
     <div className="h-full">
       <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
-      {/* Toast notifications */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 space-y-2">
-          {toasts.map((toast) => (
-            <div
-              key={toast.id}
-              className={`rounded-lg border px-4 py-3 shadow-lg max-w-sm text-sm ${
-                toast.type === "error"
-                  ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
-                  : "border-success/40 bg-success/10 text-success-foreground"
-              }`}
-            >
-              <span>{toast.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <ToastContainer messages={toasts} />
     </div>
   );
 }
