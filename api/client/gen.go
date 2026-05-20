@@ -1265,11 +1265,11 @@ type ClientInterface interface {
 
 	CreateShare(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetShareContent request
+	GetShareContent(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RevokeShare request
 	RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetShare request
-	GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSkills request
 	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3411,8 +3411,8 @@ func (c *Client) CreateShare(ctx context.Context, body CreateShareJSONRequestBod
 	return c.Client.Do(req)
 }
 
-func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRevokeShareRequest(c.Server, id)
+func (c *Client) GetShareContent(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetShareContentRequest(c.Server, token)
 	if err != nil {
 		return nil, err
 	}
@@ -3423,8 +3423,8 @@ func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...Reque
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetShareRequest(c.Server, token)
+func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeShareRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -9218,6 +9218,40 @@ func NewCreateShareRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewGetShareContentRequest generates requests for GetShareContent
+func NewGetShareContentRequest(server string, token string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/shares/public/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRevokeShareRequest generates requests for RevokeShare
 func NewRevokeShareRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -9245,40 +9279,6 @@ func NewRevokeShareRequest(server string, id string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetShareRequest generates requests for GetShare
-func NewGetShareRequest(server string, token string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/shares/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -10776,11 +10776,11 @@ type ClientWithResponsesInterface interface {
 
 	CreateShareWithResponse(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateShareResponse, error)
 
+	// GetShareContentWithResponse request
+	GetShareContentWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareContentResponse, error)
+
 	// RevokeShareWithResponse request
 	RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error)
-
-	// GetShareWithResponse request
-	GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error)
 
 	// ListSkillsWithResponse request
 	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
@@ -15016,6 +15016,36 @@ func (r CreateShareResponse) ContentType() string {
 	return ""
 }
 
+type GetShareContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetShareContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetShareContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetShareContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RevokeShareResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15041,36 +15071,6 @@ func (r RevokeShareResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RevokeShareResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetShareResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetShareResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetShareResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetShareResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -17329,6 +17329,15 @@ func (c *ClientWithResponses) CreateShareWithResponse(ctx context.Context, body 
 	return ParseCreateShareResponse(rsp)
 }
 
+// GetShareContentWithResponse request returning *GetShareContentResponse
+func (c *ClientWithResponses) GetShareContentWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareContentResponse, error) {
+	rsp, err := c.GetShareContent(ctx, token, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetShareContentResponse(rsp)
+}
+
 // RevokeShareWithResponse request returning *RevokeShareResponse
 func (c *ClientWithResponses) RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error) {
 	rsp, err := c.RevokeShare(ctx, id, reqEditors...)
@@ -17336,15 +17345,6 @@ func (c *ClientWithResponses) RevokeShareWithResponse(ctx context.Context, id st
 		return nil, err
 	}
 	return ParseRevokeShareResponse(rsp)
-}
-
-// GetShareWithResponse request returning *GetShareResponse
-func (c *ClientWithResponses) GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error) {
-	rsp, err := c.GetShare(ctx, token, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetShareResponse(rsp)
 }
 
 // ListSkillsWithResponse request returning *ListSkillsResponse
@@ -23048,6 +23048,32 @@ func ParseCreateShareResponse(rsp *http.Response) (*CreateShareResponse, error) 
 	return response, nil
 }
 
+// ParseGetShareContentResponse parses an HTTP response from a GetShareContentWithResponse call
+func ParseGetShareContentResponse(rsp *http.Response) (*GetShareContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetShareContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRevokeShareResponse parses an HTTP response from a RevokeShareWithResponse call
 func ParseRevokeShareResponse(rsp *http.Response) (*RevokeShareResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23069,32 +23095,6 @@ func ParseRevokeShareResponse(rsp *http.Response) (*RevokeShareResponse, error) 
 		}
 		response.JSON401 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetShareResponse parses an HTTP response from a GetShareWithResponse call
-func ParseGetShareResponse(rsp *http.Response) (*GetShareResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetShareResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.NotFound
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

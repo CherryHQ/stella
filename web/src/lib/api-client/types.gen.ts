@@ -1485,9 +1485,9 @@ export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
 
 export type _1Api1Shares = unknown;
 
-export type _1Api1Shares1Id = unknown;
+export type _1Api1Shares1Public1Token = unknown;
 
-export type _1Api1Shares1Token = unknown;
+export type _1Api1Shares1Id = unknown;
 
 export type _1Api1Auth1Profile1Skills = unknown;
 
@@ -5426,16 +5426,16 @@ export type RevokeShareResponses = {
 export type RevokeShareResponse =
   RevokeShareResponses[keyof RevokeShareResponses];
 
-export type GetShareData = {
+export type GetShareContentData = {
   body?: never;
   path: {
     token: string;
   };
   query?: never;
-  url: "/api/shares/{token}";
+  url: "/api/shares/public/{token}";
 };
 
-export type GetShareErrors = {
+export type GetShareContentErrors = {
   /**
    * resource not found
    */
@@ -5444,16 +5444,18 @@ export type GetShareErrors = {
   };
 };
 
-export type GetShareError = GetShareErrors[keyof GetShareErrors];
+export type GetShareContentError =
+  GetShareContentErrors[keyof GetShareContentErrors];
 
-export type GetShareResponses = {
+export type GetShareContentResponses = {
   /**
-   * Content with metadata in headers (X-Share-Title, X-Share-Expires-At)
+   * Content with metadata in headers (X-Share-Title, X-Share-Media-Type, X-Share-Expires-At)
    */
   200: Blob | File;
 };
 
-export type GetShareResponse = GetShareResponses[keyof GetShareResponses];
+export type GetShareContentResponse =
+  GetShareContentResponses[keyof GetShareContentResponses];
 
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;

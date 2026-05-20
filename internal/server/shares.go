@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
@@ -222,7 +223,7 @@ func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) GetShare(w http.ResponseWriter, r *http.Request, token string) {
+func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token string) {
 	if token == "" {
 		writeError(w, http.StatusNotFound, "share not found")
 		return
@@ -247,6 +248,8 @@ func (s *Server) GetShare(w http.ResponseWriter, r *http.Request, token string) 
 		if renderErr == nil {
 			content = rendered
 			mediaType = "text/html; charset=utf-8"
+		} else {
+			slog.Warn("failed to render markdown share", "share_id", share.ID, "error", renderErr)
 		}
 	}
 

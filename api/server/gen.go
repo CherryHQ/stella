@@ -1106,12 +1106,12 @@ type ServerInterface interface {
 	// Create a public share link
 	// (POST /api/shares)
 	CreateShare(w http.ResponseWriter, r *http.Request)
+	// Get shared content by token (public, no auth)
+	// (GET /api/shares/public/{token})
+	GetShareContent(w http.ResponseWriter, r *http.Request, token string)
 	// Revoke a share
 	// (DELETE /api/shares/{id})
 	RevokeShare(w http.ResponseWriter, r *http.Request, id string)
-	// Get shared content by token
-	// (GET /api/shares/{token})
-	GetShare(w http.ResponseWriter, r *http.Request, token string)
 	// List all skills (admin only)
 	// (GET /api/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request)
@@ -5458,6 +5458,32 @@ func (siw *ServerInterfaceWrapper) CreateShare(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetShareContent operation middleware
+func (siw *ServerInterfaceWrapper) GetShareContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShareContent(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RevokeShare operation middleware
 func (siw *ServerInterfaceWrapper) RevokeShare(w http.ResponseWriter, r *http.Request) {
 
@@ -5481,32 +5507,6 @@ func (siw *ServerInterfaceWrapper) RevokeShare(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeShare(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetShare operation middleware
-func (siw *ServerInterfaceWrapper) GetShare(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "token" -------------
-	var token string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetShare(w, r, token)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6512,8 +6512,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares", wrapper.ListShares)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shares", wrapper.CreateShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares/public/{token}", wrapper.GetShareContent)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shares/{id}", wrapper.RevokeShare)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares/{token}", wrapper.GetShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)

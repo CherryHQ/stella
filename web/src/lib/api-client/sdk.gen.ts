@@ -194,9 +194,9 @@ import type {
   GetSessionWorkspaceData,
   GetSessionWorkspaceErrors,
   GetSessionWorkspaceResponses,
-  GetShareData,
-  GetShareErrors,
-  GetShareResponses,
+  GetShareContentData,
+  GetShareContentErrors,
+  GetShareContentResponses,
   GetSkillData,
   GetSkillErrors,
   GetSkillFileData,
@@ -2171,16 +2171,16 @@ export const revokeShare = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get shared content by token
+ * Get shared content by token (public, no auth)
  */
-export const getShare = <ThrowOnError extends boolean = false>(
-  options: Options<GetShareData, ThrowOnError>,
+export const getShareContent = <ThrowOnError extends boolean = false>(
+  options: Options<GetShareContentData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetShareResponses,
-    GetShareErrors,
+    GetShareContentResponses,
+    GetShareContentErrors,
     ThrowOnError
-  >({ url: "/api/shares/{token}", ...options });
+  >({ url: "/api/shares/public/{token}", ...options });
 
 /**
  * Update the default agent for a user (admin only)

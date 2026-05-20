@@ -56,17 +56,17 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/shares/{token}:
+  /api/shares/public/{token}:
     parameters:
       - { name: token, in: path, required: true, schema: { type: string } }
     get:
       security: []
       tags: [shares]
-      summary: Get shared content by token
-      operationId: getShare
+      summary: Get shared content by token (public, no auth)
+      operationId: getShareContent
       responses:
         "200":
-          description: Content with metadata in headers (X-Share-Title, X-Share-Expires-At)
+          description: Content with metadata in headers (X-Share-Title, X-Share-Media-Type, X-Share-Expires-At)
           content:
             application/octet-stream:
               schema:

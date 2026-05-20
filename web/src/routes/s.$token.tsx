@@ -13,7 +13,7 @@ export const Route = createFileRoute("/s/$token")({
 
 function PublicSharePage() {
   const { token } = Route.useParams();
-  const contentUrl = `/api/shares/${encodeURIComponent(token)}`;
+  const contentUrl = `/api/shares/public/${encodeURIComponent(token)}`;
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
 

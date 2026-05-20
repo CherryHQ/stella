@@ -72,7 +72,7 @@ import {
   getSessionMessages,
   getSessionSystemPrompt,
   getSessionWorkspace,
-  getShare,
+  getShareContent,
   getSkill,
   getSkillFile,
   getStatus,
@@ -351,9 +351,9 @@ import type {
   GetSessionWorkspaceData,
   GetSessionWorkspaceError,
   GetSessionWorkspaceResponse,
-  GetShareData,
-  GetShareError,
-  GetShareResponse,
+  GetShareContentData,
+  GetShareContentError,
+  GetShareContentResponse,
   GetSkillData,
   GetSkillError,
   GetSkillFileData,
@@ -3386,21 +3386,22 @@ export const revokeShareMutation = (
   return mutationOptions;
 };
 
-export const getShareQueryKey = (options: Options<GetShareData>) =>
-  createQueryKey("getShare", options);
+export const getShareContentQueryKey = (
+  options: Options<GetShareContentData>,
+) => createQueryKey("getShareContent", options);
 
 /**
- * Get shared content by token
+ * Get shared content by token (public, no auth)
  */
-export const getShareOptions = (options: Options<GetShareData>) =>
+export const getShareContentOptions = (options: Options<GetShareContentData>) =>
   queryOptions<
-    GetShareResponse,
-    GetShareError,
-    GetShareResponse,
-    ReturnType<typeof getShareQueryKey>
+    GetShareContentResponse,
+    GetShareContentError,
+    GetShareContentResponse,
+    ReturnType<typeof getShareContentQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getShare({
+      const { data } = await getShareContent({
         ...options,
         ...queryKey[0],
         signal,
@@ -3408,7 +3409,7 @@ export const getShareOptions = (options: Options<GetShareData>) =>
       });
       return data;
     },
-    queryKey: getShareQueryKey(options),
+    queryKey: getShareContentQueryKey(options),
   });
 
 /**

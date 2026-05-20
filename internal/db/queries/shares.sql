@@ -15,7 +15,8 @@ SELECT id, token_hash, user_id, title,
        media_type, expires_at, created_at, updated_at
 FROM share
 WHERE user_id = ?
-ORDER BY created_at DESC, id DESC;
+ORDER BY created_at DESC, id DESC
+LIMIT 200;
 
 -- name: DeleteShareByUser :execrows
 DELETE FROM share

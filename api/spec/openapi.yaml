@@ -187,8 +187,8 @@ paths:
     $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares"
   /api/shares/{id}:
     $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares~1{id}"
-  /api/shares/{token}:
-    $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares~1{token}"
+  /api/shares/public/{token}:
+    $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares~1public~1{token}"
   # ── Users ──────────────────────────────────────────────────────────────────
   /api/users/{id}/default-agent:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent"
