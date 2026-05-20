@@ -48,7 +48,7 @@ function AgentLayout() {
           <SidebarTrigger />
           {currentAgent && <span className="text-sm font-semibold">{currentAgent.name}</span>}
         </header>
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col">
           <Outlet />
         </div>
       </SidebarInset>
