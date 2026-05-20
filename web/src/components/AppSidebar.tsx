@@ -42,7 +42,27 @@ export function AppSidebar({ children, className }: AppSidebarProps) {
       {children}
 
       <div className="mt-auto shrink-0 border-t border-border/60 px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/settings" })}
+            className={cn(
+              "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-left text-sm font-medium tracking-[-0.01em] transition-colors",
+              pathname.startsWith("/settings")
+                ? "bg-accent text-primary"
+                : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "shrink-0",
+                pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground/70",
+              )}
+            >
+              <IconSettings />
+            </span>
+            <span className="truncate">{t("nav.settings")}</span>
+          </button>
           <ThemeSelector />
           <UserMenu />
         </div>
@@ -106,6 +126,15 @@ function IconRecally() {
       <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 1 4 16.5v-11Z" />
       <path d="M8 7h8M8 11h6" />
       <path d="M4 16.5A2.5 2.5 0 0 1 6.5 14H20" />
+    </svg>
+  );
+}
+
+function IconSettings() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6V20a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1-.52 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1H4a2 2 0 1 1 0-4h.08a1.7 1.7 0 0 0 .52-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6V4a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1 .52 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.34.43.67.6 1H20a2 2 0 1 1 0 4h-.08c-.17.33-.37.66-.52 1z" />
     </svg>
   );
 }
