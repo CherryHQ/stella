@@ -389,17 +389,6 @@ export type ComponentsArticleList = {
 
 export type ComponentsArticleStatus = "unread" | "read" | "archived";
 
-export type ArtifactShare = {
-  id: string;
-  url: string;
-  title: string;
-  session_id: string;
-  path: string;
-  media_type: string;
-  expires_at?: string | null;
-  created_at: string;
-};
-
 export type ComponentsAssignAgentUserRequest = {
   user_id: string;
 };
@@ -499,12 +488,6 @@ export type ComponentsCreateAgentRequest = {
   template_id?: string;
 };
 
-export type CreateArtifactShareRequest = {
-  session_id: string;
-  path: string;
-  expires_in?: "1h" | "1d" | "7d" | "never";
-};
-
 export type ComponentsCreateFeedRequest = {
   url: string;
   /**
@@ -524,6 +507,14 @@ export type ComponentsCreateSessionRequest = {
   agent_id?: string;
   kind?: "main" | "chat" | "scheduler" | "task";
   project_id?: string;
+};
+
+export type CreateShareRequest = {
+  source: "artifact" | "article";
+  session_id?: string;
+  path?: string;
+  article_id?: string;
+  expires_in?: "1h" | "1d" | "7d" | "never";
 };
 
 export type ComponentsCreateSkillRequest = {
@@ -1017,6 +1008,15 @@ export type ComponentsSetVaultEntryRequest = {
   value: string;
 };
 
+export type Share = {
+  id: string;
+  url: string;
+  title: string;
+  media_type: string;
+  expires_at?: string | null;
+  created_at: string;
+};
+
 export type ComponentsSkill = {
   id?: string;
   scope?: string;
@@ -1357,12 +1357,6 @@ export type _1Api1Agents1Id1Users = unknown;
 
 export type _1Api1Agents1Id1Users1UserId = unknown;
 
-export type _1Api1ArtifactShares = unknown;
-
-export type _1Api1ArtifactShares1Id = unknown;
-
-export type _1Api1Public1ArtifactShares1Token = unknown;
-
 export type _1Api1Auth1Login = unknown;
 
 export type _1Api1Auth1Logout = unknown;
@@ -1488,6 +1482,12 @@ export type _1Api1Sessions1SessionId1Workspace1FileContent = unknown;
 export type _1Api1Sessions1SessionId1Workspace1Files = unknown;
 
 export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
+
+export type _1Api1Shares = unknown;
+
+export type _1Api1Shares1Id = unknown;
+
+export type _1Api1Shares1Token = unknown;
 
 export type _1Api1Auth1Profile1Skills = unknown;
 
@@ -5309,14 +5309,14 @@ export type GetSessionSystemPromptResponses = {
 export type GetSessionSystemPromptResponse =
   GetSessionSystemPromptResponses[keyof GetSessionSystemPromptResponses];
 
-export type ListArtifactSharesData = {
+export type ListSharesData = {
   body?: never;
   path?: never;
   query?: never;
-  url: "/api/artifact-shares";
+  url: "/api/shares";
 };
 
-export type ListArtifactSharesErrors = {
+export type ListSharesErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -5325,27 +5325,25 @@ export type ListArtifactSharesErrors = {
   };
 };
 
-export type ListArtifactSharesError =
-  ListArtifactSharesErrors[keyof ListArtifactSharesErrors];
+export type ListSharesError = ListSharesErrors[keyof ListSharesErrors];
 
-export type ListArtifactSharesResponses = {
+export type ListSharesResponses = {
   /**
    * ok
    */
-  200: Array<ArtifactShare>;
+  200: Array<Share>;
 };
 
-export type ListArtifactSharesResponse =
-  ListArtifactSharesResponses[keyof ListArtifactSharesResponses];
+export type ListSharesResponse = ListSharesResponses[keyof ListSharesResponses];
 
-export type CreateArtifactShareData = {
-  body: CreateArtifactShareRequest;
+export type CreateShareData = {
+  body: CreateShareRequest;
   path?: never;
   query?: never;
-  url: "/api/artifact-shares";
+  url: "/api/shares";
 };
 
-export type CreateArtifactShareErrors = {
+export type CreateShareErrors = {
   /**
    * malformed request
    */
@@ -5372,29 +5370,28 @@ export type CreateArtifactShareErrors = {
   };
 };
 
-export type CreateArtifactShareError =
-  CreateArtifactShareErrors[keyof CreateArtifactShareErrors];
+export type CreateShareError = CreateShareErrors[keyof CreateShareErrors];
 
-export type CreateArtifactShareResponses = {
+export type CreateShareResponses = {
   /**
    * created
    */
-  201: ArtifactShare;
+  201: Share;
 };
 
-export type CreateArtifactShareResponse =
-  CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
+export type CreateShareResponse =
+  CreateShareResponses[keyof CreateShareResponses];
 
-export type RevokeArtifactShareData = {
+export type RevokeShareData = {
   body?: never;
   path: {
     id: string;
   };
   query?: never;
-  url: "/api/artifact-shares/{id}";
+  url: "/api/shares/{id}";
 };
 
-export type RevokeArtifactShareErrors = {
+export type RevokeShareErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -5409,29 +5406,28 @@ export type RevokeArtifactShareErrors = {
   };
 };
 
-export type RevokeArtifactShareError =
-  RevokeArtifactShareErrors[keyof RevokeArtifactShareErrors];
+export type RevokeShareError = RevokeShareErrors[keyof RevokeShareErrors];
 
-export type RevokeArtifactShareResponses = {
+export type RevokeShareResponses = {
   /**
    * revoked
    */
   204: void;
 };
 
-export type RevokeArtifactShareResponse =
-  RevokeArtifactShareResponses[keyof RevokeArtifactShareResponses];
+export type RevokeShareResponse =
+  RevokeShareResponses[keyof RevokeShareResponses];
 
-export type GetPublicArtifactShareData = {
+export type GetShareData = {
   body?: never;
   path: {
     token: string;
   };
   query?: never;
-  url: "/api/public/artifact-shares/{token}";
+  url: "/api/shares/{token}";
 };
 
-export type GetPublicArtifactShareErrors = {
+export type GetShareErrors = {
   /**
    * resource not found
    */
@@ -5440,18 +5436,16 @@ export type GetPublicArtifactShareErrors = {
   };
 };
 
-export type GetPublicArtifactShareError =
-  GetPublicArtifactShareErrors[keyof GetPublicArtifactShareErrors];
+export type GetShareError = GetShareErrors[keyof GetShareErrors];
 
-export type GetPublicArtifactShareResponses = {
+export type GetShareResponses = {
   /**
-   * Content served with metadata in headers (X-Share-Title, X-Share-Expires-At)
+   * Content with metadata in headers (X-Share-Title, X-Share-Expires-At)
    */
   200: Blob | File;
 };
 
-export type GetPublicArtifactShareResponse =
-  GetPublicArtifactShareResponses[keyof GetPublicArtifactShareResponses];
+export type GetShareResponse = GetShareResponses[keyof GetShareResponses];
 
 export type UpdateUserDefaultAgentData = {
   body: ComponentsUpdateDefaultAgentRequest;

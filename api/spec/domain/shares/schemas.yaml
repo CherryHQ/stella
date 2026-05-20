@@ -1,29 +1,31 @@
 openapi: 3.0.3
 info:
-  title: Artifact Share Components
+  title: Share Components
   version: "1"
 paths: {}
 components:
   schemas:
-    ArtifactShare:
+    Share:
       type: object
-      required: [id, url, title, session_id, path, media_type, created_at]
+      required: [id, url, title, media_type, created_at]
       properties:
         id: { type: string }
         url: { type: string }
         title: { type: string }
-        session_id: { type: string }
-        path: { type: string }
         media_type: { type: string }
         expires_at: { type: string, nullable: true }
         created_at: { type: string }
 
-    CreateArtifactShareRequest:
+    CreateShareRequest:
       type: object
-      required: [session_id, path]
+      required: [source]
       properties:
+        source:
+          type: string
+          enum: [artifact, article]
         session_id: { type: string }
         path: { type: string }
+        article_id: { type: string }
         expires_in:
           type: string
           enum: [1h, 1d, 7d, never]

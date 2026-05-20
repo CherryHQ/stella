@@ -4,6 +4,8 @@ Stella can turn generated files into public, read-only links. Use this when you 
 
 ## What you can share
 
+### Session artifacts
+
 You can share these file types from a session workspace:
 
 - HTML pages (`.html`, `.htm`)
@@ -11,7 +13,11 @@ You can share these file types from a session workspace:
 - Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.avif`, `.bmp`, `.ico`)
 - PDFs (`.pdf`)
 
-A share link is a snapshot. If you edit the original file later, the public link still shows the version you shared. Create a new link when you want to publish an updated version.
+### Recally articles
+
+You can also share saved articles from your Recally library.
+
+A share link is a snapshot. If you edit the original file or article later, the public link still shows the version you shared. Create a new link when you want to publish an updated version.
 
 ## Share from the Web UI
 

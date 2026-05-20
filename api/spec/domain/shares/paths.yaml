@@ -1,9 +1,9 @@
 paths:
-  /api/artifact-shares:
+  /api/shares:
     get:
-      tags: [artifact-shares]
-      summary: List artifact shares for the current user
-      operationId: listArtifactShares
+      tags: [shares]
+      summary: List shares for the current user
+      operationId: listShares
       responses:
         "200":
           description: ok
@@ -12,27 +12,27 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "../../components.yaml#/components/schemas/ArtifactShare"
+                  $ref: "../../components.yaml#/components/schemas/Share"
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
     post:
-      tags: [artifact-shares]
-      summary: Create a public artifact share from a workspace file
-      operationId: createArtifactShare
+      tags: [shares]
+      summary: Create a public share link
+      operationId: createShare
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "../../components.yaml#/components/schemas/CreateArtifactShareRequest"
+              $ref: "../../components.yaml#/components/schemas/CreateShareRequest"
       responses:
         "201":
           description: created
           content:
             application/json:
               schema:
-                $ref: "../../components.yaml#/components/schemas/ArtifactShare"
+                $ref: "../../components.yaml#/components/schemas/Share"
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -42,13 +42,13 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/artifact-shares/{id}:
+  /api/shares/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     delete:
-      tags: [artifact-shares]
-      summary: Revoke an artifact share
-      operationId: revokeArtifactShare
+      tags: [shares]
+      summary: Revoke a share
+      operationId: revokeShare
       responses:
         "204": { description: revoked }
         "401": {
@@ -56,17 +56,17 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/public/artifact-shares/{token}:
+  /api/shares/{token}:
     parameters:
       - { name: token, in: path, required: true, schema: { type: string } }
     get:
       security: []
-      tags: [artifact-shares]
-      summary: Get public artifact share content
-      operationId: getPublicArtifactShare
+      tags: [shares]
+      summary: Get shared content by token
+      operationId: getShare
       responses:
         "200":
-          description: Content served with metadata in headers (X-Share-Title, X-Share-Expires-At)
+          description: Content with metadata in headers (X-Share-Title, X-Share-Expires-At)
           content:
             application/octet-stream:
               schema:

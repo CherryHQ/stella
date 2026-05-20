@@ -42,7 +42,7 @@ tags:
   - name: weixin
   - name: providers
   - name: sessions
-  - name: artifact-shares
+  - name: shares
   - name: agents
   - name: skills
   - name: users
@@ -182,13 +182,13 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1upload"
   /api/sessions/{sessionID}/system-prompt:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt"
-  # ── Artifact Shares ────────────────────────────────────────────────────────
-  /api/artifact-shares:
-    $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1artifact-shares"
-  /api/artifact-shares/{id}:
-    $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1artifact-shares~1{id}"
-  /api/public/artifact-shares/{token}:
-    $ref: "./domain/artifact_shares/paths.yaml#/paths/~1api~1public~1artifact-shares~1{token}"
+  # ── Shares ─────────────────────────────────────────────────────────────────
+  /api/shares:
+    $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares"
+  /api/shares/{id}:
+    $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares~1{id}"
+  /api/shares/{token}:
+    $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares~1{token}"
   # ── Users ──────────────────────────────────────────────────────────────────
   /api/users/{id}/default-agent:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1default-agent"

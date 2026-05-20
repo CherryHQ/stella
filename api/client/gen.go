@@ -577,9 +577,6 @@ type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
-// CreateArtifactShareJSONRequestBody defines body for CreateArtifactShare for application/json ContentType.
-type CreateArtifactShareJSONRequestBody = externalRef0.CreateArtifactShareRequest
-
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = externalRef0.LoginRequest
 
@@ -687,6 +684,9 @@ type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
 
 // UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
 type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
+
+// CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
+type CreateShareJSONRequestBody = externalRef0.CreateShareRequest
 
 // CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
 type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
@@ -878,17 +878,6 @@ type ClientInterface interface {
 
 	// RemoveAgentUser request
 	RemoveAgentUser(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListArtifactShares request
-	ListArtifactShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateArtifactShareWithBody request with any body
-	CreateArtifactShareWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateArtifactShare(ctx context.Context, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// RevokeArtifactShare request
-	RevokeArtifactShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// LoginWithBody request with any body
 	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1125,9 +1114,6 @@ type ClientInterface interface {
 
 	FetchProviderModels(ctx context.Context, id string, body FetchProviderModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetPublicArtifactShare request
-	GetPublicArtifactShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListArticles request
 	ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1263,6 +1249,20 @@ type ClientInterface interface {
 
 	// UploadWorkspaceFileWithBody request with any body
 	UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListShares request
+	ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateShareWithBody request with any body
+	CreateShareWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateShare(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeShare request
+	RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetShare request
+	GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSkills request
 	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1738,54 +1738,6 @@ func (c *Client) AssignAgentUser(ctx context.Context, id string, body AssignAgen
 
 func (c *Client) RemoveAgentUser(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRemoveAgentUserRequest(c.Server, id, userId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListArtifactShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListArtifactSharesRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateArtifactShareWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateArtifactShareRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateArtifactShare(ctx context.Context, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateArtifactShareRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) RevokeArtifactShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRevokeArtifactShareRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2816,18 +2768,6 @@ func (c *Client) FetchProviderModels(ctx context.Context, id string, body FetchP
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetPublicArtifactShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetPublicArtifactShareRequest(c.Server, token)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListArticles(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListArticlesRequest(c.Server, params)
 	if err != nil {
@@ -3418,6 +3358,66 @@ func (c *Client) CreateWorkspaceFile(ctx context.Context, sessionID string, body
 
 func (c *Client) UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUploadWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSharesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateShareWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateShareRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateShare(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateShareRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeShareRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetShareRequest(c.Server, token)
 	if err != nil {
 		return nil, err
 	}
@@ -4880,107 +4880,6 @@ func NewRemoveAgentUserRequest(server string, id string, userId string) (*http.R
 	}
 
 	operationPath := fmt.Sprintf("/api/agents/%s/users/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListArtifactSharesRequest generates requests for ListArtifactShares
-func NewListArtifactSharesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/artifact-shares")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateArtifactShareRequest calls the generic CreateArtifactShare builder with application/json body
-func NewCreateArtifactShareRequest(server string, body CreateArtifactShareJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateArtifactShareRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateArtifactShareRequestWithBody generates requests for CreateArtifactShare with any type of body
-func NewCreateArtifactShareRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/artifact-shares")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewRevokeArtifactShareRequest generates requests for RevokeArtifactShare
-func NewRevokeArtifactShareRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/artifact-shares/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -7437,40 +7336,6 @@ func NewFetchProviderModelsRequestWithBody(server string, id string, contentType
 	return req, nil
 }
 
-// NewGetPublicArtifactShareRequest generates requests for GetPublicArtifactShare
-func NewGetPublicArtifactShareRequest(server string, token string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/public/artifact-shares/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListArticlesRequest generates requests for ListArticles
 func NewListArticlesRequest(server string, params *ListArticlesParams) (*http.Request, error) {
 	var err error
@@ -9255,6 +9120,141 @@ func NewUploadWorkspaceFileRequestWithBody(server string, sessionID string, cont
 	return req, nil
 }
 
+// NewListSharesRequest generates requests for ListShares
+func NewListSharesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/shares")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateShareRequest calls the generic CreateShare builder with application/json body
+func NewCreateShareRequest(server string, body CreateShareJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateShareRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateShareRequestWithBody generates requests for CreateShare with any type of body
+func NewCreateShareRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/shares")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRevokeShareRequest generates requests for RevokeShare
+func NewRevokeShareRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetShareRequest generates requests for GetShare
+func NewGetShareRequest(server string, token string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListSkillsRequest generates requests for ListSkills
 func NewListSkillsRequest(server string) (*http.Request, error) {
 	var err error
@@ -10354,17 +10354,6 @@ type ClientWithResponsesInterface interface {
 	// RemoveAgentUserWithResponse request
 	RemoveAgentUserWithResponse(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error)
 
-	// ListArtifactSharesWithResponse request
-	ListArtifactSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error)
-
-	// CreateArtifactShareWithBodyWithResponse request with any body
-	CreateArtifactShareWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
-
-	CreateArtifactShareWithResponse(ctx context.Context, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
-
-	// RevokeArtifactShareWithResponse request
-	RevokeArtifactShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeArtifactShareResponse, error)
-
 	// LoginWithBodyWithResponse request with any body
 	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error)
 
@@ -10600,9 +10589,6 @@ type ClientWithResponsesInterface interface {
 
 	FetchProviderModelsWithResponse(ctx context.Context, id string, body FetchProviderModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*FetchProviderModelsResponse, error)
 
-	// GetPublicArtifactShareWithResponse request
-	GetPublicArtifactShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetPublicArtifactShareResponse, error)
-
 	// ListArticlesWithResponse request
 	ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error)
 
@@ -10738,6 +10724,20 @@ type ClientWithResponsesInterface interface {
 
 	// UploadWorkspaceFileWithBodyWithResponse request with any body
 	UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error)
+
+	// ListSharesWithResponse request
+	ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error)
+
+	// CreateShareWithBodyWithResponse request with any body
+	CreateShareWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateShareResponse, error)
+
+	CreateShareWithResponse(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateShareResponse, error)
+
+	// RevokeShareWithResponse request
+	RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error)
+
+	// GetShareWithResponse request
+	GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error)
 
 	// ListSkillsWithResponse request
 	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
@@ -11632,102 +11632,6 @@ func (r RemoveAgentUserResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RemoveAgentUserResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListArtifactSharesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *[]externalRef0.ArtifactShare
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListArtifactSharesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListArtifactSharesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListArtifactSharesResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateArtifactShareResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.ArtifactShare
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateArtifactShareResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateArtifactShareResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateArtifactShareResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type RevokeArtifactShareResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r RevokeArtifactShareResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RevokeArtifactShareResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RevokeArtifactShareResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -13834,36 +13738,6 @@ func (r FetchProviderModelsResponse) ContentType() string {
 	return ""
 }
 
-type GetPublicArtifactShareResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetPublicArtifactShareResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetPublicArtifactShareResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetPublicArtifactShareResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type ListArticlesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15034,6 +14908,132 @@ func (r UploadWorkspaceFileResponse) ContentType() string {
 	return ""
 }
 
+type ListSharesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.Share
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSharesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSharesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSharesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.Share
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -16079,41 +16079,6 @@ func (c *ClientWithResponses) RemoveAgentUserWithResponse(ctx context.Context, i
 	return ParseRemoveAgentUserResponse(rsp)
 }
 
-// ListArtifactSharesWithResponse request returning *ListArtifactSharesResponse
-func (c *ClientWithResponses) ListArtifactSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error) {
-	rsp, err := c.ListArtifactShares(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListArtifactSharesResponse(rsp)
-}
-
-// CreateArtifactShareWithBodyWithResponse request with arbitrary body returning *CreateArtifactShareResponse
-func (c *ClientWithResponses) CreateArtifactShareWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
-	rsp, err := c.CreateArtifactShareWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateArtifactShareResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateArtifactShareWithResponse(ctx context.Context, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
-	rsp, err := c.CreateArtifactShare(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateArtifactShareResponse(rsp)
-}
-
-// RevokeArtifactShareWithResponse request returning *RevokeArtifactShareResponse
-func (c *ClientWithResponses) RevokeArtifactShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeArtifactShareResponse, error) {
-	rsp, err := c.RevokeArtifactShare(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRevokeArtifactShareResponse(rsp)
-}
-
 // LoginWithBodyWithResponse request with arbitrary body returning *LoginResponse
 func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
 	rsp, err := c.LoginWithBody(ctx, contentType, body, reqEditors...)
@@ -16859,15 +16824,6 @@ func (c *ClientWithResponses) FetchProviderModelsWithResponse(ctx context.Contex
 	return ParseFetchProviderModelsResponse(rsp)
 }
 
-// GetPublicArtifactShareWithResponse request returning *GetPublicArtifactShareResponse
-func (c *ClientWithResponses) GetPublicArtifactShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetPublicArtifactShareResponse, error) {
-	rsp, err := c.GetPublicArtifactShare(ctx, token, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetPublicArtifactShareResponse(rsp)
-}
-
 // ListArticlesWithResponse request returning *ListArticlesResponse
 func (c *ClientWithResponses) ListArticlesWithResponse(ctx context.Context, params *ListArticlesParams, reqEditors ...RequestEditorFn) (*ListArticlesResponse, error) {
 	rsp, err := c.ListArticles(ctx, params, reqEditors...)
@@ -17302,6 +17258,50 @@ func (c *ClientWithResponses) UploadWorkspaceFileWithBodyWithResponse(ctx contex
 		return nil, err
 	}
 	return ParseUploadWorkspaceFileResponse(rsp)
+}
+
+// ListSharesWithResponse request returning *ListSharesResponse
+func (c *ClientWithResponses) ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error) {
+	rsp, err := c.ListShares(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSharesResponse(rsp)
+}
+
+// CreateShareWithBodyWithResponse request with arbitrary body returning *CreateShareResponse
+func (c *ClientWithResponses) CreateShareWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateShareResponse, error) {
+	rsp, err := c.CreateShareWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateShareResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateShareWithResponse(ctx context.Context, body CreateShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateShareResponse, error) {
+	rsp, err := c.CreateShare(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateShareResponse(rsp)
+}
+
+// RevokeShareWithResponse request returning *RevokeShareResponse
+func (c *ClientWithResponses) RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error) {
+	rsp, err := c.RevokeShare(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeShareResponse(rsp)
+}
+
+// GetShareWithResponse request returning *GetShareResponse
+func (c *ClientWithResponses) GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error) {
+	rsp, err := c.GetShare(ctx, token, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetShareResponse(rsp)
 }
 
 // ListSkillsWithResponse request returning *ListSkillsResponse
@@ -18654,126 +18654,6 @@ func ParseRemoveAgentUserResponse(rsp *http.Response) (*RemoveAgentUserResponse,
 			return nil, err
 		}
 		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListArtifactSharesResponse parses an HTTP response from a ListArtifactSharesWithResponse call
-func ParseListArtifactSharesResponse(rsp *http.Response) (*ListArtifactSharesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListArtifactSharesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []externalRef0.ArtifactShare
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateArtifactShareResponse parses an HTTP response from a CreateArtifactShareWithResponse call
-func ParseCreateArtifactShareResponse(rsp *http.Response) (*CreateArtifactShareResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateArtifactShareResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.ArtifactShare
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseRevokeArtifactShareResponse parses an HTTP response from a RevokeArtifactShareWithResponse call
-func ParseRevokeArtifactShareResponse(rsp *http.Response) (*RevokeArtifactShareResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RevokeArtifactShareResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	}
 
@@ -21469,32 +21349,6 @@ func ParseFetchProviderModelsResponse(rsp *http.Response) (*FetchProviderModelsR
 	return response, nil
 }
 
-// ParseGetPublicArtifactShareResponse parses an HTTP response from a GetPublicArtifactShareWithResponse call
-func ParseGetPublicArtifactShareResponse(rsp *http.Response) (*GetPublicArtifactShareResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetPublicArtifactShareResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListArticlesResponse parses an HTTP response from a ListArticlesWithResponse call
 func ParseListArticlesResponse(rsp *http.Response) (*ListArticlesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23052,6 +22906,152 @@ func ParseUploadWorkspaceFileResponse(rsp *http.Response) (*UploadWorkspaceFileR
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSharesResponse parses an HTTP response from a ListSharesWithResponse call
+func ParseListSharesResponse(rsp *http.Response) (*ListSharesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSharesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.Share
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateShareResponse parses an HTTP response from a CreateShareWithResponse call
+func ParseCreateShareResponse(rsp *http.Response) (*CreateShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.Share
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeShareResponse parses an HTTP response from a RevokeShareWithResponse call
+func ParseRevokeShareResponse(rsp *http.Response) (*RevokeShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetShareResponse parses an HTTP response from a GetShareWithResponse call
+func ParseGetShareResponse(rsp *http.Response) (*GetShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.NotFound
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

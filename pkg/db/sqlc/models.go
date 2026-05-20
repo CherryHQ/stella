@@ -58,19 +58,6 @@ type Article struct {
 	UpdatedAt    string         `json:"updated_at"`
 }
 
-type ArtifactShare struct {
-	ID        string         `json:"id"`
-	TokenHash string         `json:"token_hash"`
-	UserID    string         `json:"user_id"`
-	SessionID string         `json:"session_id"`
-	Path      string         `json:"path"`
-	MediaType string         `json:"media_type"`
-	Content   []byte         `json:"content"`
-	ExpiresAt sql.NullString `json:"expires_at"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
-}
-
 type AuthIdentity struct {
 	ID         string `json:"id"`
 	UserID     string `json:"user_id"`
@@ -428,6 +415,18 @@ type SettingsProvider struct {
 	Config    string `json:"config"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type Share struct {
+	ID        string         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    string         `json:"user_id"`
+	Title     string         `json:"title"`
+	MediaType string         `json:"media_type"`
+	Content   []byte         `json:"content"`
+	ExpiresAt sql.NullString `json:"expires_at"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 type Skill struct {

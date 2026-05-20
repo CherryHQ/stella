@@ -44,8 +44,14 @@ func artifactShareCommand() *ucli.Command {
 			if sessionID == "" {
 				return fmt.Errorf("session ID is required (pass --session-id or run inside an agent session with STELLA_SESSION_ID)")
 			}
-			expiresIn := apitypes.CreateArtifactShareRequestExpiresIn(c.String("expires-in"))
-			share, err := createArtifactShare(c.Context, sessionID, path, expiresIn)
+			expiresIn := apitypes.CreateShareRequestExpiresIn(c.String("expires-in"))
+			source := apitypes.CreateShareRequestSourceArtifact
+			share, err := createShare(c.Context, apiclient.CreateShareJSONRequestBody{
+				Source:    source,
+				SessionId: &sessionID,
+				Path:      &path,
+				ExpiresIn: &expiresIn,
+			})
 			if err != nil {
 				return err
 			}
@@ -55,12 +61,8 @@ func artifactShareCommand() *ucli.Command {
 	}
 }
 
-func createArtifactShare(ctx context.Context, sessionID, path string, expiresIn apitypes.CreateArtifactShareRequestExpiresIn) (apitypes.ArtifactShare, error) {
-	return apiclient.Call[apitypes.ArtifactShare](func(api *apiclient.Client) (*http.Response, error) {
-		return api.CreateArtifactShare(ctx, apiclient.CreateArtifactShareJSONRequestBody{
-			SessionId: sessionID,
-			Path:      path,
-			ExpiresIn: &expiresIn,
-		})
+func createShare(ctx context.Context, body apiclient.CreateShareJSONRequestBody) (apitypes.Share, error) {
+	return apiclient.Call[apitypes.Share](func(api *apiclient.Client) (*http.Response, error) {
+		return api.CreateShare(ctx, body)
 	})
 }

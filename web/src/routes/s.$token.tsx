@@ -13,7 +13,7 @@ export const Route = createFileRoute("/s/$token")({
 
 function PublicArtifactSharePage() {
   const { token } = Route.useParams();
-  const contentUrl = `/api/public/artifact-shares/${encodeURIComponent(token)}`;
+  const contentUrl = `/api/shares/${encodeURIComponent(token)}`;
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

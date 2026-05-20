@@ -414,7 +414,8 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     setCreating(true);
     setError(null);
     try {
-      const result = await api<{ id: string; url: string }>("POST", "/api/artifact-shares", {
+      const result = await api<{ id: string; url: string }>("POST", "/api/shares", {
+        source: "artifact",
         session_id: sessionID,
         path,
         expires_in: expiresIn,
@@ -433,7 +434,7 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     setRevoking(true);
     setError(null);
     try {
-      await api("DELETE", `/api/artifact-shares/${encodeURIComponent(share.id)}`);
+      await api("DELETE", `/api/shares/${encodeURIComponent(share.id)}`);
       setShare(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke share");

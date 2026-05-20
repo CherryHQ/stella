@@ -193,30 +193,6 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
-// Defines values for CreateArtifactShareRequestExpiresIn.
-const (
-	N1d   CreateArtifactShareRequestExpiresIn = "1d"
-	N1h   CreateArtifactShareRequestExpiresIn = "1h"
-	N7d   CreateArtifactShareRequestExpiresIn = "7d"
-	Never CreateArtifactShareRequestExpiresIn = "never"
-)
-
-// Valid indicates whether the value is a known member of the CreateArtifactShareRequestExpiresIn enum.
-func (e CreateArtifactShareRequestExpiresIn) Valid() bool {
-	switch e {
-	case N1d:
-		return true
-	case N1h:
-		return true
-	case N7d:
-		return true
-	case Never:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CreateSessionRequestKind.
 const (
 	CreateSessionRequestKindChat      CreateSessionRequestKind = "chat"
@@ -235,6 +211,48 @@ func (e CreateSessionRequestKind) Valid() bool {
 	case CreateSessionRequestKindScheduler:
 		return true
 	case CreateSessionRequestKindTask:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateShareRequestExpiresIn.
+const (
+	N1d   CreateShareRequestExpiresIn = "1d"
+	N1h   CreateShareRequestExpiresIn = "1h"
+	N7d   CreateShareRequestExpiresIn = "7d"
+	Never CreateShareRequestExpiresIn = "never"
+)
+
+// Valid indicates whether the value is a known member of the CreateShareRequestExpiresIn enum.
+func (e CreateShareRequestExpiresIn) Valid() bool {
+	switch e {
+	case N1d:
+		return true
+	case N1h:
+		return true
+	case N7d:
+		return true
+	case Never:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateShareRequestSource.
+const (
+	CreateShareRequestSourceArticle  CreateShareRequestSource = "article"
+	CreateShareRequestSourceArtifact CreateShareRequestSource = "artifact"
+)
+
+// Valid indicates whether the value is a known member of the CreateShareRequestSource enum.
+func (e CreateShareRequestSource) Valid() bool {
+	switch e {
+	case CreateShareRequestSourceArticle:
+		return true
+	case CreateShareRequestSourceArtifact:
 		return true
 	default:
 		return false
@@ -530,18 +548,6 @@ type ArticleList struct {
 // ArticleStatus defines model for ArticleStatus.
 type ArticleStatus string
 
-// ArtifactShare defines model for ArtifactShare.
-type ArtifactShare struct {
-	CreatedAt string  `json:"created_at"`
-	ExpiresAt *string `json:"expires_at,omitempty"`
-	Id        string  `json:"id"`
-	MediaType string  `json:"media_type"`
-	Path      string  `json:"path"`
-	SessionId string  `json:"session_id"`
-	Title     string  `json:"title"`
-	Url       string  `json:"url"`
-}
-
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest struct {
 	UserId string `json:"user_id"`
@@ -647,16 +653,6 @@ type CreateAgentRequest struct {
 	Workspace    *string        `json:"workspace,omitempty"`
 }
 
-// CreateArtifactShareRequest defines model for CreateArtifactShareRequest.
-type CreateArtifactShareRequest struct {
-	ExpiresIn *CreateArtifactShareRequestExpiresIn `json:"expires_in,omitempty"`
-	Path      string                               `json:"path"`
-	SessionId string                               `json:"session_id"`
-}
-
-// CreateArtifactShareRequestExpiresIn defines model for CreateArtifactShareRequest.ExpiresIn.
-type CreateArtifactShareRequestExpiresIn string
-
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
 	AgentId *string `json:"agent_id,omitempty"`
@@ -682,6 +678,21 @@ type CreateSessionRequest struct {
 
 // CreateSessionRequestKind defines model for CreateSessionRequest.Kind.
 type CreateSessionRequestKind string
+
+// CreateShareRequest defines model for CreateShareRequest.
+type CreateShareRequest struct {
+	ArticleId *string                      `json:"article_id,omitempty"`
+	ExpiresIn *CreateShareRequestExpiresIn `json:"expires_in,omitempty"`
+	Path      *string                      `json:"path,omitempty"`
+	SessionId *string                      `json:"session_id,omitempty"`
+	Source    CreateShareRequestSource     `json:"source"`
+}
+
+// CreateShareRequestExpiresIn defines model for CreateShareRequest.ExpiresIn.
+type CreateShareRequestExpiresIn string
+
+// CreateShareRequestSource defines model for CreateShareRequest.Source.
+type CreateShareRequestSource string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
@@ -1202,6 +1213,16 @@ type SetSoulRequest struct {
 // SetVaultEntryRequest defines model for SetVaultEntryRequest.
 type SetVaultEntryRequest struct {
 	Value string `json:"value"`
+}
+
+// Share defines model for Share.
+type Share struct {
+	CreatedAt string  `json:"created_at"`
+	ExpiresAt *string `json:"expires_at,omitempty"`
+	Id        string  `json:"id"`
+	MediaType string  `json:"media_type"`
+	Title     string  `json:"title"`
+	Url       string  `json:"url"`
 }
 
 // Skill defines model for Skill.

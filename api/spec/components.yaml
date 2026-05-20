@@ -232,39 +232,6 @@ components:
           type: string
         name:
           type: string
-    ArtifactShare:
-      type: object
-      required: [id, url, title, session_id, path, media_type, created_at]
-      properties:
-        id:
-          type: string
-        url:
-          type: string
-        title:
-          type: string
-        session_id:
-          type: string
-        path:
-          type: string
-        media_type:
-          type: string
-        expires_at:
-          type: string
-          nullable: true
-        created_at:
-          type: string
-    CreateArtifactShareRequest:
-      type: object
-      required: [session_id, path]
-      properties:
-        session_id:
-          type: string
-        path:
-          type: string
-        expires_in:
-          type: string
-          enum: [1h, 1d, 7d, never]
-          default: 7d
     LoginRequest:
       type: object
       required: [username, password]
@@ -1530,6 +1497,40 @@ components:
         path:
           type: string
           description: Relative path of the uploaded file within the workspace
+    Share:
+      type: object
+      required: [id, url, title, media_type, created_at]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        media_type:
+          type: string
+        expires_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+    CreateShareRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [artifact, article]
+        session_id:
+          type: string
+        path:
+          type: string
+        article_id:
+          type: string
+        expires_in:
+          type: string
+          enum: [1h, 1d, 7d, never]
+          default: 7d
     CreateSkillRequest:
       type: object
       properties:

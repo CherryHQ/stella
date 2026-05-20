@@ -15,13 +15,13 @@ import {
   changePassword,
   createAgent,
   createAgentTask,
-  createArtifactShare,
   createChannel,
   createFeed,
   createProject,
   createProvider,
   createSchedulerJob,
   createSession,
+  createShare,
   createSkill,
   createWorkspaceFile,
   deleteAgent,
@@ -68,11 +68,11 @@ import {
   getProfileSkillFile,
   getProject,
   getProvider,
-  getPublicArtifactShare,
   getSession,
   getSessionMessages,
   getSessionSystemPrompt,
   getSessionWorkspace,
+  getShare,
   getSkill,
   getSkillFile,
   getStatus,
@@ -88,7 +88,6 @@ import {
   listAgentTasks,
   listAgentUsers,
   listArticles,
-  listArtifactShares,
   listAuthUserAgents,
   listAuthUsers,
   listBuiltinResources,
@@ -110,6 +109,7 @@ import {
   listSchedulerJobRuns,
   listSchedulerJobs,
   listSessions,
+  listShares,
   listSkills,
   listStoredDigests,
   listTools,
@@ -125,7 +125,7 @@ import {
   pollWeixinQrStatus,
   register,
   removeAgentUser,
-  revokeArtifactShare,
+  revokeShare,
   saveArticle,
   saveDigest,
   saveManifestPlugins,
@@ -180,9 +180,6 @@ import type {
   CreateAgentTaskData,
   CreateAgentTaskError,
   CreateAgentTaskResponse,
-  CreateArtifactShareData,
-  CreateArtifactShareError,
-  CreateArtifactShareResponse,
   CreateChannelData,
   CreateChannelError,
   CreateChannelResponse,
@@ -201,6 +198,9 @@ import type {
   CreateSessionData,
   CreateSessionError,
   CreateSessionResponse,
+  CreateShareData,
+  CreateShareError,
+  CreateShareResponse,
   CreateSkillData,
   CreateSkillError,
   CreateSkillResponse,
@@ -339,9 +339,6 @@ import type {
   GetProviderData,
   GetProviderError,
   GetProviderResponse,
-  GetPublicArtifactShareData,
-  GetPublicArtifactShareError,
-  GetPublicArtifactShareResponse,
   GetSessionData,
   GetSessionError,
   GetSessionMessagesData,
@@ -354,6 +351,9 @@ import type {
   GetSessionWorkspaceData,
   GetSessionWorkspaceError,
   GetSessionWorkspaceResponse,
+  GetShareData,
+  GetShareError,
+  GetShareResponse,
   GetSkillData,
   GetSkillError,
   GetSkillFileData,
@@ -398,9 +398,6 @@ import type {
   ListArticlesData,
   ListArticlesError,
   ListArticlesResponse,
-  ListArtifactSharesData,
-  ListArtifactSharesError,
-  ListArtifactSharesResponse,
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
@@ -464,6 +461,9 @@ import type {
   ListSessionsData,
   ListSessionsError,
   ListSessionsResponse,
+  ListSharesData,
+  ListSharesError,
+  ListSharesResponse,
   ListSkillsData,
   ListSkillsError,
   ListSkillsResponse,
@@ -504,9 +504,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
-  RevokeArtifactShareData,
-  RevokeArtifactShareError,
-  RevokeArtifactShareResponse,
+  RevokeShareData,
+  RevokeShareError,
+  RevokeShareResponse,
   SaveArticleData,
   SaveArticleError,
   SaveArticleResponse,
@@ -3257,24 +3257,21 @@ export const getSessionSystemPromptOptions = (
     queryKey: getSessionSystemPromptQueryKey(options),
   });
 
-export const listArtifactSharesQueryKey = (
-  options?: Options<ListArtifactSharesData>,
-) => createQueryKey("listArtifactShares", options);
+export const listSharesQueryKey = (options?: Options<ListSharesData>) =>
+  createQueryKey("listShares", options);
 
 /**
- * List artifact shares for the current user
+ * List shares for the current user
  */
-export const listArtifactSharesOptions = (
-  options?: Options<ListArtifactSharesData>,
-) =>
+export const listSharesOptions = (options?: Options<ListSharesData>) =>
   queryOptions<
-    ListArtifactSharesResponse,
-    ListArtifactSharesError,
-    ListArtifactSharesResponse,
-    ReturnType<typeof listArtifactSharesQueryKey>
+    ListSharesResponse,
+    ListSharesError,
+    ListSharesResponse,
+    ReturnType<typeof listSharesQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listArtifactShares({
+      const { data } = await listShares({
         ...options,
         ...queryKey[0],
         signal,
@@ -3282,26 +3279,26 @@ export const listArtifactSharesOptions = (
       });
       return data;
     },
-    queryKey: listArtifactSharesQueryKey(options),
+    queryKey: listSharesQueryKey(options),
   });
 
 /**
- * Create a public artifact share from a workspace file
+ * Create a public share link
  */
-export const createArtifactShareMutation = (
-  options?: Partial<Options<CreateArtifactShareData>>,
+export const createShareMutation = (
+  options?: Partial<Options<CreateShareData>>,
 ): UseMutationOptions<
-  CreateArtifactShareResponse,
-  CreateArtifactShareError,
-  Options<CreateArtifactShareData>
+  CreateShareResponse,
+  CreateShareError,
+  Options<CreateShareData>
 > => {
   const mutationOptions: UseMutationOptions<
-    CreateArtifactShareResponse,
-    CreateArtifactShareError,
-    Options<CreateArtifactShareData>
+    CreateShareResponse,
+    CreateShareError,
+    Options<CreateShareData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await createArtifactShare({
+      const { data } = await createShare({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -3313,22 +3310,22 @@ export const createArtifactShareMutation = (
 };
 
 /**
- * Revoke an artifact share
+ * Revoke a share
  */
-export const revokeArtifactShareMutation = (
-  options?: Partial<Options<RevokeArtifactShareData>>,
+export const revokeShareMutation = (
+  options?: Partial<Options<RevokeShareData>>,
 ): UseMutationOptions<
-  RevokeArtifactShareResponse,
-  RevokeArtifactShareError,
-  Options<RevokeArtifactShareData>
+  RevokeShareResponse,
+  RevokeShareError,
+  Options<RevokeShareData>
 > => {
   const mutationOptions: UseMutationOptions<
-    RevokeArtifactShareResponse,
-    RevokeArtifactShareError,
-    Options<RevokeArtifactShareData>
+    RevokeShareResponse,
+    RevokeShareError,
+    Options<RevokeShareData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await revokeArtifactShare({
+      const { data } = await revokeShare({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -3339,24 +3336,21 @@ export const revokeArtifactShareMutation = (
   return mutationOptions;
 };
 
-export const getPublicArtifactShareQueryKey = (
-  options: Options<GetPublicArtifactShareData>,
-) => createQueryKey("getPublicArtifactShare", options);
+export const getShareQueryKey = (options: Options<GetShareData>) =>
+  createQueryKey("getShare", options);
 
 /**
- * Get public artifact share content
+ * Get shared content by token
  */
-export const getPublicArtifactShareOptions = (
-  options: Options<GetPublicArtifactShareData>,
-) =>
+export const getShareOptions = (options: Options<GetShareData>) =>
   queryOptions<
-    GetPublicArtifactShareResponse,
-    GetPublicArtifactShareError,
-    GetPublicArtifactShareResponse,
-    ReturnType<typeof getPublicArtifactShareQueryKey>
+    GetShareResponse,
+    GetShareError,
+    GetShareResponse,
+    ReturnType<typeof getShareQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getPublicArtifactShare({
+      const { data } = await getShare({
         ...options,
         ...queryKey[0],
         signal,
@@ -3364,7 +3358,7 @@ export const getPublicArtifactShareOptions = (
       });
       return data;
     },
-    queryKey: getPublicArtifactShareQueryKey(options),
+    queryKey: getShareQueryKey(options),
   });
 
 /**
