@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SessionConversation } from "@/features/sessions/SessionConversation";
 import { ResizableSidePanel } from "./ResizableSidePanel";
 
@@ -149,6 +150,22 @@ export function AutomationDashPanel({
 
   const userJobs = schedulerJobs.filter((j) => j.owner_kind !== "system");
   const systemJobs = schedulerJobs.filter((j) => j.owner_kind === "system");
+
+  const hasSidePanel = !!(selectedRun || (selectedJob && !selectedRun));
+  const sidePanelContent = selectedRun ? (
+    <RunDetailPanel run={selectedRun} onClose={() => onSelectRun(selectedRun.job_id ?? "", null)} />
+  ) : selectedJob && !selectedRun ? (
+    <JobDetailPanel
+      job={selectedJob}
+      runs={jobRuns}
+      runsLoading={jobRunsLoading}
+      onClose={() => onSelectJob(null)}
+      onSelectRun={handleSelectRunFromJob}
+      onEditJob={() => {
+        onEditJob(selectedJob.id);
+      }}
+    />
+  ) : null;
 
   return (
     <div className="flex-1 min-w-0 flex overflow-hidden">
@@ -323,25 +340,25 @@ export function AutomationDashPanel({
         )}
       </div>
 
-      {/* Side panel: run detail takes priority over job detail */}
-      {selectedRun && (
-        <RunDetailPanel
-          run={selectedRun}
-          onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
-        />
-      )}
-      {selectedJob && !selectedRun && (
-        <JobDetailPanel
-          job={selectedJob}
-          runs={jobRuns}
-          runsLoading={jobRunsLoading}
-          onClose={() => onSelectJob(null)}
-          onSelectRun={handleSelectRunFromJob}
-          onEditJob={() => {
-            onEditJob(selectedJob.id);
-          }}
-        />
-      )}
+      {/* Side panel: desktop inline */}
+      {hasSidePanel && <div className="hidden md:flex">{sidePanelContent}</div>}
+
+      {/* Side panel: mobile sheet */}
+      <Sheet
+        open={hasSidePanel}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (selectedRun) onSelectRun(selectedRun.job_id ?? "", null);
+            else if (selectedJob) onSelectJob(null);
+          }
+        }}
+      >
+        <SheetPopup side="bottom" showCloseButton={false} className="h-[85vh] md:hidden">
+          <SheetTitle className="sr-only">Details</SheetTitle>
+          <SheetDescription className="sr-only">Job or run details</SheetDescription>
+          <div className="flex h-full flex-col overflow-hidden">{sidePanelContent}</div>
+        </SheetPopup>
+      </Sheet>
     </div>
   );
 }
@@ -541,6 +558,7 @@ function RunDetailPanel({ run, onClose }: { run: RunWithMeta; onClose: () => voi
             bodyClassName="min-h-0 flex-1"
             after={run.started_at}
             before={run.finished_at}
+            inline
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">

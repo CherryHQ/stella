@@ -26,6 +26,7 @@ interface Props {
   bodyClassName?: string;
   after?: string;
   before?: string;
+  inline?: boolean;
 }
 
 export function SessionConversation({
@@ -35,6 +36,7 @@ export function SessionConversation({
   bodyClassName = "h-[28rem]",
   after,
   before,
+  inline,
 }: Props) {
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -171,6 +173,14 @@ export function SessionConversation({
       </div>
     </div>
   );
+
+  if (inline) {
+    return (
+      <div className={`flex flex-col overflow-hidden ${className}`}>
+        <div className={`flex flex-col ${bodyClassName}`}>{renderBody()}</div>
+      </div>
+    );
+  }
 
   return (
     <>
