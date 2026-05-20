@@ -1,22 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogPopup, DialogPanel, DialogFooter } from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-
-interface Toast {
-  message: string;
-  type: "success" | "error";
-}
-
-interface ConfirmDialog {
-  message: string;
-  onConfirm: () => void;
-}
+import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 
 interface LegacyUser extends User {
   _defaultAgent: string;
@@ -40,18 +37,14 @@ export function UsersPage() {
   const [userMemories, setUserMemories] = useState<
     Record<number, (UserMemory & { _content: string })[]>
   >({});
-  const [toast, setToast] = useState<Toast | null>(null);
-  const [confirm, setConfirm] = useState<ConfirmDialog | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
-  }, []);
+  const { toasts, showToast } = useToast();
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const confirmDelete = useCallback((message: string, onConfirm: () => void) => {
-    setConfirm({ message, onConfirm });
+    setConfirmState({ message, onConfirm });
   }, []);
 
   const loadAuthUsers = useCallback(async () => {
@@ -315,35 +308,27 @@ export function UsersPage() {
 
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = (
-    <div className="px-4 py-3 border-b border-border">
-      <h2 className="text-sm font-medium">Users</h2>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title="Users" />;
 
   const list = (
-    <div>
+    <SettingsListBody>
       {authUsers.map((u) => (
-        <button
+        <SettingsListItem
           key={u.id}
           onClick={() => void selectUser(u)}
-          className={`w-full text-left px-4 py-3 border-b border-border/50 hover:bg-muted/50 transition-colors ${
-            selectedUser?.id === u.id ? "bg-primary/8" : ""
-          }`}
+          active={selectedUser?.id === u.id}
         >
-          <div className="font-medium text-sm truncate" style={{ fontWeight: 500 }}>
-            {u.username}
-          </div>
-          <div className="text-xs font-mono text-muted-foreground mt-0.5">
+          <div className="truncate text-sm font-medium">{u.username}</div>
+          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
             {u.role === "admin" ? (
               <span className="text-primary">{u.role}</span>
             ) : (
               <span>{u.role}</span>
             )}
           </div>
-        </button>
+        </SettingsListItem>
       ))}
-    </div>
+    </SettingsListBody>
   );
 
   // ── Right panel — user detail ────────────────────────────────────────────────
@@ -410,9 +395,9 @@ export function UsersPage() {
 
             {/* Role Section */}
             <div>
-              <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Role
-              </p>
+              <div className="mb-2">
+                <FormSectionTitle>Role</FormSectionTitle>
+              </div>
               <div className="flex items-center gap-2">
                 <Badge variant={selectedUser.role === "admin" ? "default" : "outline"}>
                   {selectedUser.role}
@@ -444,9 +429,9 @@ export function UsersPage() {
 
             {/* Identities Section */}
             <div>
-              <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Linked Identities
-              </p>
+              <div className="mb-2">
+                <FormSectionTitle>Linked Identities</FormSectionTitle>
+              </div>
               <div className="space-y-2">
                 {(selectedUser.identities || []).map((ident: Identity) => (
                   <div
@@ -489,9 +474,9 @@ export function UsersPage() {
             {/* Notify Channel Section */}
             {selectedUser.identities && selectedUser.identities.length > 0 && (
               <div>
-                <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                  Notify Channel
-                </p>
+                <div className="mb-2">
+                  <FormSectionTitle>Notify Channel</FormSectionTitle>
+                </div>
                 <select
                   value={selectedUser.notify_identity_id?.toString() ?? ""}
                   onChange={(e) => void setNotifyIdentity(e.target.value)}
@@ -513,9 +498,9 @@ export function UsersPage() {
 
             {/* Agent Assignments Section */}
             <div>
-              <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Agent Assignments
-              </p>
+              <div className="mb-2">
+                <FormSectionTitle>Agent Assignments</FormSectionTitle>
+              </div>
               <div className="space-y-2">
                 {userAgentIds.map((aid) => (
                   <div
@@ -780,7 +765,7 @@ export function UsersPage() {
   ) : undefined;
 
   return (
-    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+    <div className="h-full">
       <SettingsDetailLayout
         listHeader={listHeader}
         list={list}
@@ -792,49 +777,18 @@ export function UsersPage() {
         }
       />
 
-      {/* Confirm Dialog */}
-      <Dialog
-        open={!!confirm}
+      <ConfirmDialog
+        open={!!confirmState}
         onOpenChange={(open) => {
-          if (!open) setConfirm(null);
+          if (!open) setConfirmState(null);
         }}
-      >
-        <DialogPopup className="max-w-sm" showCloseButton={false}>
-          <DialogPanel>
-            <p className="text-sm">{confirm?.message}</p>
-          </DialogPanel>
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                confirm?.onConfirm();
-                setConfirm(null);
-              }}
-            >
-              {t("common.confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
+        title="Confirm"
+        message={confirmState?.message ?? ""}
+        onConfirm={() => confirmState?.onConfirm()}
+        confirmLabel={t("common.confirm")}
+      />
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-4 right-4 z-[9999]">
-          <div
-            className={`rounded-lg border text-sm py-2 px-4 shadow-lg ${
-              toast.type === "error"
-                ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-                : "border-success/36 bg-success/8 text-success-foreground"
-            }`}
-          >
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
+      <ToastContainer messages={toasts} />
     </div>
   );
 }

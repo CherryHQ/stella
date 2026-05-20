@@ -87,7 +87,7 @@ func (p *Provider) Name() string { return "lcm" }
 
 // Bootstrap implements memory.Provider.
 func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error {
-	_, err := p.getOrCreateConversation(ctx, session.ID)
+	_, err := p.getOrCreateConversation(ctx, session)
 	return err
 }
 
@@ -97,7 +97,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 		return nil
 	}
 	return p.withSessionLock(session.ID, func() error {
-		convID, err := p.getOrCreateConversation(ctx, session.ID)
+		convID, err := p.getOrCreateConversation(ctx, session)
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 
 // Assemble implements memory.Provider.
 func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
-	convID, err := p.getOrCreateConversation(ctx, session.ID)
+	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) 
 func (p *Provider) Compact(ctx context.Context, session memory.Session, mode memory.CompactionMode) (*memory.CompactionResult, error) {
 	var result *memory.CompactionResult
 	err := p.withSessionLock(session.ID, func() error {
-		convID, cErr := p.getOrCreateConversation(ctx, session.ID)
+		convID, cErr := p.getOrCreateConversation(ctx, session)
 		if cErr != nil {
 			return cErr
 		}

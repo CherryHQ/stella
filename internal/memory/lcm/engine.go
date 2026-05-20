@@ -60,31 +60,37 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 
 // getOrCreateConversation retrieves or creates a conversation for the session.
 // Results are cached since conversation IDs are immutable once created.
-func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (string, error) {
+func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
 	p.globalMu.Lock()
-	if id, ok := p.convCache[sessionID]; ok {
+	if id, ok := p.convCache[session.ID]; ok {
 		p.globalMu.Unlock()
 		return id, nil
 	}
 	p.globalMu.Unlock()
 
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
 	if err == nil {
-		p.cacheConvID(sessionID, conv.ID)
+		p.cacheConvID(session.ID, conv.ID)
 		return conv.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("get conversation: %w", err)
 	}
 
-	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID:        uuid.NewString(),
-		SessionID: sessionID,
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	conv, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		ID:         uuid.NewString(),
+		SessionID:  session.ID,
+		Channel:    session.Channel,
+		Kind:       "chat",
+		AgentID:    sql.NullString{String: session.AgentID, Valid: session.AgentID != ""},
+		UserID:     sql.NullString{String: session.UserID, Valid: session.UserID != ""},
+		LastActive: now,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create conversation: %w", err)
 	}
-	p.cacheConvID(sessionID, conv.ID)
+	p.cacheConvID(session.ID, conv.ID)
 	return conv.ID, nil
 }
 

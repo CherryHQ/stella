@@ -4,7 +4,9 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SessionConversation } from "@/features/sessions/SessionConversation";
 import { ResizableSidePanel } from "./ResizableSidePanel";
 
@@ -47,6 +49,7 @@ export function AutomationDashPanel({
   onCreateJob,
 }: Props) {
   const { t } = useI18n();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [tab, setTab] = useState<"schedules" | "runs">("schedules");
   const [runs, setRuns] = useState<RunWithMeta[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -61,7 +64,7 @@ export function AutomationDashPanel({
     ? (runs.find((r) => r.id === selectedRunId) ?? null)
     : null;
   const selectedRunFromJobRuns =
-    selectedRunId && selectedJob && !selectedRunFromRuns
+    selectedRunId && selectedJobId && !selectedRunFromRuns
       ? (jobRuns.find((r) => r.id === selectedRunId) ?? null)
       : null;
   const selectedRun: RunWithMeta | null =
@@ -70,7 +73,7 @@ export function AutomationDashPanel({
       ? {
           ...selectedRunFromJobRuns,
           job_name: selectedJob?.name,
-          job_id: selectedJob?.id,
+          job_id: selectedJobId,
           job_agent_id: selectedJob?.agent_id,
           job_session_mode: selectedJob?.session_mode,
         }
@@ -150,16 +153,32 @@ export function AutomationDashPanel({
   const userJobs = schedulerJobs.filter((j) => j.owner_kind !== "system");
   const systemJobs = schedulerJobs.filter((j) => j.owner_kind === "system");
 
+  const hasSidePanel = !!(selectedRun || (selectedJob && !selectedRun));
+  const sidePanelContent = selectedRun ? (
+    <RunDetailPanel run={selectedRun} onClose={() => onSelectRun(selectedRun.job_id ?? "", null)} />
+  ) : selectedJob && !selectedRun ? (
+    <JobDetailPanel
+      job={selectedJob}
+      runs={jobRuns}
+      runsLoading={jobRunsLoading}
+      onClose={() => onSelectJob(null)}
+      onSelectRun={handleSelectRunFromJob}
+      onEditJob={() => {
+        onEditJob(selectedJob.id);
+      }}
+    />
+  ) : null;
+
   return (
     <div className="flex-1 min-w-0 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex-shrink-0 h-12 px-5 border-b border-border/60 bg-background flex items-center gap-3">
-          <h2 className="text-[15px] font-medium tracking-tight">
+        <div className="flex-shrink-0 h-12 px-3 border-b border-border/60 bg-background flex items-center gap-2 sm:px-5 sm:gap-3">
+          <h2 className="shrink-0 text-[15px] font-medium tracking-tight">
             {t("sessions.sidebar.automations")}
           </h2>
-          <div className="flex items-center gap-1 ml-4">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => setTab("schedules")}
               className={cn(
@@ -184,9 +203,24 @@ export function AutomationDashPanel({
             </button>
           </div>
           <div className="ml-auto">
-            <Button size="sm" onClick={onCreateJob} className="rounded-xl text-xs gap-1.5">
+            <Button size="icon" onClick={onCreateJob} className="size-7 rounded-lg sm:hidden">
               <svg
-                className="w-3 h-3"
+                className="size-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </Button>
+            <Button
+              size="sm"
+              onClick={onCreateJob}
+              className="hidden rounded-xl text-xs gap-1.5 sm:inline-flex"
+            >
+              <svg
+                className="size-3"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -308,24 +342,27 @@ export function AutomationDashPanel({
         )}
       </div>
 
-      {/* Side panel: run detail takes priority over job detail */}
-      {selectedRun && (
-        <RunDetailPanel
-          run={selectedRun}
-          onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
-        />
-      )}
-      {selectedJob && !selectedRun && (
-        <JobDetailPanel
-          job={selectedJob}
-          runs={jobRuns}
-          runsLoading={jobRunsLoading}
-          onClose={() => onSelectJob(null)}
-          onSelectRun={handleSelectRunFromJob}
-          onEditJob={() => {
-            onEditJob(selectedJob.id);
+      {/* Side panel: desktop inline */}
+      {/* Side panel: desktop inline */}
+      {hasSidePanel && isDesktop && sidePanelContent}
+
+      {/* Side panel: mobile sheet */}
+      {!isDesktop && (
+        <Sheet
+          open={hasSidePanel}
+          onOpenChange={(open) => {
+            if (!open) {
+              if (selectedRun) onSelectRun(selectedRun.job_id ?? "", null);
+              else if (selectedJob) onSelectJob(null);
+            }
           }}
-        />
+        >
+          <SheetPopup side="bottom" showCloseButton={false} className="h-[85vh]">
+            <SheetTitle className="sr-only">Details</SheetTitle>
+            <SheetDescription className="sr-only">Job or run details</SheetDescription>
+            <div className="flex h-full flex-col overflow-hidden">{sidePanelContent}</div>
+          </SheetPopup>
+        </Sheet>
       )}
     </div>
   );
@@ -524,6 +561,9 @@ function RunDetailPanel({ run, onClose }: { run: RunWithMeta; onClose: () => voi
             placeholder="Ask about this run..."
             className="h-full"
             bodyClassName="min-h-0 flex-1"
+            after={run.started_at}
+            before={run.finished_at}
+            inline
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">

@@ -67,7 +67,7 @@ export function AccountPage() {
   }, [currentPassword, newPassword, confirmPassword, showToast]);
 
   return (
-    <div>
+    <div className="p-6 sm:p-8 lg:p-10">
       <SettingsPageHeader title={t("account.title")} description="Manage your account settings." />
 
       <div className="mb-10">

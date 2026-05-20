@@ -356,19 +356,23 @@ func (s *Service) GetTask(ctx context.Context, id string) (sqlc.AgentTask, error
 	return task, nil
 }
 
-// ListTasks returns tasks filtered by optional userID and status.
-// isAdmin = true returns all users' tasks.
-func (s *Service) ListTasks(ctx context.Context, userID string, isAdmin bool, status string) ([]sqlc.AgentTask, error) {
-	if isAdmin {
-		if status != "" {
-			return s.q.ListAgentTasksByStatus(ctx, status)
-		}
-		return s.q.ListAgentTasks(ctx)
+// ListTasks returns tasks filtered by userID, agentID, and status.
+func (s *Service) ListTasks(ctx context.Context, userID, agentID, status string) ([]sqlc.AgentTask, error) {
+	var tasks []sqlc.AgentTask
+	var err error
+
+	if agentID != "" {
+		tasks, err = s.q.ListAgentTasksByUserAndAgent(ctx, sqlc.ListAgentTasksByUserAndAgentParams{
+			UserID:  userID,
+			AgentID: sql.NullString{String: agentID, Valid: true},
+		})
+	} else {
+		tasks, err = s.q.ListAgentTasksByUser(ctx, userID)
 	}
-	tasks, err := s.q.ListAgentTasksByUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("tasks: list: %w", err)
 	}
+
 	if status == "" {
 		return tasks, nil
 	}

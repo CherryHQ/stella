@@ -190,6 +190,7 @@ export interface SchedulerJobRun {
   id: string;
   status: string;
   started_at: string;
+  finished_at?: string;
   duration: string;
   session_id: string;
   error: string;
@@ -360,6 +361,7 @@ export interface VaultEntry {
 
 export interface OAuthProvider {
   provider: string;
+  icon?: string;
   available: boolean;
   configured: boolean;
   connected: boolean;

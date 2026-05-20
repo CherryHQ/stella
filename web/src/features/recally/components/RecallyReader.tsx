@@ -106,8 +106,8 @@ export function RecallyReader({
           {t("common.error")}
         </div>
       ) : selectedArticle ? (
-        <div className="mx-auto max-w-[760px] px-6 py-6">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="mx-auto max-w-[760px] px-8 py-8">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
             <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
               <StatusBadge status={selectedArticle.status} t={t} />
               <span className="rounded-full border border-border bg-card px-2 py-0.5">
@@ -246,7 +246,7 @@ export function RecallyReader({
               </p>
             )}
             {selectedArticle.summary && (
-              <div className="mb-4 rounded-md border border-border bg-accent/5 p-3">
+              <div className="mb-5 rounded-xl border border-border bg-card/70 p-4">
                 <button
                   type="button"
                   onClick={() => setSummaryExpanded(!summaryExpanded)}

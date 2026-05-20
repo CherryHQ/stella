@@ -7,11 +7,40 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-
-type Toast = { message: string; type: "success" | "error" } | null;
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
+import * as simpleIcons from "simple-icons";
 type Section = "vault" | "oauth";
+
+function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
+  if (!icon) {
+    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
+  }
+
+  const [family, name] = icon.split(":");
+  const path = family === "simpleicons" ? simpleIconPath(name) : undefined;
+  if (!path) {
+    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="currentColor" aria-label={label}>
+      <path d={path} />
+    </svg>
+  );
+}
+
+function simpleIconPath(name: string) {
+  const key = `si${name.replace(/(^|[-_. ])([a-z0-9])/g, (_, _sep: string, char: string) => char.toUpperCase())}`;
+  const icon = (simpleIcons as Record<string, { path?: string } | undefined>)[key];
+  return icon?.path;
+}
 
 export function CredentialsPage() {
   const { t } = useI18n();
@@ -39,15 +68,8 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
 
-  const [toast, setToast] = useState<Toast>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { toasts, showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
-
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
-  }, []);
 
   const loadVaultEntries = useCallback(async () => {
     setVaultLoading(true);
@@ -148,7 +170,6 @@ export function CredentialsPage() {
     };
     void init();
     return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       for (const key of Object.keys(pollAbortRef.current)) {
         pollAbortRef.current[key] = true;
       }
@@ -300,46 +321,25 @@ export function CredentialsPage() {
     { id: "vault", label: "Vault", subtitle: "Secret key-value store" },
   ];
 
-  const listHeader = (
-    <div className="px-3 py-3 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        {t("credentials.title")}
-      </span>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title={t("credentials.title")} />;
 
   const list = (
-    <div>
+    <SettingsListBody>
       {sections.map((s) => (
-        <button
+        <SettingsListItem
           key={s.id}
           onClick={() => setActiveSection(s.id)}
-          className={`w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors ${
-            activeSection === s.id ? "bg-primary/8" : ""
-          }`}
+          active={activeSection === s.id}
         >
           <p className="text-sm font-medium leading-tight">{s.label}</p>
-          <p className="text-[11px] font-mono text-muted-foreground">{s.subtitle}</p>
-        </button>
+          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{s.subtitle}</p>
+        </SettingsListItem>
       ))}
-    </div>
+    </SettingsListBody>
   );
-
-  const toastBanner = toast ? (
-    <div
-      className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
-        toast.type === "error"
-          ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-          : "border-success/36 bg-success/8 text-success-foreground"
-      }`}
-    >
-      {toast.message}
-    </div>
-  ) : null;
 
   const vaultDetail = (
     <div className="p-6">
-      {toastBanner}
       <h2 className="font-serif text-xl mb-1">Vault</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Encrypted secrets injected as environment variables in sandbox sessions.
@@ -425,7 +425,6 @@ export function CredentialsPage() {
 
   const oauthDetail = (
     <div className="p-6">
-      {toastBanner}
       <h2 className="font-serif text-xl mb-1">OAuth Providers</h2>
       <p className="text-sm text-muted-foreground mb-6">
         Connect your GitHub or Lark/Feishu account so stella can act on your behalf in CLI tools and
@@ -437,6 +436,7 @@ export function CredentialsPage() {
           <div key={p.provider}>
             <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
               <div className="flex items-center gap-3">
+                <ProviderIcon icon={p.icon} label={p.provider} />
                 <span className="font-medium text-sm">{p.provider}</span>
                 {oauthStatus[p.provider] === "connected" && (
                   <Badge variant="success">Connected</Badge>
@@ -469,10 +469,11 @@ export function CredentialsPage() {
                   >
                     Connect
                   </Button>
-                ) : oauthStatus[p.provider] === "connected" ? (
+                ) : oauthStatus[p.provider] === "connected" && p.available ? (
                   <Button
                     size="sm"
                     variant="destructive-outline"
+                    className="text-destructive"
                     onClick={() => disconnectOAuth(p.provider)}
                   >
                     Disconnect
@@ -574,8 +575,9 @@ export function CredentialsPage() {
 
   return (
     // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
-    <div className="-my-8 -mx-10 h-[calc(100%+4rem)]">
+    <div className="h-full">
       <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
+      <ToastContainer messages={toasts} />
     </div>
   );
 }

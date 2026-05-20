@@ -362,6 +362,9 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	sm, _ := s.mem.(memory.SessionManager)
 	result := make(apitypes.JobRunList, 0, len(rows))
 	for _, row := range rows {
+		if info != nil && row.UserID.Valid && row.UserID.String != info.UserID {
+			continue
+		}
 		j := dbRowToAPIJobRun(row)
 		if j.SessionId != "" && sm != nil {
 			if _, err := sm.LoadInfo(r.Context(), j.SessionId); err != nil {

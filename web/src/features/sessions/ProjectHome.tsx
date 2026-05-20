@@ -51,8 +51,17 @@ export function ProjectHome() {
   }, [targetSession, sessionsQuery.isLoading, agentId, projectId, navigate, queryClient]);
 
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+    <div className="flex flex-1 items-center justify-center bg-gradient-to-b from-card/80 to-card p-6">
+      <div className="w-full max-w-md rounded-[24px] border border-border/80 bg-card p-6 text-center shadow-[0_22px_54px_rgba(29,29,31,0.10)]">
+        <div className="mx-auto mb-4 grid size-12 place-items-center rounded-[16px] bg-foreground text-base font-bold text-background shadow-sm">
+          S
+        </div>
+        <h1 className="text-xl font-semibold tracking-[-0.03em]">Opening project workspace…</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Stella is preparing the durable project session and loading workspace context.
+        </p>
+        <div className="mx-auto mt-5 size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+      </div>
     </div>
   );
 }

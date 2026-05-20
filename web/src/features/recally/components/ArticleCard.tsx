@@ -18,8 +18,10 @@ export function ArticleCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-lg p-3 text-left transition-all duration-150 ${
-        selected ? "bg-sidebar-accent" : "hover:bg-muted/50"
+      className={`w-full rounded-xl border p-3 text-left transition-colors ${
+        selected
+          ? "border-primary/20 bg-accent text-accent-foreground shadow-sm"
+          : "border-transparent bg-background/45 hover:border-border/70 hover:bg-background/80"
       }`}
     >
       <div className="flex items-start justify-between gap-2">

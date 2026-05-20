@@ -208,8 +208,8 @@ export function WorkspacePanel({
 
   if (!sessionID) {
     return (
-      <div className="w-full flex flex-col overflow-hidden bg-background h-full">
-        <div className="flex h-11 items-center justify-between px-3 border-b border-border flex-shrink-0">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
+        <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 px-4">
           <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
             {t("sessions.workspace.title")}
           </span>
@@ -239,12 +239,17 @@ export function WorkspacePanel({
   }
 
   return (
-    <div className="w-full flex flex-col overflow-hidden bg-background h-full">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
       {/* Header */}
-      <div className="flex h-11 items-center justify-between px-2 border-b border-border flex-shrink-0">
-        <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider pl-1">
-          Workspace
-        </span>
+      <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 pl-8 pr-3">
+        <div className="min-w-0 pl-1">
+          <span className="block text-[11px] font-semibold tracking-[-0.01em] text-foreground">
+            Workspace
+          </span>
+          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+            {workspaceStats}
+          </span>
+        </div>
         <div className="flex items-center gap-0">
           <Button
             variant="ghost"

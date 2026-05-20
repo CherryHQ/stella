@@ -42,7 +42,7 @@ export function AboutPage() {
   });
 
   return (
-    <div>
+    <div className="p-6 sm:p-8 lg:p-10">
       <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
 
       <div className="border-t border-border pt-6 pb-6 max-w-2xl">

@@ -17,7 +17,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   const processed = processMessages(messages);
 
   return (
-    <div ref={ref} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-6" onScroll={onScroll}>
+    <div ref={ref} className="flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-7" onScroll={onScroll}>
       {messagesLoading && messages.length > 0 && (
         <div className="flex items-center justify-center gap-2 mb-4">
           <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
@@ -31,7 +31,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
           <p className="text-xs text-muted-foreground font-mono">Empty session.</p>
         </div>
       )}
-      <div className="space-y-3">
+      <div className="mx-auto max-w-4xl space-y-5">
         {processed.map((msg, idx) => (
           <div key={idx} className={cn(msg.sameRoleAsPrev ? "-mt-1" : "")}>
             {msg.role === "user" && <UserMessage msg={msg} />}
@@ -47,8 +47,8 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] min-w-0">
-        <div className="bg-muted rounded-2xl rounded-tr-md px-4 py-2.5">
-          <div className="prose prose-sm max-w-none text-foreground">
+        <div className="rounded-[18px] rounded-tr-lg bg-foreground px-4 py-2.5 text-background shadow-sm">
+          <div className="prose prose-sm max-w-none text-background [&_*]:text-background">
             <Streamdown>{extractUserText(msg)}</Streamdown>
           </div>
         </div>
@@ -67,15 +67,15 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
 
 function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
   return (
-    <div className="flex gap-2.5 items-start">
+    <div className="flex items-start gap-3">
       {!msg.sameRoleAsPrev && (
-        <div className="w-6 h-6 rounded-full shrink-0 mt-0.5 flex items-center justify-center bg-primary/10">
-          <svg className="w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[11px] bg-foreground text-background shadow-sm">
+          <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z" />
           </svg>
         </div>
       )}
-      <div className={cn("flex-1 min-w-0 space-y-2", msg.sameRoleAsPrev && "pl-[34px]")}>
+      <div className={cn("min-w-0 flex-1 space-y-2", msg.sameRoleAsPrev && "pl-11")}>
         {(msg.blocks ?? []).map((block, bi) => (
           <BlockRenderer key={bi} block={block} />
         ))}
@@ -97,7 +97,7 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "thinking") return <ThinkingBlock block={block} />;
   if (block.type === "text")
     return (
-      <div className="prose prose-sm max-w-none text-foreground">
+      <div className="prose prose-sm max-w-none rounded-[18px] rounded-tl-lg border border-border/80 bg-card/90 px-4 py-3 text-foreground shadow-[0_8px_24px_rgba(29,29,31,0.035)]">
         <Streamdown>{block.text}</Streamdown>
       </div>
     );
@@ -108,10 +108,10 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
 function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="pl-3 rounded-md bg-muted/30">
+    <div className="overflow-hidden rounded-[14px] border border-border/80 bg-muted/50">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1 py-0.5"
+        className="flex cursor-pointer items-center gap-1 px-3 py-2 font-mono text-[10px] text-muted-foreground hover:text-foreground"
       >
         <span>{expanded ? "▾" : "▸"}</span>
         <span className="italic">{block.redacted ? "thinking (redacted)" : "thinking"}</span>
@@ -123,7 +123,7 @@ function ThinkingBlock({ block }: { block: ContentBlock & { type: "thinking" } }
       </button>
       {expanded && (
         <div className="mt-1">
-          <pre className="text-[10px] font-mono text-muted-foreground italic whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed bg-muted/50 px-3 py-2 rounded">
+          <pre className="max-h-48 overflow-y-auto border-t border-border/80 bg-card/70 px-3 py-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground italic">
             {block.thinking || "(redacted)"}
           </pre>
         </div>
@@ -137,10 +137,10 @@ function ToolCallBlock({ block }: { block: ContentBlock & { type: "tool_call" } 
   const colorClass = toolColor(block.name ?? "");
 
   return (
-    <div className="pl-3 rounded-lg bg-muted/20">
+    <div className="overflow-hidden rounded-[14px] border border-border/80 bg-muted/50">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="text-xs font-mono cursor-pointer flex items-center gap-1.5 py-0.5 w-full min-w-0"
+        className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 py-2 font-mono text-xs"
       >
         <span className="text-muted-foreground text-[10px] shrink-0">{expanded ? "▾" : "▸"}</span>
         <span className={cn("font-semibold shrink-0", colorClass)}>{block.name}</span>

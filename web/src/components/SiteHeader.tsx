@@ -1,15 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  FileText,
-  LogOut,
-  Menu as MenuIcon,
-  Monitor,
-  Moon,
-  Settings,
-  Sun,
-} from "lucide-react";
+import { Check, FileText, LogOut, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { useEffect, useState } from "react";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -149,7 +140,7 @@ export function SiteHeader() {
   );
 }
 
-function ThemeSelector() {
+export function ThemeSelector() {
   const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
   useEffect(() => {
@@ -308,7 +299,7 @@ function GithubLink() {
   );
 }
 
-function UserMenu() {
+export function UserMenu() {
   const { data: me } = useQuery(meQueryOptions);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -348,13 +339,6 @@ function UserMenu() {
               {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
             </div>
           </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link to={"/settings" as never} />}>
-            <Settings className="size-4" />
-            {t("nav.settings")}
-          </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>

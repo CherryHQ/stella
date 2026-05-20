@@ -32,8 +32,12 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 	if params.Status != nil {
 		statusFilter = *params.Status
 	}
+	var agentID string
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
 
-	list, err := s.tasksSvc.ListTasks(r.Context(), userID, false, statusFilter)
+	list, err := s.tasksSvc.ListTasks(r.Context(), userID, agentID, statusFilter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
