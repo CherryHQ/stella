@@ -39,25 +39,11 @@ const AVATAR_COLORS = [
   "linear-gradient(145deg, #1a8a8a, #3bc9db)",
 ];
 
-const PROJECT_COLORS = [
-  "#0071e3",
-  "#34c759",
-  "#ff9f0a",
-  "#af52de",
-  "#ff3b30",
-  "#5ac8fa",
-  "#ffcc00",
-];
-
 function agentGradient(id: string, index: number): string {
   if (index < AVATAR_COLORS.length) return AVATAR_COLORS[index];
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-
-function projectColor(index: number): string {
-  return PROJECT_COLORS[index % PROJECT_COLORS.length];
 }
 
 function sessionTitle(s: Session): string {
@@ -129,20 +115,6 @@ function IconSettings() {
   );
 }
 
-function IconPlus() {
-  return (
-    <svg
-      className="size-2.5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
 function IconFolder() {
   return (
     <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -151,14 +123,63 @@ function IconFolder() {
   );
 }
 
-function IconTrash() {
+function IconMore() {
   return (
-    <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M3 6h18" />
-      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
     </svg>
   );
+}
+
+function IconNewChat() {
+  return (
+    <svg
+      className="size-3.5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.85"
+    >
+      <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h6A2.5 2.5 0 0 1 16 6.5v3A2.5 2.5 0 0 1 13.5 12H9l-4 3v-8.5z" />
+      <path d="M18 12v6" />
+      <path d="M15 15h6" />
+    </svg>
+  );
+}
+
+function IconFolderProject() {
+  return (
+    <svg
+      className="size-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+    >
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  if (diff < 0) return "now";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
 }
 
 // ── FolderTree & CreateProjectDialog (unchanged) ────────────────────────────
@@ -428,15 +449,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [openProjects, setOpenProjects] = useState<string[]>([]);
-  const [archiveOpen, setArchiveOpen] = useState(false);
-  const [historyKind, setHistoryKind] = useState("");
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [chatsOpen, setChatsOpen] = useState(true);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-
-  const isProjectOpen = (id: string) => openProjects.includes(id);
-  const toggleProject = (id: string) =>
-    setOpenProjects((prev) => (prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]));
 
   // ── data ─────────────────────────────────────────────────────────────────
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
@@ -462,18 +478,11 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   }, [sessions]);
 
   const chatSessions = useMemo(() => {
-    return sessions.filter((s) => {
-      if (s.archived) return false;
-      if (s.id === "main") return false;
-      if (historyKind) return s.kind === historyKind;
-      return true;
-    });
-  }, [sessions, historyKind]);
-
-  const archivedCount = useMemo(
-    () => sessions.filter((s) => !s.archived && s.kind !== "main").length,
-    [sessions],
-  );
+    const active = sessions.filter((s) => !s.archived);
+    const main = active.filter((s) => s.kind === "main");
+    const rest = active.filter((s) => s.kind !== "main");
+    return [...main, ...rest];
+  }, [sessions]);
 
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
@@ -613,97 +622,70 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           </div>
         </div>
 
-        {/* ── Project folders ──────────────────────────────────────────── */}
-        <div>
-          <div className="flex items-center justify-between pr-1">
-            <SectionLabel>Project folders</SectionLabel>
+        {/* ── Projects ─────────────────────────────────────────────── */}
+        <section className="mt-3">
+          <div className="flex h-[30px] items-center gap-1 pr-1">
+            <button
+              type="button"
+              onClick={() => setProjectsOpen((v) => !v)}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
+            >
+              <span>Projects</span>
+              <ChevRight
+                className={cn(
+                  "size-2.5 text-muted-foreground/40 transition-transform duration-150",
+                  projectsOpen && "rotate-90",
+                )}
+              />
+            </button>
             <button
               type="button"
               onClick={() => setShowCreateProject(true)}
-              className="mt-2 p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
               title="New project"
             >
-              <IconPlus />
+              <IconMore />
             </button>
           </div>
-          <div className="grid gap-1">
-            {(projects as Project[]).map((p, idx) => {
-              const open = isProjectOpen(p.id);
-              const isActiveProject = activeProjectId === p.id;
-              const projectSessions = sessions.filter((s) => s.project_id === p.id && !s.archived);
-              return (
-                <div key={p.id} className="group/proj rounded-xl p-1.5 text-[12px]">
-                  <div className="flex items-center">
+          {projectsOpen && (
+            <div className="grid gap-px">
+              {(projects as Project[]).map((p) => {
+                const isActiveProject = activeProjectId === p.id;
+                return (
+                  <div key={p.id} className="group/proj">
                     <button
                       type="button"
-                      className="flex min-h-[30px] min-w-0 flex-1 cursor-pointer items-center gap-2 text-left font-semibold text-foreground"
-                      onClick={() => {
-                        toggleProject(p.id);
-                        void openProject(p.id);
-                      }}
+                      onClick={() => void openProject(p.id)}
+                      className={cn(
+                        "grid min-h-[32px] w-full grid-cols-[21px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors",
+                        isActiveProject
+                          ? "bg-foreground/[0.045] text-foreground shadow-[inset_0_0_0_0.5px_rgba(29,29,31,0.035)]"
+                          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                      )}
                     >
-                      <ChevRight
-                        className={cn(
-                          "size-2.5 shrink-0 text-muted-foreground/50 transition-transform duration-150",
-                          open && "rotate-90",
-                        )}
-                      />
+                      <span className={cn("opacity-90", isActiveProject && "text-foreground")}>
+                        <IconFolderProject />
+                      </span>
+                      <span className="truncate">{p.name}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground/60">
+                        {relativeTime(p.updated_at)}
+                      </span>
                       <span
-                        className="size-2.5 shrink-0 rounded-[3px]"
-                        style={{ background: projectColor(idx) }}
-                      />
-                      <span
-                        className={cn(
-                          "truncate",
-                          isActiveProject ? "text-primary" : "text-foreground",
-                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteProject(p.id);
+                        }}
+                        className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-card hover:text-foreground group-hover/proj:opacity-70"
                       >
-                        {p.name}
+                        <IconMore />
                       </span>
                     </button>
-                    {(projects as Project[]).length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => void deleteProject(p.id)}
-                        className="p-0.5 text-muted-foreground/40 opacity-0 transition-all hover:text-destructive group-hover/proj:opacity-100"
-                        title="Delete project"
-                      >
-                        <IconTrash />
-                      </button>
-                    )}
                   </div>
-                  {open && projectSessions.length > 0 && (
-                    <div className="ml-[30px] mt-1 grid gap-1 border-l border-border/70 pl-3">
-                      {projectSessions.map((s) => {
-                        const isActiveSess = activeSessionId === s.id;
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() =>
-                              void navigate({
-                                to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
-                                params: { agentId, projectId: p.id, sessionId: s.id },
-                              })
-                            }
-                            className={cn(
-                              "flex h-[25px] items-center rounded-[7px] px-2 text-left text-[11.5px] transition-colors",
-                              isActiveSess
-                                ? "bg-primary/10 text-primary"
-                                : "text-muted-foreground hover:bg-primary/[0.07] hover:text-primary",
-                            )}
-                          >
-                            {sessionTitle(s)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
         {showCreateProject && (
           <CreateProjectDialog
             agentId={agentId}
@@ -716,37 +698,35 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           />
         )}
 
-        {/* ── Archive ──────────────────────────────────────────────────── */}
-        <div>
-          <SectionLabel>Archive</SectionLabel>
-          <button
-            type="button"
-            onClick={() => setArchiveOpen((v) => !v)}
-            className="flex h-8 w-full items-center gap-2 rounded-[10px] px-2.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground"
-          >
-            <ChevRight
-              className={cn(
-                "size-2.5 shrink-0 text-muted-foreground/40 transition-transform duration-150",
-                archiveOpen && "rotate-90",
-              )}
-            />
-            <span className="flex-1">Archived sessions</span>
-            <span className="font-mono text-[10px] text-muted-foreground/50">{archivedCount}</span>
-          </button>
-          {archiveOpen && (
-            <div className="mt-1">
-              <div className="mb-1 flex items-center gap-1 px-2">
-                <select
-                  value={historyKind}
-                  onChange={(e) => setHistoryKind(e.target.value)}
-                  className="rounded border border-border/50 bg-muted/50 px-2 py-0.5 font-mono text-xs text-muted-foreground focus:outline-none"
-                >
-                  <option value="">all</option>
-                  <option value="chat">chat</option>
-                  <option value="scheduler">scheduler</option>
-                  <option value="task">task</option>
-                </select>
-              </div>
+        {/* ── Chats ──────────────────────────────────────────────────── */}
+        <section className="mt-3">
+          <div className="flex h-[30px] items-center gap-1 pr-1">
+            <button
+              type="button"
+              onClick={() => setChatsOpen((v) => !v)}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
+            >
+              <span>Chats</span>
+              <ChevRight
+                className={cn(
+                  "size-2.5 text-muted-foreground/40 transition-transform duration-150",
+                  chatsOpen && "rotate-90",
+                )}
+              />
+            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => void createSession()}
+                className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+                title="New chat"
+              >
+                <IconNewChat />
+              </button>
+            </div>
+          </div>
+          {chatsOpen && (
+            <div className="grid gap-px">
               {chatSessions.map((s) => (
                 <button
                   key={s.id}
@@ -758,22 +738,25 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     })
                   }
                   className={cn(
-                    "w-full truncate rounded-[9px] px-3 py-[7px] text-left text-[12px] leading-snug transition-colors",
+                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
                     activeSessionId === s.id
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                      ? "bg-foreground/[0.045] text-primary"
+                      : "text-foreground hover:bg-foreground/[0.045]",
                   )}
                 >
-                  {sessionTitle(s)}
+                  <span className="truncate">{sessionTitle(s)}</span>
+                  <time className="text-[12px] font-medium text-muted-foreground/60">
+                    {relativeTime(s.last_active)}
+                  </time>
                 </button>
               ))}
               {chatSessions.length === 0 && (
-                <p className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                <p className="px-2 py-2 font-mono text-xs text-muted-foreground">
                   {t("sessions.sidebar.noChats")}
                 </p>
               )}
               {sessionsQuery.isLoading && (
-                <div className="flex items-center gap-2 px-3 py-1.5">
+                <div className="flex items-center gap-2 px-2 py-1.5">
                   <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground/70" />
                   <span className="font-mono text-xs text-muted-foreground">
                     {t("common.loading")}
@@ -784,24 +767,14 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 <button
                   type="button"
                   onClick={() => void sessionsQuery.fetchNextPage()}
-                  className="w-full px-3 py-1.5 text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="min-h-[28px] rounded-[10px] px-[7px] text-left text-[13px] text-muted-foreground/60 transition-colors hover:bg-foreground/[0.045] hover:text-muted-foreground"
                 >
-                  {t("sessions.sidebar.loadMore")}
+                  Show more
                 </button>
               )}
-              <div className="flex justify-end px-1 py-1">
-                <button
-                  type="button"
-                  onClick={() => void createSession()}
-                  className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground/60 transition-colors hover:text-foreground"
-                >
-                  <IconPlus />
-                  New
-                </button>
-              </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </aside>
   );
