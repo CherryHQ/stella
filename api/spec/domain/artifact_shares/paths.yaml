@@ -32,7 +32,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "../../components.yaml#/components/schemas/CreateArtifactShareResponse"
+                $ref: "../../components.yaml#/components/schemas/ArtifactShare"
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

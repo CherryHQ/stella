@@ -5,8 +5,6 @@ import { api } from "@/lib/api";
 interface PublicArtifactShare {
   title: string;
   media_type: string;
-  kind: "html" | "markdown" | "image" | "pdf";
-  size_bytes: number;
   expires_at?: string | null;
   created_at: string;
   content_url: string;
@@ -37,7 +35,7 @@ function PublicArtifactSharePage() {
   }, [token]);
 
   useEffect(() => {
-    if (!share || share.kind !== "markdown") return;
+    if (!share || !share.media_type.startsWith("text/markdown")) return;
     let cancelled = false;
     fetch(share.content_url)
       .then((res) => (res.ok ? res.text() : Promise.reject(new Error("Failed to load markdown"))))
@@ -72,9 +70,11 @@ function PublicArtifactSharePage() {
     );
   }
 
+  const mt = share.media_type;
+
   return (
     <PublicShell title={share.title} expiresAt={share.expires_at} contentUrl={share.content_url}>
-      {share.kind === "html" && (
+      {mt.startsWith("text/html") && (
         <iframe
           title={share.title}
           className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-white"
@@ -82,13 +82,13 @@ function PublicArtifactSharePage() {
           src={share.content_url}
         />
       )}
-      {share.kind === "markdown" && (
+      {mt.startsWith("text/markdown") && (
         <article
           className="prose prose-neutral dark:prose-invert mx-auto max-w-3xl rounded-xl border bg-card p-6"
           dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
         />
       )}
-      {share.kind === "image" && (
+      {mt.startsWith("image/") && (
         <div className="flex justify-center rounded-xl border bg-card p-4">
           <img
             alt={share.title}
@@ -97,10 +97,11 @@ function PublicArtifactSharePage() {
           />
         </div>
       )}
-      {share.kind === "pdf" && (
+      {mt === "application/pdf" && (
         <iframe
           title={share.title}
           className="h-[calc(100vh-8rem)] w-full rounded-xl border bg-card"
+          sandbox="allow-scripts allow-same-origin"
           src={share.content_url}
         />
       )}

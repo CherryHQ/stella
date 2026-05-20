@@ -11724,7 +11724,7 @@ func (r ListArtifactSharesResponse) ContentType() string {
 type CreateArtifactShareResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *externalRef0.CreateArtifactShareResponse
+	JSON201      *externalRef0.ArtifactShare
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -18800,7 +18800,7 @@ func ParseCreateArtifactShareResponse(rsp *http.Response) (*CreateArtifactShareR
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.CreateArtifactShareResponse
+		var dest externalRef0.ArtifactShare
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

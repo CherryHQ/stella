@@ -31,16 +31,13 @@ func TestArtifactShareLifecycle(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			ID              string  `json:"id"`
-			URL             string  `json:"url"`
-			Title           string  `json:"title"`
-			SourceSessionID string  `json:"source_session_id"`
-			SourcePath      string  `json:"source_path"`
-			MediaType       string  `json:"media_type"`
-			Kind            string  `json:"kind"`
-			SizeBytes       int64   `json:"size_bytes"`
-			ExpiresAt       *string `json:"expires_at"`
-			Revoked         bool    `json:"revoked"`
+			ID        string  `json:"id"`
+			URL       string  `json:"url"`
+			Title     string  `json:"title"`
+			SessionID string  `json:"session_id"`
+			Path      string  `json:"path"`
+			MediaType string  `json:"media_type"`
+			ExpiresAt *string `json:"expires_at"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
@@ -49,7 +46,7 @@ func TestArtifactShareLifecycle(t *testing.T) {
 	if envelope.Data.ID == "" || envelope.Data.URL == "" {
 		t.Fatalf("missing share id/url: %+v", envelope.Data)
 	}
-	if envelope.Data.Title != "report.html" || envelope.Data.Kind != "html" || envelope.Data.MediaType != "text/html; charset=utf-8" {
+	if envelope.Data.Title != "report.html" || envelope.Data.MediaType != "text/html; charset=utf-8" {
 		t.Fatalf("unexpected share metadata: %+v", envelope.Data)
 	}
 	if envelope.Data.ExpiresAt == nil {
@@ -130,7 +127,7 @@ func TestPublicArtifactShareAccess(t *testing.T) {
 	}
 }
 
-func TestPublicArtifactShareExpiredOrRevokedReturnsNotFound(t *testing.T) {
+func TestDeletedArtifactShareReturnsNotFound(t *testing.T) {
 	env := setupArtifactShareWorkspace(t)
 	create := doRequest(t, env, http.MethodPost, "/api/artifact-shares", map[string]any{
 		"session_id": "artifact-session",
@@ -204,8 +201,16 @@ func TestCreateArtifactShareNeverExpires(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
 	}
-	if strings.Contains(rr.Body.String(), "expires_at") {
-		t.Fatalf("never-expiring share should omit expires_at: %s", rr.Body.String())
+	var envelope struct {
+		Data struct {
+			ExpiresAt *string `json:"expires_at"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Data.ExpiresAt != nil {
+		t.Fatalf("never-expiring share should have nil expires_at, got %q", *envelope.Data.ExpiresAt)
 	}
 }
 

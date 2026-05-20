@@ -393,18 +393,12 @@ export type ArtifactShare = {
   id: string;
   url: string;
   title: string;
-  source_session_id: string;
-  source_path: string;
+  session_id: string;
+  path: string;
   media_type: string;
-  kind: ArtifactShareKind;
-  size_bytes: number;
   expires_at?: string | null;
-  revoked: boolean;
   created_at: string;
-  last_accessed_at?: string | null;
 };
-
-export type ArtifactShareKind = "html" | "markdown" | "image" | "pdf";
 
 export type ComponentsAssignAgentUserRequest = {
   user_id: string;
@@ -510,8 +504,6 @@ export type CreateArtifactShareRequest = {
   path: string;
   expires_in?: "1h" | "1d" | "7d" | "never";
 };
-
-export type CreateArtifactShareResponse = ArtifactShare;
 
 export type ComponentsCreateFeedRequest = {
   url: string;
@@ -914,8 +906,6 @@ export type ComponentsProviderType = {
 export type PublicArtifactShare = {
   title: string;
   media_type: string;
-  kind: ArtifactShareKind;
-  size_bytes: number;
   expires_at?: string | null;
   created_at: string;
   content_url: string;
@@ -5399,10 +5389,10 @@ export type CreateArtifactShareResponses = {
   /**
    * created
    */
-  201: CreateArtifactShareResponse;
+  201: ArtifactShare;
 };
 
-export type CreateArtifactShareResponse2 =
+export type CreateArtifactShareResponse =
   CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
 
 export type RevokeArtifactShareData = {

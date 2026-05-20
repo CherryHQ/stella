@@ -183,7 +183,7 @@ import type {
   CreateAgentTaskResponse,
   CreateArtifactShareData,
   CreateArtifactShareError,
-  CreateArtifactShareResponse2,
+  CreateArtifactShareResponse,
   CreateChannelData,
   CreateChannelError,
   CreateChannelResponse,
@@ -3295,12 +3295,12 @@ export const listArtifactSharesOptions = (
 export const createArtifactShareMutation = (
   options?: Partial<Options<CreateArtifactShareData>>,
 ): UseMutationOptions<
-  CreateArtifactShareResponse2,
+  CreateArtifactShareResponse,
   CreateArtifactShareError,
   Options<CreateArtifactShareData>
 > => {
   const mutationOptions: UseMutationOptions<
-    CreateArtifactShareResponse2,
+    CreateArtifactShareResponse,
     CreateArtifactShareError,
     Options<CreateArtifactShareData>
   > = {

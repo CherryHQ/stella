@@ -26,25 +26,28 @@ import (
 
 const maxArtifactShareSize = 25 * 1024 * 1024
 
-type artifactKind struct {
-	kind      apitypes.ArtifactShareKind
-	mediaType string
-}
-
 func (s *Server) ListArtifactShares(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	shares, err := s.q.ListArtifactShareByOwner(r.Context(), info.UserID)
+	shares, err := s.q.ListArtifactShareByUser(r.Context(), info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	out := make([]apitypes.ArtifactShare, 0, len(shares))
-	for _, share := range shares {
-		out = append(out, artifactShareResponse(r, share, ""))
+	for _, row := range shares {
+		out = append(out, apitypes.ArtifactShare{
+			Id:        row.ID,
+			Title:     filepath.Base(row.Path),
+			SessionId: row.SessionID,
+			Path:      row.Path,
+			MediaType: row.MediaType,
+			ExpiresAt: nullStringPtr(row.ExpiresAt),
+			CreatedAt: row.CreatedAt,
+		})
 	}
 	writeData(w, http.StatusOK, out)
 }
@@ -93,8 +96,8 @@ func (s *Server) CreateArtifactShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kind, ok := classifyArtifactShare(body.Path)
-	if !ok {
+	mediaType := artifactMediaType(body.Path)
+	if mediaType == "" {
 		writeError(w, http.StatusBadRequest, "unsupported artifact type")
 		return
 	}
@@ -114,23 +117,29 @@ func (s *Server) CreateArtifactShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	share, err := s.q.CreateArtifactShare(r.Context(), sqlc.CreateArtifactShareParams{
-		ID:              uuid.NewString(),
-		TokenHash:       tokenHash,
-		OwnerUserID:     info.UserID,
-		SourceSessionID: body.SessionId,
-		SourcePath:      body.Path,
-		Title:           filepath.Base(body.Path),
-		MediaType:       kind.mediaType,
-		Kind:            string(kind.kind),
-		Content:         content,
-		SizeBytes:       int64(len(content)),
-		ExpiresAt:       expiresAt,
+		ID:        uuid.NewString(),
+		TokenHash: tokenHash,
+		UserID:    info.UserID,
+		SessionID: body.SessionId,
+		Path:      body.Path,
+		MediaType: mediaType,
+		Content:   content,
+		ExpiresAt: expiresAt,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusCreated, artifactShareResponse(r, share, token))
+	writeData(w, http.StatusCreated, apitypes.ArtifactShare{
+		Id:        share.ID,
+		Url:       artifactShareURL(r, token),
+		Title:     filepath.Base(share.Path),
+		SessionId: share.SessionID,
+		Path:      share.Path,
+		MediaType: share.MediaType,
+		ExpiresAt: nullStringPtr(share.ExpiresAt),
+		CreatedAt: share.CreatedAt,
+	})
 }
 
 func (s *Server) RevokeArtifactShare(w http.ResponseWriter, r *http.Request, id string) {
@@ -139,7 +148,7 @@ func (s *Server) RevokeArtifactShare(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rows, err := s.q.RevokeArtifactShareByOwner(r.Context(), sqlc.RevokeArtifactShareByOwnerParams{ID: id, OwnerUserID: info.UserID})
+	rows, err := s.q.DeleteArtifactShareByUser(r.Context(), sqlc.DeleteArtifactShareByUserParams{ID: id, UserID: info.UserID})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -158,10 +167,8 @@ func (s *Server) GetPublicArtifactShare(w http.ResponseWriter, r *http.Request, 
 	}
 	contentURL := "/api/public/artifact-shares/" + url.PathEscape(token) + "/content"
 	writeData(w, http.StatusOK, apitypes.PublicArtifactShare{
-		Title:      share.Title,
+		Title:      filepath.Base(share.Path),
 		MediaType:  share.MediaType,
-		Kind:       apitypes.ArtifactShareKind(share.Kind),
-		SizeBytes:  share.SizeBytes,
 		ExpiresAt:  nullStringPtr(share.ExpiresAt),
 		CreatedAt:  share.CreatedAt,
 		ContentUrl: contentURL,
@@ -173,9 +180,8 @@ func (s *Server) GetPublicArtifactShareContent(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	_ = s.q.UpdateArtifactShareLastAccessed(r.Context(), share.ID)
 	setArtifactShareContentHeaders(w, share)
-	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(share.Content))
+	http.ServeContent(w, r, filepath.Base(share.Path), time.Time{}, bytes.NewReader(share.Content))
 }
 
 func (s *Server) publicArtifactShare(w http.ResponseWriter, r *http.Request, token string) (sqlc.ArtifactShare, bool) {
@@ -191,25 +197,6 @@ func (s *Server) publicArtifactShare(w http.ResponseWriter, r *http.Request, tok
 	return share, true
 }
 
-func artifactShareResponse(r *http.Request, share sqlc.ArtifactShare, token string) apitypes.ArtifactShare {
-	expiresAt := nullStringPtr(share.ExpiresAt)
-	lastAccessedAt := nullStringPtr(share.LastAccessedAt)
-	return apitypes.ArtifactShare{
-		Id:              share.ID,
-		Url:             artifactShareURL(r, token),
-		Title:           share.Title,
-		SourceSessionId: share.SourceSessionID,
-		SourcePath:      share.SourcePath,
-		MediaType:       share.MediaType,
-		Kind:            apitypes.ArtifactShareKind(share.Kind),
-		SizeBytes:       share.SizeBytes,
-		ExpiresAt:       expiresAt,
-		Revoked:         share.RevokedAt.Valid,
-		CreatedAt:       share.CreatedAt,
-		LastAccessedAt:  lastAccessedAt,
-	}
-}
-
 func artifactShareURL(r *http.Request, token string) string {
 	if token == "" {
 		return ""
@@ -221,25 +208,24 @@ func artifactShareURL(r *http.Request, token string) string {
 	return fmt.Sprintf("%s://%s/s/%s", scheme, r.Host, token)
 }
 
-func classifyArtifactShare(path string) (artifactKind, bool) {
+func artifactMediaType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".html", ".htm":
-		return artifactKind{kind: apitypes.ArtifactShareKindHtml, mediaType: "text/html; charset=utf-8"}, true
+		return "text/html; charset=utf-8"
 	case ".md", ".mdx", ".markdown":
-		return artifactKind{kind: apitypes.ArtifactShareKindMarkdown, mediaType: "text/markdown; charset=utf-8"}, true
+		return "text/markdown; charset=utf-8"
 	case ".pdf":
-		return artifactKind{kind: apitypes.ArtifactShareKindPdf, mediaType: "application/pdf"}, true
+		return "application/pdf"
 	case ".svg":
-		return artifactKind{kind: apitypes.ArtifactShareKindImage, mediaType: "image/svg+xml"}, true
+		return "image/svg+xml"
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico":
-		mediaType := mime.TypeByExtension(ext)
-		if mediaType == "" {
-			mediaType = "application/octet-stream"
+		if mt := mime.TypeByExtension(ext); mt != "" {
+			return mt
 		}
-		return artifactKind{kind: apitypes.ArtifactShareKindImage, mediaType: mediaType}, true
+		return "application/octet-stream"
 	default:
-		return artifactKind{}, false
+		return ""
 	}
 }
 
@@ -280,14 +266,15 @@ func artifactShareTokenHash(token string) string {
 
 func setArtifactShareContentHeaders(w http.ResponseWriter, share sqlc.ArtifactShare) {
 	w.Header().Set("Content-Type", share.MediaType)
-	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
+	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(filepath.Base(share.Path)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	switch share.Kind {
-	case string(apitypes.ArtifactShareKindHtml):
+	mt := share.MediaType
+	switch {
+	case strings.HasPrefix(mt, "text/html"):
 		w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups allow-downloads; default-src 'self' https: data: blob:; img-src * data: blob:; style-src 'unsafe-inline' https:; script-src 'unsafe-inline' 'unsafe-eval' https:; connect-src https:; object-src 'none'; base-uri 'none'; form-action 'none'")
-	case string(apitypes.ArtifactShareKindMarkdown):
+	case strings.HasPrefix(mt, "text/markdown"):
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	default:
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")

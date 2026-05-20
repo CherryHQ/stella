@@ -11,102 +11,72 @@ import (
 )
 
 const createArtifactShare = `-- name: CreateArtifactShare :one
-INSERT INTO artifact_shares (
-    id,
-    token_hash,
-    owner_user_id,
-    source_session_id,
-    source_path,
-    title,
-    media_type,
-    kind,
-    content,
-    size_bytes,
-    expires_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, token_hash, owner_user_id, source_session_id, source_path, title, media_type, kind, content, size_bytes, expires_at, revoked_at, last_accessed_at, created_at, updated_at
+INSERT INTO artifact_share (
+    id, token_hash, user_id, session_id, path,
+    media_type, content, expires_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, token_hash, user_id, session_id, path, media_type, content, expires_at, created_at, updated_at
 `
 
 type CreateArtifactShareParams struct {
-	ID              string         `json:"id"`
-	TokenHash       string         `json:"token_hash"`
-	OwnerUserID     string         `json:"owner_user_id"`
-	SourceSessionID string         `json:"source_session_id"`
-	SourcePath      string         `json:"source_path"`
-	Title           string         `json:"title"`
-	MediaType       string         `json:"media_type"`
-	Kind            string         `json:"kind"`
-	Content         []byte         `json:"content"`
-	SizeBytes       int64          `json:"size_bytes"`
-	ExpiresAt       sql.NullString `json:"expires_at"`
+	ID        string         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    string         `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	Path      string         `json:"path"`
+	MediaType string         `json:"media_type"`
+	Content   []byte         `json:"content"`
+	ExpiresAt sql.NullString `json:"expires_at"`
 }
 
 func (q *Queries) CreateArtifactShare(ctx context.Context, arg CreateArtifactShareParams) (ArtifactShare, error) {
 	row := q.db.QueryRowContext(ctx, createArtifactShare,
 		arg.ID,
 		arg.TokenHash,
-		arg.OwnerUserID,
-		arg.SourceSessionID,
-		arg.SourcePath,
-		arg.Title,
+		arg.UserID,
+		arg.SessionID,
+		arg.Path,
 		arg.MediaType,
-		arg.Kind,
 		arg.Content,
-		arg.SizeBytes,
 		arg.ExpiresAt,
 	)
 	var i ArtifactShare
 	err := row.Scan(
 		&i.ID,
 		&i.TokenHash,
-		&i.OwnerUserID,
-		&i.SourceSessionID,
-		&i.SourcePath,
-		&i.Title,
+		&i.UserID,
+		&i.SessionID,
+		&i.Path,
 		&i.MediaType,
-		&i.Kind,
 		&i.Content,
-		&i.SizeBytes,
 		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.LastAccessedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const getArtifactShare = `-- name: GetArtifactShare :one
-SELECT id, token_hash, owner_user_id, source_session_id, source_path, title, media_type, kind, content, size_bytes, expires_at, revoked_at, last_accessed_at, created_at, updated_at FROM artifact_shares WHERE id = ?
+const deleteArtifactShareByUser = `-- name: DeleteArtifactShareByUser :execrows
+DELETE FROM artifact_share
+WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) GetArtifactShare(ctx context.Context, id string) (ArtifactShare, error) {
-	row := q.db.QueryRowContext(ctx, getArtifactShare, id)
-	var i ArtifactShare
-	err := row.Scan(
-		&i.ID,
-		&i.TokenHash,
-		&i.OwnerUserID,
-		&i.SourceSessionID,
-		&i.SourcePath,
-		&i.Title,
-		&i.MediaType,
-		&i.Kind,
-		&i.Content,
-		&i.SizeBytes,
-		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.LastAccessedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+type DeleteArtifactShareByUserParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteArtifactShareByUser(ctx context.Context, arg DeleteArtifactShareByUserParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteArtifactShareByUser, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getArtifactShareByTokenHash = `-- name: GetArtifactShareByTokenHash :one
-SELECT id, token_hash, owner_user_id, source_session_id, source_path, title, media_type, kind, content, size_bytes, expires_at, revoked_at, last_accessed_at, created_at, updated_at FROM artifact_shares
+SELECT id, token_hash, user_id, session_id, path, media_type, content, expires_at, created_at, updated_at FROM artifact_share
 WHERE token_hash = ?
-  AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > datetime('now'))
 `
 
@@ -116,52 +86,55 @@ func (q *Queries) GetArtifactShareByTokenHash(ctx context.Context, tokenHash str
 	err := row.Scan(
 		&i.ID,
 		&i.TokenHash,
-		&i.OwnerUserID,
-		&i.SourceSessionID,
-		&i.SourcePath,
-		&i.Title,
+		&i.UserID,
+		&i.SessionID,
+		&i.Path,
 		&i.MediaType,
-		&i.Kind,
 		&i.Content,
-		&i.SizeBytes,
 		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.LastAccessedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const listArtifactShareByOwner = `-- name: ListArtifactShareByOwner :many
-SELECT id, token_hash, owner_user_id, source_session_id, source_path, title, media_type, kind, content, size_bytes, expires_at, revoked_at, last_accessed_at, created_at, updated_at FROM artifact_shares
-WHERE owner_user_id = ?
+const listArtifactShareByUser = `-- name: ListArtifactShareByUser :many
+SELECT id, token_hash, user_id, session_id, path,
+       media_type, expires_at, created_at, updated_at
+FROM artifact_share
+WHERE user_id = ?
 ORDER BY created_at DESC, id DESC
 `
 
-func (q *Queries) ListArtifactShareByOwner(ctx context.Context, ownerUserID string) ([]ArtifactShare, error) {
-	rows, err := q.db.QueryContext(ctx, listArtifactShareByOwner, ownerUserID)
+type ListArtifactShareByUserRow struct {
+	ID        string         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    string         `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	Path      string         `json:"path"`
+	MediaType string         `json:"media_type"`
+	ExpiresAt sql.NullString `json:"expires_at"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
+func (q *Queries) ListArtifactShareByUser(ctx context.Context, userID string) ([]ListArtifactShareByUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listArtifactShareByUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ArtifactShare{}
+	items := []ListArtifactShareByUserRow{}
 	for rows.Next() {
-		var i ArtifactShare
+		var i ListArtifactShareByUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TokenHash,
-			&i.OwnerUserID,
-			&i.SourceSessionID,
-			&i.SourcePath,
-			&i.Title,
+			&i.UserID,
+			&i.SessionID,
+			&i.Path,
 			&i.MediaType,
-			&i.Kind,
-			&i.Content,
-			&i.SizeBytes,
 			&i.ExpiresAt,
-			&i.RevokedAt,
-			&i.LastAccessedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -176,36 +149,4 @@ func (q *Queries) ListArtifactShareByOwner(ctx context.Context, ownerUserID stri
 		return nil, err
 	}
 	return items, nil
-}
-
-const revokeArtifactShareByOwner = `-- name: RevokeArtifactShareByOwner :execrows
-UPDATE artifact_shares
-SET revoked_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?
-  AND owner_user_id = ?
-  AND revoked_at IS NULL
-`
-
-type RevokeArtifactShareByOwnerParams struct {
-	ID          string `json:"id"`
-	OwnerUserID string `json:"owner_user_id"`
-}
-
-func (q *Queries) RevokeArtifactShareByOwner(ctx context.Context, arg RevokeArtifactShareByOwnerParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeArtifactShareByOwner, arg.ID, arg.OwnerUserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateArtifactShareLastAccessed = `-- name: UpdateArtifactShareLastAccessed :exec
-UPDATE artifact_shares
-SET last_accessed_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?
-`
-
-func (q *Queries) UpdateArtifactShareLastAccessed(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, updateArtifactShareLastAccessed, id)
-	return err
 }

@@ -193,30 +193,6 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
-// Defines values for ArtifactShareKind.
-const (
-	ArtifactShareKindHtml     ArtifactShareKind = "html"
-	ArtifactShareKindImage    ArtifactShareKind = "image"
-	ArtifactShareKindMarkdown ArtifactShareKind = "markdown"
-	ArtifactShareKindPdf      ArtifactShareKind = "pdf"
-)
-
-// Valid indicates whether the value is a known member of the ArtifactShareKind enum.
-func (e ArtifactShareKind) Valid() bool {
-	switch e {
-	case ArtifactShareKindHtml:
-		return true
-	case ArtifactShareKindImage:
-		return true
-	case ArtifactShareKindMarkdown:
-		return true
-	case ArtifactShareKindPdf:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CreateArtifactShareRequestExpiresIn.
 const (
 	N1d   CreateArtifactShareRequestExpiresIn = "1d"
@@ -291,19 +267,19 @@ func (e FeedEntryStatus) Valid() bool {
 
 // Defines values for MessagePartType.
 const (
-	MessagePartTypeFile  MessagePartType = "file"
-	MessagePartTypeImage MessagePartType = "image"
-	MessagePartTypeText  MessagePartType = "text"
+	File  MessagePartType = "file"
+	Image MessagePartType = "image"
+	Text  MessagePartType = "text"
 )
 
 // Valid indicates whether the value is a known member of the MessagePartType enum.
 func (e MessagePartType) Valid() bool {
 	switch e {
-	case MessagePartTypeFile:
+	case File:
 		return true
-	case MessagePartTypeImage:
+	case Image:
 		return true
-	case MessagePartTypeText:
+	case Text:
 		return true
 	default:
 		return false
@@ -556,22 +532,15 @@ type ArticleStatus string
 
 // ArtifactShare defines model for ArtifactShare.
 type ArtifactShare struct {
-	CreatedAt       string            `json:"created_at"`
-	ExpiresAt       *string           `json:"expires_at,omitempty"`
-	Id              string            `json:"id"`
-	Kind            ArtifactShareKind `json:"kind"`
-	LastAccessedAt  *string           `json:"last_accessed_at,omitempty"`
-	MediaType       string            `json:"media_type"`
-	Revoked         bool              `json:"revoked"`
-	SizeBytes       int64             `json:"size_bytes"`
-	SourcePath      string            `json:"source_path"`
-	SourceSessionId string            `json:"source_session_id"`
-	Title           string            `json:"title"`
-	Url             string            `json:"url"`
+	CreatedAt string  `json:"created_at"`
+	ExpiresAt *string `json:"expires_at,omitempty"`
+	Id        string  `json:"id"`
+	MediaType string  `json:"media_type"`
+	Path      string  `json:"path"`
+	SessionId string  `json:"session_id"`
+	Title     string  `json:"title"`
+	Url       string  `json:"url"`
 }
-
-// ArtifactShareKind defines model for ArtifactShareKind.
-type ArtifactShareKind string
 
 // AssignAgentUserRequest defines model for AssignAgentUserRequest.
 type AssignAgentUserRequest struct {
@@ -687,9 +656,6 @@ type CreateArtifactShareRequest struct {
 
 // CreateArtifactShareRequestExpiresIn defines model for CreateArtifactShareRequest.ExpiresIn.
 type CreateArtifactShareRequestExpiresIn string
-
-// CreateArtifactShareResponse defines model for CreateArtifactShareResponse.
-type CreateArtifactShareResponse = ArtifactShare
 
 // CreateFeedRequest defines model for CreateFeedRequest.
 type CreateFeedRequest struct {
@@ -1109,13 +1075,11 @@ type ProviderType struct {
 
 // PublicArtifactShare defines model for PublicArtifactShare.
 type PublicArtifactShare struct {
-	ContentUrl string            `json:"content_url"`
-	CreatedAt  string            `json:"created_at"`
-	ExpiresAt  *string           `json:"expires_at,omitempty"`
-	Kind       ArtifactShareKind `json:"kind"`
-	MediaType  string            `json:"media_type"`
-	SizeBytes  int64             `json:"size_bytes"`
-	Title      string            `json:"title"`
+	ContentUrl string  `json:"content_url"`
+	CreatedAt  string  `json:"created_at"`
+	ExpiresAt  *string `json:"expires_at,omitempty"`
+	MediaType  string  `json:"media_type"`
+	Title      string  `json:"title"`
 }
 
 // PublicChannel defines model for PublicChannel.

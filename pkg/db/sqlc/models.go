@@ -59,21 +59,16 @@ type Article struct {
 }
 
 type ArtifactShare struct {
-	ID              string         `json:"id"`
-	TokenHash       string         `json:"token_hash"`
-	OwnerUserID     string         `json:"owner_user_id"`
-	SourceSessionID string         `json:"source_session_id"`
-	SourcePath      string         `json:"source_path"`
-	Title           string         `json:"title"`
-	MediaType       string         `json:"media_type"`
-	Kind            string         `json:"kind"`
-	Content         []byte         `json:"content"`
-	SizeBytes       int64          `json:"size_bytes"`
-	ExpiresAt       sql.NullString `json:"expires_at"`
-	RevokedAt       sql.NullString `json:"revoked_at"`
-	LastAccessedAt  sql.NullString `json:"last_accessed_at"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	ID        string         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    string         `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	Path      string         `json:"path"`
+	MediaType string         `json:"media_type"`
+	Content   []byte         `json:"content"`
+	ExpiresAt sql.NullString `json:"expires_at"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 type AuthIdentity struct {
