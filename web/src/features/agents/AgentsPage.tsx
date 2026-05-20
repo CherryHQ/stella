@@ -16,6 +16,7 @@ import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -1010,12 +1011,19 @@ export function AgentsPage() {
   );
 
   const listHeader = (
-    <div className="px-3 py-3 flex items-center justify-between border-b border-border">
-      <span className="text-sm font-medium">Agents</span>
-      <Button onClick={startCreate} variant="ghost" size="xs" className="text-primary font-medium">
-        + New Agent
-      </Button>
-    </div>
+    <SettingsListHeader
+      title="Agents"
+      action={
+        <Button
+          onClick={startCreate}
+          variant="ghost"
+          size="xs"
+          className="text-primary font-medium"
+        >
+          + New Agent
+        </Button>
+      }
+    />
   );
 
   const list = (

@@ -2,6 +2,7 @@ import type { AgentDetail } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
 
 interface Props {
   state: AgentsPageState;
@@ -17,20 +18,19 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
     isAdmin || (a.creator_id !== 0 && a.creator_id === currentUserId);
 
   return (
-    <div className="py-1">
+    <div>
       {agents.length === 0 && (
-        <div className="py-8 text-center px-3">
+        <div className="px-3 py-8 text-center">
           <p className="text-sm text-muted-foreground">No agents configured yet.</p>
         </div>
       )}
-      <div className="space-y-0.5 px-2">
+      <SettingsListBody>
         {agents.map((a) => (
-          <div
+          <SettingsListItem
             key={a.id}
             onClick={() => canEditAgent(a) && onEdit(a)}
-            className={`group rounded-md px-2 py-2 transition-colors ${
-              canEditAgent(a) ? "cursor-pointer" : "cursor-default opacity-60"
-            } ${editingId === a.id ? "bg-primary/8" : canEditAgent(a) ? "hover:bg-muted" : ""}`}
+            active={editingId === a.id}
+            className={canEditAgent(a) ? "cursor-pointer" : "cursor-default opacity-60"}
           >
             <div className="flex items-start justify-between gap-1">
               <div className="min-w-0 flex-1">
@@ -64,9 +64,9 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
                 </Button>
               )}
             </div>
-          </div>
+          </SettingsListItem>
         ))}
-      </div>
+      </SettingsListBody>
     </div>
   );
 }

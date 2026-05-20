@@ -7,6 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogPopup, DialogPanel, DialogFooter } from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 
 interface Toast {
   message: string;
@@ -315,35 +320,27 @@ export function UsersPage() {
 
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = (
-    <div className="px-4 py-3 border-b border-border">
-      <h2 className="text-sm font-medium">Users</h2>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title="Users" />;
 
   const list = (
-    <div>
+    <SettingsListBody>
       {authUsers.map((u) => (
-        <button
+        <SettingsListItem
           key={u.id}
           onClick={() => void selectUser(u)}
-          className={`w-full text-left px-4 py-3 border-b border-border/50 hover:bg-muted/50 transition-colors ${
-            selectedUser?.id === u.id ? "bg-primary/8" : ""
-          }`}
+          active={selectedUser?.id === u.id}
         >
-          <div className="font-medium text-sm truncate" style={{ fontWeight: 500 }}>
-            {u.username}
-          </div>
-          <div className="text-xs font-mono text-muted-foreground mt-0.5">
+          <div className="truncate text-sm font-medium">{u.username}</div>
+          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
             {u.role === "admin" ? (
               <span className="text-primary">{u.role}</span>
             ) : (
               <span>{u.role}</span>
             )}
           </div>
-        </button>
+        </SettingsListItem>
       ))}
-    </div>
+    </SettingsListBody>
   );
 
   // ── Right panel — user detail ────────────────────────────────────────────────

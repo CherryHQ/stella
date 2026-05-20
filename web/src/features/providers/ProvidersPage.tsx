@@ -21,6 +21,11 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1063,39 +1068,38 @@ export function ProvidersPage() {
 
   // Left panel list header
   const listHeader = (
-    <div className="flex items-center justify-between px-3 py-3 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        Providers
-      </span>
-      <Button
-        onClick={() => {
-          setCreatingNew(true);
-          setSelectedId(null);
-        }}
-        variant="ghost"
-        size="xs"
-      >
-        New
-      </Button>
-    </div>
+    <SettingsListHeader
+      title="Providers"
+      action={
+        <Button
+          onClick={() => {
+            setCreatingNew(true);
+            setSelectedId(null);
+          }}
+          variant="ghost"
+          size="xs"
+        >
+          New
+        </Button>
+      }
+    />
   );
 
   // Left panel list
   const list = (
-    <div>
+    <SettingsListBody>
       {sortedProviders.map((p) => {
         const modelCount = (providerModels[p.id] || []).length;
         const isSelected = !creatingNew && selectedId === p.id;
         return (
-          <button
+          <SettingsListItem
             key={p.id}
             onClick={() => {
               setSelectedId(p.id);
               setCreatingNew(false);
             }}
-            className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors ${
-              isSelected ? "bg-primary/8" : ""
-            }`}
+            active={isSelected}
+            className="flex items-center gap-2"
           >
             {/* Status dot */}
             <span
@@ -1110,10 +1114,10 @@ export function ProvidersPage() {
             {modelCount > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground">{modelCount}</span>
             )}
-          </button>
+          </SettingsListItem>
         );
       })}
-    </div>
+    </SettingsListBody>
   );
 
   // Right panel detail

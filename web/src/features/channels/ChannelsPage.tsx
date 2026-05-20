@@ -19,6 +19,11 @@ import {
 import { siTelegram, siQq, siWechat } from "simple-icons";
 import { useI18n } from "@/lib/i18n";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 
 function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
   return (
@@ -1053,21 +1058,21 @@ export function ChannelsPage() {
     const selectedChannel = selectedId ? instances.find((ch) => ch.id === selectedId) : null;
 
     const listHeader = (
-      <div className="flex items-center justify-between px-3 py-3 border-b border-border">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Channels
-        </span>
-        <Button
-          onClick={() => {
-            setCreatingNew(true);
-            setSelectedId(null);
-          }}
-          variant="ghost"
-          size="xs"
-        >
-          New Channel
-        </Button>
-      </div>
+      <SettingsListHeader
+        title="Channels"
+        action={
+          <Button
+            onClick={() => {
+              setCreatingNew(true);
+              setSelectedId(null);
+            }}
+            variant="ghost"
+            size="xs"
+          >
+            New Channel
+          </Button>
+        }
+      />
     );
 
     const list = isLoading ? (
@@ -1075,20 +1080,19 @@ export function ChannelsPage() {
         <Spinner className="size-4" />
       </div>
     ) : (
-      <div>
+      <SettingsListBody>
         {instances.map((ch) => {
           const isSelected = !creatingNew && selectedId === ch.id;
           const platformLabel = platformMeta[ch.type]?.label || ch.type;
           return (
-            <button
+            <SettingsListItem
               key={ch.id}
               onClick={() => {
                 setSelectedId(ch.id);
                 setCreatingNew(false);
               }}
-              className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors ${
-                isSelected ? "bg-primary/8" : ""
-              }`}
+              active={isSelected}
+              className="flex items-center gap-2"
             >
               {platformMeta[ch.type]?.icon ? (
                 <BrandIcon
@@ -1106,10 +1110,10 @@ export function ChannelsPage() {
                 <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
                 <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.id}</p>
               </div>
-            </button>
+            </SettingsListItem>
           );
         })}
-      </div>
+      </SettingsListBody>
     );
 
     let detail: React.ReactNode = undefined;
@@ -1186,31 +1190,24 @@ export function ChannelsPage() {
     ? publicChannels.find((ch) => ch.type === selectedPublicType)
     : null;
 
-  const listHeader = (
-    <div className="flex items-center justify-between px-3 py-3 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        Channels
-      </span>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title="Channels" />;
 
   const list = isLoading ? (
     <div className="flex justify-center py-8">
       <Spinner className="size-4" />
     </div>
   ) : (
-    <div>
+    <SettingsListBody>
       {publicChannels.map((ch) => {
         const isSelected = selectedPublicType === ch.type;
         const linked = isLinked(ch.type);
         const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
         return (
-          <button
+          <SettingsListItem
             key={ch.type}
             onClick={() => setSelectedPublicType(ch.type)}
-            className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors ${
-              isSelected ? "bg-primary/8" : ""
-            }`}
+            active={isSelected}
+            className="flex items-center gap-2"
           >
             {platformMeta[ch.type]?.icon ? (
               <BrandIcon
@@ -1230,10 +1227,10 @@ export function ChannelsPage() {
                 <p className="text-[11px] font-mono text-muted-foreground truncate">linked</p>
               )}
             </div>
-          </button>
+          </SettingsListItem>
         );
       })}
-    </div>
+    </SettingsListBody>
   );
 
   let detail: React.ReactNode = undefined;

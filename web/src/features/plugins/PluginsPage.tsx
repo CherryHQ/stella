@@ -37,6 +37,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 
 type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
 
@@ -483,28 +488,16 @@ export function PluginsPage() {
     { id: "standalone", label: t("plugins.tab.others") },
   ];
 
-  const listHeader = (
-    <div className="px-3 py-3 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        {t("plugins.title")}
-      </span>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title={t("plugins.title")} />;
 
   const list = (
-    <div>
+    <SettingsListBody>
       {sections.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => setTab(s.id)}
-          className={`w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors ${
-            tab === s.id ? "bg-primary/8" : ""
-          }`}
-        >
+        <SettingsListItem key={s.id} onClick={() => setTab(s.id)} active={tab === s.id}>
           <p className="text-sm font-medium leading-tight">{s.label}</p>
-        </button>
+        </SettingsListItem>
       ))}
-    </div>
+    </SettingsListBody>
   );
 
   let detail: React.ReactNode = undefined;

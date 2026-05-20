@@ -9,6 +9,11 @@ import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import {
+  SettingsListBody,
+  SettingsListHeader,
+  SettingsListItem,
+} from "@/features/settings/SettingsListPanel";
 import * as simpleIcons from "simple-icons";
 
 type Toast = { message: string; type: "success" | "error" } | null;
@@ -325,29 +330,21 @@ export function CredentialsPage() {
     { id: "vault", label: "Vault", subtitle: "Secret key-value store" },
   ];
 
-  const listHeader = (
-    <div className="px-3 py-3 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        {t("credentials.title")}
-      </span>
-    </div>
-  );
+  const listHeader = <SettingsListHeader title={t("credentials.title")} />;
 
   const list = (
-    <div>
+    <SettingsListBody>
       {sections.map((s) => (
-        <button
+        <SettingsListItem
           key={s.id}
           onClick={() => setActiveSection(s.id)}
-          className={`w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors ${
-            activeSection === s.id ? "bg-primary/8" : ""
-          }`}
+          active={activeSection === s.id}
         >
           <p className="text-sm font-medium leading-tight">{s.label}</p>
-          <p className="text-[11px] font-mono text-muted-foreground">{s.subtitle}</p>
-        </button>
+          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{s.subtitle}</p>
+        </SettingsListItem>
       ))}
-    </div>
+    </SettingsListBody>
   );
 
   const toastBanner = toast ? (
