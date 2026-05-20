@@ -11,7 +11,7 @@ import { WorkspacePanel } from "./WorkspacePanel";
 
 const RIGHT_MIN = 240;
 const RIGHT_MAX_RATIO = 0.5;
-const RIGHT_DEFAULT = 300;
+const RIGHT_DEFAULT = 318;
 
 export function SessionView() {
   const { agentId, sessionId, projectId } = useParams({ strict: false }) as {
@@ -122,7 +122,7 @@ export function SessionView() {
   const showWorkspace = rightOpen;
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-w-0 overflow-hidden">
+    <div ref={containerRef} className="flex flex-1 min-w-0 overflow-hidden bg-card/70">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <SessionDetail
           session={sessionDetail}
@@ -138,9 +138,9 @@ export function SessionView() {
 
       <div
         className={cn(
-          "flex-shrink-0 relative transition-[width,min-width,opacity] duration-200 ease-out",
+          "stella-right-panel relative flex-shrink-0 bg-sidebar/70 transition-[width,min-width,opacity] duration-200 ease-out",
           showWorkspace
-            ? "border-l border-border"
+            ? "border-l border-border/70"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
         style={showWorkspace ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
@@ -148,7 +148,7 @@ export function SessionView() {
         {showWorkspace && (
           <div
             onMouseDown={onResizeStart}
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-primary/10 active:bg-primary/20 transition-colors"
+            className="absolute top-4 bottom-4 left-0 z-10 w-2 -translate-x-1 cursor-col-resize rounded-full transition-colors hover:bg-primary/10 active:bg-primary/20"
           />
         )}
         <WorkspacePanel

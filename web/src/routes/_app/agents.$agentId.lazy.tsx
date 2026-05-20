@@ -28,8 +28,8 @@ function AgentLayout() {
   };
 
   return (
-    <div className="flex overflow-hidden" style={{ height: "calc(100vh - 3.5rem)" }}>
-      <div className="w-[260px] min-w-[260px] flex-shrink-0 border-r border-border/60 bg-sidebar">
+    <div className="flex h-full overflow-hidden">
+      <div className="stella-left-panel w-[260px] min-w-[260px] flex-shrink-0 border-r border-border/60 bg-sidebar transition-[width,min-width,opacity] duration-200 ease-out">
         <AgentSidebar
           agents={agents}
           agentId={agentId}

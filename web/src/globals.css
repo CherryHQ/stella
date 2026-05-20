@@ -42,10 +42,12 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-  --font-sans: Outfit, sans-serif;
-  --font-mono: Fira Code, monospace;
-  --font-serif: Merriweather, serif;
-  --radius: 0.5rem;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --font-serif:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --radius: 1.125rem;
   --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
   --tracking-tight: calc(var(--tracking-normal) - 0.025em);
   --tracking-wide: calc(var(--tracking-normal) + 0.025em);
@@ -72,42 +74,44 @@
 }
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.9383 0.0042 236.4993);
-  --foreground: oklch(0.3211 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.3211 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.3211 0 0);
-  --primary: oklch(0.642 0.1691 38.5815);
+  --radius: 1.125rem;
+  --background: oklch(0.988 0.004 255);
+  --foreground: oklch(0.2 0.012 255);
+  --card: oklch(1 0.002 255);
+  --card-foreground: oklch(0.2 0.012 255);
+  --popover: oklch(1 0.002 255);
+  --popover-foreground: oklch(0.2 0.012 255);
+  --primary: oklch(0.546 0.192 256.8);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.4138 0.0846 259.8759);
-  --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.9846 0.0017 247.8389);
-  --muted-foreground: oklch(0.551 0.0234 264.3637);
-  --accent: oklch(0.9119 0.0222 243.8174);
-  --accent-foreground: oklch(0.3791 0.1378 265.5222);
-  --destructive: oklch(0.6368 0.2078 25.3313);
-  --border: oklch(0.8452 0 0);
-  --input: oklch(0.97 0.0029 264.542);
-  --ring: oklch(0.6397 0.172 36.4421);
+  --secondary: oklch(0.968 0.006 255);
+  --secondary-foreground: oklch(0.2 0.012 255);
+  --muted: oklch(0.968 0.006 255);
+  --muted-foreground: oklch(0.49 0.014 255);
+  --accent: oklch(0.94 0.026 255);
+  --accent-foreground: oklch(0.36 0.14 256.8);
+  --destructive: oklch(0.56 0.18 28);
+  --border: oklch(0.885 0.008 255);
+  --input: oklch(0.948 0.008 255);
+  --ring: oklch(0.546 0.192 256.8);
   --chart-1: oklch(0.6693 0.0706 248.923);
   --chart-2: oklch(0.6678 0.1546 41.62);
   --chart-3: oklch(0.5957 0.1807 19.9763);
   --chart-4: oklch(0.7859 0.1342 83.6986);
   --chart-5: oklch(0.4227 0.0732 267.3899);
-  --sidebar: oklch(0.903 0.0046 258.3257);
-  --sidebar-foreground: oklch(0.3211 0 0);
-  --sidebar-primary: oklch(0.6397 0.172 36.4421);
+  --sidebar: oklch(0.968 0.006 255);
+  --sidebar-foreground: oklch(0.2 0.012 255);
+  --sidebar-primary: oklch(0.546 0.192 256.8);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.9119 0.0222 243.8174);
-  --sidebar-accent-foreground: oklch(0.3791 0.1378 265.5222);
-  --sidebar-border: oklch(0.9276 0.0058 264.5313);
-  --sidebar-ring: oklch(0.6397 0.172 36.4421);
+  --sidebar-accent: oklch(0.94 0.026 255);
+  --sidebar-accent-foreground: oklch(0.36 0.14 256.8);
+  --sidebar-border: oklch(0.885 0.008 255);
+  --sidebar-ring: oklch(0.546 0.192 256.8);
   --destructive-foreground: oklch(1 0 0);
-  --font-sans: Outfit, sans-serif;
-  --font-serif: Merriweather, serif;
-  --font-mono: Fira Code, monospace;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-serif:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
   --shadow-color: #1a1a1a;
   --shadow-opacity: 0.1;
   --shadow-blur: 3px;
@@ -160,10 +164,12 @@
   --sidebar-border: oklch(0.329 0 0);
   --sidebar-ring: oklch(0.6397 0.172 36.4421);
   --destructive-foreground: oklch(1 0 0);
-  --radius: 0.5rem;
-  --font-sans: Outfit, sans-serif;
-  --font-serif: Merriweather, serif;
-  --font-mono: Fira Code, monospace;
+  --radius: 1.125rem;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-serif:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
   --shadow-color: #1a1a1a;
   --shadow-opacity: 0.1;
   --shadow-blur: 3px;
@@ -190,5 +196,13 @@
   body {
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
+  }
+
+  [data-left-collapsed="true"] .stella-left-panel {
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
   }
 }

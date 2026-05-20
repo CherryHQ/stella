@@ -319,9 +319,9 @@ export function SessionDetail({
   }
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+    <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-gradient-to-b from-card/80 to-card">
       {/* Header */}
-      <div className="flex-shrink-0 h-12 px-4 border-b border-border/60 bg-background flex items-center">
+      <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
         <div className="flex items-center gap-2.5 w-full min-w-0">
           <button
             onClick={onToggleLeft}
@@ -348,9 +348,14 @@ export function SessionDetail({
           >
             ←
           </button>
-          <h1 className="flex-1 text-[15px] font-medium tracking-tight truncate min-w-0">
-            {session.title || "Untitled session"}
-          </h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+              {session.title || "Untitled session"}
+            </h1>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {messages.length} messages · {channelLabel(session.channel) || "chat"}
+            </p>
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             <Button
               variant="ghost"
@@ -408,7 +413,7 @@ export function SessionDetail({
 
           {/* Message input */}
           {session.user_id === currentUserID && (
-            <div className="flex-shrink-0 px-4 pb-4 pt-3 bg-background">
+            <div className="flex-shrink-0 bg-gradient-to-b from-card/0 to-card px-4 pt-3 pb-4 sm:px-8">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -421,10 +426,10 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "relative rounded-2xl border bg-background transition-all duration-150",
+                  "relative mx-auto max-w-4xl overflow-hidden rounded-[22px] border bg-card shadow-[0_18px_42px_rgba(29,29,31,0.09)] transition-all duration-150",
                   isStreaming
-                    ? "border-primary/40 shadow-sm"
-                    : "border-border focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(0.642_0.1691_38.5815/0.1)]",
+                    ? "border-primary/40"
+                    : "border-border/80 focus-within:border-primary/50 focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_10%,transparent),0_18px_42px_rgba(29,29,31,0.09)]",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -501,14 +506,14 @@ export function SessionDetail({
                   }}
                   placeholder={t("sessions.composer.placeholder")}
                   className={cn(
-                    "w-full px-4 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto",
+                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pb-11 text-sm leading-relaxed focus:outline-none",
                     attachments.length > 0 ? "pt-2" : "pt-3",
                   )}
                   style={{ minHeight: 52, maxHeight: 160 }}
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
+                <div className="pointer-events-none absolute right-3 bottom-2.5 left-4 flex items-center justify-between">
                   {!isStreaming && (
                     <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
                       ↵ send · ⇧↵ new line
@@ -561,7 +566,7 @@ export function SessionDetail({
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="rounded-xl gap-1.5 active:scale-[0.98] transition-transform"
+                        className="gap-1.5 rounded-full active:scale-[0.98] transition-transform"
                       >
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
@@ -622,7 +627,7 @@ function InspectPanel({
 }) {
   const sessionTotalTokens = messages.reduce((sum, m) => sum + (m.token_count ?? 0), 0);
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background">
+    <aside className="flex w-80 shrink-0 flex-col border-l border-border/70 bg-sidebar/80">
       <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
         <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40">
           Inspect

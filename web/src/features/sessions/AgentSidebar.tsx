@@ -57,20 +57,6 @@ function ChevRight({ className }: { className?: string }) {
   );
 }
 
-function ChevDown({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
 function IconChat() {
   return (
     <svg
@@ -431,23 +417,27 @@ function SectionHeader({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer select-none group transition-all duration-150",
-        active ? "bg-sidebar-accent" : "hover:bg-muted/50",
+        "group mx-3 flex cursor-pointer select-none items-center gap-2 rounded-[10px] px-2.5 py-2 transition-all duration-150",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
       )}
       onClick={onToggle}
     >
       <span
         className={cn(
           "flex-shrink-0 transition-colors",
-          active ? "text-primary" : "text-muted-foreground/60",
+          active ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground",
         )}
       >
         {icon}
       </span>
       <span
         className={cn(
-          "flex-1 text-[10px] font-mono font-medium uppercase tracking-widest transition-colors",
-          active ? "text-foreground" : "text-muted-foreground/70 group-hover:text-muted-foreground",
+          "flex-1 text-[10px] font-mono font-semibold uppercase tracking-[0.08em] transition-colors",
+          active
+            ? "text-accent-foreground"
+            : "text-muted-foreground/75 group-hover:text-foreground",
         )}
       >
         {label}
@@ -485,13 +475,15 @@ function NavRow({
     <div
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 mx-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-150",
-        indent && "ml-5",
-        active ? "bg-sidebar-accent" : "hover:bg-muted/50",
+        "mx-3 flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-1.5 transition-all duration-150",
+        indent && "ml-8 border-l border-border/80 pl-3",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
       )}
     >
       {icon && (
-        <span className={cn("flex-shrink-0", active ? "text-primary" : "text-muted-foreground/60")}>
+        <span className={cn("flex-shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
           {icon}
         </span>
       )}
@@ -499,7 +491,7 @@ function NavRow({
         <p
           className={cn(
             "text-[12px] truncate leading-snug",
-            active ? "text-foreground font-medium" : "text-foreground/80",
+            active ? "font-semibold text-accent-foreground" : "text-foreground/80",
           )}
         >
           {title}
@@ -530,7 +522,7 @@ function SubFolder({
 }) {
   return (
     <div
-      className="flex items-center gap-1.5 cursor-pointer select-none group py-1 mx-2 rounded-md hover:bg-muted/30 transition-colors duration-150"
+      className="group mx-3 flex cursor-pointer select-none items-center gap-1.5 rounded-md py-1 transition-colors duration-150 hover:bg-foreground/[0.035]"
       style={{ paddingLeft: `${indent * 4}px`, paddingRight: "10px" }}
       onClick={onToggle}
     >
@@ -597,7 +589,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── derived lists ────────────────────────────────────────────────────────
   const selectedAgent = agents.find((a) => a.id === agentId);
-  const color = selectedAgent ? agentColor(selectedAgent.id) : "#888";
 
   // The "home" session for the agent — prefer main, fall back to first chat.
   // Used by the home row so it navigates directly without a round-trip through AgentHome.
@@ -706,97 +697,62 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   return (
     <aside className="flex flex-col overflow-hidden w-full h-full">
-      {/* Agent card */}
-      <div ref={switcherRef} className="flex-shrink-0 mx-2.5 mt-2.5 relative">
-        <div
-          className={cn(
-            "rounded-xl cursor-pointer overflow-hidden transition-colors",
-            switcherOpen ? "bg-sidebar-accent" : "hover:bg-muted/40",
-          )}
-        >
-          <div
-            className="flex items-center gap-2.5 px-3 py-2.5 transition-colors"
-            onClick={() => setSwitcherOpen((v) => !v)}
-          >
-            <div
-              className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-[13px] font-semibold font-mono"
-              style={{ background: `${color}1a`, color }}
-            >
-              {selectedAgent?.name?.[0]?.toUpperCase() ?? "?"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold truncate leading-snug">
-                {selectedAgent?.name ?? "Select agent"}
-              </p>
-              <p className="text-xs font-mono text-muted-foreground truncate">
-                {(selectedAgent as { model?: string })?.model ?? ""}
-              </p>
-            </div>
-            <ChevDown
-              className={cn(
-                "w-3 h-3 flex-shrink-0 text-muted-foreground/50 transition-transform duration-150",
-                switcherOpen && "rotate-180",
-              )}
-            />
-          </div>
-
-          {switcherOpen && (
-            <div className="border-t border-border/50 p-1.5 flex flex-col gap-0.5">
-              {agents.map((ag) => {
-                const c = agentColor(ag.id);
-                const isCur = ag.id === agentId;
-                return (
-                  <div
-                    key={ag.id}
-                    onClick={() => {
-                      onAgentChange(ag.id);
-                      setSwitcherOpen(false);
-                    }}
-                    className={cn(
-                      "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors",
-                      isCur ? "bg-primary/5" : "hover:bg-muted/60",
-                    )}
-                  >
-                    <div
-                      className="w-6 h-6 rounded-md flex-shrink-0 flex items-center justify-center text-[11px] font-semibold font-mono"
-                      style={{ background: `${c}1a`, color: c }}
-                    >
-                      {ag.name[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-medium truncate">{ag.name}</p>
-                      <p className="text-xs font-mono text-muted-foreground truncate">
-                        {(ag as { model?: string }).model ?? ""}
-                      </p>
-                    </div>
-                    {isCur && (
-                      <svg
-                        className="w-3 h-3 flex-shrink-0 text-primary"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                      >
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      {/* Agents */}
+      <div ref={switcherRef} className="flex-shrink-0 px-3 pt-3">
+        <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground/70">
+          Agents
+        </div>
+        <div className="grid gap-1">
+          {agents.map((ag) => {
+            const c = agentColor(ag.id);
+            const isCur = ag.id === agentId;
+            return (
+              <button
+                key={ag.id}
+                type="button"
+                onClick={() => onAgentChange(ag.id)}
+                className={cn(
+                  "grid min-h-12 grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-2 py-1.5 text-left transition-all duration-150",
+                  isCur
+                    ? "bg-card text-foreground shadow-[0_0_0_1px_var(--border),0_6px_18px_rgba(29,29,31,0.04)]"
+                    : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                )}
+              >
+                <span
+                  className="grid size-8 place-items-center rounded-[10px] text-[13px] font-bold text-white shadow-sm"
+                  style={{ background: c }}
+                >
+                  {ag.name[0]?.toUpperCase()}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                    {ag.name}
+                  </span>
+                  <span className="block truncate font-mono text-[10.5px] leading-snug text-muted-foreground">
+                    {(ag as { model?: string }).model || "Main session"}
+                  </span>
+                </span>
+                {isCur && (
+                  <span className="size-2 rounded-full bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)]" />
+                )}
+              </button>
+            );
+          })}
+          {agents.length === 0 && (
+            <p className="px-2 py-2 text-xs text-muted-foreground">No agents yet.</p>
           )}
         </div>
       </div>
 
       {/* Search */}
-      <div className="flex-shrink-0 px-2.5 pt-3">
+      <div className="flex-shrink-0 px-3 pt-3">
         <div className="relative">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("sessions.sidebar.search")}
-            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
+            className="w-full rounded-full border border-border/70 bg-card/70 py-1.5 pr-3 pl-7 font-mono text-xs text-foreground shadow-sm transition-all duration-150 placeholder:text-muted-foreground/50 hover:bg-card focus:border-primary/40 focus:outline-none"
           />
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
@@ -842,9 +798,12 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           />
         )}
 
-        {/* Tasks & Automations */}
+        {/* Workspace */}
         {!search && (
           <div>
+            <div className="px-5 pt-4 pb-1 text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground/70">
+              Workspace
+            </div>
             <SectionHeader
               icon={<IconTask />}
               label={t("sessions.sidebar.tasks")}
@@ -869,7 +828,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               <div className="flex-1">
                 <SectionHeader
                   icon={<IconFolder />}
-                  label="Projects"
+                  label="Project folders"
                   open={isOpen("project")}
                   onToggle={() => toggleSection("project")}
                 />
@@ -1040,7 +999,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           <div>
             <SectionHeader
               icon={<IconChat />}
-              label="History"
+              label="Archive"
               open={isOpen("history")}
               onToggle={() => toggleSection("history")}
             />
