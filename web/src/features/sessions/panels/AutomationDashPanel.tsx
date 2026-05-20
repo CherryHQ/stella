@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SessionConversation } from "@/features/sessions/SessionConversation";
@@ -48,6 +49,7 @@ export function AutomationDashPanel({
   onCreateJob,
 }: Props) {
   const { t } = useI18n();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [tab, setTab] = useState<"schedules" | "runs">("schedules");
   const [runs, setRuns] = useState<RunWithMeta[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -62,7 +64,7 @@ export function AutomationDashPanel({
     ? (runs.find((r) => r.id === selectedRunId) ?? null)
     : null;
   const selectedRunFromJobRuns =
-    selectedRunId && selectedJob && !selectedRunFromRuns
+    selectedRunId && selectedJobId && !selectedRunFromRuns
       ? (jobRuns.find((r) => r.id === selectedRunId) ?? null)
       : null;
   const selectedRun: RunWithMeta | null =
@@ -71,7 +73,7 @@ export function AutomationDashPanel({
       ? {
           ...selectedRunFromJobRuns,
           job_name: selectedJob?.name,
-          job_id: selectedJob?.id,
+          job_id: selectedJobId,
           job_agent_id: selectedJob?.agent_id,
           job_session_mode: selectedJob?.session_mode,
         }
@@ -341,24 +343,27 @@ export function AutomationDashPanel({
       </div>
 
       {/* Side panel: desktop inline */}
-      {hasSidePanel && <div className="hidden md:flex">{sidePanelContent}</div>}
+      {/* Side panel: desktop inline */}
+      {hasSidePanel && isDesktop && sidePanelContent}
 
       {/* Side panel: mobile sheet */}
-      <Sheet
-        open={hasSidePanel}
-        onOpenChange={(open) => {
-          if (!open) {
-            if (selectedRun) onSelectRun(selectedRun.job_id ?? "", null);
-            else if (selectedJob) onSelectJob(null);
-          }
-        }}
-      >
-        <SheetPopup side="bottom" showCloseButton={false} className="h-[85vh] md:hidden">
-          <SheetTitle className="sr-only">Details</SheetTitle>
-          <SheetDescription className="sr-only">Job or run details</SheetDescription>
-          <div className="flex h-full flex-col overflow-hidden">{sidePanelContent}</div>
-        </SheetPopup>
-      </Sheet>
+      {!isDesktop && (
+        <Sheet
+          open={hasSidePanel}
+          onOpenChange={(open) => {
+            if (!open) {
+              if (selectedRun) onSelectRun(selectedRun.job_id ?? "", null);
+              else if (selectedJob) onSelectJob(null);
+            }
+          }}
+        >
+          <SheetPopup side="bottom" showCloseButton={false} className="h-[85vh]">
+            <SheetTitle className="sr-only">Details</SheetTitle>
+            <SheetDescription className="sr-only">Job or run details</SheetDescription>
+            <div className="flex h-full flex-col overflow-hidden">{sidePanelContent}</div>
+          </SheetPopup>
+        </Sheet>
+      )}
     </div>
   );
 }

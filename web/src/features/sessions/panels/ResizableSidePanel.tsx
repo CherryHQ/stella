@@ -11,7 +11,11 @@ export function ResizableSidePanel({ children }: { children: React.ReactNode }) 
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:flex-shrink-0 md:border-l md:border-border/60"
+      className={
+        isDesktop
+          ? "relative flex-shrink-0 border-l border-border/60 flex flex-col overflow-hidden bg-background"
+          : "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      }
       style={isDesktop ? { width, minWidth: MIN_WIDTH } : undefined}
     >
       <div

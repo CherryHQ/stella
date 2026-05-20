@@ -535,15 +535,23 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           {agents.map((ag, idx) => {
             const isCur = ag.id === agentId;
             return (
-              <button
+              <div
                 key={ag.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   closeMobile();
                   onAgentChange(ag.id);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    closeMobile();
+                    onAgentChange(ag.id);
+                  }
+                }}
                 className={cn(
-                  "group grid min-h-[46px] grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-[7px] py-1.5 text-left transition-all duration-150",
+                  "group grid min-h-[46px] cursor-pointer grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-[7px] py-1.5 text-left transition-all duration-150",
                   isCur
                     ? "bg-card text-foreground shadow-[0_0_0_0.5px_var(--border),0_6px_18px_rgba(29,29,31,0.04)]"
                     : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
@@ -572,7 +580,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 >
                   <IconSettings />
                 </button>
-              </button>
+              </div>
             );
           })}
           {agents.length === 0 && (
