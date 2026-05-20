@@ -21,8 +21,6 @@ export function AppLayout() {
   const navItems = [
     { label: t("nav.sessions"), href: "/agents" },
     { label: t("nav.recally"), href: "/recally" },
-    { label: t("nav.settings"), href: "/settings" },
-    { label: t("nav.docs"), href: "/docs" },
   ];
 
   return (
