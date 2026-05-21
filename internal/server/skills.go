@@ -34,6 +34,23 @@ func (s *Server) skillStore() skills.Store {
 	return s.pluginHost.SkillStore()
 }
 
+func (s *Server) accessibleAgentIDs(ctx context.Context, info *AuthInfo) ([]string, int, string) {
+	agents, err := s.store.ListAgents(ctx)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err.Error()
+	}
+	agents, err = s.filterAccessibleAgents(ctx, info, agents)
+	if err != nil {
+		s.log.Error("filter accessible agents for skill list", "user_id", info.UserID, "error", err)
+		return nil, http.StatusInternalServerError, "failed to filter agents"
+	}
+	agentIDs := make([]string, 0, len(agents))
+	for _, a := range agents {
+		agentIDs = append(agentIDs, a.ID)
+	}
+	return agentIDs, 0, ""
+}
+
 func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -49,9 +66,14 @@ func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 	var all []skills.Skill
 	var err error
 	if info.IsAdmin {
-		all, err = store.ListAll(r.Context())
+		all, err = store.ListForAdmin(r.Context(), info.UserID)
 	} else {
-		all, err = store.List(r.Context(), skills.ViewContext{UserID: info.UserID})
+		agentIDs, code, msg := s.accessibleAgentIDs(r.Context(), info)
+		if code != 0 {
+			writeError(w, code, msg)
+			return
+		}
+		all, err = store.ListForUser(r.Context(), info.UserID, agentIDs)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

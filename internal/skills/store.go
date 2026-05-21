@@ -43,8 +43,14 @@ type Store interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc ViewContext) ([]Skill, error)
 
-	// ListAll returns every skill regardless of status or visibility (admin use only).
+	// ListAll returns every skill regardless of status or visibility (internal admin use only).
 	ListAll(ctx context.Context) ([]Skill, error)
+
+	// ListForAdmin returns system and agent skills, plus the admin user's own user skills.
+	ListForAdmin(ctx context.Context, userID string) ([]Skill, error)
+
+	// ListForUser returns skills visible to a non-admin user across accessible agents.
+	ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error)
 
 	// Resolve finds the highest-priority visible skill by name.
 	// Priority: user > agent > system.

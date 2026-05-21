@@ -573,7 +573,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   onClick={(e) => {
                     e.stopPropagation();
                     closeMobile();
-                    void navigate({ to: "/settings/agents" });
+                    void navigate({
+                      to: "/settings/agents/$agentId/$tab",
+                      params: { agentId: ag.id, tab: "config" },
+                    });
                   }}
                   className="grid size-7 place-items-center rounded-full text-muted-foreground/42 transition-all hover:bg-primary/10 hover:text-primary"
                   aria-label={`${ag.name} settings`}

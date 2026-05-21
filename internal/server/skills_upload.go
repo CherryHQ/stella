@@ -43,6 +43,38 @@ type uploadedSkillFrontmatter struct {
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
 
+func (s *Server) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string) {
+	agentID := id
+	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	up, code, msg := parseUploadedSkill(r)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	sk := skills.Skill{
+		Scope:                  scope,
+		AgentID:                agentID,
+		Name:                   up.name,
+		Description:            up.description,
+		Status:                 up.status,
+		DisableModelInvocation: up.disableModelInvocation,
+		Metadata:               up.metadata,
+	}
+	if scope == "user" {
+		sk.UserID = userID
+	}
+	skillID, err := s.skillStore().Create(r.Context(), sk, up.files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
+}
+
 func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
 	agentID := id
 	info := UserFromContext(r.Context())

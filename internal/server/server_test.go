@@ -1212,27 +1212,73 @@ func TestSkillsList_Admin(t *testing.T) {
 	}
 }
 
-func TestSkillsList_NonAdmin(t *testing.T) {
+func TestSkillsList_NonAdminIncludesAccessibleAgentContext(t *testing.T) {
 	env := setupAdmin(t)
 
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser2", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sessionID := auth.NewSessionID()
-	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
+	user, sessionID := newNonAdmin(t, env, "regularuser2")
+	other, _ := newNonAdmin(t, env, "regularuser3")
+	agentID := createAgentAsUser(t, env, sessionID, "regular-user-agent")
+	createTestSkill(t, env, "system", "", "", "system-visible")
+	createTestSkill(t, env, "agent", "", agentID, "agent-visible")
+	createTestSkill(t, env, "user", user.ID, agentID, "user-visible")
+	createTestSkill(t, env, "user", other.ID, agentID, "other-user-hidden")
+	deprecatedID := createTestSkill(t, env, "user", user.ID, agentID, "deprecated-hidden")
+	deprecated := "deprecated"
+	if err := env.pluginHost.SkillStore().Update(context.Background(), deprecatedID, skills.ViewContext{UserID: user.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecated}); err != nil {
+		t.Fatalf("mark skill deprecated: %v", err)
 	}
 
 	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	for _, name := range []string{"system-visible", "agent-visible", "user-visible"} {
+		if findSkill(list, name) == nil {
+			t.Fatalf("list missing %q: %#v", name, list)
+		}
+	}
+	for _, name := range []string{"other-user-hidden", "deprecated-hidden"} {
+		if found := findSkill(list, name); found != nil {
+			t.Fatalf("list included %q: %#v", name, found)
+		}
+	}
+}
+
+func TestSkillsList_AdminOnlyIncludesOwnUserSkills(t *testing.T) {
+	env := setupAdmin(t)
+
+	other, _ := newNonAdmin(t, env, "other-skill-owner")
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Admin Skill List Agent",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "system",
+		Enabled: true,
+	})
+	createTestSkill(t, env, "agent", "", agentID, "admin-visible-agent")
+	createTestSkill(t, env, "user", env.adminUser.ID, agentID, "admin-own-user")
+	createTestSkill(t, env, "user", other.ID, agentID, "other-user-hidden")
+
+	rr := doRequest(t, env, "GET", "/api/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	for _, name := range []string{"admin-visible-agent", "admin-own-user"} {
+		if findSkill(list, name) == nil {
+			t.Fatalf("list missing %q: %#v", name, list)
+		}
+	}
+	if found := findSkill(list, "other-user-hidden"); found != nil {
+		t.Fatalf("admin list included another user's skill: %#v", found)
 	}
 }
 

@@ -49,7 +49,7 @@ func parseBuiltinKind(s string) (resources.Kind, bool) {
 
 func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, kindStr string) {
 	kind, ok := parseBuiltinKind(kindStr)
-	if !ok {
+	if !ok || kind == resources.KindSkill {
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
 	}
@@ -68,7 +68,7 @@ func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, ki
 
 func (s *Server) GetBuiltinResource(w http.ResponseWriter, r *http.Request, kindStr string, id string) {
 	kind, ok := parseBuiltinKind(kindStr)
-	if !ok {
+	if !ok || kind == resources.KindSkill {
 		writeError(w, http.StatusNotFound, "unknown builtin kind")
 		return
 	}

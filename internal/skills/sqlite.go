@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,35 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
 	rows, err := s.q.ListAllSkills(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list all: %w", err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
+// ListForAdmin returns system and agent skills, plus the admin user's own user skills.
+func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
+	rows, err := s.q.ListSkillsForAdmin(ctx, sql.NullString{String: userID, Valid: userID != ""})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list for admin: %w", err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
+// ListForUser returns skills visible to a non-admin user across accessible agents.
+func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
+	rows, err := s.q.ListSkillsForUser(ctx, sqlc.ListSkillsForUserParams{
+		UserID:      sql.NullString{String: userID, Valid: userID != ""},
+		AgentIdsCsv: sql.NullString{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list for user: %w", err)
 	}
 	out := make([]Skill, 0, len(rows))
 	for _, r := range rows {
@@ -153,6 +183,9 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	switch sk.Scope {
 	case "user":
 		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		if sk.AgentID != "" {
+			params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}

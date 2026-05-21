@@ -380,18 +380,18 @@ type ListProjectsParams struct {
 	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
-// UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
-type UploadAgentSkillMultipartBody struct {
+// UploadAgentScopedSkillMultipartBody defines parameters for UploadAgentScopedSkill.
+type UploadAgentScopedSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
-// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
-type DeleteAgentSkillFileParams struct {
+// DeleteAgentScopedSkillFileParams defines parameters for DeleteAgentScopedSkillFile.
+type DeleteAgentScopedSkillFileParams struct {
 	Path string `form:"path" json:"path"`
 }
 
-// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
-type GetAgentSkillFileParams struct {
+// GetAgentScopedSkillFileParams defines parameters for GetAgentScopedSkillFile.
+type GetAgentScopedSkillFileParams struct {
 	Path string `form:"path" json:"path"`
 }
 
@@ -399,21 +399,6 @@ type GetAgentSkillFileParams struct {
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
 	State string `form:"state" json:"state"`
-}
-
-// UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
-type UploadProfileSkillMultipartBody struct {
-	File *openapi_types.File `json:"file,omitempty"`
-}
-
-// DeleteProfileSkillFileParams defines parameters for DeleteProfileSkillFile.
-type DeleteProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetProfileSkillFileParams defines parameters for GetProfileSkillFile.
-type GetProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
 }
 
 // PollWeixinQRStatusParams defines parameters for PollWeixinQRStatus.
@@ -570,14 +555,17 @@ type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
 
-// InstallAgentSkillJSONRequestBody defines body for InstallAgentSkill for application/json ContentType.
-type InstallAgentSkillJSONRequestBody = externalRef0.InstallSkillRequest
+// CreateAgentScopedSkillJSONRequestBody defines body for CreateAgentScopedSkill for application/json ContentType.
+type CreateAgentScopedSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
-// UploadAgentSkillMultipartRequestBody defines body for UploadAgentSkill for multipart/form-data ContentType.
-type UploadAgentSkillMultipartRequestBody UploadAgentSkillMultipartBody
+// InstallAgentScopedSkillJSONRequestBody defines body for InstallAgentScopedSkill for application/json ContentType.
+type InstallAgentScopedSkillJSONRequestBody = externalRef0.InstallSkillRequest
 
-// UpdateAgentSkillJSONRequestBody defines body for UpdateAgentSkill for application/json ContentType.
-type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+// UploadAgentScopedSkillMultipartRequestBody defines body for UploadAgentScopedSkill for multipart/form-data ContentType.
+type UploadAgentScopedSkillMultipartRequestBody UploadAgentScopedSkillMultipartBody
+
+// UpdateAgentScopedSkillJSONRequestBody defines body for UpdateAgentScopedSkill for application/json ContentType.
+type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
@@ -593,15 +581,6 @@ type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
-
-// InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
-type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
-
-// UploadProfileSkillMultipartRequestBody defines body for UploadProfileSkill for multipart/form-data ContentType.
-type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
-
-// UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
-type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
 type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
@@ -761,33 +740,33 @@ type ServerInterface interface {
 	// Update an agent
 	// (PUT /api/agents/{id})
 	UpdateAgent(w http.ResponseWriter, r *http.Request, id string)
-	// List skills for an agent (creator or admin)
+	// List skills visible to the current user in an agent context
 	// (GET /api/agents/{id}/skills)
 	ListAgentSkills(w http.ResponseWriter, r *http.Request, id string)
-	// Duplicate a builtin skill to an agent (admin only)
-	// (POST /api/agents/{id}/skills/from-builtin/{skillId})
-	DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Install a skill to an agent from a remote source (admin only)
-	// (POST /api/agents/{id}/skills/install)
-	InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Upload a skill zip to an agent (admin only)
-	// (POST /api/agents/{id}/skills/upload)
-	UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Delete an agent skill (creator or admin)
-	// (DELETE /api/agents/{id}/skills/{skillId})
-	DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Get an agent skill (creator or admin)
-	// (GET /api/agents/{id}/skills/{skillId})
-	GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Update an agent skill (creator or admin)
-	// (PUT /api/agents/{id}/skills/{skillId})
-	UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Delete a skill file (creator or admin)
-	// (DELETE /api/agents/{id}/skills/{skillId}/file)
-	DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillFileParams)
-	// Download a skill file (creator or admin)
-	// (GET /api/agents/{id}/skills/{skillId}/file)
-	GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillFileParams)
+	// Create a skill in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope})
+	CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Install a skill in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope}/install)
+	InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Upload a skill zip in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope}/upload)
+	UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Delete a skill in an agent or current-user scope
+	// (DELETE /api/agents/{id}/skills/{scope}/{skillId})
+	DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string)
+	// Get a skill in an agent context
+	// (GET /api/agents/{id}/skills/{scope}/{skillId})
+	GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string)
+	// Update a skill in an agent or current-user scope
+	// (PUT /api/agents/{id}/skills/{scope}/{skillId})
+	UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string)
+	// Delete a skill file in an agent or current-user scope
+	// (DELETE /api/agents/{id}/skills/{scope}/{skillId}/file)
+	DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params DeleteAgentScopedSkillFileParams)
+	// Get a skill file in an agent context
+	// (GET /api/agents/{id}/skills/{scope}/{skillId}/file)
+	GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params GetAgentScopedSkillFileParams)
 	// List users assigned to an agent (admin only)
 	// (GET /api/agents/{id}/users)
 	ListAgentUsers(w http.ResponseWriter, r *http.Request, id string)
@@ -845,30 +824,6 @@ type ServerInterface interface {
 	// Change the current user's password
 	// (PUT /api/auth/profile/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request)
-	// List profile skills (current user)
-	// (GET /api/auth/profile/skills)
-	ListProfileSkills(w http.ResponseWriter, r *http.Request)
-	// Install a skill to the current user's profile
-	// (POST /api/auth/profile/skills/install)
-	InstallProfileSkill(w http.ResponseWriter, r *http.Request)
-	// Upload a skill zip to the current user's profile
-	// (POST /api/auth/profile/skills/upload)
-	UploadProfileSkill(w http.ResponseWriter, r *http.Request)
-	// Delete a profile skill
-	// (DELETE /api/auth/profile/skills/{skillId})
-	DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Get a profile skill by ID
-	// (GET /api/auth/profile/skills/{skillId})
-	GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Update a profile skill
-	// (PUT /api/auth/profile/skills/{skillId})
-	UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Delete a profile skill file
-	// (DELETE /api/auth/profile/skills/{skillId}/file)
-	DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params DeleteProfileSkillFileParams)
-	// Get a profile skill file
-	// (GET /api/auth/profile/skills/{skillId}/file)
-	GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params GetProfileSkillFileParams)
 	// Set the soul for a specific agent
 	// (PUT /api/auth/profile/soul/{agentId})
 	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId string)
@@ -1659,8 +1614,8 @@ func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// DuplicateBuiltinSkillToAgent operation middleware
-func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request) {
+// CreateAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1671,6 +1626,138 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentScopedSkill(w, r, id, scope)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InstallAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InstallAgentScopedSkill(w, r, id, scope)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadAgentScopedSkill(w, r, id, scope)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1690,7 +1777,7 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DuplicateBuiltinSkillToAgent(w, r, id, skillId)
+		siw.Handler.DeleteAgentScopedSkill(w, r, id, scope, skillId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1700,8 +1787,8 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
-// InstallAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *http.Request) {
+// GetAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1715,67 +1802,12 @@ func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *h
 		return
 	}
 
-	ctx := r.Context()
+	// ------------- Path parameter "scope" -------------
+	var scope string
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallAgentSkill(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadAgentSkill(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1795,7 +1827,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentSkill(w, r, id, skillId)
+		siw.Handler.GetAgentScopedSkill(w, r, id, scope, skillId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1805,8 +1837,8 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.Request) {
+// UpdateAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1817,6 +1849,15 @@ func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1836,7 +1877,7 @@ func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSkill(w, r, id, skillId)
+		siw.Handler.UpdateAgentScopedSkill(w, r, id, scope, skillId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1846,8 +1887,8 @@ func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateAgentSkill(w http.ResponseWriter, r *http.Request) {
+// DeleteAgentScopedSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1861,44 +1902,12 @@ func (siw *ServerInterfaceWrapper) UpdateAgentSkill(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
+	// ------------- Path parameter "scope" -------------
+	var scope string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAgentSkill(w, r, id, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAgentSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1918,7 +1927,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteAgentSkillFileParams
+	var params DeleteAgentScopedSkillFileParams
 
 	// ------------- Required query parameter "path" -------------
 
@@ -1934,7 +1943,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentSkillFile(w, r, id, skillId, params)
+		siw.Handler.DeleteAgentScopedSkillFile(w, r, id, scope, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1944,8 +1953,8 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *http.Request) {
+// GetAgentScopedSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1956,6 +1965,15 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1975,7 +1993,7 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetAgentSkillFileParams
+	var params GetAgentScopedSkillFileParams
 
 	// ------------- Required query parameter "path" -------------
 
@@ -1991,7 +2009,7 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSkillFile(w, r, id, skillId, params)
+		siw.Handler.GetAgentScopedSkillFile(w, r, id, scope, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2539,258 +2557,6 @@ func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ChangePassword(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListProfileSkills operation middleware
-func (siw *ServerInterfaceWrapper) ListProfileSkills(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListProfileSkills(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// InstallProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallProfileSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) UploadProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadProfileSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProfileSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteProfileSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileSkillFile(w, r, skillId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetProfileSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetProfileSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetProfileSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProfileSkillFile(w, r, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6398,14 +6164,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}", wrapper.GetAgent)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills", wrapper.ListAgentSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/from-builtin/{skillId}", wrapper.DuplicateBuiltinSkillToAgent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/install", wrapper.InstallAgentSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/upload", wrapper.UploadAgentSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.DeleteAgentSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.GetAgentSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.UpdateAgentSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.DeleteAgentSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.GetAgentSkillFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}", wrapper.CreateAgentScopedSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/install", wrapper.InstallAgentScopedSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/upload", wrapper.UploadAgentScopedSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.DeleteAgentScopedSkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.GetAgentScopedSkill)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.UpdateAgentScopedSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.DeleteAgentScopedSkillFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.GetAgentScopedSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
@@ -6425,14 +6191,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/start", wrapper.StartOAuthFlow)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/status/{flowID}", wrapper.PollOAuthFlow)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills", wrapper.ListProfileSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/install", wrapper.InstallProfileSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/upload", wrapper.UploadProfileSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.DeleteProfileSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.GetProfileSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.UpdateProfileSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.DeleteProfileSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.GetProfileSkillFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentId}", wrapper.SetProfileSoul)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)

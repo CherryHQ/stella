@@ -182,7 +182,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [agents]
-      summary: List skills for an agent (creator or admin)
+      summary: List skills visible to the current user in an agent context
       operationId: listAgentSkills
       responses:
         "200":
@@ -197,13 +197,56 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/agents/{id}/skills/install:
+  /api/agents/{id}/skills/{scope}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: scope,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [agent, user] },
+        }
     post:
       tags: [agents]
-      summary: Install a skill to an agent from a remote source (admin only)
-      operationId: installAgentSkill
+      summary: Create a skill in an agent or current-user scope
+      operationId: createAgentScopedSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateSkillRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SkillUploadResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/agents/{id}/skills/{scope}/install:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: scope,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [agent, user] },
+        }
+    post:
+      tags: [agents]
+      summary: Install a skill in an agent or current-user scope
+      operationId: installAgentScopedSkill
       requestBody:
         required: true
         content:
@@ -226,14 +269,21 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{id}/skills/upload:
+  /api/agents/{id}/skills/{scope}/upload:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: scope,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [agent, user] },
+        }
     post:
       tags: [agents]
-      summary: Upload a skill zip to an agent (admin only)
-      operationId: uploadAgentSkill
+      summary: Upload a skill zip in an agent or current-user scope
+      operationId: uploadAgentScopedSkill
       requestBody:
         required: true
         content:
@@ -259,37 +309,22 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-
-  /api/agents/{id}/skills/from-builtin/{skillId}:
-    parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: skillId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [agents]
-      summary: Duplicate a builtin skill to an agent (admin only)
-      operationId: duplicateBuiltinSkillToAgent
-      responses:
-        "201":
-          description: duplicated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DuplicateSkillResult",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{id}/skills/{skillId}:
+  /api/agents/{id}/skills/{scope}/{skillId}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: scope,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [system, agent, user] },
+        }
       - { name: skillId, in: path, required: true, schema: { type: string } }
     get:
       tags: [agents]
-      summary: Get an agent skill (creator or admin)
-      operationId: getAgentSkill
+      summary: Get a skill in an agent context
+      operationId: getAgentScopedSkill
       responses:
         "200":
           description: ok
@@ -305,8 +340,8 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     put:
       tags: [agents]
-      summary: Update an agent skill (creator or admin)
-      operationId: updateAgentSkill
+      summary: Update a skill in an agent or current-user scope
+      operationId: updateAgentScopedSkill
       requestBody:
         required: true
         content:
@@ -332,8 +367,8 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [agents]
-      summary: Delete an agent skill (creator or admin)
-      operationId: deleteAgentSkill
+      summary: Delete a skill in an agent or current-user scope
+      operationId: deleteAgentScopedSkill
       responses:
         "200":
           description: deleted
@@ -348,22 +383,33 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{id}/skills/{skillId}/file:
+  /api/agents/{id}/skills/{scope}/{skillId}/file:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: scope,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [system, agent, user] },
+        }
       - { name: skillId, in: path, required: true, schema: { type: string } }
     get:
       tags: [agents]
-      summary: Download a skill file (creator or admin)
-      operationId: getAgentSkillFile
+      summary: Get a skill file in an agent context
+      operationId: getAgentScopedSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
       responses:
         "200":
           description: ok
           content:
-            application/octet-stream:
-              schema: { type: string, format: binary }
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SkillFileResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -371,8 +417,8 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [agents]
-      summary: Delete a skill file (creator or admin)
-      operationId: deleteAgentSkillFile
+      summary: Delete a skill file in an agent or current-user scope
+      operationId: deleteAgentScopedSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
       responses:
@@ -381,8 +427,11 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+                $ref: "../../components.yaml#/components/schemas/DeleteFileResult",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

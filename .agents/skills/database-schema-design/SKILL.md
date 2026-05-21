@@ -55,21 +55,21 @@ These are non-negotiable. No table ships without them.
 
 Choose the most specific type that fits:
 
-| Concept         | Type                                  | Why                                                       |
-| --------------- | ------------------------------------- | --------------------------------------------------------- |
-| Primary key     | `UUID`                                | Globally unique, no coordination needed                   |
-| Timestamps      | `TIMESTAMPTZ`                         | Real-world events need timezone awareness                 |
-| Calendar dates  | `DATE`                                | Birthdays, billing dates — no time component              |
-| Money           | `INTEGER` (cents) or `NUMERIC`        | Never float — rounding errors compound                    |
-| Boolean         | `BOOLEAN`                             | Not integer, not text                                     |
-| Enum/state      | `TEXT` with `CHECK`, or native `ENUM` | DB-enforced valid values                                  |
-| Structured blob | `JSONB`                               | Only for metadata, external payloads, rarely-queried data |
+| Concept         | Type                           | Why                                                                            |
+| --------------- | ------------------------------ | ------------------------------------------------------------------------------ |
+| Primary key     | `UUID`                         | Globally unique, no coordination needed                                        |
+| Timestamps      | `TIMESTAMPTZ`                  | Real-world events need timezone awareness                                      |
+| Calendar dates  | `DATE`                         | Birthdays, billing dates — no time component                                   |
+| Money           | `INTEGER` (cents) or `NUMERIC` | Never float — rounding errors compound                                         |
+| Boolean         | `BOOLEAN`                      | Not integer, not text                                                          |
+| Enum/state      | `TEXT`                         | Keep valid values in code so future extensions don't require schema migrations |
+| Structured blob | `JSONB`                        | Only for metadata, external payloads, rarely-queried data                      |
 
 Don't store everything as `TEXT`. The type system exists to catch bugs at the boundary.
 
 ## Constraints
 
-Use the database to enforce rules — application code can have bugs, constraints cannot be bypassed:
+Use the database to enforce structural rules — application code can have bugs, constraints cannot be bypassed. Do not add schema-level enums or enum-like `CHECK` constraints for values that may grow, such as `scope TEXT NOT NULL CHECK (scope IN ('system','agent','user'))`; enforce those allowed values in code so adding a new value does not require a schema migration.
 
 ```sql
 CREATE TABLE shop_product (
@@ -86,7 +86,7 @@ Checklist:
 
 - `NOT NULL` — default stance. Allow NULL only when absence is semantically meaningful.
 - `UNIQUE` — enforce on natural identifiers.
-- `CHECK` — validate ranges, enums, invariants.
+- `CHECK` — validate ranges and stable invariants, but not enums or extensible state lists.
 - `FOREIGN KEY ... ON DELETE` — choose CASCADE, SET NULL, or RESTRICT deliberately.
 - Composite unique constraints for multi-column uniqueness.
 

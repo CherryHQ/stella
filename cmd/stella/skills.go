@@ -93,9 +93,18 @@ func skillsInstallCommand() *ucli.Command {
 
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
+			me, err := apiclient.Call[apitypes.MeResponse](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetMe(c.Context)
+			})
+			if err != nil {
+				return err
+			}
+			scope := "user"
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
-				return api.InstallProfileSkill(c.Context, apiclient.InstallProfileSkillJSONRequestBody{
+				return api.InstallSkill(c.Context, apiclient.InstallSkillJSONRequestBody{
 					Source: source,
+					Scope:  &scope,
+					UserId: &me.Id,
 				})
 			})
 			if err != nil {
@@ -218,7 +227,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListProfileSkills(c.Context)
+				return api.ListSkills(c.Context)
 			})
 			if err != nil {
 				return err
@@ -226,7 +235,7 @@ func skillsRemoveCommand() *ucli.Command {
 
 			var skill *apitypes.Skill
 			for i := range skills {
-				if derefStr(skills[i].Name) == name {
+				if derefStr(skills[i].Scope) == "user" && derefStr(skills[i].Name) == name {
 					skill = &skills[i]
 					break
 				}
@@ -236,7 +245,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteProfileSkill(c.Context, derefStr(skill.Id))
+				return api.DeleteSkill(c.Context, derefStr(skill.Id))
 			}); err != nil {
 				return err
 			}

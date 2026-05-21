@@ -118,6 +118,9 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	switch sk.Scope {
 	case "user":
 		params.UserID = sql.NullString{String: sk.UserID, Valid: true}
+		if sk.AgentID != "" {
+			params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
+		}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
 	}
@@ -380,6 +383,7 @@ func TestLoadViaStore(t *testing.T) {
 	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
+		AgentID:     agentID,
 		Name:        "test-skill",
 		Description: "A test skill",
 		Status:      "active",
@@ -430,6 +434,7 @@ func TestLoadWithPath(t *testing.T) {
 	skillID, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
+		AgentID:     agentID,
 		Name:        "multi-file",
 		Description: "Skill with multiple files",
 		Status:      "active",
@@ -464,6 +469,7 @@ func TestListViaStore(t *testing.T) {
 	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
+		AgentID:     agentID,
 		Name:        "my-skill",
 		Description: "My skill",
 		Status:      "active",
@@ -510,6 +516,7 @@ func TestRemoveViaStore(t *testing.T) {
 	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
+		AgentID:     agentID,
 		Name:        "removable-skill",
 		Description: "Removable",
 		Status:      "active",
@@ -542,7 +549,7 @@ func TestRemoveRespectsScope(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, Name: "dup", Description: "u", Status: "active",
+		Scope: "user", UserID: userID, AgentID: agentID, Name: "dup", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create user skill: %v", err)
 	}
@@ -589,7 +596,7 @@ func TestRemoveScopeNotFound(t *testing.T) {
 	ctx := ctxWithUser(userID, agentID)
 
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, Name: "only-user", Description: "u", Status: "active",
+		Scope: "user", UserID: userID, AgentID: agentID, Name: "only-user", Description: "u", Status: "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
