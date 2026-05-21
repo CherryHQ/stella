@@ -150,10 +150,10 @@ func TestAgentSkills_ListCreatorAccess(t *testing.T) {
 		t.Fatalf("other status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// Admin: 200.
+	// Admin who is not the creator: 403.
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/skills", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("admin status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("admin status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Unauth: 401.
@@ -245,13 +245,8 @@ func TestAgentSkills_UploadZipAdminOnly(t *testing.T) {
 	})
 
 	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("creator upload status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	rr = doMultipartRequestWithSession(t, env.srv.Handler(), env.sessionID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("admin upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("creator upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	resp := parseResponse(t, rr)
@@ -263,7 +258,7 @@ func TestAgentSkills_UploadZipAdminOnly(t *testing.T) {
 		t.Fatalf("uploaded name = %v, want uploaded-skill", created["name"])
 	}
 
-	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/skills", nil)
+	rr = doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list uploaded agent skills status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}

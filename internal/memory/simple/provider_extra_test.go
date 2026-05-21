@@ -122,8 +122,8 @@ func TestSimpleProvider_LoadHistory_WithMixedMessages(t *testing.T) {
 	p, cleanup := newTestDB(t)
 	defer cleanup()
 
-	ctx := context.Background()
 	sess := newTestSession()
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 	sess.ID = "test:cli:1:main-history"
 
 	if err := p.Bootstrap(ctx, sess); err != nil {

@@ -113,20 +113,30 @@ func (q *Queries) CreateArticle(ctx context.Context, arg CreateArticleParams) (A
 }
 
 const deleteArticle = `-- name: DeleteArticle :exec
-DELETE FROM articles WHERE id = ?
+DELETE FROM articles WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) DeleteArticle(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteArticle, id)
+type DeleteArticleParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteArticle(ctx context.Context, arg DeleteArticleParams) error {
+	_, err := q.db.ExecContext(ctx, deleteArticle, arg.ID, arg.UserID)
 	return err
 }
 
 const getArticle = `-- name: GetArticle :one
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles WHERE id = ?
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM articles WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) GetArticle(ctx context.Context, id string) (Article, error) {
-	row := q.db.QueryRowContext(ctx, getArticle, id)
+type GetArticleParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) GetArticle(ctx context.Context, arg GetArticleParams) (Article, error) {
+	row := q.db.QueryRowContext(ctx, getArticle, arg.ID, arg.UserID)
 	var i Article
 	err := row.Scan(
 		&i.ID,
@@ -497,7 +507,7 @@ SET title       = ?1,
     published_at = ?9,
     read_at     = ?10,
     updated_at  = datetime('now')
-WHERE id = ?11
+WHERE id = ?11 AND user_id = ?12
 RETURNING id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at
 `
 
@@ -513,6 +523,7 @@ type UpdateArticleParams struct {
 	PublishedAt sql.NullString `json:"published_at"`
 	ReadAt      sql.NullString `json:"read_at"`
 	ID          string         `json:"id"`
+	UserID      string         `json:"user_id"`
 }
 
 func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (Article, error) {
@@ -528,6 +539,7 @@ func (q *Queries) UpdateArticle(ctx context.Context, arg UpdateArticleParams) (A
 		arg.PublishedAt,
 		arg.ReadAt,
 		arg.ID,
+		arg.UserID,
 	)
 	var i Article
 	err := row.Scan(

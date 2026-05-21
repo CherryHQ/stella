@@ -209,7 +209,7 @@ func TestStore_GetArticle(t *testing.T) {
 	}
 
 	// Get the article
-	article, err := store.GetArticle(ctx, created.ID)
+	article, err := store.GetArticle(ctx, "1", created.ID)
 	if err != nil {
 		t.Fatalf("GetArticle failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestStore_GetArticle(t *testing.T) {
 	}
 
 	// Get non-existent article
-	_, err = store.GetArticle(ctx, "nonexistent")
+	_, err = store.GetArticle(ctx, "1", "nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent article")
 	}
@@ -250,7 +250,7 @@ func TestStore_UpdateArticle(t *testing.T) {
 		"starred": true,
 	}
 
-	updated, err := store.UpdateArticle(ctx, created.ID, updates)
+	updated, err := store.UpdateArticle(ctx, "1", created.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateArticle failed: %v", err)
 	}
@@ -288,13 +288,13 @@ func TestStore_DeleteArticle(t *testing.T) {
 	}
 
 	// Delete article
-	err = store.DeleteArticle(ctx, created.ID)
+	err = store.DeleteArticle(ctx, "1", created.ID)
 	if err != nil {
 		t.Fatalf("DeleteArticle failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetArticle(ctx, created.ID)
+	_, err = store.GetArticle(ctx, "1", created.ID)
 	if err == nil {
 		t.Error("Expected error after deleting article")
 	}
@@ -391,7 +391,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Get feed
-	retrieved, err := store.GetFeed(ctx, feed.ID)
+	retrieved, err := store.GetFeed(ctx, "1", feed.ID)
 	if err != nil {
 		t.Fatalf("GetFeed failed: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestStore_Feeds(t *testing.T) {
 		"last_etag":     "\"abc123\"",
 		"last_modified": "Wed, 29 Apr 2026 12:00:00 GMT",
 	}
-	updated, err := store.UpdateFeed(ctx, feed.ID, updates)
+	updated, err := store.UpdateFeed(ctx, "1", feed.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateFeed failed: %v", err)
 	}
@@ -436,13 +436,13 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Delete feed
-	err = store.DeleteFeed(ctx, feed.ID)
+	err = store.DeleteFeed(ctx, "1", feed.ID)
 	if err != nil {
 		t.Fatalf("DeleteFeed failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetFeed(ctx, feed.ID)
+	_, err = store.GetFeed(ctx, "1", feed.ID)
 	if err == nil {
 		t.Error("Expected error after deleting feed")
 	}

@@ -87,27 +87,62 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 
 // Delete removes the DB row first, then removes the disk directory.
 // DB-first ordering prevents MigrateFilesystem from re-importing orphaned dirs.
-func (d *DiskSyncStore) Delete(ctx context.Context, id string) error {
+func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	sk, err := d.findByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := d.Store.Delete(ctx, id); err != nil {
+	if err := d.Store.Delete(ctx, id, vc); err != nil {
 		return err
 	}
-	if sk != nil {
-		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
-		if base != "" {
-			skillDir, pathErr := safeDiskPath(base, sk.Name)
-			if pathErr == nil {
-				if err := os.RemoveAll(skillDir); err != nil {
-					slog.WarnContext(ctx, "disk_sync: failed to remove skill dir after DB delete",
-						"skill", sk.Name, "dir", skillDir, "err", err)
-				}
-			}
-		}
-	}
+	d.removeSkillDir(ctx, sk)
 	return nil
+}
+
+func (d *DiskSyncStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
+	store, ok := d.Store.(interface {
+		UpdateSystemSkill(context.Context, string, UpdatePatch) error
+	})
+	if !ok {
+		return fmt.Errorf("disk_sync: inner store does not support system skill update")
+	}
+	return store.UpdateSystemSkill(ctx, id, patch)
+}
+
+func (d *DiskSyncStore) DeleteSystemSkill(ctx context.Context, id string) error {
+	sk, err := d.findByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	store, ok := d.Store.(interface {
+		DeleteSystemSkill(context.Context, string) error
+	})
+	if !ok {
+		return fmt.Errorf("disk_sync: inner store does not support system skill delete")
+	}
+	if err := store.DeleteSystemSkill(ctx, id); err != nil {
+		return err
+	}
+	d.removeSkillDir(ctx, sk)
+	return nil
+}
+
+func (d *DiskSyncStore) removeSkillDir(ctx context.Context, sk *Skill) {
+	if sk == nil {
+		return
+	}
+	base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
+	if base == "" {
+		return
+	}
+	skillDir, pathErr := safeDiskPath(base, sk.Name)
+	if pathErr != nil {
+		return
+	}
+	if err := os.RemoveAll(skillDir); err != nil {
+		slog.WarnContext(ctx, "disk_sync: failed to remove skill dir after DB delete",
+			"skill", sk.Name, "dir", skillDir, "err", err)
+	}
 }
 
 // SyncAllToDisk materializes every skill in the DB to disk. The DB is the

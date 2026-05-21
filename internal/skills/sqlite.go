@@ -24,6 +24,10 @@ func New(db *sql.DB) *SQLiteStore {
 	return &SQLiteStore{db: db, q: sqlc.New(db)}
 }
 
+func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
+	return sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""}, sql.NullString{String: vc.UserID, Valid: vc.UserID != ""}
+}
+
 // List returns all visible skills for the given context.
 func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
@@ -181,43 +185,55 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	return sk.ID, nil
 }
 
+type resolvedPatch struct {
+	Description            string
+	Status                 string
+	DisableModelInvocation int64
+	Metadata               string
+}
+
+func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
+	r := resolvedPatch{
+		Description:            row.Description,
+		Status:                 row.Status,
+		DisableModelInvocation: row.DisableModelInvocation,
+		Metadata:               row.Metadata,
+	}
+	if patch.Description != nil {
+		r.Description = *patch.Description
+	}
+	if patch.Status != nil {
+		r.Status = *patch.Status
+	}
+	if patch.DisableModelInvocation != nil {
+		if *patch.DisableModelInvocation {
+			r.DisableModelInvocation = 1
+		} else {
+			r.DisableModelInvocation = 0
+		}
+	}
+	if len(patch.Metadata) > 0 {
+		r.Metadata = string(patch.Metadata)
+	}
+	return r
+}
+
 // Update patches metadata fields using read-modify-write.
-func (s *SQLiteStore) Update(ctx context.Context, id string, patch UpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, id)
+func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
+	agentID, userID := viewSQLParams(vc)
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: agentID, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("skills: update get %s: %w", id, err)
 	}
-
-	description := row.Description
-	if patch.Description != nil {
-		description = *patch.Description
-	}
-
-	status := row.Status
-	if patch.Status != nil {
-		status = *patch.Status
-	}
-
-	disabled := row.DisableModelInvocation
-	if patch.DisableModelInvocation != nil {
-		if *patch.DisableModelInvocation {
-			disabled = 1
-		} else {
-			disabled = 0
-		}
-	}
-
-	meta := row.Metadata
-	if len(patch.Metadata) > 0 {
-		meta = string(patch.Metadata)
-	}
-
+	p := applyPatch(row, patch)
 	if err := s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
 		ID:                     id,
-		Description:            description,
-		Status:                 status,
-		DisableModelInvocation: disabled,
-		Metadata:               meta,
+		AgentID:                agentID,
+		UserID:                 userID,
+		Description:            p.Description,
+		Status:                 p.Status,
+		DisableModelInvocation: p.DisableModelInvocation,
+		Metadata:               p.Metadata,
 	}); err != nil {
 		return fmt.Errorf("skills: update %s: %w", id, err)
 	}
@@ -248,9 +264,38 @@ func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) erro
 }
 
 // Delete removes a skill and (via ON DELETE CASCADE) all its files.
-func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
-	if err := s.q.DeleteSkill(ctx, id); err != nil {
+func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) error {
+	agentID, userID := viewSQLParams(vc)
+	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, AgentID: agentID, UserID: userID}); err != nil {
 		return fmt.Errorf("skills: delete %s: %w", id, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	if err != nil {
+		return fmt.Errorf("skills: system update get %s: %w", id, err)
+	}
+	if row.Scope != "system" {
+		return fmt.Errorf("skills: %s is not a system skill", id)
+	}
+	p := applyPatch(row, patch)
+	if err := s.q.UpdateSystemSkillMetadata(ctx, sqlc.UpdateSystemSkillMetadataParams{
+		ID:                     id,
+		Description:            p.Description,
+		Status:                 p.Status,
+		DisableModelInvocation: p.DisableModelInvocation,
+		Metadata:               p.Metadata,
+	}); err != nil {
+		return fmt.Errorf("skills: system update %s: %w", id, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
+	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
+		return fmt.Errorf("skills: system delete %s: %w", id, err)
 	}
 	return nil
 }

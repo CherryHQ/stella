@@ -16,7 +16,7 @@ const maxReviewMessages = 200
 
 // BuildReviewContext implements memory.Reviewer.
 func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Session, since time.Time) (string, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

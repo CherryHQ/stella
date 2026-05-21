@@ -35,7 +35,9 @@ func (s *Server) skillStore() skills.Store {
 }
 
 func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	store := s.skillStore()
@@ -43,7 +45,14 @@ func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	all, err := store.ListAll(r.Context())
+
+	var all []skills.Skill
+	var err error
+	if info.IsAdmin {
+		all, err = store.ListAll(r.Context())
+	} else {
+		all, err = store.List(r.Context(), skills.ViewContext{UserID: info.UserID})
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -233,11 +242,11 @@ func (s *Server) UpdateSkill(w http.ResponseWriter, r *http.Request, id string) 
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.applySkillUpdate(w, r, id)
+	s.applySkillUpdate(w, r, id, skills.ViewContext{})
 }
 
 // applySkillUpdate is the shared body for PUT .../skills/{id}.
-func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -253,12 +262,40 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if err := store.Update(r.Context(), id, patch); err != nil {
+	if vc.AgentID == "" && vc.UserID == "" {
+		sk, err := s.findSkillByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "skill not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		if sk.Scope == "system" {
+			if systemStore, ok := store.(interface {
+				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
+			}); ok {
+				if err := systemStore.UpdateSystemSkill(r.Context(), id, patch); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+				return
+			}
+		}
+		vc = skillOwnerViewContext(*sk)
+	}
+	if err := store.Update(r.Context(), id, vc, patch); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	for path, content := range req.Files {
-		if err := store.UpsertFile(r.Context(), id, path, content); err != nil {
+	s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+}
+
+func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx context.Context, id string, files map[string]string) {
+	for path, content := range files {
+		if err := store.UpsertFile(ctx, id, path, content); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -270,17 +307,52 @@ func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) 
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.doDeleteSkill(w, r, id)
+	s.doDeleteSkill(w, r, id, skills.ViewContext{})
+}
+
+func skillOwnerViewContext(sk skills.Skill) skills.ViewContext {
+	switch sk.Scope {
+	case "agent":
+		return skills.ViewContext{AgentID: sk.AgentID}
+	case "user":
+		return skills.ViewContext{UserID: sk.UserID}
+	default:
+		return skills.ViewContext{}
+	}
 }
 
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	if err := store.Delete(r.Context(), id); err != nil {
+	if vc.AgentID == "" && vc.UserID == "" {
+		sk, err := s.findSkillByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "skill not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		if sk.Scope == "system" {
+			if systemStore, ok := store.(interface {
+				DeleteSystemSkill(context.Context, string) error
+			}); ok {
+				if err := systemStore.DeleteSystemSkill(r.Context(), id); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				writeData(w, http.StatusOK, map[string]string{"id": id})
+				return
+			}
+		}
+		vc = skillOwnerViewContext(*sk)
+	}
+	if err := store.Delete(r.Context(), id, vc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -11,8 +11,6 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
@@ -81,16 +79,6 @@ func skillsSearchCommand() *ucli.Command {
 	}
 }
 
-const cliSkillsUserID = "1"
-
-func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
-	userDir, err := agent.SetupUserWorkspace(snap.AgentID, config.StellaHome(), cliSkillsUserID)
-	if err != nil {
-		return "", err
-	}
-	return agent.UserSkillsDir(userDir), nil
-}
-
 func skillsInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "install",
@@ -105,11 +93,9 @@ func skillsInstallCommand() *ucli.Command {
 
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
-			scope := "user"
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
-				return api.InstallSkill(c.Context, apiclient.InstallSkillJSONRequestBody{
+				return api.InstallProfileSkill(c.Context, apiclient.InstallProfileSkillJSONRequestBody{
 					Source: source,
-					Scope:  &scope,
 				})
 			})
 			if err != nil {
@@ -232,7 +218,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListSkills(c.Context)
+				return api.ListProfileSkills(c.Context)
 			})
 			if err != nil {
 				return err
@@ -246,14 +232,11 @@ func skillsRemoveCommand() *ucli.Command {
 				}
 			}
 			if skill == nil {
-				return fmt.Errorf("skill %q not found", name)
-			}
-			if derefStr(skill.Scope) == "system" {
-				return fmt.Errorf("cannot remove system skill %q", name)
+				return fmt.Errorf("skill %q not found in your user skills", name)
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteSkill(c.Context, derefStr(skill.Id))
+				return api.DeleteProfileSkill(c.Context, derefStr(skill.Id))
 			}); err != nil {
 				return err
 			}

@@ -4,7 +4,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetSkill :one
-SELECT * FROM skills WHERE id = ?;
+SELECT * FROM skills
+WHERE id = sqlc.arg(id)
+  AND ((sqlc.narg(agent_id) IS NULL AND sqlc.narg(user_id) IS NULL) OR scope='system' OR (scope='agent' AND agent_id=sqlc.narg(agent_id)) OR (scope='user' AND user_id=sqlc.narg(user_id)));
 
 -- name: ListSkillsVisible :many
 SELECT * FROM skills
@@ -37,15 +39,32 @@ LIMIT 1;
 
 -- name: UpdateSkillMetadata :exec
 UPDATE skills
-SET description              = ?,
-    status                   = ?,
-    disable_model_invocation = ?,
-    metadata                 = ?,
+SET description              = sqlc.arg(description),
+    status                   = sqlc.arg(status),
+    disable_model_invocation = sqlc.arg(disable_model_invocation),
+    metadata                 = sqlc.arg(metadata),
     updated_at               = datetime('now')
-WHERE id = ?;
+WHERE id = sqlc.arg(id)
+  AND ((scope='agent' AND agent_id=sqlc.narg(agent_id))
+    OR (scope='user' AND user_id=sqlc.narg(user_id)));
 
 -- name: DeleteSkill :exec
-DELETE FROM skills WHERE id = ?;
+DELETE FROM skills
+WHERE id = sqlc.arg(id)
+  AND ((scope='agent' AND agent_id=sqlc.narg(agent_id))
+    OR (scope='user' AND user_id=sqlc.narg(user_id)));
+
+-- name: UpdateSystemSkillMetadata :exec
+UPDATE skills
+SET description              = sqlc.arg(description),
+    status                   = sqlc.arg(status),
+    disable_model_invocation = sqlc.arg(disable_model_invocation),
+    metadata                 = sqlc.arg(metadata),
+    updated_at               = datetime('now')
+WHERE id = sqlc.arg(id) AND scope = 'system';
+
+-- name: DeleteSystemSkill :exec
+DELETE FROM skills WHERE id = ? AND scope = 'system';
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_files (skill_id, path, content)

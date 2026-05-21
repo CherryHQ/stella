@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -36,6 +37,25 @@ import (
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
+// TODO: STELLA_SESSION_ID is not a robust sandbox indicator — add a dedicated STELLA_SANDBOX env var.
+func inSandbox() bool {
+	return os.Getenv("STELLA_SESSION_ID") != ""
+}
+
+func denyInSandbox(cmd *ucli.Command) *ucli.Command {
+	prev := cmd.Before
+	cmd.Before = func(c *ucli.Context) error {
+		if inSandbox() {
+			return fmt.Errorf("%q is a system command and cannot be run inside an agent sandbox", cmd.Name)
+		}
+		if prev != nil {
+			return prev(c)
+		}
+		return nil
+	}
+	return cmd
+}
+
 func newApp() *ucli.App {
 	return &ucli.App{
 		Name:  "stella",
@@ -46,10 +66,10 @@ server, then use the subcommands below to manage models, content,
 schedules, and more.`,
 		Version: displayVersion(),
 		Commands: []*ucli.Command{
-			serverCommand(),
+			denyInSandbox(serverCommand()),
 			skillsCommand(),
 			versionCommand(),
-			upgradeCommand(),
+			denyInSandbox(upgradeCommand()),
 			recallyCommand(),
 			schedulerCommand(),
 			emailCommand(),
@@ -57,7 +77,7 @@ schedules, and more.`,
 			oauthCommand(),
 			shareCommand(),
 			taskCommand(),
-			serviceCommand(),
+			denyInSandbox(serviceCommand()),
 		},
 	}
 }

@@ -18,13 +18,15 @@ const controlToolName = "task_control"
 type TaskControlTool struct {
 	q      *sqlc.Queries
 	taskID string
+	userID string
 	cancel context.CancelFunc
 }
 
-func newTaskControlTool(q *sqlc.Queries, taskID string, cancel context.CancelFunc) *TaskControlTool {
+func newTaskControlTool(q *sqlc.Queries, taskID string, userID string, cancel context.CancelFunc) *TaskControlTool {
 	return &TaskControlTool{
 		q:      q,
 		taskID: taskID,
+		userID: userID,
 		cancel: cancel,
 	}
 }
@@ -83,6 +85,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			Context:   contextJSON,
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: update context: %w", err)
 		}
@@ -95,6 +98,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 					NotifyAt:  sql.NullString{String: notifyAt, Valid: true},
 					UpdatedAt: now,
 					ID:        t.taskID,
+					UserID:    t.userID,
 				})
 			}
 		}
@@ -108,6 +112,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			Status:    "blocked",
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set blocked: %w", err)
 		}
@@ -115,6 +120,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			NotifyAt:  sql.NullString{String: now, Valid: true},
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set notify_at: %w", err)
 		}
@@ -138,6 +144,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			Status:    "review_requested",
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set review_requested: %w", err)
 		}
@@ -145,6 +152,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			ReviewRequest: reviewJSON,
 			UpdatedAt:     now,
 			ID:            t.taskID,
+			UserID:        t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: update review_request: %w", err)
 		}
@@ -152,6 +160,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			NotifyAt:  sql.NullString{String: now, Valid: true},
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set notify_at: %w", err)
 		}
@@ -171,6 +180,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 				Context:   string(outputJSON),
 				UpdatedAt: now,
 				ID:        t.taskID,
+				UserID:    t.userID,
 			}); err != nil {
 				return "", fmt.Errorf("task_control: store output: %w", err)
 			}
@@ -179,6 +189,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			Status:    "done",
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set done: %w", err)
 		}
@@ -193,6 +204,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			Status:    "failed",
 			UpdatedAt: now,
 			ID:        t.taskID,
+			UserID:    t.userID,
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set failed: %w", err)
 		}

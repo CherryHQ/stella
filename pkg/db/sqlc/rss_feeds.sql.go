@@ -134,20 +134,30 @@ func (q *Queries) DeleteOldRSSEntries(ctx context.Context, feedID string) error 
 }
 
 const deleteRSSFeed = `-- name: DeleteRSSFeed :exec
-DELETE FROM rss_feeds WHERE id = ?
+DELETE FROM rss_feeds WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) DeleteRSSFeed(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteRSSFeed, id)
+type DeleteRSSFeedParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteRSSFeed(ctx context.Context, arg DeleteRSSFeedParams) error {
+	_, err := q.db.ExecContext(ctx, deleteRSSFeed, arg.ID, arg.UserID)
 	return err
 }
 
 const getRSSFeed = `-- name: GetRSSFeed :one
-SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM rss_feeds WHERE id = ?
+SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM rss_feeds WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) GetRSSFeed(ctx context.Context, id string) (RssFeed, error) {
-	row := q.db.QueryRowContext(ctx, getRSSFeed, id)
+type GetRSSFeedParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) GetRSSFeed(ctx context.Context, arg GetRSSFeedParams) (RssFeed, error) {
+	row := q.db.QueryRowContext(ctx, getRSSFeed, arg.ID, arg.UserID)
 	var i RssFeed
 	err := row.Scan(
 		&i.ID,
@@ -371,7 +381,7 @@ SET title           = ?1,
     last_modified   = ?6,
     enabled         = ?7,
     updated_at      = datetime('now')
-WHERE id = ?8
+WHERE id = ?8 AND user_id = ?9
 RETURNING id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
 `
 
@@ -384,6 +394,7 @@ type UpdateRSSFeedParams struct {
 	LastModified  string         `json:"last_modified"`
 	Enabled       int64          `json:"enabled"`
 	ID            string         `json:"id"`
+	UserID        string         `json:"user_id"`
 }
 
 func (q *Queries) UpdateRSSFeed(ctx context.Context, arg UpdateRSSFeedParams) (RssFeed, error) {
@@ -396,6 +407,7 @@ func (q *Queries) UpdateRSSFeed(ctx context.Context, arg UpdateRSSFeedParams) (R
 		arg.LastModified,
 		arg.Enabled,
 		arg.ID,
+		arg.UserID,
 	)
 	var i RssFeed
 	err := row.Scan(

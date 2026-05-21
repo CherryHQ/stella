@@ -16,13 +16,13 @@ import (
 func RunConformance(t *testing.T, provider memory.Provider) {
 	t.Helper()
 
-	ctx := context.Background()
 	session := memory.Session{
 		ID:      "test:cli:1:main",
 		AgentID: "test",
 		UserID:  "user-1",
 		Channel: "cli",
 	}
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), session.UserID), session.AgentID)
 
 	t.Run("Name", func(t *testing.T) {
 		name := provider.Name()

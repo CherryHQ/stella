@@ -31,7 +31,7 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 	return nil, sql.ErrNoRows
 }
 
-// requireAgentManage verifies the caller is admin or the agent's creator.
+// requireAgentManage verifies the caller is the agent creator.
 // Returns (agent, 0, "") on success, (_, status, msg) on failure.
 func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
@@ -45,7 +45,7 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 		}
 		return config.Agent{}, http.StatusInternalServerError, err.Error()
 	}
-	if !info.IsAdmin && a.CreatorID != info.UserID {
+	if a.CreatorID != info.UserID {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
 	}
 	return a, 0, ""
@@ -192,7 +192,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, skillID)
+	s.applySkillUpdate(w, r, skillID, skills.ViewContext{AgentID: agentID})
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
@@ -206,7 +206,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, skillID)
+	s.doDeleteSkill(w, r, skillID, skills.ViewContext{AgentID: agentID})
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
@@ -380,7 +380,7 @@ func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skil
 		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, skillID)
+	s.applySkillUpdate(w, r, skillID, skills.ViewContext{UserID: info.UserID})
 }
 
 func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
@@ -394,7 +394,7 @@ func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skil
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, skillID)
+	s.doDeleteSkill(w, r, skillID, skills.ViewContext{UserID: info.UserID})
 }
 
 func (s *Server) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.DeleteProfileSkillFileParams) {
