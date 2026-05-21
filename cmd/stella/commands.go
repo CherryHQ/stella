@@ -184,6 +184,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("load config snapshot: %w", err)
 	}
 
+	userSkillsDir, err := cliUserSkillsDir(snap)
+	if err != nil {
+		slog.Warn("skip filesystem skill migration", "error", err)
+	} else {
+		fsCfg := skills.MigrateFSConfig{
+			AgentRoot:     snap.Workspace,
+			AgentID:       snap.AgentID,
+			UserSkillsDir: userSkillsDir,
+			UserID:        cliSkillsUserID,
+		}
+		if fsResult, fsErr := skills.MigrateFilesystem(parent, rawSkillStore, fsCfg); fsErr != nil {
+			slog.Warn("filesystem skill migration failed", "error", fsErr)
+		} else if fsResult.Imported > 0 {
+			slog.Info("migrated on-disk skills", "imported", fsResult.Imported, "skipped", fsResult.Skipped)
+		}
+	}
+
 	ctx := parent
 
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()

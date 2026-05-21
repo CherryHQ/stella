@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -193,13 +194,22 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 
 func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	setupCommandTestStellaHome(t)
-	store, err := openStore()
+	db, err := appdb.OpenDB(config.DBPath())
 	if err != nil {
-		t.Fatalf("openStore: %v", err)
+		t.Fatalf("open database: %v", err)
 	}
-	snap, err := defaultSnapshot(context.Background(), store)
+	defer func() { _ = db.Close() }()
+	store := config.NewDBStore(db)
+	if err := store.SeedDefaults(context.Background()); err != nil {
+		t.Fatalf("seed defaults: %v", err)
+	}
+	agents, err := store.ListEnabledAgents(context.Background())
+	if err != nil || len(agents) == 0 {
+		t.Fatal("no enabled agents found")
+	}
+	snap, err := store.Snapshot(context.Background(), agents[0].ID)
 	if err != nil {
-		t.Fatalf("defaultSnapshot: %v", err)
+		t.Fatalf("snapshot: %v", err)
 	}
 
 	dir, err := cliUserSkillsDir(snap)

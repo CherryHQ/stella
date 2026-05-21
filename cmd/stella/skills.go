@@ -13,10 +13,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
-	internalskills "github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
-	"github.com/CherryHQ/stella/resources"
 )
 
 func skillsCommand() *ucli.Command {
@@ -33,7 +30,6 @@ skills, and manage the ones already installed.`,
 			skillsInstallCommand(),
 			skillsListCommand(),
 			skillsRemoveCommand(),
-			skillsMigrateCommand(),
 		},
 		Action: skillsListAction,
 	}
@@ -263,58 +259,6 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			fmt.Printf("Skill %q removed.\n", name)
-			return nil
-		},
-	}
-}
-
-func skillsMigrateCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:  "migrate",
-		Usage: "Import on-disk skills into the database (run once after upgrading from filesystem-based skills)",
-		Action: func(c *ucli.Context) error {
-			db, err := appdb.OpenDB(config.DBPath())
-			if err != nil {
-				return fmt.Errorf("open database: %w", err)
-			}
-			defer func() { _ = db.Close() }()
-
-			sqliteStore := internalskills.New(db)
-
-			builtinSkillsFS, ok := resources.SubFS(resources.KindSkill)
-			if !ok {
-				return fmt.Errorf("builtin skills FS unavailable")
-			}
-			if err := internalskills.SyncBuiltin(c.Context, sqliteStore, builtinSkillsFS); err != nil {
-				return fmt.Errorf("sync builtins: %w", err)
-			}
-
-			configStore, err := openStore()
-			if err != nil {
-				return err
-			}
-			snap, err := defaultSnapshot(c.Context, configStore)
-			if err != nil {
-				return err
-			}
-			userSkillsDir, err := cliUserSkillsDir(snap)
-			if err != nil {
-				return err
-			}
-
-			cfg := internalskills.MigrateFSConfig{
-				AgentRoot:     snap.Workspace,
-				AgentID:       snap.AgentID,
-				UserSkillsDir: userSkillsDir,
-				UserID:        cliSkillsUserID,
-			}
-			fsResult, err := internalskills.MigrateFilesystem(c.Context, sqliteStore, cfg)
-			if err != nil {
-				return fmt.Errorf("filesystem migration: %w", err)
-			}
-
-			fmt.Printf("Builtin sync: OK. Filesystem migration: imported=%d, skipped=%d.\n",
-				fsResult.Imported, fsResult.Skipped)
 			return nil
 		},
 	}

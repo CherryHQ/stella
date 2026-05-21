@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -30,28 +28,6 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 	}
 
 	return collector.Models()
-}
-
-// openStore is a helper that opens the DB and returns a Store.
-func openStore() (config.Store, error) {
-	db, err := appdb.OpenDB(config.DBPath())
-	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
-	}
-	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
-		return nil, fmt.Errorf("seed defaults: %w", err)
-	}
-	return store, nil
-}
-
-// defaultSnapshot returns a snapshot for the first enabled agent.
-func defaultSnapshot(ctx context.Context, store config.Store) (*config.Snapshot, error) {
-	agents, err := store.ListEnabledAgents(ctx)
-	if err != nil || len(agents) == 0 {
-		return nil, fmt.Errorf("no enabled agents found")
-	}
-	return store.Snapshot(ctx, agents[0].ID)
 }
 
 type modelOptionCollector struct {
