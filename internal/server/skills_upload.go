@@ -50,11 +50,8 @@ func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if !info.IsAdmin {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
+	agent, err := s.store.GetAgent(r.Context(), agentID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "agent not found")
 			return
@@ -62,12 +59,16 @@ func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if agent.CreatorID != info.UserID {
+		writeError(w, http.StatusForbidden, "only the creator can manage this agent")
+		return
+	}
 	up, code, msg := parseUploadedSkill(r)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	id, err := s.skillStore().Create(r.Context(), skills.Skill{
+	skillID, err := s.skillStore().Create(r.Context(), skills.Skill{
 		Scope:                  "agent",
 		AgentID:                agentID,
 		Name:                   up.name,
@@ -80,7 +81,7 @@ func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": up.name})
+	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
 }
 
 func (s *Server) UploadProfileSkill(w http.ResponseWriter, r *http.Request) {

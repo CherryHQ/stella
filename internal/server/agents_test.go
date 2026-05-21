@@ -115,25 +115,31 @@ func TestAgentScopeDefaultsToSystem(t *testing.T) {
 func TestAgentScopeInUpdate(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Update stella to restricted scope.
-	body := config.Agent{
-		Name:    "Stella",
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Updatable Scope",
 		Model:   "anthropic/claude-sonnet-4-6",
 		Scope:   "restricted",
 		Enabled: true,
+	})
+
+	body := config.Agent{
+		Name:    "Updatable Scope",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "system",
+		Enabled: true,
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/stella", body)
+	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify scope persisted.
-	rr = doRequest(t, env, "GET", "/api/agents/stella", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/"+agentID, nil)
 	resp := parseResponse(t, rr)
 	var a config.Agent
 	_ = json.Unmarshal(resp.Data, &a)
-	if a.Scope != "restricted" {
-		t.Errorf("Scope = %q, want %q", a.Scope, "restricted")
+	if a.Scope != "system" {
+		t.Errorf("Scope = %q, want %q", a.Scope, "system")
 	}
 }
 
@@ -170,13 +176,19 @@ func TestAgentInvalidSandbox(t *testing.T) {
 func TestAgentInvalidSandboxOnUpdate(t *testing.T) {
 	env := setupAdmin(t)
 
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Sandbox Update",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Enabled: true,
+	})
+
 	body := config.Agent{
-		Name:    "Stella",
+		Name:    "Sandbox Update",
 		Model:   "anthropic/claude-sonnet-4-6",
 		Enabled: true,
 		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/stella", body)
+	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}

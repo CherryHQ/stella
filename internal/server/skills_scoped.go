@@ -31,7 +31,7 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 	return nil, sql.ErrNoRows
 }
 
-// requireAgentManage verifies the caller is admin or the agent's creator.
+// requireAgentManage verifies the caller is the agent creator.
 // Returns (agent, 0, "") on success, (_, status, msg) on failure.
 func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
@@ -45,7 +45,7 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 		}
 		return config.Agent{}, http.StatusInternalServerError, err.Error()
 	}
-	if !info.IsAdmin && a.CreatorID != info.UserID {
+	if a.CreatorID != info.UserID {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
 	}
 	return a, 0, ""

@@ -59,12 +59,8 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		sessionMode = *body.SessionMode
 	}
 
-	// Non-admin users always own their jobs; only admins can create system jobs (user_id="").
 	var userID string
-	if body.UserId != nil {
-		userID = *body.UserId
-	}
-	if info != nil && !info.IsAdmin {
+	if info != nil {
 		userID = info.UserID
 	}
 

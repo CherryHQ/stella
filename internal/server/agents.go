@@ -181,14 +181,14 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	// Check access: admin or creator.
+	// Check access: creator only.
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
-		writeError(w, http.StatusForbidden, "only the creator or an admin can edit this agent")
+	if info != nil && existing.CreatorID != info.UserID {
+		writeError(w, http.StatusForbidden, "only the creator can edit this agent")
 		return
 	}
 
@@ -236,14 +236,14 @@ func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	// Check access: admin or creator.
+	// Check access: creator only.
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
-		writeError(w, http.StatusForbidden, "only the creator or an admin can delete this agent")
+	if info != nil && existing.CreatorID != info.UserID {
+		writeError(w, http.StatusForbidden, "only the creator can delete this agent")
 		return
 	}
 
