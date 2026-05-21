@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.2] - 2026-05-21
+
+### ✨ Features
+
+- **Vault**: Add vault keygen command
+
+### ♻️ Refactoring
+
+- Split commands.go setup into topical files
+- Move skill migrate into server setup
+- CLI skill commands use API, sandbox allows network
+
+### 🐳 Docker
+
+- Stabilize docker dev build
+- Move go mod download earlier for better layer caching
+- Add seccomp=unconfined to dev container run
+
+**Full Changelog**: [v0.35.1...v0.35.2](https://github.com/CherryHQ/stella/compare/v0.35.1...v0.35.2)
+
 ## [0.35.1] - 2026-05-21
 
 ### 📦 Dependencies

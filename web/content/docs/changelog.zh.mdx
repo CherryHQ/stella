@@ -11,6 +11,26 @@ icon: History
 
 ## [Unreleased]
 
+## [0.35.2] - 2026-05-21
+
+### ✨ 功能
+
+- **Vault**：新增 vault keygen 命令
+
+### ♻️ 重构
+
+- 将 commands.go 拆分为多个主题文件
+- 将 skill migrate 移入 server 初始化流程
+- CLI skill 命令使用 API，沙盒允许网络访问
+
+### 🐳 Docker
+
+- 稳定化 docker dev 构建
+- 将 go mod download 提前以改善层缓存
+- 为 dev 容器运行添加 seccomp=unconfined
+
+**完整变更日志**：[v0.35.1...v0.35.2](https://github.com/CherryHQ/stella/compare/v0.35.1...v0.35.2)
+
 ## [0.35.1] - 2026-05-21
 
 ### 📦 依赖
