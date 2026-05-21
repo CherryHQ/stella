@@ -473,18 +473,6 @@ func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
-		legacy, legacyErr := p.q.GetUnownedConversationBySessionID(ctx, info.ID)
-		if legacyErr == nil {
-			if err := p.q.ClaimConversationUserBySessionID(ctx, sqlc.ClaimConversationUserBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}}); err != nil {
-				return fmt.Errorf("claim conversation user: %w", err)
-			}
-			conv = legacy
-			err = nil
-		} else if !errors.Is(legacyErr, sql.ErrNoRows) {
-			return fmt.Errorf("get unowned conversation: %w", legacyErr)
-		}
-	}
-	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
 			lastActive = time.Now().UTC()
@@ -657,18 +645,6 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	p.globalMu.Unlock()
 
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: session.UserID, Valid: true}})
-	if errors.Is(err, sql.ErrNoRows) {
-		legacy, legacyErr := p.q.GetUnownedConversationBySessionID(ctx, sessionID)
-		if legacyErr == nil {
-			if err := p.q.ClaimConversationUserBySessionID(ctx, sqlc.ClaimConversationUserBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: session.UserID, Valid: true}}); err != nil {
-				return "", fmt.Errorf("claim conversation user: %w", err)
-			}
-			conv = legacy
-			err = nil
-		} else if !errors.Is(legacyErr, sql.ErrNoRows) {
-			return "", fmt.Errorf("get unowned conversation: %w", legacyErr)
-		}
-	}
 	if err == nil {
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil

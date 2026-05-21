@@ -10,23 +10,6 @@ import (
 	"database/sql"
 )
 
-const claimConversationUserBySessionID = `-- name: ClaimConversationUserBySessionID :exec
-UPDATE ctx_conversations
-SET user_id = ?1, updated_at = datetime('now')
-WHERE session_id = ?2
-  AND user_id IS NULL
-`
-
-type ClaimConversationUserBySessionIDParams struct {
-	UserID    sql.NullString `json:"user_id"`
-	SessionID string         `json:"session_id"`
-}
-
-func (q *Queries) ClaimConversationUserBySessionID(ctx context.Context, arg ClaimConversationUserBySessionIDParams) error {
-	_, err := q.db.ExecContext(ctx, claimConversationUserBySessionID, arg.UserID, arg.SessionID)
-	return err
-}
-
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -160,33 +143,6 @@ type GetMainConversationByProjectParams struct {
 
 func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainConversationByProjectParams) (CtxConversation, error) {
 	row := q.db.QueryRowContext(ctx, getMainConversationByProject, arg.ProjectID, arg.UserID, arg.AgentID)
-	var i CtxConversation
-	err := row.Scan(
-		&i.ID,
-		&i.SessionID,
-		&i.Title,
-		&i.Channel,
-		&i.Kind,
-		&i.ProjectID,
-		&i.Archived,
-		&i.LastActive,
-		&i.BootstrappedAt,
-		&i.AgentID,
-		&i.UserID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getUnownedConversationBySessionID = `-- name: GetUnownedConversationBySessionID :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
-WHERE session_id = ?1
-  AND user_id IS NULL
-`
-
-func (q *Queries) GetUnownedConversationBySessionID(ctx context.Context, sessionID string) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, getUnownedConversationBySessionID, sessionID)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
