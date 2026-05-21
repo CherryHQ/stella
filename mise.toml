@@ -208,6 +208,7 @@ run = """
     fi
     docker rm -f stella-dev >/dev/null 2>&1 || true
     docker run -d --name stella-dev -p 25678:25678 \
+        --security-opt seccomp=unconfined \
         -v "stella-dev:/home/stella" \
         -e "STELLA_HOME=/home/stella" \
         -e "HOST=0.0.0.0" \
