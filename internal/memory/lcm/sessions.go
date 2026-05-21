@@ -16,7 +16,7 @@ import (
 
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
-	conv, err := p.q.GetConversationBySessionID(ctx, info.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}})
 	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -26,7 +26,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if kind == "" {
 			kind = "chat"
 		}
-		_, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 			ID:         uuid.NewString(),
 			SessionID:  info.ID,
 			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
@@ -82,21 +82,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		}
 	}
 	// Update agent_id/user_id if provided and different.
-	if info.AgentID != "" || info.UserID != "" {
-		agentMatch := conv.AgentID.Valid && conv.AgentID.String == info.AgentID
-		userMatch := conv.UserID.Valid && conv.UserID.String == info.UserID
-		if !agentMatch || !userMatch {
-			if err := p.q.UpdateConversationAgentUser(ctx, sqlc.UpdateConversationAgentUserParams{
-				AgentID:   sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-				UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
-				SessionID: info.ID,
-			}); err != nil {
-				return fmt.Errorf("update agent/user: %w", err)
-			}
-		}
-	}
 
-	if err := p.q.UpdateConversationLastActive(ctx, info.ID); err != nil {
+	if err := p.q.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}}); err != nil {
 		return fmt.Errorf("update last_active: %w", err)
 	}
 	return nil
@@ -104,7 +91,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 
 // LoadInfo implements memory.SessionManager.
 func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
 	if err != nil {
 		return memory.SessionInfo{}, fmt.Errorf("get conversation: %w", err)
 	}
@@ -115,10 +102,15 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	var convs []sqlc.CtxConversation
 	var err error
+	userID := opts.UserID
+	if userID == "" {
+		userID = memory.UserIDFromContext(ctx)
+	}
+	agentID := sql.NullString{String: opts.AgentID, Valid: opts.AgentID != ""}
 	if opts.IncludeArchived {
-		convs, err = p.q.ListConversationsAll(ctx)
+		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
 	} else {
-		convs, err = p.q.ListConversations(ctx)
+		convs, err = p.q.ListConversations(ctx, sqlc.ListConversationsParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -155,7 +147,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

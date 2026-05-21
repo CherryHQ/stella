@@ -60,7 +60,7 @@ func (p *Provider) Name() string { return "simple" }
 
 // Bootstrap implements memory.Provider.
 func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error {
-	_, err := p.getOrCreateConversation(ctx, session.ID)
+	_, err := p.getOrCreateConversation(ctx, session)
 	return err
 }
 
@@ -70,7 +70,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 		return nil
 	}
 	return p.withSessionLock(session.ID, func() error {
-		convID, err := p.getOrCreateConversation(ctx, session.ID)
+		convID, err := p.getOrCreateConversation(ctx, session)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 // Assemble implements memory.Provider.
 // Returns the last N messages that fit within budget, always honouring freshTail.
 func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
-	convID, err := p.getOrCreateConversation(ctx, session.ID)
+	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget,
 
 // Stats implements memory.Provider.
 func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: session.UserID != ""}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
@@ -471,7 +471,7 @@ func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
 
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
-	conv, err := p.q.GetConversationBySessionID(ctx, info.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}})
 	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -481,7 +481,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if kind == "" {
 			kind = "chat"
 		}
-		_, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 			ID:         uuid.NewString(),
 			SessionID:  info.ID,
 			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
@@ -535,21 +535,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			return fmt.Errorf("update kind/project: %w", err)
 		}
 	}
-	if info.AgentID != "" || info.UserID != "" {
-		agentMatch := conv.AgentID.Valid && conv.AgentID.String == info.AgentID
-		userMatch := conv.UserID.Valid && conv.UserID.String == info.UserID
-		if !agentMatch || !userMatch {
-			if err := p.q.UpdateConversationAgentUser(ctx, sqlc.UpdateConversationAgentUserParams{
-				AgentID:   sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-				UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
-				SessionID: info.ID,
-			}); err != nil {
-				return fmt.Errorf("update agent/user: %w", err)
-			}
-		}
-	}
 
-	if err := p.q.UpdateConversationLastActive(ctx, info.ID); err != nil {
+	if err := p.q.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}}); err != nil {
 		return fmt.Errorf("update last_active: %w", err)
 	}
 	return nil
@@ -557,7 +544,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 
 // LoadInfo implements memory.SessionManager.
 func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	userID := memory.UserIDFromContext(ctx)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: userID != ""}})
 	if err != nil {
 		return memory.SessionInfo{}, fmt.Errorf("get conversation: %w", err)
 	}
@@ -568,10 +556,15 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	var convs []sqlc.CtxConversation
 	var err error
+	userID := opts.UserID
+	if userID == "" {
+		userID = memory.UserIDFromContext(ctx)
+	}
+	agentID := sql.NullString{String: opts.AgentID, Valid: opts.AgentID != ""}
 	if opts.IncludeArchived {
-		convs, err = p.q.ListConversationsAll(ctx)
+		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
 	} else {
-		convs, err = p.q.ListConversations(ctx)
+		convs, err = p.q.ListConversations(ctx, sqlc.ListConversationsParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -607,7 +600,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -639,7 +632,8 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 	return fn()
 }
 
-func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string) (string, error) {
+func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
+	sessionID := session.ID
 	p.globalMu.Lock()
 	if id, ok := p.convCache[sessionID]; ok {
 		p.globalMu.Unlock()
@@ -647,7 +641,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 	}
 	p.globalMu.Unlock()
 
-	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
 	if err == nil {
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
@@ -657,8 +651,13 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 	}
 
 	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID:        uuid.NewString(),
-		SessionID: sessionID,
+		ID:         uuid.NewString(),
+		SessionID:  sessionID,
+		Channel:    session.Channel,
+		Kind:       "chat",
+		AgentID:    sql.NullString{String: session.AgentID, Valid: session.AgentID != ""},
+		UserID:     sql.NullString{String: session.UserID, Valid: session.UserID != ""},
+		LastActive: time.Now().UTC().Format("2006-01-02 15:04:05"),
 	})
 	if err != nil {
 		return "", fmt.Errorf("create conversation: %w", err)

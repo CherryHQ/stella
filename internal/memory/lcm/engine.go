@@ -68,7 +68,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 	p.globalMu.Unlock()
 
-	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: session.UserID != ""}})
 	if err == nil {
 		p.cacheConvID(session.ID, conv.ID)
 		return conv.ID, nil
@@ -78,7 +78,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")
-	conv, err = p.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 		ID:         uuid.NewString(),
 		SessionID:  session.ID,
 		Channel:    session.Channel,

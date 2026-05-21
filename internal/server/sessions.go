@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -523,7 +524,11 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sess
 	}
 
 	// Load raw DB rows to preserve created_at timestamps.
-	conv, err := s.q.GetConversationBySessionID(r.Context(), sessionID)
+	userID := ""
+	if info := UserFromContext(r.Context()); info != nil {
+		userID = info.UserID
+	}
+	conv, err := s.q.GetConversationBySessionID(r.Context(), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: userID != ""}})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return

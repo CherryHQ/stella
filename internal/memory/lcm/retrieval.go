@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"unicode/utf8"
 
@@ -27,7 +28,7 @@ func newRetrievalEngine(q *sqlc.Queries) *retrievalEngine {
 
 // Search implements memory.Searcher.
 func (p *Provider) Search(ctx context.Context, session memory.Session, query memory.SearchQuery) ([]memory.SearchResult, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: session.UserID != ""}})
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
