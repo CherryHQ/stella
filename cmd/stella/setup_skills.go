@@ -7,10 +7,21 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	skills "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/resources"
 )
+
+const cliSkillsUserID = "1"
+
+func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
+	userDir, err := agent.SetupUserWorkspace(snap.AgentID, config.StellaHome(), cliSkillsUserID)
+	if err != nil {
+		return "", err
+	}
+	return agent.UserSkillsDir(userDir), nil
+}
 
 type skillStores struct {
 	raw      *skills.SQLiteStore

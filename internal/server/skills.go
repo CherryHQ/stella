@@ -35,7 +35,9 @@ func (s *Server) skillStore() skills.Store {
 }
 
 func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	store := s.skillStore()
@@ -43,7 +45,14 @@ func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	all, err := store.ListAll(r.Context())
+
+	var all []skills.Skill
+	var err error
+	if info.IsAdmin {
+		all, err = store.ListAll(r.Context())
+	} else {
+		all, err = store.List(r.Context(), skills.ViewContext{UserID: info.UserID})
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -1231,8 +1231,8 @@ func TestSkillsList_NonAdmin(t *testing.T) {
 	}
 
 	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
