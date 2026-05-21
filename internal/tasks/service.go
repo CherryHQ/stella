@@ -29,6 +29,7 @@ type RunnerFactoryFn func(agentID string) (agent.NewRunnerFunc, bool)
 
 // Service manages task lifecycle: creation, dispatching workers, and actions.
 type Service struct {
+	db            *sql.DB
 	q             *sqlc.Queries
 	notifier      notify.Notifier
 	mem           memory.Provider
@@ -47,6 +48,7 @@ type Service struct {
 
 // Config holds construction parameters for Service.
 type Config struct {
+	DB             *sql.DB
 	Queries        *sqlc.Queries
 	Notifier       notify.Notifier
 	Memory         memory.Provider
@@ -87,6 +89,7 @@ func New(cfg Config) *Service {
 		concurrency = defaultMaxConcurrency
 	}
 	return &Service{
+		db:             cfg.DB,
 		q:              cfg.Queries,
 		notifier:       cfg.Notifier,
 		mem:            cfg.Memory,
@@ -194,11 +197,11 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 		return
 	}
 	for _, t := range pending {
-		deps := parseDeps(t.Deps)
-		if len(deps) == 0 {
+		depRows, err := s.q.ListAgentTaskDeps(ctx, t.ID)
+		if err != nil || len(depRows) == 0 {
 			continue
 		}
-		for _, depID := range deps {
+		for _, depID := range depRows {
 			dep, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: t.UserID})
 			if err != nil {
 				continue
@@ -265,7 +268,11 @@ func (s *Service) sweepDispatch(ctx context.Context) {
 
 // depsAllDone returns true if all dep tasks are in "done" status.
 func (s *Service) depsAllDone(ctx context.Context, t sqlc.AgentTask) bool {
-	for _, depID := range parseDeps(t.Deps) {
+	depIDs, err := s.q.ListAgentTaskDeps(ctx, t.ID)
+	if err != nil {
+		return false
+	}
+	for _, depID := range depIDs {
 		dep, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: t.UserID})
 		if err != nil || dep.Status != "done" {
 			return false
@@ -281,14 +288,9 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 		priority = "routine"
 	}
 
-	// Validate deps exist.
+	// Validate deps exist and no cycles.
 	if err := s.validateDeps(ctx, params.UserID, params.Deps); err != nil {
 		return sqlc.AgentTask{}, err
-	}
-
-	depsJSON, err := json.Marshal(params.Deps)
-	if err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: marshal deps: %w", err)
 	}
 
 	id := newID()
@@ -302,7 +304,6 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 		SessionID:      sql.NullString{String: "task:" + id, Valid: true},
 		Context:        "{}",
 		ReviewRequest:  "{}",
-		Deps:           string(depsJSON),
 		SchedulerJobID: sql.NullString{String: params.SchedulerJobID, Valid: params.SchedulerJobID != ""},
 		SchedulerRunID: sql.NullString{String: params.SchedulerRunID, Valid: params.SchedulerRunID != ""},
 		AgentID:        sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
@@ -313,6 +314,15 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: create: %w", err)
 	}
+
+	// Insert dependency edges.
+	for _, depID := range params.Deps {
+		_ = s.q.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{
+			TaskID: id,
+			DepID:  depID,
+		})
+	}
+
 	return task, nil
 }
 
@@ -332,11 +342,11 @@ func (s *Service) validateDeps(ctx context.Context, userID string, deps []string
 		}
 		inStack[id] = true
 		defer func() { inStack[id] = false }()
-		t, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
+		depIDs, err := s.q.ListAgentTaskDeps(ctx, id)
 		if err != nil {
 			return nil
 		}
-		for _, depID := range parseDeps(t.Deps) {
+		for _, depID := range depIDs {
 			if err := dfs(depID); err != nil {
 				return err
 			}
@@ -568,6 +578,256 @@ func (s *Service) ListTaskEvents(ctx context.Context, taskID string) ([]sqlc.Age
 	return s.q.ListAgentTaskEvents(ctx, taskID)
 }
 
+// AddDep adds a dependency edge (taskID depends on depID) with cycle detection.
+func (s *Service) AddDep(ctx context.Context, taskID, depID, userID string) error {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
+	if err != nil {
+		return fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+	}
+	if task.Status != "pending" && task.Status != "blocked" {
+		return fmt.Errorf("tasks: cannot add dep to task in status %q", task.Status)
+	}
+	if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: userID}); err != nil {
+		return fmt.Errorf("tasks: dep %q not found: %w", depID, err)
+	}
+	if taskID == depID {
+		return fmt.Errorf("tasks: cannot depend on self")
+	}
+	// Cycle detection: DFS from depID — if we reach taskID, reject.
+	visited := make(map[string]bool)
+	var dfs func(id string) error
+	dfs = func(id string) error {
+		if id == taskID {
+			return fmt.Errorf("tasks: cycle detected — adding this dependency would create a loop")
+		}
+		if visited[id] {
+			return nil
+		}
+		visited[id] = true
+		deps, err := s.q.ListAgentTaskDeps(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, d := range deps {
+			if err := dfs(d); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := dfs(depID); err != nil {
+		return err
+	}
+	return s.q.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{TaskID: taskID, DepID: depID})
+}
+
+// RemoveDep removes a dependency edge. If the task was blocked and all remaining deps are done, transitions to pending.
+func (s *Service) RemoveDep(ctx context.Context, taskID, depID, userID string) error {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
+	if err != nil {
+		return fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+	}
+	if err := s.q.DeleteAgentTaskDep(ctx, sqlc.DeleteAgentTaskDepParams{TaskID: taskID, DepID: depID}); err != nil {
+		return fmt.Errorf("tasks: remove dep: %w", err)
+	}
+	if task.Status == "blocked" && s.depsAllDone(ctx, task) {
+		now := time.Now().Format(time.RFC3339)
+		_ = s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			Status: "pending", UpdatedAt: now, ID: taskID, UserID: userID,
+		})
+	}
+	return nil
+}
+
+// TaskDeps holds upstream and downstream dependency info.
+type TaskDeps struct {
+	Upstream   []sqlc.AgentTask
+	Downstream []sqlc.AgentTask
+}
+
+// GetTaskDeps returns upstream dependencies and downstream dependents.
+func (s *Service) GetTaskDeps(ctx context.Context, taskID, userID string) (TaskDeps, error) {
+	if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID}); err != nil {
+		return TaskDeps{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+	}
+	depIDs, err := s.q.ListAgentTaskDeps(ctx, taskID)
+	if err != nil {
+		return TaskDeps{}, fmt.Errorf("tasks: list deps: %w", err)
+	}
+	upstream := make([]sqlc.AgentTask, 0, len(depIDs))
+	for _, id := range depIDs {
+		t, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
+		if err == nil {
+			upstream = append(upstream, t)
+		}
+	}
+	dependentIDs, err := s.q.ListAgentTaskDependents(ctx, taskID)
+	if err != nil {
+		return TaskDeps{}, fmt.Errorf("tasks: list dependents: %w", err)
+	}
+	downstream := make([]sqlc.AgentTask, 0, len(dependentIDs))
+	for _, id := range dependentIDs {
+		t, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
+		if err == nil {
+			downstream = append(downstream, t)
+		}
+	}
+	return TaskDeps{Upstream: upstream, Downstream: downstream}, nil
+}
+
+// ListUnblockedTasks returns pending tasks whose dependencies are all done.
+func (s *Service) ListUnblockedTasks(ctx context.Context, userID, agentID string) ([]sqlc.AgentTask, error) {
+	tasks, err := s.q.ListUnblockedAgentTasks(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: list unblocked: %w", err)
+	}
+	if agentID == "" {
+		return tasks, nil
+	}
+	filtered := tasks[:0]
+	for _, t := range tasks {
+		if t.AgentID.Valid && t.AgentID.String == agentID {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered, nil
+}
+
+// BatchTaskItem holds parameters for one task in a batch create.
+type BatchTaskItem struct {
+	Title       string
+	Description string
+	Priority    string
+	AgentID     string
+	DraftID     string
+	Deps        []string
+}
+
+// BatchCreateParams holds parameters for batch task creation.
+type BatchCreateParams struct {
+	UserID string
+	Tasks  []BatchTaskItem
+}
+
+// BatchCreateTasks creates multiple tasks atomically with intra-batch dependency resolution.
+func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams) ([]sqlc.AgentTask, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("tasks: batch create requires db connection")
+	}
+	if len(params.Tasks) == 0 {
+		return nil, fmt.Errorf("tasks: batch create requires at least one task")
+	}
+
+	// Assign real IDs and build draftID→realID map.
+	realIDs := make([]string, len(params.Tasks))
+	draftMap := make(map[string]string)
+	for i, t := range params.Tasks {
+		realIDs[i] = newID()
+		if t.DraftID != "" {
+			if _, exists := draftMap[t.DraftID]; exists {
+				return nil, fmt.Errorf("tasks: duplicate draft_id %q", t.DraftID)
+			}
+			draftMap[t.DraftID] = realIDs[i]
+		}
+	}
+
+	// Resolve deps: draft IDs to real IDs, validate external deps.
+	resolvedDeps := make([][]string, len(params.Tasks))
+	for i, t := range params.Tasks {
+		for _, dep := range t.Deps {
+			if realID, ok := draftMap[dep]; ok {
+				resolvedDeps[i] = append(resolvedDeps[i], realID)
+			} else {
+				if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: dep, UserID: params.UserID}); err != nil {
+					return nil, fmt.Errorf("tasks: dep %q not found", dep)
+				}
+				resolvedDeps[i] = append(resolvedDeps[i], dep)
+			}
+		}
+	}
+
+	// Cycle detection on the batch graph.
+	idToIdx := make(map[string]int)
+	for i, id := range realIDs {
+		idToIdx[id] = i
+	}
+	visited := make(map[string]int) // 0=unvisited, 1=in-stack, 2=done
+	var dfs func(id string) error
+	dfs = func(id string) error {
+		if visited[id] == 1 {
+			return fmt.Errorf("tasks: cycle detected in batch")
+		}
+		if visited[id] == 2 {
+			return nil
+		}
+		visited[id] = 1
+		if idx, ok := idToIdx[id]; ok {
+			for _, dep := range resolvedDeps[idx] {
+				if err := dfs(dep); err != nil {
+					return err
+				}
+			}
+		}
+		visited[id] = 2
+		return nil
+	}
+	for _, id := range realIDs {
+		if err := dfs(id); err != nil {
+			return nil, err
+		}
+	}
+
+	// Create all tasks in a transaction.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	now := time.Now().Format(time.RFC3339)
+	results := make([]sqlc.AgentTask, 0, len(params.Tasks))
+	for i, t := range params.Tasks {
+		priority := t.Priority
+		if priority == "" {
+			priority = "routine"
+		}
+		task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+			ID:            realIDs[i],
+			Title:         t.Title,
+			Description:   t.Description,
+			Status:        "pending",
+			Priority:      priority,
+			SessionID:     sql.NullString{String: "task:" + realIDs[i], Valid: true},
+			Context:       "{}",
+			ReviewRequest: "{}",
+			AgentID:       sql.NullString{String: t.AgentID, Valid: t.AgentID != ""},
+			UserID:        params.UserID,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tasks: batch create task %q: %w", t.Title, err)
+		}
+		for _, depID := range resolvedDeps[i] {
+			if err := qtx.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{TaskID: realIDs[i], DepID: depID}); err != nil {
+				return nil, fmt.Errorf("tasks: batch insert dep: %w", err)
+			}
+		}
+		results = append(results, task)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("tasks: commit batch: %w", err)
+	}
+	return results, nil
+}
+
+// ListTaskDeps returns the dep IDs for a task (used by API layer to populate deps field).
+func (s *Service) ListTaskDeps(ctx context.Context, taskID string) ([]string, error) {
+	return s.q.ListAgentTaskDeps(ctx, taskID)
+}
+
 // dispatch launches a worker goroutine for task. It returns immediately.
 func (s *Service) dispatch(task sqlc.AgentTask) {
 	workerCtx, workerCancel := context.WithCancel(s.ctx)
@@ -601,18 +861,6 @@ func detailJSON(msg string) string {
 	}
 	b, _ := json.Marshal(map[string]any{"message": msg})
 	return string(b)
-}
-
-// parseDeps unmarshals the deps JSON array. Returns nil on error.
-func parseDeps(raw string) []string {
-	if raw == "" || raw == "[]" {
-		return nil
-	}
-	var deps []string
-	if err := json.Unmarshal([]byte(raw), &deps); err != nil {
-		return nil
-	}
-	return deps
 }
 
 // newID generates a new UUID string.

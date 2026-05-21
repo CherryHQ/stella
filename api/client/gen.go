@@ -58,6 +58,18 @@ type AgentTask = externalRef0.AgentTask
 // AgentTaskAction An action taken on a task (approve/reject review, respond to block, cancel)
 type AgentTaskAction = externalRef0.AgentTaskAction
 
+// AgentTaskBatchInput defines model for AgentTaskBatchInput.
+type AgentTaskBatchInput = externalRef0.AgentTaskBatchInput
+
+// AgentTaskBatchItem defines model for AgentTaskBatchItem.
+type AgentTaskBatchItem = externalRef0.AgentTaskBatchItem
+
+// AgentTaskDepsInfo defines model for AgentTaskDepsInfo.
+type AgentTaskDepsInfo = externalRef0.AgentTaskDepsInfo
+
+// AgentTaskDepsInput defines model for AgentTaskDepsInput.
+type AgentTaskDepsInput = externalRef0.AgentTaskDepsInput
+
 // AgentTaskEvent defines model for AgentTaskEvent.
 type AgentTaskEvent = externalRef0.AgentTaskEvent
 
@@ -557,6 +569,11 @@ type ListAgentTasksParams struct {
 	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 }
 
+// ListUnblockedAgentTasksParams defines parameters for ListUnblockedAgentTasks.
+type ListUnblockedAgentTasksParams struct {
+	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+}
+
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
 type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInput
 
@@ -707,11 +724,17 @@ type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
 type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
 
+// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
+type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
+
 // UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
 type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
+
+// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
+type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
 
 // UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
 type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
@@ -1315,6 +1338,14 @@ type ClientInterface interface {
 
 	CreateAgentTask(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// BatchCreateAgentTasksWithBody request with any body
+	BatchCreateAgentTasksWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	BatchCreateAgentTasks(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUnblockedAgentTasks request
+	ListUnblockedAgentTasks(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteAgentTask request
 	DeleteAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1330,6 +1361,17 @@ type ClientInterface interface {
 	AgentTaskActionWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	AgentTaskAction(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAgentTaskDeps request
+	GetAgentTaskDeps(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddAgentTaskDepWithBody request with any body
+	AddAgentTaskDepWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AddAgentTaskDep(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveAgentTaskDep request
+	RemoveAgentTaskDep(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentTaskEvents request
 	ListAgentTaskEvents(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3627,6 +3669,42 @@ func (c *Client) CreateAgentTask(ctx context.Context, body CreateAgentTaskJSONRe
 	return c.Client.Do(req)
 }
 
+func (c *Client) BatchCreateAgentTasksWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchCreateAgentTasksRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) BatchCreateAgentTasks(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchCreateAgentTasksRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListUnblockedAgentTasks(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUnblockedAgentTasksRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) DeleteAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteAgentTaskRequest(c.Server, id)
 	if err != nil {
@@ -3689,6 +3767,54 @@ func (c *Client) AgentTaskActionWithBody(ctx context.Context, id string, content
 
 func (c *Client) AgentTaskAction(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAgentTaskActionRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAgentTaskDeps(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentTaskDepsRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AddAgentTaskDepWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddAgentTaskDepRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AddAgentTaskDep(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddAgentTaskDepRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RemoveAgentTaskDep(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveAgentTaskDepRequest(c.Server, id, depId)
 	if err != nil {
 		return nil, err
 	}
@@ -9817,6 +9943,100 @@ func NewCreateAgentTaskRequestWithBody(server string, contentType string, body i
 	return req, nil
 }
 
+// NewBatchCreateAgentTasksRequest calls the generic BatchCreateAgentTasks builder with application/json body
+func NewBatchCreateAgentTasksRequest(server string, body BatchCreateAgentTasksJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBatchCreateAgentTasksRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewBatchCreateAgentTasksRequestWithBody generates requests for BatchCreateAgentTasks with any type of body
+func NewBatchCreateAgentTasksRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tasks/batch")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListUnblockedAgentTasksRequest generates requests for ListUnblockedAgentTasks
+func NewListUnblockedAgentTasksRequest(server string, params *ListUnblockedAgentTasksParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tasks/unblocked")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.AgentId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteAgentTaskRequest generates requests for DeleteAgentTask
 func NewDeleteAgentTaskRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -9975,6 +10195,128 @@ func NewAgentTaskActionRequestWithBody(server string, id string, contentType str
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetAgentTaskDepsRequest generates requests for GetAgentTaskDeps
+func NewGetAgentTaskDepsRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tasks/%s/deps", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAddAgentTaskDepRequest calls the generic AddAgentTaskDep builder with application/json body
+func NewAddAgentTaskDepRequest(server string, id string, body AddAgentTaskDepJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAddAgentTaskDepRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewAddAgentTaskDepRequestWithBody generates requests for AddAgentTaskDep with any type of body
+func NewAddAgentTaskDepRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tasks/%s/deps", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveAgentTaskDepRequest generates requests for RemoveAgentTaskDep
+func NewRemoveAgentTaskDepRequest(server string, id string, depId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "depId", depId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tasks/%s/deps/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -10826,6 +11168,14 @@ type ClientWithResponsesInterface interface {
 
 	CreateAgentTaskWithResponse(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error)
 
+	// BatchCreateAgentTasksWithBodyWithResponse request with any body
+	BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
+
+	BatchCreateAgentTasksWithResponse(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
+
+	// ListUnblockedAgentTasksWithResponse request
+	ListUnblockedAgentTasksWithResponse(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error)
+
 	// DeleteAgentTaskWithResponse request
 	DeleteAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error)
 
@@ -10841,6 +11191,17 @@ type ClientWithResponsesInterface interface {
 	AgentTaskActionWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
 
 	AgentTaskActionWithResponse(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
+
+	// GetAgentTaskDepsWithResponse request
+	GetAgentTaskDepsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error)
+
+	// AddAgentTaskDepWithBodyWithResponse request with any body
+	AddAgentTaskDepWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
+
+	AddAgentTaskDepWithResponse(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
+
+	// RemoveAgentTaskDepWithResponse request
+	RemoveAgentTaskDepWithResponse(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error)
 
 	// ListAgentTaskEventsWithResponse request
 	ListAgentTaskEventsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error)
@@ -15476,6 +15837,69 @@ func (r CreateAgentTaskResponse) ContentType() string {
 	return ""
 }
 
+type BatchCreateAgentTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTaskList
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r BatchCreateAgentTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BatchCreateAgentTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BatchCreateAgentTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUnblockedAgentTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUnblockedAgentTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUnblockedAgentTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUnblockedAgentTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteAgentTaskResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15600,6 +16024,103 @@ func (r AgentTaskActionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AgentTaskActionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetAgentTaskDepsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskDepsInfo
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAgentTaskDepsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAgentTaskDepsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAgentTaskDepsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AddAgentTaskDepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r AddAgentTaskDepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddAgentTaskDepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddAgentTaskDepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveAgentTaskDepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveAgentTaskDepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveAgentTaskDepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveAgentTaskDepResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -17487,6 +18008,32 @@ func (c *ClientWithResponses) CreateAgentTaskWithResponse(ctx context.Context, b
 	return ParseCreateAgentTaskResponse(rsp)
 }
 
+// BatchCreateAgentTasksWithBodyWithResponse request with arbitrary body returning *BatchCreateAgentTasksResponse
+func (c *ClientWithResponses) BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
+	rsp, err := c.BatchCreateAgentTasksWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchCreateAgentTasksResponse(rsp)
+}
+
+func (c *ClientWithResponses) BatchCreateAgentTasksWithResponse(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
+	rsp, err := c.BatchCreateAgentTasks(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchCreateAgentTasksResponse(rsp)
+}
+
+// ListUnblockedAgentTasksWithResponse request returning *ListUnblockedAgentTasksResponse
+func (c *ClientWithResponses) ListUnblockedAgentTasksWithResponse(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error) {
+	rsp, err := c.ListUnblockedAgentTasks(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUnblockedAgentTasksResponse(rsp)
+}
+
 // DeleteAgentTaskWithResponse request returning *DeleteAgentTaskResponse
 func (c *ClientWithResponses) DeleteAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error) {
 	rsp, err := c.DeleteAgentTask(ctx, id, reqEditors...)
@@ -17537,6 +18084,41 @@ func (c *ClientWithResponses) AgentTaskActionWithResponse(ctx context.Context, i
 		return nil, err
 	}
 	return ParseAgentTaskActionResponse(rsp)
+}
+
+// GetAgentTaskDepsWithResponse request returning *GetAgentTaskDepsResponse
+func (c *ClientWithResponses) GetAgentTaskDepsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error) {
+	rsp, err := c.GetAgentTaskDeps(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentTaskDepsResponse(rsp)
+}
+
+// AddAgentTaskDepWithBodyWithResponse request with arbitrary body returning *AddAgentTaskDepResponse
+func (c *ClientWithResponses) AddAgentTaskDepWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
+	rsp, err := c.AddAgentTaskDepWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddAgentTaskDepResponse(rsp)
+}
+
+func (c *ClientWithResponses) AddAgentTaskDepWithResponse(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
+	rsp, err := c.AddAgentTaskDep(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddAgentTaskDepResponse(rsp)
+}
+
+// RemoveAgentTaskDepWithResponse request returning *RemoveAgentTaskDepResponse
+func (c *ClientWithResponses) RemoveAgentTaskDepWithResponse(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error) {
+	rsp, err := c.RemoveAgentTaskDep(ctx, id, depId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveAgentTaskDepResponse(rsp)
 }
 
 // ListAgentTaskEventsWithResponse request returning *ListAgentTaskEventsResponse
@@ -23644,6 +24226,79 @@ func ParseCreateAgentTaskResponse(rsp *http.Response) (*CreateAgentTaskResponse,
 	return response, nil
 }
 
+// ParseBatchCreateAgentTasksResponse parses an HTTP response from a BatchCreateAgentTasksWithResponse call
+func ParseBatchCreateAgentTasksResponse(rsp *http.Response) (*BatchCreateAgentTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BatchCreateAgentTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUnblockedAgentTasksResponse parses an HTTP response from a ListUnblockedAgentTasksWithResponse call
+func ParseListUnblockedAgentTasksResponse(rsp *http.Response) (*ListUnblockedAgentTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUnblockedAgentTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteAgentTaskResponse parses an HTTP response from a DeleteAgentTaskWithResponse call
 func ParseDeleteAgentTaskResponse(rsp *http.Response) (*DeleteAgentTaskResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23798,6 +24453,133 @@ func ParseAgentTaskActionResponse(rsp *http.Response) (*AgentTaskActionResponse,
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAgentTaskDepsResponse parses an HTTP response from a GetAgentTaskDepsWithResponse call
+func ParseGetAgentTaskDepsResponse(rsp *http.Response) (*GetAgentTaskDepsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAgentTaskDepsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskDepsInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddAgentTaskDepResponse parses an HTTP response from a AddAgentTaskDepWithResponse call
+func ParseAddAgentTaskDepResponse(rsp *http.Response) (*AddAgentTaskDepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddAgentTaskDepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveAgentTaskDepResponse parses an HTTP response from a RemoveAgentTaskDepWithResponse call
+func ParseRemoveAgentTaskDepResponse(rsp *http.Response) (*RemoveAgentTaskDepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveAgentTaskDepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

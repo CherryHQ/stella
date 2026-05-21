@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -298,12 +299,7 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 			at.ReviewRequest = &rr
 		}
 	}
-	if t.Deps != "" && t.Deps != "[]" {
-		var deps []string
-		if err := json.Unmarshal([]byte(t.Deps), &deps); err == nil && len(deps) > 0 {
-			at.Deps = &deps
-		}
-	}
+	// deps are now populated separately from the edge table
 	if t.NotifyAt.Valid && t.NotifyAt.String != "" {
 		notifyAt := parseTaskTime(t.NotifyAt.String)
 		at.NotifyAt = &notifyAt
@@ -330,6 +326,182 @@ func toAPITaskEvent(e sqlc.AgentTaskEvent) apiserver.AgentTaskEvent {
 		}
 	}
 	return ae
+}
+
+// toAPITaskWithDeps maps a sqlc.AgentTask to the API type and populates deps from edge table.
+func (s *Server) toAPITaskWithDeps(ctx context.Context, t sqlc.AgentTask) apiserver.AgentTask {
+	at := toAPITask(t)
+	if s.tasksSvc != nil {
+		if deps, err := s.tasksSvc.ListTaskDeps(ctx, t.ID); err == nil && len(deps) > 0 {
+			at.Deps = &deps
+		}
+	}
+	return at
+}
+
+func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, params apiserver.ListUnblockedAgentTasksParams) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+	var agentID string
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	list, err := s.tasksSvc.ListUnblockedTasks(r.Context(), info.UserID, agentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]apiserver.AgentTask, 0, len(list))
+	for _, t := range list {
+		items = append(items, s.toAPITaskWithDeps(r.Context(), t))
+	}
+	writeData(w, http.StatusOK, apiserver.AgentTaskList{Items: items})
+}
+
+func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apiserver.AgentTaskBatchInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if len(body.Tasks) == 0 {
+		writeError(w, http.StatusBadRequest, "tasks array is required")
+		return
+	}
+
+	batchItems := make([]tasks.BatchTaskItem, 0, len(body.Tasks))
+	for _, t := range body.Tasks {
+		item := tasks.BatchTaskItem{Title: t.Title}
+		if t.Description != nil {
+			item.Description = *t.Description
+		}
+		if t.Priority != nil {
+			item.Priority = string(*t.Priority)
+		}
+		if t.AgentId != nil {
+			item.AgentID = *t.AgentId
+		}
+		if t.DraftId != nil {
+			item.DraftID = *t.DraftId
+		}
+		if t.Deps != nil {
+			item.Deps = *t.Deps
+		}
+		batchItems = append(batchItems, item)
+	}
+
+	created, err := s.tasksSvc.BatchCreateTasks(r.Context(), tasks.BatchCreateParams{
+		UserID: info.UserID,
+		Tasks:  batchItems,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "cycle") || strings.Contains(err.Error(), "duplicate") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]apiserver.AgentTask, 0, len(created))
+	for _, t := range created {
+		items = append(items, s.toAPITaskWithDeps(r.Context(), t))
+	}
+	writeData(w, http.StatusCreated, apiserver.AgentTaskList{Items: items})
+}
+
+func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, id string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	deps, err := s.tasksSvc.GetTaskDeps(r.Context(), id, info.UserID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	upstream := make([]apiserver.AgentTask, 0, len(deps.Upstream))
+	for _, t := range deps.Upstream {
+		upstream = append(upstream, s.toAPITaskWithDeps(r.Context(), t))
+	}
+	downstream := make([]apiserver.AgentTask, 0, len(deps.Downstream))
+	for _, t := range deps.Downstream {
+		downstream = append(downstream, s.toAPITaskWithDeps(r.Context(), t))
+	}
+	writeData(w, http.StatusOK, apiserver.AgentTaskDepsInfo{
+		Upstream:   upstream,
+		Downstream: downstream,
+	})
+}
+
+func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apiserver.AgentTaskDepsInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	if err := s.tasksSvc.AddDep(r.Context(), id, body.DepId, info.UserID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, s.toAPITaskWithDeps(r.Context(), task))
+}
+
+func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, id string, depId string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	if err := s.tasksSvc.RemoveDep(r.Context(), id, depId, info.UserID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, s.toAPITaskWithDeps(r.Context(), task))
 }
 
 // parseTaskTime parses a time string stored in the tasks tables.

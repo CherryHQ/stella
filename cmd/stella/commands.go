@@ -362,6 +362,7 @@ func buildTasksService(db *sql.DB, dispatcher *notify.Dispatcher, mem memory.Pro
 		return p.Factory(), true
 	})
 	return tasks.New(tasks.Config{
+		DB:            db,
 		Queries:       sqlc.New(db),
 		Notifier:      dispatcher,
 		Memory:        mem,

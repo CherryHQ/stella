@@ -8,12 +8,18 @@ import {
 } from "./client";
 import { client } from "./client.gen";
 import type {
+  AddAgentTaskDepData,
+  AddAgentTaskDepErrors,
+  AddAgentTaskDepResponses,
   AgentTaskActionData,
   AgentTaskActionErrors,
   AgentTaskActionResponses,
   AssignAgentUserData,
   AssignAgentUserErrors,
   AssignAgentUserResponses,
+  BatchCreateAgentTasksData,
+  BatchCreateAgentTasksErrors,
+  BatchCreateAgentTasksResponses,
   ChangePasswordData,
   ChangePasswordErrors,
   ChangePasswordResponses,
@@ -132,6 +138,9 @@ import type {
   GetAgentSkillFileResponses,
   GetAgentSkillResponses,
   GetAgentTaskData,
+  GetAgentTaskDepsData,
+  GetAgentTaskDepsErrors,
+  GetAgentTaskDepsResponses,
   GetAgentTaskErrors,
   GetAgentTaskResponses,
   GetArticleData,
@@ -316,6 +325,9 @@ import type {
   ListToolsData,
   ListToolsErrors,
   ListToolsResponses,
+  ListUnblockedAgentTasksData,
+  ListUnblockedAgentTasksErrors,
+  ListUnblockedAgentTasksResponses,
   ListUserMemoriesData,
   ListUserMemoriesErrors,
   ListUserMemoriesResponses,
@@ -345,6 +357,9 @@ import type {
   RegisterData,
   RegisterErrors,
   RegisterResponses,
+  RemoveAgentTaskDepData,
+  RemoveAgentTaskDepErrors,
+  RemoveAgentTaskDepResponses,
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
@@ -2894,6 +2909,42 @@ export const createAgentTask = <ThrowOnError extends boolean = false>(
   });
 
 /**
+ * Batch create agent tasks with intra-batch dependencies
+ */
+export const batchCreateAgentTasks = <ThrowOnError extends boolean = false>(
+  options: Options<BatchCreateAgentTasksData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    BatchCreateAgentTasksResponses,
+    BatchCreateAgentTasksErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/batch",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List unblocked agent tasks (all deps done)
+ */
+export const listUnblockedAgentTasks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListUnblockedAgentTasksData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListUnblockedAgentTasksResponses,
+    ListUnblockedAgentTasksErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/unblocked",
+    ...options,
+  });
+
+/**
  * Delete an agent task
  */
 export const deleteAgentTask = <ThrowOnError extends boolean = false>(
@@ -2978,6 +3029,58 @@ export const listAgentTaskEvents = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/tasks/{id}/events",
+    ...options,
+  });
+
+/**
+ * Get task dependency info (upstream and downstream)
+ */
+export const getAgentTaskDeps = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentTaskDepsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetAgentTaskDepsResponses,
+    GetAgentTaskDepsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}/deps",
+    ...options,
+  });
+
+/**
+ * Add a dependency to a task
+ */
+export const addAgentTaskDep = <ThrowOnError extends boolean = false>(
+  options: Options<AddAgentTaskDepData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    AddAgentTaskDepResponses,
+    AddAgentTaskDepErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}/deps",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Remove a dependency from a task
+ */
+export const removeAgentTaskDep = <ThrowOnError extends boolean = false>(
+  options: Options<RemoveAgentTaskDepData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RemoveAgentTaskDepResponses,
+    RemoveAgentTaskDepErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/tasks/{id}/deps/{depId}",
     ...options,
   });
 

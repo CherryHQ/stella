@@ -1835,6 +1835,56 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AgentTaskEvent"
+    AgentTaskDepsInput:
+      type: object
+      required: [dep_id]
+      properties:
+        dep_id:
+          type: string
+          description: "ID of the task to add as a dependency"
+    AgentTaskDepsInfo:
+      type: object
+      required: [upstream, downstream]
+      properties:
+        upstream:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTask"
+          description: "Tasks this task depends on"
+        downstream:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTask"
+          description: "Tasks that depend on this task"
+    AgentTaskBatchInput:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskBatchItem"
+    AgentTaskBatchItem:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id:
+          type: string
+        draft_id:
+          type: string
+          description: "Temporary ID for intra-batch dep references"
+        deps:
+          type: array
+          items:
+            type: string
+          description: "IDs of existing tasks or draft_ids from this batch"
     Tool:
       type: object
       required: [name, description, category]

@@ -257,12 +257,20 @@ paths:
   # ── Tasks ──────────────────────────────────────────────────────────────────
   /api/tasks:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
+  /api/tasks/batch:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1batch"
+  /api/tasks/unblocked:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1unblocked"
   /api/tasks/{id}:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}"
   /api/tasks/{id}/action:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1action"
   /api/tasks/{id}/events:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1events"
+  /api/tasks/{id}/deps:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1deps"
+  /api/tasks/{id}/deps/{depId}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1deps~1{depId}"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -538,4 +546,16 @@ components:
     }
     AgentTaskEventList: {
       $ref: "./components.yaml#/components/schemas/AgentTaskEventList",
+    }
+    AgentTaskDepsInput: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskDepsInput",
+    }
+    AgentTaskDepsInfo: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskDepsInfo",
+    }
+    AgentTaskBatchInput: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskBatchInput",
+    }
+    AgentTaskBatchItem: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskBatchItem",
     }

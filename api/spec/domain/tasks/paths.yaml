@@ -50,6 +50,55 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
+  /api/tasks/batch:
+    post:
+      tags: [tasks]
+      summary: Batch create agent tasks with intra-batch dependencies
+      operationId: batchCreateAgentTasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/AgentTaskBatchInput",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentTaskList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/tasks/unblocked:
+    get:
+      tags: [tasks]
+      summary: List unblocked agent tasks (all deps done)
+      operationId: listUnblockedAgentTasks
+      parameters:
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentTaskList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
   /api/tasks/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -156,6 +205,73 @@ paths:
             application/json:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/AgentTaskEventList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{id}/deps:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: Get task dependency info (upstream and downstream)
+      operationId: getAgentTaskDeps
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentTaskDepsInfo",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [tasks]
+      summary: Add a dependency to a task
+      operationId: addAgentTaskDep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/AgentTaskDepsInput",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentTask",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{id}/deps/{depId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: depId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [tasks]
+      summary: Remove a dependency from a task
+      operationId: removeAgentTaskDep
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentTask",
               }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",

@@ -17,7 +17,6 @@ type AgentTask struct {
 	SessionID      sql.NullString `json:"session_id"`
 	Context        string         `json:"context"`
 	ReviewRequest  string         `json:"review_request"`
-	Deps           string         `json:"deps"`
 	NotifyAt       sql.NullString `json:"notify_at"`
 	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
 	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
@@ -25,6 +24,12 @@ type AgentTask struct {
 	UserID         string         `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
+}
+
+type AgentTaskDep struct {
+	TaskID    string `json:"task_id"`
+	DepID     string `json:"dep_id"`
+	CreatedAt string `json:"created_at"`
 }
 
 type AgentTaskEvent struct {

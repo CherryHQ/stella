@@ -82,6 +82,24 @@ func (e AgentTaskActionType) Valid() bool {
 	}
 }
 
+// Defines values for AgentTaskBatchItemPriority.
+const (
+	AgentTaskBatchItemPriorityRoutine AgentTaskBatchItemPriority = "routine"
+	AgentTaskBatchItemPriorityUrgent  AgentTaskBatchItemPriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskBatchItemPriority enum.
+func (e AgentTaskBatchItemPriority) Valid() bool {
+	switch e {
+	case AgentTaskBatchItemPriorityRoutine:
+		return true
+	case AgentTaskBatchItemPriorityUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentTaskEventEventType.
 const (
 	AgentTaskEventEventTypeBlocked         AgentTaskEventEventType = "blocked"
@@ -156,16 +174,16 @@ func (e AgentTaskReviewRequestRisk) Valid() bool {
 
 // Defines values for AgentTaskUpdatePriority.
 const (
-	Routine AgentTaskUpdatePriority = "routine"
-	Urgent  AgentTaskUpdatePriority = "urgent"
+	AgentTaskUpdatePriorityRoutine AgentTaskUpdatePriority = "routine"
+	AgentTaskUpdatePriorityUrgent  AgentTaskUpdatePriority = "urgent"
 )
 
 // Valid indicates whether the value is a known member of the AgentTaskUpdatePriority enum.
 func (e AgentTaskUpdatePriority) Valid() bool {
 	switch e {
-	case Routine:
+	case AgentTaskUpdatePriorityRoutine:
 		return true
-	case Urgent:
+	case AgentTaskUpdatePriorityUrgent:
 		return true
 	default:
 		return false
@@ -444,6 +462,43 @@ type AgentTaskAction struct {
 
 // AgentTaskActionType defines model for AgentTaskAction.Type.
 type AgentTaskActionType string
+
+// AgentTaskBatchInput defines model for AgentTaskBatchInput.
+type AgentTaskBatchInput struct {
+	Tasks []AgentTaskBatchItem `json:"tasks"`
+}
+
+// AgentTaskBatchItem defines model for AgentTaskBatchItem.
+type AgentTaskBatchItem struct {
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Deps IDs of existing tasks or draft_ids from this batch
+	Deps        *[]string `json:"deps,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// DraftId Temporary ID for intra-batch dep references
+	DraftId  *string                     `json:"draft_id,omitempty"`
+	Priority *AgentTaskBatchItemPriority `json:"priority,omitempty"`
+	Title    string                      `json:"title"`
+}
+
+// AgentTaskBatchItemPriority defines model for AgentTaskBatchItem.Priority.
+type AgentTaskBatchItemPriority string
+
+// AgentTaskDepsInfo defines model for AgentTaskDepsInfo.
+type AgentTaskDepsInfo struct {
+	// Downstream Tasks that depend on this task
+	Downstream []AgentTask `json:"downstream"`
+
+	// Upstream Tasks this task depends on
+	Upstream []AgentTask `json:"upstream"`
+}
+
+// AgentTaskDepsInput defines model for AgentTaskDepsInput.
+type AgentTaskDepsInput struct {
+	// DepId ID of the task to add as a dependency
+	DepId string `json:"dep_id"`
+}
 
 // AgentTaskEvent defines model for AgentTaskEvent.
 type AgentTaskEvent struct {

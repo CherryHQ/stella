@@ -7,7 +7,6 @@ CREATE TABLE agent_task (
     session_id TEXT,
     context TEXT NOT NULL DEFAULT '{}',
     review_request TEXT NOT NULL DEFAULT '{}',
-    deps TEXT NOT NULL DEFAULT '[]',
     notify_at TEXT,
     scheduler_job_id TEXT REFERENCES sched_jobs(id) ON DELETE SET NULL,
     scheduler_run_id TEXT REFERENCES sched_job_runs(id) ON DELETE SET NULL,

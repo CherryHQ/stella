@@ -222,6 +222,14 @@ export type AgentTaskEvent = ComponentsAgentTaskEvent;
 
 export type AgentTaskEventList = ComponentsAgentTaskEventList;
 
+export type AgentTaskDepsInput = ComponentsAgentTaskDepsInput;
+
+export type AgentTaskDepsInfo = ComponentsAgentTaskDepsInfo;
+
+export type AgentTaskBatchInput = ComponentsAgentTaskBatchInput;
+
+export type AgentTaskBatchItem = ComponentsAgentTaskBatchItem;
+
 export type ComponentsAgent = {
   id?: string;
   name?: string;
@@ -285,6 +293,43 @@ export type ComponentsAgentTaskAction = {
    * Optional message for respond/reject actions
    */
   message?: string;
+};
+
+export type ComponentsAgentTaskBatchInput = {
+  tasks: Array<ComponentsAgentTaskBatchItem>;
+};
+
+export type ComponentsAgentTaskBatchItem = {
+  title: string;
+  description?: string;
+  priority?: "routine" | "urgent";
+  agent_id?: string;
+  /**
+   * Temporary ID for intra-batch dep references
+   */
+  draft_id?: string;
+  /**
+   * IDs of existing tasks or draft_ids from this batch
+   */
+  deps?: Array<string>;
+};
+
+export type ComponentsAgentTaskDepsInfo = {
+  /**
+   * Tasks this task depends on
+   */
+  upstream: Array<ComponentsAgentTask>;
+  /**
+   * Tasks that depend on this task
+   */
+  downstream: Array<ComponentsAgentTask>;
+};
+
+export type ComponentsAgentTaskDepsInput = {
+  /**
+   * ID of the task to add as a dependency
+   */
+  dep_id: string;
 };
 
 export type ComponentsAgentTaskEvent = {
@@ -1513,9 +1558,17 @@ export type _1Api1Status = unknown;
 
 export type _1Api1Tasks = unknown;
 
+export type _1Api1Tasks1Batch = unknown;
+
+export type _1Api1Tasks1Unblocked = unknown;
+
 export type _1Api1Tasks1Id = unknown;
 
 export type _1Api1Tasks1Id1Action = unknown;
+
+export type _1Api1Tasks1Id1Deps = unknown;
+
+export type _1Api1Tasks1Id1Deps1DepId = unknown;
 
 export type _1Api1Tasks1Id1Events = unknown;
 
@@ -7015,6 +7068,72 @@ export type CreateAgentTaskResponses = {
 export type CreateAgentTaskResponse =
   CreateAgentTaskResponses[keyof CreateAgentTaskResponses];
 
+export type BatchCreateAgentTasksData = {
+  body: ComponentsAgentTaskBatchInput;
+  path?: never;
+  query?: never;
+  url: "/api/tasks/batch";
+};
+
+export type BatchCreateAgentTasksErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type BatchCreateAgentTasksError =
+  BatchCreateAgentTasksErrors[keyof BatchCreateAgentTasksErrors];
+
+export type BatchCreateAgentTasksResponses = {
+  /**
+   * created
+   */
+  201: ComponentsAgentTaskList;
+};
+
+export type BatchCreateAgentTasksResponse =
+  BatchCreateAgentTasksResponses[keyof BatchCreateAgentTasksResponses];
+
+export type ListUnblockedAgentTasksData = {
+  body?: never;
+  path?: never;
+  query?: {
+    agent_id?: string;
+  };
+  url: "/api/tasks/unblocked";
+};
+
+export type ListUnblockedAgentTasksErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListUnblockedAgentTasksError =
+  ListUnblockedAgentTasksErrors[keyof ListUnblockedAgentTasksErrors];
+
+export type ListUnblockedAgentTasksResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTaskList;
+};
+
+export type ListUnblockedAgentTasksResponse =
+  ListUnblockedAgentTasksResponses[keyof ListUnblockedAgentTasksResponses];
+
 export type DeleteAgentTaskData = {
   body?: never;
   path: {
@@ -7210,6 +7329,124 @@ export type ListAgentTaskEventsResponses = {
 
 export type ListAgentTaskEventsResponse =
   ListAgentTaskEventsResponses[keyof ListAgentTaskEventsResponses];
+
+export type GetAgentTaskDepsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}/deps";
+};
+
+export type GetAgentTaskDepsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetAgentTaskDepsError =
+  GetAgentTaskDepsErrors[keyof GetAgentTaskDepsErrors];
+
+export type GetAgentTaskDepsResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTaskDepsInfo;
+};
+
+export type GetAgentTaskDepsResponse =
+  GetAgentTaskDepsResponses[keyof GetAgentTaskDepsResponses];
+
+export type AddAgentTaskDepData = {
+  body: ComponentsAgentTaskDepsInput;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}/deps";
+};
+
+export type AddAgentTaskDepErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type AddAgentTaskDepError =
+  AddAgentTaskDepErrors[keyof AddAgentTaskDepErrors];
+
+export type AddAgentTaskDepResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type AddAgentTaskDepResponse =
+  AddAgentTaskDepResponses[keyof AddAgentTaskDepResponses];
+
+export type RemoveAgentTaskDepData = {
+  body?: never;
+  path: {
+    id: string;
+    depId: string;
+  };
+  query?: never;
+  url: "/api/tasks/{id}/deps/{depId}";
+};
+
+export type RemoveAgentTaskDepErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type RemoveAgentTaskDepError =
+  RemoveAgentTaskDepErrors[keyof RemoveAgentTaskDepErrors];
+
+export type RemoveAgentTaskDepResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type RemoveAgentTaskDepResponse =
+  RemoveAgentTaskDepResponses[keyof RemoveAgentTaskDepResponses];
 
 export type ListPluginsData = {
   body?: never;

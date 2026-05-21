@@ -24,10 +24,10 @@ func (q *Queries) CountRunningAgentTasksByUser(ctx context.Context, userID strin
 const createAgentTask = `-- name: CreateAgentTask :one
 INSERT INTO agent_task (
     id, title, description, status, priority, session_id, context,
-    review_request, deps, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+    review_request, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
 `
 
 type CreateAgentTaskParams struct {
@@ -39,7 +39,6 @@ type CreateAgentTaskParams struct {
 	SessionID      sql.NullString `json:"session_id"`
 	Context        string         `json:"context"`
 	ReviewRequest  string         `json:"review_request"`
-	Deps           string         `json:"deps"`
 	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
 	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
 	AgentID        sql.NullString `json:"agent_id"`
@@ -58,7 +57,6 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.SessionID,
 		arg.Context,
 		arg.ReviewRequest,
-		arg.Deps,
 		arg.SchedulerJobID,
 		arg.SchedulerRunID,
 		arg.AgentID,
@@ -76,7 +74,6 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.SessionID,
 		&i.Context,
 		&i.ReviewRequest,
-		&i.Deps,
 		&i.NotifyAt,
 		&i.SchedulerJobID,
 		&i.SchedulerRunID,
@@ -103,7 +100,7 @@ func (q *Queries) DeleteAgentTask(ctx context.Context, arg DeleteAgentTaskParams
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ? AND user_id = ?
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ? AND user_id = ?
 `
 
 type GetAgentTaskParams struct {
@@ -123,7 +120,6 @@ func (q *Queries) GetAgentTask(ctx context.Context, arg GetAgentTaskParams) (Age
 		&i.SessionID,
 		&i.Context,
 		&i.ReviewRequest,
-		&i.Deps,
 		&i.NotifyAt,
 		&i.SchedulerJobID,
 		&i.SchedulerRunID,
@@ -136,7 +132,7 @@ func (q *Queries) GetAgentTask(ctx context.Context, arg GetAgentTaskParams) (Age
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]AgentTask, error) {
@@ -157,7 +153,6 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]Ag
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
-			&i.Deps,
 			&i.NotifyAt,
 			&i.SchedulerJobID,
 			&i.SchedulerRunID,
@@ -180,7 +175,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]Ag
 }
 
 const listAgentTasksByUserAndAgent = `-- name: ListAgentTasksByUserAndAgent :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC
 `
 
 type ListAgentTasksByUserAndAgentParams struct {
@@ -206,7 +201,6 @@ func (q *Queries) ListAgentTasksByUserAndAgent(ctx context.Context, arg ListAgen
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
-			&i.Deps,
 			&i.NotifyAt,
 			&i.SchedulerJobID,
 			&i.SchedulerRunID,
@@ -229,7 +223,7 @@ func (q *Queries) ListAgentTasksByUserAndAgent(ctx context.Context, arg ListAgen
 }
 
 const listPendingAgentTasks = `-- name: ListPendingAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC
 `
 
 func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error) {
@@ -250,7 +244,6 @@ func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
-			&i.Deps,
 			&i.NotifyAt,
 			&i.SchedulerJobID,
 			&i.SchedulerRunID,
@@ -273,7 +266,7 @@ func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error
 }
 
 const listPendingNotifyTasks = `-- name: ListPendingNotifyTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task
 WHERE notify_at IS NOT NULL AND notify_at <= ?
 ORDER BY notify_at ASC
 `
@@ -296,7 +289,6 @@ func (q *Queries) ListPendingNotifyTasks(ctx context.Context, notifyAt sql.NullS
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
-			&i.Deps,
 			&i.NotifyAt,
 			&i.SchedulerJobID,
 			&i.SchedulerRunID,
@@ -319,7 +311,7 @@ func (q *Queries) ListPendingNotifyTasks(ctx context.Context, notifyAt sql.NullS
 }
 
 const listRunningAgentTasks = `-- name: ListRunningAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'running' ORDER BY created_at ASC
+SELECT id, title, description, status, priority, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'running' ORDER BY created_at ASC
 `
 
 func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error) {
@@ -340,7 +332,57 @@ func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error
 			&i.SessionID,
 			&i.Context,
 			&i.ReviewRequest,
-			&i.Deps,
+			&i.NotifyAt,
+			&i.SchedulerJobID,
+			&i.SchedulerRunID,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnblockedAgentTasks = `-- name: ListUnblockedAgentTasks :many
+SELECT t.id, t.title, t.description, t.status, t.priority, t.session_id, t.context, t.review_request, t.notify_at, t.scheduler_job_id, t.scheduler_run_id, t.agent_id, t.user_id, t.created_at, t.updated_at FROM agent_task t
+WHERE t.status = 'pending'
+  AND t.user_id = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_dep d
+    JOIN agent_task dep ON dep.id = d.dep_id
+    WHERE d.task_id = t.id AND dep.status != 'done'
+  )
+ORDER BY t.created_at ASC
+`
+
+func (q *Queries) ListUnblockedAgentTasks(ctx context.Context, userID string) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listUnblockedAgentTasks, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.SessionID,
+			&i.Context,
+			&i.ReviewRequest,
 			&i.NotifyAt,
 			&i.SchedulerJobID,
 			&i.SchedulerRunID,

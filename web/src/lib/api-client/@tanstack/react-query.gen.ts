@@ -10,8 +10,10 @@ import {
 
 import { client } from "../client.gen";
 import {
+  addAgentTaskDep,
   agentTaskAction,
   assignAgentUser,
+  batchCreateAgentTasks,
   changePassword,
   createAgent,
   createAgentTask,
@@ -52,6 +54,7 @@ import {
   getAgentSkill,
   getAgentSkillFile,
   getAgentTask,
+  getAgentTaskDeps,
   getArticle,
   getAuthUser,
   getBuiltinResource,
@@ -113,6 +116,7 @@ import {
   listSkills,
   listStoredDigests,
   listTools,
+  listUnblockedAgentTasks,
   listUserMemories,
   listVaultEntries,
   login,
@@ -124,6 +128,7 @@ import {
   pollOAuthFlow,
   pollWeixinQrStatus,
   register,
+  removeAgentTaskDep,
   removeAgentUser,
   revokeShare,
   saveArticle,
@@ -165,12 +170,18 @@ import {
   uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
+  AddAgentTaskDepData,
+  AddAgentTaskDepError,
+  AddAgentTaskDepResponse,
   AgentTaskActionData,
   AgentTaskActionError,
   AgentTaskActionResponse,
   AssignAgentUserData,
   AssignAgentUserError,
   AssignAgentUserResponse,
+  BatchCreateAgentTasksData,
+  BatchCreateAgentTasksError,
+  BatchCreateAgentTasksResponse,
   ChangePasswordData,
   ChangePasswordError,
   ChangePasswordResponse,
@@ -289,6 +300,9 @@ import type {
   GetAgentSkillFileResponse,
   GetAgentSkillResponse,
   GetAgentTaskData,
+  GetAgentTaskDepsData,
+  GetAgentTaskDepsError,
+  GetAgentTaskDepsResponse,
   GetAgentTaskError,
   GetAgentTaskResponse,
   GetArticleData,
@@ -473,6 +487,9 @@ import type {
   ListToolsData,
   ListToolsError,
   ListToolsResponse,
+  ListUnblockedAgentTasksData,
+  ListUnblockedAgentTasksError,
+  ListUnblockedAgentTasksResponse,
   ListUserMemoriesData,
   ListUserMemoriesError,
   ListUserMemoriesResponse,
@@ -501,6 +518,9 @@ import type {
   RegisterData,
   RegisterError,
   RegisterResponse,
+  RemoveAgentTaskDepData,
+  RemoveAgentTaskDepError,
+  RemoveAgentTaskDepResponse,
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
@@ -4518,6 +4538,61 @@ export const createAgentTaskMutation = (
 };
 
 /**
+ * Batch create agent tasks with intra-batch dependencies
+ */
+export const batchCreateAgentTasksMutation = (
+  options?: Partial<Options<BatchCreateAgentTasksData>>,
+): UseMutationOptions<
+  BatchCreateAgentTasksResponse,
+  BatchCreateAgentTasksError,
+  Options<BatchCreateAgentTasksData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    BatchCreateAgentTasksResponse,
+    BatchCreateAgentTasksError,
+    Options<BatchCreateAgentTasksData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await batchCreateAgentTasks({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listUnblockedAgentTasksQueryKey = (
+  options?: Options<ListUnblockedAgentTasksData>,
+) => createQueryKey("listUnblockedAgentTasks", options);
+
+/**
+ * List unblocked agent tasks (all deps done)
+ */
+export const listUnblockedAgentTasksOptions = (
+  options?: Options<ListUnblockedAgentTasksData>,
+) =>
+  queryOptions<
+    ListUnblockedAgentTasksResponse,
+    ListUnblockedAgentTasksError,
+    ListUnblockedAgentTasksResponse,
+    ReturnType<typeof listUnblockedAgentTasksQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listUnblockedAgentTasks({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listUnblockedAgentTasksQueryKey(options),
+  });
+
+/**
  * Delete an agent task
  */
 export const deleteAgentTaskMutation = (
@@ -4650,6 +4725,88 @@ export const listAgentTaskEventsOptions = (
     },
     queryKey: listAgentTaskEventsQueryKey(options),
   });
+
+export const getAgentTaskDepsQueryKey = (
+  options: Options<GetAgentTaskDepsData>,
+) => createQueryKey("getAgentTaskDeps", options);
+
+/**
+ * Get task dependency info (upstream and downstream)
+ */
+export const getAgentTaskDepsOptions = (
+  options: Options<GetAgentTaskDepsData>,
+) =>
+  queryOptions<
+    GetAgentTaskDepsResponse,
+    GetAgentTaskDepsError,
+    GetAgentTaskDepsResponse,
+    ReturnType<typeof getAgentTaskDepsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentTaskDeps({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getAgentTaskDepsQueryKey(options),
+  });
+
+/**
+ * Add a dependency to a task
+ */
+export const addAgentTaskDepMutation = (
+  options?: Partial<Options<AddAgentTaskDepData>>,
+): UseMutationOptions<
+  AddAgentTaskDepResponse,
+  AddAgentTaskDepError,
+  Options<AddAgentTaskDepData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AddAgentTaskDepResponse,
+    AddAgentTaskDepError,
+    Options<AddAgentTaskDepData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await addAgentTaskDep({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Remove a dependency from a task
+ */
+export const removeAgentTaskDepMutation = (
+  options?: Partial<Options<RemoveAgentTaskDepData>>,
+): UseMutationOptions<
+  RemoveAgentTaskDepResponse,
+  RemoveAgentTaskDepError,
+  Options<RemoveAgentTaskDepData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RemoveAgentTaskDepResponse,
+    RemoveAgentTaskDepError,
+    Options<RemoveAgentTaskDepData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await removeAgentTaskDep({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listPluginsQueryKey = (options?: Options<ListPluginsData>) =>
   createQueryKey("listPlugins", options);

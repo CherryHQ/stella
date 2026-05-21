@@ -56,6 +56,18 @@ type AgentTask = externalRef0.AgentTask
 // AgentTaskAction An action taken on a task (approve/reject review, respond to block, cancel)
 type AgentTaskAction = externalRef0.AgentTaskAction
 
+// AgentTaskBatchInput defines model for AgentTaskBatchInput.
+type AgentTaskBatchInput = externalRef0.AgentTaskBatchInput
+
+// AgentTaskBatchItem defines model for AgentTaskBatchItem.
+type AgentTaskBatchItem = externalRef0.AgentTaskBatchItem
+
+// AgentTaskDepsInfo defines model for AgentTaskDepsInfo.
+type AgentTaskDepsInfo = externalRef0.AgentTaskDepsInfo
+
+// AgentTaskDepsInput defines model for AgentTaskDepsInput.
+type AgentTaskDepsInput = externalRef0.AgentTaskDepsInput
+
 // AgentTaskEvent defines model for AgentTaskEvent.
 type AgentTaskEvent = externalRef0.AgentTaskEvent
 
@@ -555,6 +567,11 @@ type ListAgentTasksParams struct {
 	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 }
 
+// ListUnblockedAgentTasksParams defines parameters for ListUnblockedAgentTasks.
+type ListUnblockedAgentTasksParams struct {
+	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+}
+
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
 type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInput
 
@@ -705,11 +722,17 @@ type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
 type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
 
+// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
+type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
+
 // UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
 type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
+
+// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
+type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
 
 // UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
 type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
@@ -1148,6 +1171,12 @@ type ServerInterface interface {
 	// Create an agent task
 	// (POST /api/tasks)
 	CreateAgentTask(w http.ResponseWriter, r *http.Request)
+	// Batch create agent tasks with intra-batch dependencies
+	// (POST /api/tasks/batch)
+	BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request)
+	// List unblocked agent tasks (all deps done)
+	// (GET /api/tasks/unblocked)
+	ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, params ListUnblockedAgentTasksParams)
 	// Delete an agent task
 	// (DELETE /api/tasks/{id})
 	DeleteAgentTask(w http.ResponseWriter, r *http.Request, id string)
@@ -1160,6 +1189,15 @@ type ServerInterface interface {
 	// Take an action on an agent task
 	// (POST /api/tasks/{id}/action)
 	AgentTaskAction(w http.ResponseWriter, r *http.Request, id string)
+	// Get task dependency info (upstream and downstream)
+	// (GET /api/tasks/{id}/deps)
+	GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, id string)
+	// Add a dependency to a task
+	// (POST /api/tasks/{id}/deps)
+	AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id string)
+	// Remove a dependency from a task
+	// (DELETE /api/tasks/{id}/deps/{depId})
+	RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, id string, depId string)
 	// List agent task events
 	// (GET /api/tasks/{id}/events)
 	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id string)
@@ -5906,6 +5944,65 @@ func (siw *ServerInterfaceWrapper) CreateAgentTask(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// BatchCreateAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BatchCreateAgentTasks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUnblockedAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUnblockedAgentTasksParams
+
+	// ------------- Optional query parameter "agent_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUnblockedAgentTasks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteAgentTask operation middleware
 func (siw *ServerInterfaceWrapper) DeleteAgentTask(w http.ResponseWriter, r *http.Request) {
 
@@ -6025,6 +6122,111 @@ func (siw *ServerInterfaceWrapper) AgentTaskAction(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AgentTaskAction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentTaskDeps operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentTaskDeps(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddAgentTaskDep operation middleware
+func (siw *ServerInterfaceWrapper) AddAgentTaskDep(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddAgentTaskDep(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveAgentTaskDep operation middleware
+func (siw *ServerInterfaceWrapper) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "depId" -------------
+	var depId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "depId", r.PathValue("depId"), &depId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveAgentTaskDep(w, r, id, depId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6526,10 +6728,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/status", wrapper.GetStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.ListAgentTasks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.CreateAgentTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/batch", wrapper.BatchCreateAgentTasks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/unblocked", wrapper.ListUnblockedAgentTasks)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{id}", wrapper.DeleteAgentTask)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}", wrapper.GetAgentTask)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/tasks/{id}", wrapper.UpdateAgentTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{id}/action", wrapper.AgentTaskAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}/deps", wrapper.GetAgentTaskDeps)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{id}/deps", wrapper.AddAgentTaskDep)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{id}/deps/{depId}", wrapper.RemoveAgentTaskDep)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}/events", wrapper.ListAgentTaskEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)

@@ -1,9 +1,9 @@
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
     id, title, description, status, priority, session_id, context,
-    review_request, deps, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+    review_request, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
@@ -58,6 +58,17 @@ WHERE id = ? AND user_id = ?;
 UPDATE agent_task
 SET notify_at = ?, updated_at = ?
 WHERE id = ? AND user_id = ?;
+
+-- name: ListUnblockedAgentTasks :many
+SELECT t.* FROM agent_task t
+WHERE t.status = 'pending'
+  AND t.user_id = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_dep d
+    JOIN agent_task dep ON dep.id = d.dep_id
+    WHERE d.task_id = t.id AND dep.status != 'done'
+  )
+ORDER BY t.created_at ASC;
 
 -- name: DeleteAgentTask :exec
 DELETE FROM agent_task WHERE id = ? AND user_id = ?;
