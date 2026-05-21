@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -28,6 +30,9 @@ priorities, and human-in-the-loop actions like approve, reject, and respond.`,
 			taskDeleteCommand(),
 			taskActionCommand(),
 			taskEventsCommand(),
+			taskDepsCommand(),
+			taskUnblockedCommand(),
+			taskBatchCreateCommand(),
 		},
 	}
 }
@@ -260,6 +265,167 @@ func taskEventsCommand() *ucli.Command {
 					e.CreatedAt.Format(time.DateTime))
 			}
 			return nil
+		},
+	}
+}
+
+func taskDepsCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "deps",
+		Usage: "Manage task dependencies",
+		Subcommands: []*ucli.Command{
+			{
+				Name:      "list",
+				Usage:     "List upstream and downstream dependencies",
+				ArgsUsage: "<task-id>",
+				Flags: []ucli.Flag{
+					&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+				},
+				Action: func(c *ucli.Context) error {
+					id := c.Args().First()
+					if id == "" {
+						return fmt.Errorf("usage: stella task deps list <task-id>")
+					}
+					info, err := apiclient.Call[apiclient.AgentTaskDepsInfo](func(api *apiclient.Client) (*http.Response, error) {
+						return api.GetAgentTaskDeps(c.Context, id)
+					})
+					if err != nil {
+						return err
+					}
+					if c.Bool("json") {
+						return printJSON(info)
+					}
+					fmt.Println("Upstream (depends on):")
+					if len(info.Upstream) == 0 {
+						fmt.Println("  (none)")
+					} else {
+						for _, t := range info.Upstream {
+							fmt.Printf("  %-10s  %-30s  %s\n", shortID(t.Id), truncate(t.Title, 30), string(t.Status))
+						}
+					}
+					fmt.Println("\nDownstream (depended by):")
+					if len(info.Downstream) == 0 {
+						fmt.Println("  (none)")
+					} else {
+						for _, t := range info.Downstream {
+							fmt.Printf("  %-10s  %-30s  %s\n", shortID(t.Id), truncate(t.Title, 30), string(t.Status))
+						}
+					}
+					return nil
+				},
+			},
+			{
+				Name:      "add",
+				Usage:     "Add a dependency",
+				ArgsUsage: "<task-id>",
+				Flags: []ucli.Flag{
+					&ucli.StringFlag{Name: "dep", Usage: "Dependency task ID (required)", Required: true},
+				},
+				Action: func(c *ucli.Context) error {
+					id := c.Args().First()
+					if id == "" {
+						return fmt.Errorf("usage: stella task deps add <task-id> --dep <dep-id>")
+					}
+					body := apiclient.AddAgentTaskDepJSONRequestBody{
+						DepId: c.String("dep"),
+					}
+					task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+						return api.AddAgentTaskDep(c.Context, id, body)
+					})
+					if err != nil {
+						return err
+					}
+					return printJSON(task)
+				},
+			},
+			{
+				Name:      "remove",
+				Usage:     "Remove a dependency",
+				ArgsUsage: "<task-id>",
+				Flags: []ucli.Flag{
+					&ucli.StringFlag{Name: "dep", Usage: "Dependency task ID to remove (required)", Required: true},
+				},
+				Action: func(c *ucli.Context) error {
+					id := c.Args().First()
+					if id == "" {
+						return fmt.Errorf("usage: stella task deps remove <task-id> --dep <dep-id>")
+					}
+					task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+						return api.RemoveAgentTaskDep(c.Context, id, c.String("dep"))
+					})
+					if err != nil {
+						return err
+					}
+					return printJSON(task)
+				},
+			},
+		},
+	}
+}
+
+func taskUnblockedCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "unblocked",
+		Usage: "List tasks ready to run (all dependencies done)",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Filter by agent ID"},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+		},
+		Action: func(c *ucli.Context) error {
+			params := &apiclient.ListUnblockedAgentTasksParams{}
+			if a := c.String("agent-id"); a != "" {
+				params.AgentId = &a
+			}
+			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListUnblockedAgentTasks(c.Context, params)
+			})
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				return printJSON(list.Items)
+			}
+			if len(list.Items) == 0 {
+				fmt.Println("No unblocked tasks.")
+				return nil
+			}
+			fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n", "ID", "TITLE", "STATUS", "PRIORITY", "UPDATED")
+			for _, t := range list.Items {
+				fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n",
+					shortID(t.Id),
+					truncate(t.Title, 30),
+					string(t.Status),
+					string(t.Priority),
+					t.UpdatedAt.Format(time.DateTime))
+			}
+			return nil
+		},
+	}
+}
+
+func taskBatchCreateCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "batch-create",
+		Usage: "Create multiple tasks from a JSON file",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "file", Aliases: []string{"f"}, Usage: "JSON file path (required)", Required: true},
+		},
+		Action: func(c *ucli.Context) error {
+			data, err := os.ReadFile(c.String("file"))
+			if err != nil {
+				return fmt.Errorf("read file: %w", err)
+			}
+			var body apiclient.BatchCreateAgentTasksJSONRequestBody
+			if err := json.Unmarshal(data, &body); err != nil {
+				return fmt.Errorf("parse JSON: %w", err)
+			}
+			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.BatchCreateAgentTasks(c.Context, body)
+			})
+			if err != nil {
+				return err
+			}
+			return printJSON(list.Items)
 		},
 	}
 }

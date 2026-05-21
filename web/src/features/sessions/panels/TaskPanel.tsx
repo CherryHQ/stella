@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
@@ -27,7 +27,16 @@ export function TaskPanel({ agentId, onCreated }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"routine" | "urgent">("routine");
+  const [selectedDeps, setSelectedDeps] = useState<string[]>([]);
+  const [availableTasks, setAvailableTasks] = useState<ComponentsAgentTask[]>([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+    api<{ items: ComponentsAgentTask[] }>("GET", `/api/tasks${params}`)
+      .then((res) => setAvailableTasks(res.items ?? []))
+      .catch(() => {});
+  }, [agentId]);
 
   const create = useCallback(async () => {
     if (!title.trim()) return;
@@ -38,6 +47,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
         description: description.trim() || undefined,
         priority,
         agent_id: agentId || undefined,
+        deps: selectedDeps.length > 0 ? selectedDeps : undefined,
       });
       onCreated(task);
     } catch (e) {
@@ -45,7 +55,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [title, description, priority, agentId, onCreated]);
+  }, [title, description, priority, agentId, selectedDeps, onCreated]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -92,6 +102,57 @@ export function TaskPanel({ agentId, onCreated }: Props) {
               <option value="urgent">{t("sessions.task.priorityUrgentDesc")}</option>
             </select>
           </Field>
+
+          {availableTasks.length > 0 && (
+            <Field label="Dependencies">
+              <select
+                value=""
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id && !selectedDeps.includes(id)) {
+                    setSelectedDeps((prev) => [...prev, id]);
+                  }
+                  e.target.value = "";
+                }}
+                className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Select a task...</option>
+                {availableTasks
+                  .filter((t) => !selectedDeps.includes(t.id))
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+              </select>
+              {selectedDeps.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {selectedDeps.map((depId) => {
+                    const depTask = availableTasks.find((t) => t.id === depId);
+                    return (
+                      <span
+                        key={depId}
+                        className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                      >
+                        <span className="truncate max-w-[120px]">
+                          {depTask?.title ?? depId.slice(0, 8)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedDeps((prev) => prev.filter((id) => id !== depId))
+                          }
+                          className="text-muted-foreground/50 hover:text-foreground ml-0.5"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </Field>
+          )}
         </div>
       </div>
 

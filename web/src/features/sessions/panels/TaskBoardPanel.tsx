@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
+import type { ComponentsAgentTask, ComponentsAgentTaskDepsInfo } from "@/lib/api-client/types.gen";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
@@ -148,6 +148,11 @@ export function TaskBoardPanel({
                           {formatTime(task.updated_at)}
                         </span>
                       </div>
+                      {(task.deps?.length ?? 0) > 0 && (
+                        <span className="text-[10px] font-mono text-muted-foreground/40 mt-0.5">
+                          {task.deps?.length} dep{task.deps!.length > 1 ? "s" : ""}
+                        </span>
+                      )}
                       {task.description && (
                         <p className="text-xs text-muted-foreground/60 truncate mt-0.5">
                           {task.description}
@@ -220,6 +225,20 @@ function TaskDetail({
   onBack: () => void;
   onOpenSession: () => void;
 }) {
+  const [depsInfo, setDepsInfo] = useState<ComponentsAgentTaskDepsInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<ComponentsAgentTaskDepsInfo>("GET", `/api/tasks/${task.id}/deps`)
+      .then((info) => {
+        if (!cancelled) setDepsInfo(info);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Mobile back + Open Session header */}
@@ -280,6 +299,48 @@ function TaskDetail({
           <PropertyRow label="Updated" value={formatTime(task.updated_at)} />
           <PropertyRow label="Created" value={formatTime(task.created_at)} />
         </div>
+
+        {/* Dependencies */}
+        {depsInfo && (depsInfo.upstream.length > 0 || depsInfo.downstream.length > 0) && (
+          <div className="space-y-2 pt-1">
+            {depsInfo.upstream.length > 0 && (
+              <div>
+                <span className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground/60">
+                  Depends on
+                </span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {depsInfo.upstream.map((dep) => (
+                    <span
+                      key={dep.id}
+                      className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    >
+                      <StatusDot status={dep.status} />
+                      <span className="truncate max-w-[140px]">{dep.title}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {depsInfo.downstream.length > 0 && (
+              <div>
+                <span className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground/60">
+                  Depended by
+                </span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {depsInfo.downstream.map((dep) => (
+                    <span
+                      key={dep.id}
+                      className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    >
+                      <StatusDot status={dep.status} />
+                      <span className="truncate max-w-[140px]">{dep.title}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Conversation */}
