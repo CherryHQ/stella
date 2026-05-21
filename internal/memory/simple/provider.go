@@ -657,6 +657,18 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	p.globalMu.Unlock()
 
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: session.UserID, Valid: true}})
+	if errors.Is(err, sql.ErrNoRows) {
+		legacy, legacyErr := p.q.GetUnownedConversationBySessionID(ctx, sessionID)
+		if legacyErr == nil {
+			if err := p.q.ClaimConversationUserBySessionID(ctx, sqlc.ClaimConversationUserBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: session.UserID, Valid: true}}); err != nil {
+				return "", fmt.Errorf("claim conversation user: %w", err)
+			}
+			conv = legacy
+			err = nil
+		} else if !errors.Is(legacyErr, sql.ErrNoRows) {
+			return "", fmt.Errorf("get unowned conversation: %w", legacyErr)
+		}
+	}
 	if err == nil {
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil

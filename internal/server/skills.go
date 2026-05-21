@@ -280,7 +280,8 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 					writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
-				goto files
+				s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+				return
 			}
 		}
 		vc = skillOwnerViewContext(*sk)
@@ -289,9 +290,12 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-files:
-	for path, content := range req.Files {
-		if err := store.UpsertFile(r.Context(), id, path, content); err != nil {
+	s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+}
+
+func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx context.Context, id string, files map[string]string) {
+	for path, content := range files {
+		if err := store.UpsertFile(ctx, id, path, content); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
