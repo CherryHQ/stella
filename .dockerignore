@@ -3,6 +3,7 @@ bin/
 .git/
 .github/
 internal/embedded/binaries/
+web/node_modules/
 *.md
 cover.out
 docs/issues/

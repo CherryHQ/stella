@@ -12,14 +12,14 @@ Automate Stella web UI verification using `tap` browser commands.
 
 ## Environment
 
-| Variable         | Purpose        | Default           |
-| ---------------- | -------------- | ----------------- |
-| `DEV_ADMIN_USER` | Admin username | `admin@admin.com` |
-| `DEV_ADMIN_PASS` | Admin password | `adminadmin`      |
-| `DEV_USER`       | Normal user    | `vaayne`          |
-| `DEV_PASS`       | Normal pass    | `passwd00`        |
+| Variable         | Purpose        | Default      |
+| ---------------- | -------------- | ------------ |
+| `DEV_ADMIN_USER` | Admin username | `admin`      |
+| `DEV_ADMIN_PASS` | Admin password | `i-am-admin` |
+| `DEV_USER`       | Normal user    | `user`       |
+| `DEV_PASS`       | Normal pass    | `i-am-user`  |
 
-Base URL: `https://stella.localhost`
+Base URL: `http://localhost:25678`
 
 ## Prerequisites
 

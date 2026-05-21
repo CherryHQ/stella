@@ -4,6 +4,7 @@ portless = "0.13.0"
 prek = "0.3.8"
 dprint = "0.54.0"
 jq = "1.8.1"
+yq = "4.49.2"
 act = "0.2.88"
 # Go
 atlas = "0.36.0"
@@ -19,10 +20,10 @@ node = "24.14.1"
 [env]
 BINARY = "./dist/bin/stella"
 LOG_LEVEL = "trace"
-DEV_ADMIN_USER = "admin@admin.com"
-DEV_ADMIN_PASS = "adminadmin"
-DEV_USER = "vaayne"
-DEV_PASS = "passwd00"
+DEV_ADMIN_USER = "admin"
+DEV_ADMIN_PASS = "i-am-admin"
+DEV_USER = "user"
+DEV_PASS = "i-am-user"
 
 # ============================================================================
 # Build
@@ -169,7 +170,7 @@ run = "goreleaser build --snapshot --single-target --clean"
 
 [tasks."docker:build"]
 description = "Build Docker image"
-run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; if [ -n \"${GITHUB_TOKEN:-}\" ]; then docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t stella:latest .; else docker build --build-arg VERSION=$VERSION -t stella:latest .; fi"
+run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; export GITHUB_TOKEN=\"${GITHUB_TOKEN:-${GH_TOKEN:-}}\"; if [ -z \"$GITHUB_TOKEN\" ] && command -v gh >/dev/null 2>&1; then export GITHUB_TOKEN=\"$(gh auth token 2>/dev/null || true)\"; fi; if [ -n \"$GITHUB_TOKEN\" ]; then DOCKER_BUILDKIT=1 docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t stella:latest .; else DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$VERSION -t stella:latest .; fi"
 
 [tasks."sandbox:docker:build"]
 description = "Build local stella-sandbox:dev image (used by the docker sandbox backend in dev builds)"
@@ -197,25 +198,18 @@ run = """
 """
 
 [tasks."docker:dev"]
-description = "Run local Docker image with STELLA_HOME in ~/.stella-dev"
+description = "Run Stella with docker"
 depends = ["docker:build"]
 run = """
     docker image inspect stella:latest >/dev/null 2>&1 || { echo 'stella:latest not found; run mise run docker:build first' >&2; exit 1; }
-    mkdir -p \"$HOME/.stella-dev\"
-    touch \"$HOME/.stella-dev/.env\"
-    if ! grep -q '^STELLA_VAULT_KEY=' \"$HOME/.stella-dev/.env\"; then
-        echo \"STELLA_VAULT_KEY=$(docker run --rm stella:latest stella vault keygen)\" >> \"$HOME/.stella-dev/.env\"
-        echo 'generated STELLA_VAULT_KEY in ~/.stella-dev/.env'
+    docker volume create stella-dev >/dev/null
+    if ! docker run --rm -v "stella-dev:/home/stella" stella:latest sh -c 'test -f /home/stella/.env && grep -q "^STELLA_VAULT_KEY=" /home/stella/.env'; then
+        docker run --rm -v "stella-dev:/home/stella" stella:latest sh -c 'stella vault keygen | sed "s/^/STELLA_VAULT_KEY=/" >> /home/stella/.env'
     fi
     docker rm -f stella-dev >/dev/null 2>&1 || true
     docker run -d --name stella-dev -p 25678:25678 \
-        --env-file \"$HOME/.stella-dev/.env\" \
-        --user 0:0 \
-        --security-opt seccomp=unconfined \
-        -v "$HOME/.stella-dev:/workspace" \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -e "STELLA_HOME=/workspace" \
-        -e "STELLA_HOME_HOST=$HOME/.stella-dev" \
+        -v "stella-dev:/home/stella" \
+        -e "STELLA_HOME=/home/stella" \
         -e "HOST=0.0.0.0" \
         stella:latest
     echo 'stella-dev started'
