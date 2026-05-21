@@ -506,6 +506,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if err := p.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 			Title:     sql.NullString{String: info.Title, Valid: true},
 			SessionID: info.ID,
+			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 		}); err != nil {
 			return fmt.Errorf("update title: %w", err)
 		}
@@ -514,6 +515,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if err := p.q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
 			Archived:  boolToInt(info.Archived),
 			SessionID: info.ID,
+			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 		}); err != nil {
 			return fmt.Errorf("update archived: %w", err)
 		}
@@ -531,6 +533,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Kind:      kind,
 			ProjectID: projectID,
 			SessionID: info.ID,
+			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 		}); err != nil {
 			return fmt.Errorf("update kind/project: %w", err)
 		}
