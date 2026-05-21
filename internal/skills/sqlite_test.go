@@ -160,7 +160,7 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 
 	t.Run("agent wins after user deleted", func(t *testing.T) {
-		if err := store.Delete(ctx, userSkID); err != nil {
+		if err := store.Delete(ctx, userSkID, ViewContext{UserID: userID}); err != nil {
 			t.Fatalf("Delete user: %v", err)
 		}
 		sk, err := store.Resolve(ctx, "foo", vc)
@@ -173,7 +173,7 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 
 	t.Run("system wins after agent deleted", func(t *testing.T) {
-		if err := store.Delete(ctx, agentSkID); err != nil {
+		if err := store.Delete(ctx, agentSkID, ViewContext{AgentID: agentID}); err != nil {
 			t.Fatalf("Delete agent: %v", err)
 		}
 		sk, err := store.Resolve(ctx, "foo", vc)
@@ -262,7 +262,7 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		status := "deprecated"
-		if err := store.Update(ctx, id, UpdatePatch{Status: &status}); err != nil {
+		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &status}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
 
@@ -297,7 +297,7 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		disabled := true
-		if err := store.Update(ctx, id, UpdatePatch{DisableModelInvocation: &disabled}); err != nil {
+		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{DisableModelInvocation: &disabled}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
 
@@ -386,7 +386,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := store.Delete(ctx, id); err != nil {
+	if err := store.Delete(ctx, id, ViewContext{UserID: userID}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 

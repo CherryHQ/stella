@@ -142,7 +142,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 }
 
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, id)
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	return s.q.DeleteSkill(ctx, id)
+	return s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id})
 }
 
 func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {

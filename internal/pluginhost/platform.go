@@ -53,7 +53,7 @@ func (a skillStoreAdapter) Create(ctx context.Context, s pkgplugins.Skill, files
 }
 
 func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	return a.s.Update(ctx, id, skills.UpdatePatch{
+	return a.s.Update(ctx, id, skills.ViewContext{}, skills.UpdatePatch{
 		Description:            patch.Description,
 		Status:                 patch.Status,
 		DisableModelInvocation: patch.DisableModelInvocation,
@@ -70,7 +70,7 @@ func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string)
 }
 
 func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
-	return a.s.Delete(ctx, id)
+	return a.s.Delete(ctx, id, skills.ViewContext{})
 }
 
 func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) error {

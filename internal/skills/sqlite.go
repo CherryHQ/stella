@@ -24,6 +24,10 @@ func New(db *sql.DB) *SQLiteStore {
 	return &SQLiteStore{db: db, q: sqlc.New(db)}
 }
 
+func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
+	return sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""}, sql.NullString{String: vc.UserID, Valid: vc.UserID != ""}
+}
+
 // List returns all visible skills for the given context.
 func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
@@ -182,8 +186,9 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 }
 
 // Update patches metadata fields using read-modify-write.
-func (s *SQLiteStore) Update(ctx context.Context, id string, patch UpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, id)
+func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
+	agentID, userID := viewSQLParams(vc)
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: agentID, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("skills: update get %s: %w", id, err)
 	}
@@ -214,6 +219,8 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, patch UpdatePatch) 
 
 	if err := s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
 		ID:                     id,
+		AgentID:                agentID,
+		UserID:                 userID,
 		Description:            description,
 		Status:                 status,
 		DisableModelInvocation: disabled,
@@ -248,8 +255,9 @@ func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) erro
 }
 
 // Delete removes a skill and (via ON DELETE CASCADE) all its files.
-func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
-	if err := s.q.DeleteSkill(ctx, id); err != nil {
+func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) error {
+	agentID, userID := viewSQLParams(vc)
+	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, AgentID: agentID, UserID: userID}); err != nil {
 		return fmt.Errorf("skills: delete %s: %w", id, err)
 	}
 	return nil

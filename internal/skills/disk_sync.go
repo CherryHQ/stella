@@ -87,12 +87,12 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 
 // Delete removes the DB row first, then removes the disk directory.
 // DB-first ordering prevents MigrateFilesystem from re-importing orphaned dirs.
-func (d *DiskSyncStore) Delete(ctx context.Context, id string) error {
+func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	sk, err := d.findByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := d.Store.Delete(ctx, id); err != nil {
+	if err := d.Store.Delete(ctx, id, vc); err != nil {
 		return err
 	}
 	if sk != nil {

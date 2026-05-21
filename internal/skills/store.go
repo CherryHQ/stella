@@ -63,13 +63,13 @@ type Store interface {
 	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
 
 	// Update patches metadata fields. Use UpsertFile to change file content.
-	Update(ctx context.Context, id string, patch UpdatePatch) error
+	Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error
 
 	// UpsertFile creates or replaces a single file under a skill.
 	UpsertFile(ctx context.Context, skillID, path, content string) error
 
 	DeleteFile(ctx context.Context, skillID, path string) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id string, vc ViewContext) error
 
 	// ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
 	// created-at timestamp is before the given cutoff. Knowledge entries are excluded.

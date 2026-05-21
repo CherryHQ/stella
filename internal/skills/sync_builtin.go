@@ -140,7 +140,7 @@ func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, d
 		if _, ok := desired[row.Name]; ok {
 			continue
 		}
-		if err := store.Delete(ctx, row.ID); err != nil {
+		if err := store.Delete(ctx, row.ID, ViewContext{}); err != nil {
 			return fmt.Errorf("delete skill %q (%s): %w", row.Name, row.ID, err)
 		}
 		slog.InfoContext(ctx, "sync_builtin: deleted removed system skill", "name", row.Name, "id", row.ID)
@@ -231,7 +231,7 @@ func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRo
 		existing.Status != normalizeBuiltinStatus(fm.Status) ||
 		existing.DisableModelInvocation != fm.DisableModelInvocation ||
 		string(existing.Metadata) != string(meta) {
-		if err := store.Update(ctx, skillID, UpdatePatch{
+		if err := store.Update(ctx, skillID, ViewContext{}, UpdatePatch{
 			Description:            &fm.Description,
 			Status:                 strPtr(normalizeBuiltinStatus(fm.Status)),
 			DisableModelInvocation: &fm.DisableModelInvocation,

@@ -192,7 +192,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, skillID)
+	s.applySkillUpdate(w, r, skillID, skills.ViewContext{AgentID: agentID})
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
@@ -206,7 +206,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, skillID)
+	s.doDeleteSkill(w, r, skillID, skills.ViewContext{AgentID: agentID})
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
@@ -380,7 +380,7 @@ func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skil
 		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, skillID)
+	s.applySkillUpdate(w, r, skillID, skills.ViewContext{UserID: info.UserID})
 }
 
 func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
@@ -394,7 +394,7 @@ func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skil
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, skillID)
+	s.doDeleteSkill(w, r, skillID, skills.ViewContext{UserID: info.UserID})
 }
 
 func (s *Server) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.DeleteProfileSkillFileParams) {

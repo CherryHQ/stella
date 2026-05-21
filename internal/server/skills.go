@@ -242,11 +242,11 @@ func (s *Server) UpdateSkill(w http.ResponseWriter, r *http.Request, id string) 
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.applySkillUpdate(w, r, id)
+	s.applySkillUpdate(w, r, id, skills.ViewContext{})
 }
 
 // applySkillUpdate is the shared body for PUT .../skills/{id}.
-func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -262,7 +262,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if err := store.Update(r.Context(), id, patch); err != nil {
+	if err := store.Update(r.Context(), id, vc, patch); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -279,17 +279,17 @@ func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) 
 	if !requireAdmin(w, r) {
 		return
 	}
-	s.doDeleteSkill(w, r, id)
+	s.doDeleteSkill(w, r, id, skills.ViewContext{})
 }
 
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	if err := store.Delete(r.Context(), id); err != nil {
+	if err := store.Delete(r.Context(), id, vc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
