@@ -62,7 +62,7 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 }
 
 func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
-	feed, err := h.store.GetFeed(ctx, feedID)
+	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return nil, false
@@ -435,7 +435,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	if body.Enabled != nil {
 		updates["enabled"] = *body.Enabled
 	}
-	updated, err := h.store.UpdateFeed(r.Context(), id, updates)
+	updated, err := h.store.UpdateFeed(r.Context(), userID, id, updates)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -451,7 +451,7 @@ func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id 
 	if _, ok := h.feedOwned(w, r.Context(), id, userID); !ok {
 		return
 	}
-	if err := h.store.DeleteFeed(r.Context(), id); err != nil {
+	if err := h.store.DeleteFeed(r.Context(), userID, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -507,7 +507,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	}
 
 	now := time.Now().UTC()
-	if updated, err := h.store.UpdateFeed(r.Context(), feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
+	if updated, err := h.store.UpdateFeed(r.Context(), userID, feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
 		result.Feed = toAPIFeed(updated)
 	} else {
 		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)

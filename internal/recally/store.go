@@ -289,8 +289,8 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL, title, d
 }
 
 // GetFeed retrieves a feed by ID.
-func (s *Store) GetFeed(ctx context.Context, feedID string) (*Feed, error) {
-	row, err := s.q.GetRSSFeed(ctx, feedID)
+func (s *Store) GetFeed(ctx context.Context, userID string, feedID string) (*Feed, error) {
+	row, err := s.q.GetRSSFeed(ctx, sqlc.GetRSSFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
@@ -332,8 +332,8 @@ func (s *Store) ListFeeds(ctx context.Context, userID string) ([]Feed, error) {
 }
 
 // UpdateFeed updates feed metadata.
-func (s *Store) UpdateFeed(ctx context.Context, feedID string, updates map[string]any) (*Feed, error) {
-	current, err := s.q.GetRSSFeed(ctx, feedID)
+func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, updates map[string]any) (*Feed, error) {
+	current, err := s.q.GetRSSFeed(ctx, sqlc.GetRSSFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
@@ -373,6 +373,7 @@ func (s *Store) UpdateFeed(ctx context.Context, feedID string, updates map[strin
 
 	updated, err := s.q.UpdateRSSFeed(ctx, sqlc.UpdateRSSFeedParams{
 		ID:            feedID,
+		UserID:        userID,
 		Title:         title,
 		Description:   description,
 		CheckInterval: checkInterval,
@@ -391,8 +392,8 @@ func (s *Store) UpdateFeed(ctx context.Context, feedID string, updates map[strin
 }
 
 // DeleteFeed removes a feed and all its entries.
-func (s *Store) DeleteFeed(ctx context.Context, feedID string) error {
-	if err := s.q.DeleteRSSFeed(ctx, feedID); err != nil {
+func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) error {
+	if err := s.q.DeleteRSSFeed(ctx, sqlc.DeleteRSSFeedParams{ID: feedID, UserID: userID}); err != nil {
 		return fmt.Errorf("delete feed: %w", err)
 	}
 	return nil

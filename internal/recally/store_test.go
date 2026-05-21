@@ -391,7 +391,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Get feed
-	retrieved, err := store.GetFeed(ctx, feed.ID)
+	retrieved, err := store.GetFeed(ctx, "1", feed.ID)
 	if err != nil {
 		t.Fatalf("GetFeed failed: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestStore_Feeds(t *testing.T) {
 		"last_etag":     "\"abc123\"",
 		"last_modified": "Wed, 29 Apr 2026 12:00:00 GMT",
 	}
-	updated, err := store.UpdateFeed(ctx, feed.ID, updates)
+	updated, err := store.UpdateFeed(ctx, "1", feed.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateFeed failed: %v", err)
 	}
@@ -436,13 +436,13 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// Delete feed
-	err = store.DeleteFeed(ctx, feed.ID)
+	err = store.DeleteFeed(ctx, "1", feed.ID)
 	if err != nil {
 		t.Fatalf("DeleteFeed failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetFeed(ctx, feed.ID)
+	_, err = store.GetFeed(ctx, "1", feed.ID)
 	if err == nil {
 		t.Error("Expected error after deleting feed")
 	}

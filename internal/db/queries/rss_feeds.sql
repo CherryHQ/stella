@@ -7,7 +7,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetRSSFeed :one
-SELECT * FROM rss_feeds WHERE id = ?;
+SELECT * FROM rss_feeds WHERE id = ? AND user_id = ?;
 
 -- name: GetRSSFeedByURL :one
 SELECT * FROM rss_feeds WHERE user_id = ? AND url = ?;
@@ -27,11 +27,11 @@ SET title           = sqlc.arg('title'),
     last_modified   = sqlc.arg('last_modified'),
     enabled         = sqlc.arg('enabled'),
     updated_at      = datetime('now')
-WHERE id = sqlc.arg('id')
+WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')
 RETURNING *;
 
 -- name: DeleteRSSFeed :exec
-DELETE FROM rss_feeds WHERE id = ?;
+DELETE FROM rss_feeds WHERE id = ? AND user_id = ?;
 
 -- name: CreateRSSFeedEntry :one
 INSERT INTO rss_feed_entries (
