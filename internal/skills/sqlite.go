@@ -185,6 +185,39 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 	return sk.ID, nil
 }
 
+type resolvedPatch struct {
+	Description            string
+	Status                 string
+	DisableModelInvocation int64
+	Metadata               string
+}
+
+func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
+	r := resolvedPatch{
+		Description:            row.Description,
+		Status:                 row.Status,
+		DisableModelInvocation: row.DisableModelInvocation,
+		Metadata:               row.Metadata,
+	}
+	if patch.Description != nil {
+		r.Description = *patch.Description
+	}
+	if patch.Status != nil {
+		r.Status = *patch.Status
+	}
+	if patch.DisableModelInvocation != nil {
+		if *patch.DisableModelInvocation {
+			r.DisableModelInvocation = 1
+		} else {
+			r.DisableModelInvocation = 0
+		}
+	}
+	if len(patch.Metadata) > 0 {
+		r.Metadata = string(patch.Metadata)
+	}
+	return r
+}
+
 // Update patches metadata fields using read-modify-write.
 func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
 	agentID, userID := viewSQLParams(vc)
@@ -192,39 +225,15 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, pat
 	if err != nil {
 		return fmt.Errorf("skills: update get %s: %w", id, err)
 	}
-
-	description := row.Description
-	if patch.Description != nil {
-		description = *patch.Description
-	}
-
-	status := row.Status
-	if patch.Status != nil {
-		status = *patch.Status
-	}
-
-	disabled := row.DisableModelInvocation
-	if patch.DisableModelInvocation != nil {
-		if *patch.DisableModelInvocation {
-			disabled = 1
-		} else {
-			disabled = 0
-		}
-	}
-
-	meta := row.Metadata
-	if len(patch.Metadata) > 0 {
-		meta = string(patch.Metadata)
-	}
-
+	p := applyPatch(row, patch)
 	if err := s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
 		ID:                     id,
 		AgentID:                agentID,
 		UserID:                 userID,
-		Description:            description,
-		Status:                 status,
-		DisableModelInvocation: disabled,
-		Metadata:               meta,
+		Description:            p.Description,
+		Status:                 p.Status,
+		DisableModelInvocation: p.DisableModelInvocation,
+		Metadata:               p.Metadata,
 	}); err != nil {
 		return fmt.Errorf("skills: update %s: %w", id, err)
 	}
@@ -271,32 +280,13 @@ func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch Up
 	if row.Scope != "system" {
 		return fmt.Errorf("skills: %s is not a system skill", id)
 	}
-	description := row.Description
-	if patch.Description != nil {
-		description = *patch.Description
-	}
-	status := row.Status
-	if patch.Status != nil {
-		status = *patch.Status
-	}
-	disabled := row.DisableModelInvocation
-	if patch.DisableModelInvocation != nil {
-		if *patch.DisableModelInvocation {
-			disabled = 1
-		} else {
-			disabled = 0
-		}
-	}
-	meta := row.Metadata
-	if len(patch.Metadata) > 0 {
-		meta = string(patch.Metadata)
-	}
+	p := applyPatch(row, patch)
 	if err := s.q.UpdateSystemSkillMetadata(ctx, sqlc.UpdateSystemSkillMetadataParams{
 		ID:                     id,
-		Description:            description,
-		Status:                 status,
-		DisableModelInvocation: disabled,
-		Metadata:               meta,
+		Description:            p.Description,
+		Status:                 p.Status,
+		DisableModelInvocation: p.DisableModelInvocation,
+		Metadata:               p.Metadata,
 	}); err != nil {
 		return fmt.Errorf("skills: system update %s: %w", id, err)
 	}
