@@ -1489,15 +1489,7 @@ export type _1Api1Shares1Public1Token = unknown;
 
 export type _1Api1Shares1Id = unknown;
 
-export type _1Api1Skills = unknown;
-
-export type _1Api1Skills1Install = unknown;
-
 export type _1Api1Skills1Search = unknown;
-
-export type _1Api1Skills1Id = unknown;
-
-export type _1Api1Skills1Id1File = unknown;
 
 export type _1Api1Status = unknown;
 
@@ -1988,7 +1980,9 @@ export type ListAgentSkillsData = {
   path: {
     id: string;
   };
-  query?: never;
+  query?: {
+    session_id?: string;
+  };
   url: "/api/agents/{id}/skills";
 };
 
@@ -2176,10 +2170,12 @@ export type DeleteAgentScopedSkillData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user";
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
+  query?: {
+    session_id?: string;
+  };
   url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
@@ -2221,10 +2217,12 @@ export type GetAgentScopedSkillData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user";
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
+  query?: {
+    session_id?: string;
+  };
   url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
@@ -2266,10 +2264,12 @@ export type UpdateAgentScopedSkillData = {
   body: ComponentsUpdateSkillRequest;
   path: {
     id: string;
-    scope: "system" | "agent" | "user";
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
+  query?: {
+    session_id?: string;
+  };
   url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
@@ -2317,11 +2317,12 @@ export type DeleteAgentScopedSkillFileData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user";
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
+    session_id?: string;
   };
   url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
 };
@@ -2370,11 +2371,12 @@ export type GetAgentScopedSkillFileData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user";
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
+    session_id?: string;
   };
   url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
 };
@@ -2606,81 +2608,6 @@ export type UpdateProjectResponses = {
 export type UpdateProjectResponse =
   UpdateProjectResponses[keyof UpdateProjectResponses];
 
-export type ListSkillsData = {
-  body?: never;
-  path?: never;
-  query?: never;
-  url: "/api/skills";
-};
-
-export type ListSkillsErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type ListSkillsError = ListSkillsErrors[keyof ListSkillsErrors];
-
-export type ListSkillsResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillList;
-};
-
-export type ListSkillsResponse = ListSkillsResponses[keyof ListSkillsResponses];
-
-export type CreateSkillData = {
-  body: ComponentsCreateSkillRequest;
-  path?: never;
-  query?: never;
-  url: "/api/skills";
-};
-
-export type CreateSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type CreateSkillError = CreateSkillErrors[keyof CreateSkillErrors];
-
-export type CreateSkillResponses = {
-  /**
-   * created
-   */
-  201: {
-    id?: string;
-  };
-};
-
-export type CreateSkillResponse =
-  CreateSkillResponses[keyof CreateSkillResponses];
-
 export type SearchSkillsData = {
   body?: never;
   path?: never;
@@ -2717,284 +2644,6 @@ export type SearchSkillsResponses = {
 
 export type SearchSkillsResponse =
   SearchSkillsResponses[keyof SearchSkillsResponses];
-
-export type InstallSkillData = {
-  body: ComponentsGlobalInstallSkillRequest;
-  path?: never;
-  query?: never;
-  url: "/api/skills/install";
-};
-
-export type InstallSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type InstallSkillError = InstallSkillErrors[keyof InstallSkillErrors];
-
-export type InstallSkillResponses = {
-  /**
-   * installed
-   */
-  201: {
-    name?: string;
-  };
-};
-
-export type InstallSkillResponse =
-  InstallSkillResponses[keyof InstallSkillResponses];
-
-export type DeleteSkillData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type DeleteSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteSkillError = DeleteSkillErrors[keyof DeleteSkillErrors];
-
-export type DeleteSkillResponses = {
-  /**
-   * deleted
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type DeleteSkillResponse =
-  DeleteSkillResponses[keyof DeleteSkillResponses];
-
-export type GetSkillData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type GetSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetSkillError = GetSkillErrors[keyof GetSkillErrors];
-
-export type GetSkillResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkill;
-};
-
-export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
-
-export type UpdateSkillData = {
-  body: ComponentsUpdateSkillRequest;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type UpdateSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type UpdateSkillError = UpdateSkillErrors[keyof UpdateSkillErrors];
-
-export type UpdateSkillResponses = {
-  /**
-   * ok
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type UpdateSkillResponse =
-  UpdateSkillResponses[keyof UpdateSkillResponses];
-
-export type DeleteSkillFileData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/skills/{id}/file";
-};
-
-export type DeleteSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteSkillFileError =
-  DeleteSkillFileErrors[keyof DeleteSkillFileErrors];
-
-export type DeleteSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsDeleteFileResult;
-};
-
-export type DeleteSkillFileResponse =
-  DeleteSkillFileResponses[keyof DeleteSkillFileResponses];
-
-export type GetSkillFileData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/skills/{id}/file";
-};
-
-export type GetSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetSkillFileError = GetSkillFileErrors[keyof GetSkillFileErrors];
-
-export type GetSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillFileResponse;
-};
-
-export type GetSkillFileResponse =
-  GetSkillFileResponses[keyof GetSkillFileResponses];
 
 export type ListArticlesData = {
   body?: never;

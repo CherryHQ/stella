@@ -23,7 +23,6 @@ import {
   createSchedulerJob,
   createSession,
   createShare,
-  createSkill,
   createWorkspaceFile,
   deleteAgent,
   deleteAgentScopedSkill,
@@ -38,8 +37,6 @@ import {
   deleteProject,
   deleteProvider,
   deleteSchedulerJob,
-  deleteSkill,
-  deleteSkillFile,
   deleteUserMemory,
   deleteVaultEntry,
   deleteWorkspaceFile,
@@ -69,14 +66,11 @@ import {
   getSessionSystemPrompt,
   getSessionWorkspace,
   getShareContent,
-  getSkill,
-  getSkillFile,
   getStatus,
   getStoredDigest,
   getVaultEntry,
   getWorkspaceFileContent,
   installAgentScopedSkill,
-  installSkill,
   listAgents,
   listAgentSkills,
   listAgentTaskEvents,
@@ -104,7 +98,6 @@ import {
   listSchedulerJobs,
   listSessions,
   listShares,
-  listSkills,
   listStoredDigests,
   listTools,
   listUserMemories,
@@ -149,7 +142,6 @@ import {
   updateProject,
   updateProvider,
   updateSchedulerJob,
-  updateSkill,
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
   updateWorkspaceFileContent,
@@ -196,9 +188,6 @@ import type {
   CreateShareData,
   CreateShareError,
   CreateShareResponse,
-  CreateSkillData,
-  CreateSkillError,
-  CreateSkillResponse,
   CreateWorkspaceFileData,
   CreateWorkspaceFileError,
   CreateWorkspaceFileResponse,
@@ -241,12 +230,6 @@ import type {
   DeleteSchedulerJobData,
   DeleteSchedulerJobError,
   DeleteSchedulerJobResponse,
-  DeleteSkillData,
-  DeleteSkillError,
-  DeleteSkillFileData,
-  DeleteSkillFileError,
-  DeleteSkillFileResponse,
-  DeleteSkillResponse,
   DeleteUserMemoryData,
   DeleteUserMemoryError,
   DeleteUserMemoryResponse,
@@ -334,12 +317,6 @@ import type {
   GetShareContentData,
   GetShareContentError,
   GetShareContentResponse,
-  GetSkillData,
-  GetSkillError,
-  GetSkillFileData,
-  GetSkillFileError,
-  GetSkillFileResponse,
-  GetSkillResponse,
   GetStatusData,
   GetStatusResponse,
   GetStoredDigestData,
@@ -354,9 +331,6 @@ import type {
   InstallAgentScopedSkillData,
   InstallAgentScopedSkillError,
   InstallAgentScopedSkillResponse,
-  InstallSkillData,
-  InstallSkillError,
-  InstallSkillResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillsData,
@@ -438,9 +412,6 @@ import type {
   ListSharesData,
   ListSharesError,
   ListSharesResponse,
-  ListSkillsData,
-  ListSkillsError,
-  ListSkillsResponse,
   ListStoredDigestsData,
   ListStoredDigestsError,
   ListStoredDigestsResponse,
@@ -568,9 +539,6 @@ import type {
   UpdateSchedulerJobData,
   UpdateSchedulerJobError,
   UpdateSchedulerJobResponse,
-  UpdateSkillData,
-  UpdateSkillError,
-  UpdateSkillResponse,
   UpdateUserDefaultAgentData,
   UpdateUserDefaultAgentError,
   UpdateUserDefaultAgentResponse,
@@ -1336,58 +1304,6 @@ export const updateProjectMutation = (
   return mutationOptions;
 };
 
-export const listSkillsQueryKey = (options?: Options<ListSkillsData>) =>
-  createQueryKey("listSkills", options);
-
-/**
- * List all skills (admin only)
- */
-export const listSkillsOptions = (options?: Options<ListSkillsData>) =>
-  queryOptions<
-    ListSkillsResponse,
-    ListSkillsError,
-    ListSkillsResponse,
-    ReturnType<typeof listSkillsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listSkills({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true,
-      });
-      return data;
-    },
-    queryKey: listSkillsQueryKey(options),
-  });
-
-/**
- * Create a skill (admin only)
- */
-export const createSkillMutation = (
-  options?: Partial<Options<CreateSkillData>>,
-): UseMutationOptions<
-  CreateSkillResponse,
-  CreateSkillError,
-  Options<CreateSkillData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    CreateSkillResponse,
-    CreateSkillError,
-    Options<CreateSkillData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await createSkill({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
 export const searchSkillsQueryKey = (options: Options<SearchSkillsData>) =>
   createQueryKey("searchSkills", options);
 
@@ -1411,164 +1327,6 @@ export const searchSkillsOptions = (options: Options<SearchSkillsData>) =>
       return data;
     },
     queryKey: searchSkillsQueryKey(options),
-  });
-
-/**
- * Install a skill from a remote source (admin only)
- */
-export const installSkillMutation = (
-  options?: Partial<Options<InstallSkillData>>,
-): UseMutationOptions<
-  InstallSkillResponse,
-  InstallSkillError,
-  Options<InstallSkillData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    InstallSkillResponse,
-    InstallSkillError,
-    Options<InstallSkillData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await installSkill({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-/**
- * Delete a skill (admin only)
- */
-export const deleteSkillMutation = (
-  options?: Partial<Options<DeleteSkillData>>,
-): UseMutationOptions<
-  DeleteSkillResponse,
-  DeleteSkillError,
-  Options<DeleteSkillData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    DeleteSkillResponse,
-    DeleteSkillError,
-    Options<DeleteSkillData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await deleteSkill({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-export const getSkillQueryKey = (options: Options<GetSkillData>) =>
-  createQueryKey("getSkill", options);
-
-/**
- * Get a skill by ID (admin only)
- */
-export const getSkillOptions = (options: Options<GetSkillData>) =>
-  queryOptions<
-    GetSkillResponse,
-    GetSkillError,
-    GetSkillResponse,
-    ReturnType<typeof getSkillQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getSkill({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true,
-      });
-      return data;
-    },
-    queryKey: getSkillQueryKey(options),
-  });
-
-/**
- * Update a skill (admin only)
- */
-export const updateSkillMutation = (
-  options?: Partial<Options<UpdateSkillData>>,
-): UseMutationOptions<
-  UpdateSkillResponse,
-  UpdateSkillError,
-  Options<UpdateSkillData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    UpdateSkillResponse,
-    UpdateSkillError,
-    Options<UpdateSkillData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await updateSkill({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-/**
- * Delete a skill file (admin only)
- */
-export const deleteSkillFileMutation = (
-  options?: Partial<Options<DeleteSkillFileData>>,
-): UseMutationOptions<
-  DeleteSkillFileResponse,
-  DeleteSkillFileError,
-  Options<DeleteSkillFileData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    DeleteSkillFileResponse,
-    DeleteSkillFileError,
-    Options<DeleteSkillFileData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await deleteSkillFile({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-export const getSkillFileQueryKey = (options: Options<GetSkillFileData>) =>
-  createQueryKey("getSkillFile", options);
-
-/**
- * Get a skill file (admin only)
- */
-export const getSkillFileOptions = (options: Options<GetSkillFileData>) =>
-  queryOptions<
-    GetSkillFileResponse,
-    GetSkillFileError,
-    GetSkillFileResponse,
-    ReturnType<typeof getSkillFileQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getSkillFile({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true,
-      });
-      return data;
-    },
-    queryKey: getSkillFileQueryKey(options),
   });
 
 export const listArticlesQueryKey = (options?: Options<ListArticlesData>) =>

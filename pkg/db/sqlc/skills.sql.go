@@ -418,6 +418,57 @@ func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID sql.NullString)
 	return items, nil
 }
 
+const listSkillsForAgentContext = `-- name: ListSkillsForAgentContext :many
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills
+WHERE status != 'deprecated'
+  AND (
+    scope = 'system'
+    OR (scope = 'agent' AND agent_id = ?1)
+    OR (scope = 'user' AND user_id = ?2 AND agent_id = ?1)
+  )
+ORDER BY scope, created_at
+`
+
+type ListSkillsForAgentContextParams struct {
+	AgentID sql.NullString `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
+}
+
+func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsForAgentContextParams) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillsForAgentContext, arg.AgentID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillsForUser = `-- name: ListSkillsForUser :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills
 WHERE status != 'deprecated'

@@ -12,8 +12,8 @@ Skills are written in plain markdown — they are essentially cheat sheets that 
 
 Skills are organized into three scopes:
 
-- **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available to anyone working on that project. Read-only.
-- **User skills** — personal skills stored in your account. Available across all your agents.
+- **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available when the current session is attached to that project.
+- **User skills** — personal skills stored in your account for the current agent.
 - **Agent skills** — scoped to a specific agent. Useful when different agents need different workflows.
 
 Project skills take precedence over user and agent skills with the same name.
@@ -51,8 +51,8 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 # Search for skills
 stella skill search "git"
 
-# Install from clawhub.ai
-stella skill install "clawhub:git-helper"
+# Install from clawhub.ai for an agent
+stella skill install --agent-id <agent-id> "clawhub:git-helper"
 
 # Install a specific version
 stella skill install "clawhub:git-helper@1.2.0"
@@ -75,11 +75,14 @@ stella skill install "/path/to/skill"
 ### From the CLI
 
 ```bash
-# List installed skills
-stella skill list
+# List skills visible to an agent
+stella skill list --agent-id <agent-id>
 
-# Remove a skill
-stella skill remove "git-helper"
+# Include project skills from a project session
+stella skill list --agent-id <agent-id> --session-id <session-id>
+
+# Remove a user skill from an agent
+stella skill remove --agent-id <agent-id> "git-helper"
 ```
 
 To install a skill for a specific agent instead of your user account, add `scope=agent` when asking Stella, or use the appropriate flag in the CLI.

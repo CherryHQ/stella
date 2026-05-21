@@ -168,16 +168,12 @@ export function SessionDetail({
     if (!session) return;
     setSkillsLoading(true);
     try {
-      const all = (await api<Skill[]>("GET", "/api/skills")) ?? [];
+      const query = new URLSearchParams({ session_id: session.id });
       setSkills(
-        all.filter(
-          (skill) =>
-            skill.status !== "deprecated" &&
-            !skill.disable_model_invocation &&
-            (skill.scope === "system" ||
-              (skill.scope === "agent" && skill.agent_id === session.agent_id) ||
-              (skill.scope === "user" && skill.user_id === session.user_id)),
-        ),
+        (await api<Skill[]>(
+          "GET",
+          `/api/agents/${encodeURIComponent(session.agent_id)}/skills?${query.toString()}`,
+        )) ?? [],
       );
     } finally {
       setSkillsLoading(false);

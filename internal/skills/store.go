@@ -46,6 +46,9 @@ type Store interface {
 	// ListAll returns every skill regardless of status or visibility (internal admin use only).
 	ListAll(ctx context.Context) ([]Skill, error)
 
+	// ListForAgentContext returns system, agent, and current-user skills for one agent.
+	ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error)
+
 	// ListForAdmin returns system and agent skills, plus the admin user's own user skills.
 	ListForAdmin(ctx context.Context, userID string) ([]Skill, error)
 

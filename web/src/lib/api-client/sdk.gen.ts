@@ -47,9 +47,6 @@ import type {
   CreateShareData,
   CreateShareErrors,
   CreateShareResponses,
-  CreateSkillData,
-  CreateSkillErrors,
-  CreateSkillResponses,
   CreateWorkspaceFileData,
   CreateWorkspaceFileErrors,
   CreateWorkspaceFileResponses,
@@ -92,12 +89,6 @@ import type {
   DeleteSchedulerJobData,
   DeleteSchedulerJobErrors,
   DeleteSchedulerJobResponses,
-  DeleteSkillData,
-  DeleteSkillErrors,
-  DeleteSkillFileData,
-  DeleteSkillFileErrors,
-  DeleteSkillFileResponses,
-  DeleteSkillResponses,
   DeleteUserMemoryData,
   DeleteUserMemoryErrors,
   DeleteUserMemoryResponses,
@@ -185,12 +176,6 @@ import type {
   GetShareContentData,
   GetShareContentErrors,
   GetShareContentResponses,
-  GetSkillData,
-  GetSkillErrors,
-  GetSkillFileData,
-  GetSkillFileErrors,
-  GetSkillFileResponses,
-  GetSkillResponses,
   GetStatusData,
   GetStatusResponses,
   GetStoredDigestData,
@@ -205,9 +190,6 @@ import type {
   InstallAgentScopedSkillData,
   InstallAgentScopedSkillErrors,
   InstallAgentScopedSkillResponses,
-  InstallSkillData,
-  InstallSkillErrors,
-  InstallSkillResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillsData,
@@ -289,9 +271,6 @@ import type {
   ListSharesData,
   ListSharesErrors,
   ListSharesResponses,
-  ListSkillsData,
-  ListSkillsErrors,
-  ListSkillsResponses,
   ListStoredDigestsData,
   ListStoredDigestsErrors,
   ListStoredDigestsResponses,
@@ -424,9 +403,6 @@ import type {
   UpdateSchedulerJobData,
   UpdateSchedulerJobErrors,
   UpdateSchedulerJobResponses,
-  UpdateSkillData,
-  UpdateSkillErrors,
-  UpdateSkillResponses,
   UpdateUserDefaultAgentData,
   UpdateUserDefaultAgentErrors,
   UpdateUserDefaultAgentResponses,
@@ -925,42 +901,6 @@ export const updateProject = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List all skills (admin only)
- */
-export const listSkills = <ThrowOnError extends boolean = false>(
-  options?: Options<ListSkillsData, ThrowOnError>,
-) =>
-  (options?.client ?? client).get<
-    ListSkillsResponses,
-    ListSkillsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills",
-    ...options,
-  });
-
-/**
- * Create a skill (admin only)
- */
-export const createSkill = <ThrowOnError extends boolean = false>(
-  options: Options<CreateSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    CreateSkillResponses,
-    CreateSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
  * Search skills from mcphub (any authenticated user)
  */
 export const searchSkills = <ThrowOnError extends boolean = false>(
@@ -973,110 +913,6 @@ export const searchSkills = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/search",
-    ...options,
-  });
-
-/**
- * Install a skill from a remote source (admin only)
- */
-export const installSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    InstallSkillResponses,
-    InstallSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/install",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a skill (admin only)
- */
-export const deleteSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteSkillResponses,
-    DeleteSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-  });
-
-/**
- * Get a skill by ID (admin only)
- */
-export const getSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetSkillResponses,
-    GetSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-  });
-
-/**
- * Update a skill (admin only)
- */
-export const updateSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).put<
-    UpdateSkillResponses,
-    UpdateSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a skill file (admin only)
- */
-export const deleteSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteSkillFileResponses,
-    DeleteSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}/file",
-    ...options,
-  });
-
-/**
- * Get a skill file (admin only)
- */
-export const getSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetSkillFileResponses,
-    GetSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}/file",
     ...options,
   });
 

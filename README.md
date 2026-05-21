@@ -63,8 +63,8 @@ Search, install, and manage skills from the CLI:
 
 ```bash
 stella skill search "web scraping"
-stella skill install owner/repo@skill-name
-stella skill list
+stella skill install --agent-id <agent-id> owner/repo@skill-name
+stella skill list --agent-id <agent-id>
 ```
 
 ## Documentation
@@ -82,8 +82,8 @@ stella skill list
 stella server                           # Start server; Web UI at http://localhost:25678
 stella server --port 8080               # Custom port
 stella skill search <query>             # Search skills.sh
-stella skill install <name>             # Install a skill
-stella skill list                       # List installed skills
+stella skill install --agent-id <id> <name> # Install a skill for an agent
+stella skill list --agent-id <id>       # List skills visible to an agent
 stella scheduler list                   # List scheduled jobs
 stella vault list                       # List stored secrets
 stella version                          # Print version

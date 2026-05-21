@@ -184,6 +184,13 @@ paths:
       tags: [agents]
       summary: List skills visible to the current user in an agent context
       operationId: listAgentSkills
+      parameters:
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
@@ -318,13 +325,20 @@ paths:
           name: scope,
           in: path,
           required: true,
-          schema: { type: string, enum: [system, agent, user] },
+          schema: { type: string, enum: [system, agent, user, project] },
         }
       - { name: skillId, in: path, required: true, schema: { type: string } }
     get:
       tags: [agents]
       summary: Get a skill in an agent context
       operationId: getAgentScopedSkill
+      parameters:
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
@@ -342,6 +356,13 @@ paths:
       tags: [agents]
       summary: Update a skill in an agent or current-user scope
       operationId: updateAgentScopedSkill
+      parameters:
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       requestBody:
         required: true
         content:
@@ -369,6 +390,13 @@ paths:
       tags: [agents]
       summary: Delete a skill in an agent or current-user scope
       operationId: deleteAgentScopedSkill
+      parameters:
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: deleted
@@ -390,7 +418,7 @@ paths:
           name: scope,
           in: path,
           required: true,
-          schema: { type: string, enum: [system, agent, user] },
+          schema: { type: string, enum: [system, agent, user, project] },
         }
       - { name: skillId, in: path, required: true, schema: { type: string } }
     get:
@@ -399,6 +427,12 @@ paths:
       operationId: getAgentScopedSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
@@ -421,6 +455,12 @@ paths:
       operationId: deleteAgentScopedSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
+        - {
+            name: session_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: deleted

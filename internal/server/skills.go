@@ -119,7 +119,7 @@ func (s *Server) GetSkill(w http.ResponseWriter, r *http.Request, id string) {
 	writeData(w, http.StatusOK, skillToView(*found, paths))
 }
 
-func (s *Server) GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetSkillFileParams) {
+func (s *Server) GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params struct{ Path string }) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id, path
 }
 
 // DeleteSkillFile removes a single file under a skill (admin-only route).
-func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteSkillFileParams) {
+func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params struct{ Path string }) {
 	if !requireAdmin(w, r) {
 		return
 	}

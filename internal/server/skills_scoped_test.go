@@ -424,19 +424,3 @@ func TestAgentSkills_UploadZipRejectsPathTraversal(t *testing.T) {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
-
-func TestAdminDeleteSkillFile(t *testing.T) {
-	env := setupAdmin(t)
-
-	skID := createTestSkill(t, env, "system", "", "", "sys-skill")
-
-	rr := doRequest(t, env, "DELETE", "/api/skills/"+skID+"/file?path=reference.md", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("delete ref status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	rr = doRequest(t, env, "DELETE", "/api/skills/"+skID+"/file?path=SKILL.md", nil)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("delete SKILL.md status = %d, want 400", rr.Code)
-	}
-}

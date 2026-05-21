@@ -93,16 +93,8 @@ paths:
   /api/agents/{agentId}/projects/{projectId}:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects~1{projectId}"
   # ── Skills ─────────────────────────────────────────────────────────────────
-  /api/skills:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
   /api/skills/search:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
-  /api/skills/install:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
-  /api/skills/{id}:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
-  /api/skills/{id}/file:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles"

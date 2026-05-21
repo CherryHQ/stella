@@ -12,8 +12,8 @@ title: 技能
 
 技能分为三个作用域：
 
-- **项目技能** — 存放在你的仓库的 `.agents/skills/` 目录下。它们随代码发布，项目中的任何人都可以使用。只读。
-- **用户技能** — 存储在你账户中的个人技能。可在你的所有代理中使用。
+- **项目技能** — 存放在你的仓库的 `.agents/skills/` 目录下。它们随代码发布，并在当前会话绑定到该项目时可用。
+- **用户技能** — 存储在你账户中、面向当前代理的个人技能。
 - **代理技能** — 限定于特定代理。适用于不同代理需要不同工作流程的场景。
 
 同名时，项目技能优先于用户技能和代理技能。
@@ -51,8 +51,8 @@ Stella 可以从多个来源安装技能：
 # 搜索技能
 stella skill search "git"
 
-# 从 clawhub.ai 安装
-stella skill install "clawhub:git-helper"
+# 为某个代理从 clawhub.ai 安装
+stella skill install --agent-id <agent-id> "clawhub:git-helper"
 
 # 安装特定版本
 stella skill install "clawhub:git-helper@1.2.0"
@@ -75,11 +75,14 @@ stella skill install "/path/to/skill"
 ### 从 CLI 管理
 
 ```bash
-# 列出已安装的技能
-stella skill list
+# 列出某个代理可见的技能
+stella skill list --agent-id <agent-id>
 
-# 移除技能
-stella skill remove "git-helper"
+# 包含项目会话中的项目技能
+stella skill list --agent-id <agent-id> --session-id <session-id>
+
+# 从代理下移除一个用户技能
+stella skill remove --agent-id <agent-id> "git-helper"
 ```
 
 要为特定代理（而非你的用户账户）安装技能，在对话中指定 `scope=agent`，或在 CLI 中使用相应的标志。

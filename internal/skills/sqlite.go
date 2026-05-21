@@ -58,6 +58,22 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
 	return out, nil
 }
 
+// ListForAgentContext returns system, agent, and current-user skills for one agent.
+func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
+	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
+		UserID:  sql.NullString{String: userID, Valid: userID != ""},
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: list for agent context: %w", err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
 // ListForAdmin returns system and agent skills, plus the admin user's own user skills.
 func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAdmin(ctx, sql.NullString{String: userID, Valid: userID != ""})

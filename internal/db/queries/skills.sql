@@ -22,6 +22,16 @@ WHERE status != 'deprecated'
   )
 ORDER BY created_at;
 
+-- name: ListSkillsForAgentContext :many
+SELECT * FROM skills
+WHERE status != 'deprecated'
+  AND (
+    scope = 'system'
+    OR (scope = 'agent' AND agent_id = sqlc.arg(agent_id))
+    OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND agent_id = sqlc.arg(agent_id))
+  )
+ORDER BY scope, created_at;
+
 -- name: ListSkillsForAdmin :many
 SELECT * FROM skills
 WHERE scope != 'user'
