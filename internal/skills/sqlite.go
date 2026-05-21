@@ -263,6 +263,53 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) err
 	return nil
 }
 
+func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	if err != nil {
+		return fmt.Errorf("skills: system update get %s: %w", id, err)
+	}
+	if row.Scope != "system" {
+		return fmt.Errorf("skills: %s is not a system skill", id)
+	}
+	description := row.Description
+	if patch.Description != nil {
+		description = *patch.Description
+	}
+	status := row.Status
+	if patch.Status != nil {
+		status = *patch.Status
+	}
+	disabled := row.DisableModelInvocation
+	if patch.DisableModelInvocation != nil {
+		if *patch.DisableModelInvocation {
+			disabled = 1
+		} else {
+			disabled = 0
+		}
+	}
+	meta := row.Metadata
+	if len(patch.Metadata) > 0 {
+		meta = string(patch.Metadata)
+	}
+	if err := s.q.UpdateSystemSkillMetadata(ctx, sqlc.UpdateSystemSkillMetadataParams{
+		ID:                     id,
+		Description:            description,
+		Status:                 status,
+		DisableModelInvocation: disabled,
+		Metadata:               meta,
+	}); err != nil {
+		return fmt.Errorf("skills: system update %s: %w", id, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
+	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
+		return fmt.Errorf("skills: system delete %s: %w", id, err)
+	}
+	return nil
+}
+
 // ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
 // created-at metadata timestamp is before the given cutoff.
 func (s *SQLiteStore) ExpireDrafts(ctx context.Context, before time.Time) error {

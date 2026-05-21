@@ -28,7 +28,7 @@ func newRetrievalEngine(q *sqlc.Queries) *retrievalEngine {
 
 // Search implements memory.Searcher.
 func (p *Provider) Search(ctx context.Context, session memory.Session, query memory.SearchQuery) ([]memory.SearchResult, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: session.UserID != ""}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}

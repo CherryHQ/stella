@@ -217,8 +217,8 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 	p, cleanup := newLCMTestProvider(t)
 	defer cleanup()
 
-	ctx := context.Background()
 	sess := newLCMTestSession("history")
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), sess.UserID), sess.AgentID)
 
 	if err := p.Bootstrap(ctx, sess); err != nil {
 		t.Fatal(err)

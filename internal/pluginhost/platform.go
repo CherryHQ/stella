@@ -53,7 +53,11 @@ func (a skillStoreAdapter) Create(ctx context.Context, s pkgplugins.Skill, files
 }
 
 func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	return a.s.Update(ctx, id, skills.ViewContext{}, skills.UpdatePatch{
+	vc, err := a.viewContextForSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	return a.s.Update(ctx, id, vc, skills.UpdatePatch{
 		Description:            patch.Description,
 		Status:                 patch.Status,
 		DisableModelInvocation: patch.DisableModelInvocation,
@@ -70,7 +74,32 @@ func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string)
 }
 
 func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
-	return a.s.Delete(ctx, id, skills.ViewContext{})
+	vc, err := a.viewContextForSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	return a.s.Delete(ctx, id, vc)
+}
+
+func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (skills.ViewContext, error) {
+	rows, err := a.s.ListAll(ctx)
+	if err != nil {
+		return skills.ViewContext{}, err
+	}
+	for _, row := range rows {
+		if row.ID != id {
+			continue
+		}
+		switch row.Scope {
+		case "agent":
+			return skills.ViewContext{AgentID: row.AgentID}, nil
+		case "user":
+			return skills.ViewContext{UserID: row.UserID}, nil
+		default:
+			return skills.ViewContext{}, nil
+		}
+	}
+	return skills.ViewContext{}, nil
 }
 
 func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) error {

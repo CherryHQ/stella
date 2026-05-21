@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -96,7 +97,8 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
-	si, err := sm.LoadInfo(r.Context(), sessionID)
+	ctx := memoryUserContext(r)
+	si, err := sm.LoadInfo(ctx, sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -169,7 +171,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 		}
 	}
 
-	ch := pool.Chat(r.Context(), sessionID, msgContent)
+	ch := pool.Chat(ctx, sessionID, msgContent)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -411,6 +413,14 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 	}
 }
 
+func memoryUserContext(r *http.Request) context.Context {
+	ctx := r.Context()
+	if info := UserFromContext(ctx); info != nil && info.UserID != "" {
+		ctx = memory.WithUserID(ctx, info.UserID)
+	}
+	return ctx
+}
+
 func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params apiserver.ListSessionsParams) {
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
@@ -441,7 +451,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	if params.ProjectId != nil {
 		opts.ProjectID = *params.ProjectId
 	}
-	sessions, err := sm.ListInfo(r.Context(), opts)
+	sessions, err := sm.ListInfo(memoryUserContext(r), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -466,7 +476,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 
 	authInfo := UserFromContext(r.Context())
-	si, err := sm.LoadInfo(r.Context(), sessionID)
+	si, err := sm.LoadInfo(memoryUserContext(r), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -528,7 +538,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sess
 	if info := UserFromContext(r.Context()); info != nil {
 		userID = info.UserID
 	}
-	conv, err := s.q.GetConversationBySessionID(r.Context(), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: userID != ""}})
+	conv, err := s.q.GetConversationBySessionID(memoryUserContext(r), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
@@ -583,7 +593,7 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 	if info == nil || !ok {
 		return nil
 	}
-	si, err := sm.LoadInfo(r.Context(), sessionID)
+	si, err := sm.LoadInfo(memoryUserContext(r), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return err
@@ -608,7 +618,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return
 	}
-	info, err := sm.LoadInfo(r.Context(), sessionID)
+	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -726,7 +736,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return "", fmt.Errorf("unsupported")
 	}
-	info, err := sm.LoadInfo(r.Context(), sessionID)
+	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return "", err
@@ -1060,7 +1070,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	info, err := sm.LoadInfo(r.Context(), sessionID)
+	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return

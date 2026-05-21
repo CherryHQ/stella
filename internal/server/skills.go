@@ -262,10 +262,24 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
+	if vc.AgentID == "" && vc.UserID == "" {
+		if sk, err := s.findSkillByID(r.Context(), id); err == nil && sk.Scope == "system" {
+			if systemStore, ok := store.(interface {
+				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
+			}); ok {
+				if err := systemStore.UpdateSystemSkill(r.Context(), id, patch); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				goto files
+			}
+		}
+	}
 	if err := store.Update(r.Context(), id, vc, patch); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+files:
 	for path, content := range req.Files {
 		if err := store.UpsertFile(r.Context(), id, path, content); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -288,6 +302,20 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
+	}
+	if vc.AgentID == "" && vc.UserID == "" {
+		if sk, err := s.findSkillByID(r.Context(), id); err == nil && sk.Scope == "system" {
+			if systemStore, ok := store.(interface {
+				DeleteSystemSkill(context.Context, string) error
+			}); ok {
+				if err := systemStore.DeleteSystemSkill(r.Context(), id); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				writeData(w, http.StatusOK, map[string]string{"id": id})
+				return
+			}
+		}
 	}
 	if err := store.Delete(r.Context(), id, vc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

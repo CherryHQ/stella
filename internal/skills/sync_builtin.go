@@ -133,6 +133,12 @@ func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS) error {
 }
 
 func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, desired map[string]struct{}) error {
+	systemStore, ok := store.(interface {
+		DeleteSystemSkill(context.Context, string) error
+	})
+	if !ok {
+		return fmt.Errorf("sync_builtin: store does not support system skill delete")
+	}
 	for _, row := range rows {
 		if row.Scope != "system" {
 			continue
@@ -140,7 +146,7 @@ func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, d
 		if _, ok := desired[row.Name]; ok {
 			continue
 		}
-		if err := store.Delete(ctx, row.ID, ViewContext{}); err != nil {
+		if err := systemStore.DeleteSystemSkill(ctx, row.ID); err != nil {
 			return fmt.Errorf("delete skill %q (%s): %w", row.Name, row.ID, err)
 		}
 		slog.InfoContext(ctx, "sync_builtin: deleted removed system skill", "name", row.Name, "id", row.ID)
@@ -231,7 +237,13 @@ func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRo
 		existing.Status != normalizeBuiltinStatus(fm.Status) ||
 		existing.DisableModelInvocation != fm.DisableModelInvocation ||
 		string(existing.Metadata) != string(meta) {
-		if err := store.Update(ctx, skillID, ViewContext{}, UpdatePatch{
+		systemStore, ok := store.(interface {
+			UpdateSystemSkill(context.Context, string, UpdatePatch) error
+		})
+		if !ok {
+			return fmt.Errorf("store does not support system skill update")
+		}
+		if err := systemStore.UpdateSystemSkill(ctx, skillID, UpdatePatch{
 			Description:            &fm.Description,
 			Status:                 strPtr(normalizeBuiltinStatus(fm.Status)),
 			DisableModelInvocation: &fm.DisableModelInvocation,

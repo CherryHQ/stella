@@ -166,9 +166,16 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 	if len(patch.Metadata) > 0 {
 		meta = string(patch.Metadata)
 	}
-	return s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
+	params := sqlc.UpdateSkillMetadataParams{
 		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
-	})
+	}
+	if row.Scope == "agent" {
+		params.AgentID = row.AgentID
+	}
+	if row.Scope == "user" {
+		params.UserID = row.UserID
+	}
+	return s.q.UpdateSkillMetadata(ctx, params)
 }
 
 func (s *testSkillStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
@@ -180,7 +187,18 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	return s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	if err != nil {
+		return err
+	}
+	params := sqlc.DeleteSkillParams{ID: id}
+	if row.Scope == "agent" {
+		params.AgentID = row.AgentID
+	}
+	if row.Scope == "user" {
+		params.UserID = row.UserID
+	}
+	return s.q.DeleteSkill(ctx, params)
 }
 
 func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {

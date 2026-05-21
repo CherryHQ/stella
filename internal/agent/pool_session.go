@@ -85,7 +85,7 @@ func resolveUserID(userID []string) string {
 }
 
 func isPrivateMainChannel(channel string, userID string) bool {
-	return userID != "" && !strings.Contains(channel, ":group:") && !strings.HasPrefix(channel, "task:")
+	return userID != "" && strings.Contains(channel, ":user:")
 }
 
 func mainCandidate(info SessionInfo, userID string) bool {

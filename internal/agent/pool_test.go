@@ -685,6 +685,36 @@ func TestPoolResolveSessionGroupDoesNotUsePrivateMain(t *testing.T) {
 	}
 }
 
+func TestPoolResolveSessionNonUserChannelDoesNotUsePrivateMain(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("agentA"))
+	defer func() { _ = pool.Close() }()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "userA"), "agentA")
+	privateSession, err := pool.ResolveSession(ctx, "agentA:user:userA:private", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobSession, err := pool.ResolveSession(ctx, "agentA:scheduler:job1", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jobSession.ID == privateSession.ID {
+		t.Fatal("non-user channel reused private main session")
+	}
+	if jobSession.Kind != "chat" {
+		t.Errorf("job session kind = %q, want chat", jobSession.Kind)
+	}
+
+	againJob, err := pool.ResolveSession(ctx, "agentA:scheduler:job1", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againJob.ID != jobSession.ID {
+		t.Errorf("job resolve = %q, want %q", againJob.ID, jobSession.ID)
+	}
+}
+
 func TestPoolRotateSession(t *testing.T) {
 	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))

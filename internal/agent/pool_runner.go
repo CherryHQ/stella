@@ -40,7 +40,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 
 		// Restore metadata from memory provider if available.
 		if sm, ok := p.mem.(memory.SessionManager); ok {
-			if info, err := sm.LoadInfo(context.Background(), sessionID); err == nil {
+			if info, err := sm.LoadInfo(ctx, sessionID); err == nil {
 				sess.Info = info
 			} else {
 				sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
@@ -96,7 +96,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 
 	// Memory: bootstrap the conversation for this session.
 	memSession := memory.Session{ID: sessionID, AgentID: p.agentID, UserID: sess.Info.UserID}
-	if err := p.mem.Bootstrap(context.Background(), memSession); err != nil {
+	if err := p.mem.Bootstrap(ctx, memSession); err != nil {
 		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
 	}
 

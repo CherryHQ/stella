@@ -60,15 +60,14 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 const deleteSkill = `-- name: DeleteSkill :exec
 DELETE FROM skills
 WHERE id = ?1
-  AND ((?2 IS NULL AND ?3 IS NULL)
-    OR (scope='agent' AND agent_id=?2)
+  AND ((scope='agent' AND agent_id=?2)
     OR (scope='user' AND user_id=?3))
 `
 
 type DeleteSkillParams struct {
-	ID      string      `json:"id"`
-	AgentID interface{} `json:"agent_id"`
-	UserID  interface{} `json:"user_id"`
+	ID      string         `json:"id"`
+	AgentID sql.NullString `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error {
@@ -87,6 +86,15 @@ type DeleteSkillFileParams struct {
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams) error {
 	_, err := q.db.ExecContext(ctx, deleteSkillFile, arg.SkillID, arg.Path)
+	return err
+}
+
+const deleteSystemSkill = `-- name: DeleteSystemSkill :exec
+DELETE FROM skills WHERE id = ? AND scope = 'system'
+`
+
+func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteSystemSkill, id)
 	return err
 }
 
@@ -472,19 +480,18 @@ SET description              = ?1,
     metadata                 = ?4,
     updated_at               = datetime('now')
 WHERE id = ?5
-  AND ((?6 IS NULL AND ?7 IS NULL)
-    OR (scope='agent' AND agent_id=?6)
+  AND ((scope='agent' AND agent_id=?6)
     OR (scope='user' AND user_id=?7))
 `
 
 type UpdateSkillMetadataParams struct {
-	Description            string      `json:"description"`
-	Status                 string      `json:"status"`
-	DisableModelInvocation int64       `json:"disable_model_invocation"`
-	Metadata               string      `json:"metadata"`
-	ID                     string      `json:"id"`
-	AgentID                interface{} `json:"agent_id"`
-	UserID                 interface{} `json:"user_id"`
+	Description            string         `json:"description"`
+	Status                 string         `json:"status"`
+	DisableModelInvocation int64          `json:"disable_model_invocation"`
+	Metadata               string         `json:"metadata"`
+	ID                     string         `json:"id"`
+	AgentID                sql.NullString `json:"agent_id"`
+	UserID                 sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateSkillMetadata(ctx context.Context, arg UpdateSkillMetadataParams) error {
@@ -496,6 +503,35 @@ func (q *Queries) UpdateSkillMetadata(ctx context.Context, arg UpdateSkillMetada
 		arg.ID,
 		arg.AgentID,
 		arg.UserID,
+	)
+	return err
+}
+
+const updateSystemSkillMetadata = `-- name: UpdateSystemSkillMetadata :exec
+UPDATE skills
+SET description              = ?1,
+    status                   = ?2,
+    disable_model_invocation = ?3,
+    metadata                 = ?4,
+    updated_at               = datetime('now')
+WHERE id = ?5 AND scope = 'system'
+`
+
+type UpdateSystemSkillMetadataParams struct {
+	Description            string `json:"description"`
+	Status                 string `json:"status"`
+	DisableModelInvocation int64  `json:"disable_model_invocation"`
+	Metadata               string `json:"metadata"`
+	ID                     string `json:"id"`
+}
+
+func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSystemSkillMetadataParams) error {
+	_, err := q.db.ExecContext(ctx, updateSystemSkillMetadata,
+		arg.Description,
+		arg.Status,
+		arg.DisableModelInvocation,
+		arg.Metadata,
+		arg.ID,
 	)
 	return err
 }

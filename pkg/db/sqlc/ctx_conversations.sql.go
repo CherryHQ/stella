@@ -64,14 +64,14 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 const getConversation = `-- name: GetConversation :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
 WHERE id = ?1
-  AND (?2 IS NULL OR user_id = ?2)
-  AND (?3 IS NULL OR agent_id = ?3)
+  AND user_id = ?2
+  AND agent_id = ?3
 `
 
 type GetConversationParams struct {
-	ID      string      `json:"id"`
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
+	ID      string         `json:"id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams) (CtxConversation, error) {
@@ -98,12 +98,12 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
 WHERE session_id = ?1
-  AND (?2 IS NULL OR user_id = ?2)
+  AND user_id = ?2
 `
 
 type GetConversationBySessionIDParams struct {
-	SessionID string      `json:"session_id"`
-	UserID    interface{} `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	UserID    sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConversationBySessionIDParams) (CtxConversation, error) {
@@ -129,16 +129,16 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
-WHERE project_id = ?
-  AND (?2 IS NULL OR user_id = ?2)
-  AND (?3 IS NULL OR agent_id = ?3)
+WHERE project_id = ?1
+  AND user_id = ?2
+  AND agent_id = ?3
   AND kind = 'main' AND archived = 0 LIMIT 1
 `
 
 type GetMainConversationByProjectParams struct {
 	ProjectID sql.NullString `json:"project_id"`
-	UserID    interface{}    `json:"user_id"`
-	AgentID   interface{}    `json:"agent_id"`
+	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainConversationByProjectParams) (CtxConversation, error) {
@@ -164,15 +164,15 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 
 const listConversations = `-- name: ListConversations :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
-WHERE (?1 IS NULL OR user_id = ?1)
+WHERE user_id = ?1
   AND (?2 IS NULL OR agent_id = ?2)
   AND archived = 0
 ORDER BY last_active DESC
 `
 
 type ListConversationsParams struct {
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID interface{}    `json:"agent_id"`
 }
 
 func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsParams) ([]CtxConversation, error) {
@@ -214,14 +214,14 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 
 const listConversationsAll = `-- name: ListConversationsAll :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
-WHERE (?1 IS NULL OR user_id = ?1)
+WHERE user_id = ?1
   AND (?2 IS NULL OR agent_id = ?2)
 ORDER BY last_active DESC
 `
 
 type ListConversationsAllParams struct {
-	UserID  interface{} `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID interface{}    `json:"agent_id"`
 }
 
 func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversationsAllParams) ([]CtxConversation, error) {
@@ -310,13 +310,13 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec
 UPDATE ctx_conversations SET archived = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND (?3 IS NULL OR user_id = ?3)
+WHERE session_id = ?2 AND user_id = ?3
 `
 
 type UpdateConversationArchivedParams struct {
-	Archived  int64       `json:"archived"`
-	SessionID string      `json:"session_id"`
-	UserID    interface{} `json:"user_id"`
+	Archived  int64          `json:"archived"`
+	SessionID string         `json:"session_id"`
+	UserID    sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConversationArchivedParams) error {
@@ -326,12 +326,12 @@ func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConv
 
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
 UPDATE ctx_conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?1 AND (?2 IS NULL OR user_id = ?2)
+WHERE id = ?1 AND user_id = ?2
 `
 
 type UpdateConversationBootstrappedParams struct {
-	ID     string      `json:"id"`
-	UserID interface{} `json:"user_id"`
+	ID     string         `json:"id"`
+	UserID sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg UpdateConversationBootstrappedParams) error {
@@ -341,14 +341,14 @@ func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg Update
 
 const updateConversationKindProject = `-- name: UpdateConversationKindProject :exec
 UPDATE ctx_conversations SET kind = ?1, project_id = ?2, updated_at = datetime('now')
-WHERE session_id = ?3 AND (?4 IS NULL OR user_id = ?4)
+WHERE session_id = ?3 AND user_id = ?4
 `
 
 type UpdateConversationKindProjectParams struct {
 	Kind      string         `json:"kind"`
 	ProjectID sql.NullString `json:"project_id"`
 	SessionID string         `json:"session_id"`
-	UserID    interface{}    `json:"user_id"`
+	UserID    sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateConversationKindProjectParams) error {
@@ -363,12 +363,12 @@ func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateC
 
 const updateConversationLastActive = `-- name: UpdateConversationLastActive :exec
 UPDATE ctx_conversations SET last_active = datetime('now'), updated_at = datetime('now')
-WHERE session_id = ?1 AND (?2 IS NULL OR user_id = ?2)
+WHERE session_id = ?1 AND user_id = ?2
 `
 
 type UpdateConversationLastActiveParams struct {
-	SessionID string      `json:"session_id"`
-	UserID    interface{} `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	UserID    sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationLastActive(ctx context.Context, arg UpdateConversationLastActiveParams) error {
@@ -378,13 +378,13 @@ func (q *Queries) UpdateConversationLastActive(ctx context.Context, arg UpdateCo
 
 const updateConversationTitle = `-- name: UpdateConversationTitle :exec
 UPDATE ctx_conversations SET title = ?1, updated_at = datetime('now')
-WHERE id = ?2 AND (?3 IS NULL OR user_id = ?3)
+WHERE id = ?2 AND user_id = ?3
 `
 
 type UpdateConversationTitleParams struct {
 	Title  sql.NullString `json:"title"`
 	ID     string         `json:"id"`
-	UserID interface{}    `json:"user_id"`
+	UserID sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConversationTitleParams) error {
@@ -394,13 +394,13 @@ func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConvers
 
 const updateConversationTitleBySessionID = `-- name: UpdateConversationTitleBySessionID :exec
 UPDATE ctx_conversations SET title = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND (?3 IS NULL OR user_id = ?3)
+WHERE session_id = ?2 AND user_id = ?3
 `
 
 type UpdateConversationTitleBySessionIDParams struct {
 	Title     sql.NullString `json:"title"`
 	SessionID string         `json:"session_id"`
-	UserID    interface{}    `json:"user_id"`
+	UserID    sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg UpdateConversationTitleBySessionIDParams) error {

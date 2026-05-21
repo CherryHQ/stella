@@ -16,7 +16,7 @@ import (
 
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -36,7 +36,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Archived:   boolToInt(info.Archived),
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
 			AgentID:    sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
-			UserID:     sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+			UserID:     sql.NullString{String: info.UserID, Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -52,7 +52,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if err := p.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 			Title:     sql.NullString{String: info.Title, Valid: true},
 			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+			UserID:    sql.NullString{String: info.UserID, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("update title: %w", err)
 		}
@@ -61,7 +61,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if err := p.q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
 			Archived:  boolToInt(info.Archived),
 			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+			UserID:    sql.NullString{String: info.UserID, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("update archived: %w", err)
 		}
@@ -79,13 +79,13 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			Kind:      kind,
 			ProjectID: projectID,
 			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+			UserID:    sql.NullString{String: info.UserID, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("update kind/project: %w", err)
 		}
 	}
 
-	if err := p.q.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: info.UserID != ""}}); err != nil {
+	if err := p.q.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}}); err != nil {
 		return fmt.Errorf("update last_active: %w", err)
 	}
 	return nil
@@ -93,7 +93,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 
 // LoadInfo implements memory.SessionManager.
 func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: true}})
 	if err != nil {
 		return memory.SessionInfo{}, fmt.Errorf("get conversation: %w", err)
 	}
@@ -110,9 +110,9 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	}
 	agentID := sql.NullString{String: opts.AgentID, Valid: opts.AgentID != ""}
 	if opts.IncludeArchived {
-		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
+		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: true}, AgentID: agentID})
 	} else {
-		convs, err = p.q.ListConversations(ctx, sqlc.ListConversationsParams{UserID: sql.NullString{String: userID, Valid: userID != ""}, AgentID: agentID})
+		convs, err = p.q.ListConversations(ctx, sqlc.ListConversationsParams{UserID: sql.NullString{String: userID, Valid: true}, AgentID: agentID})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
@@ -149,7 +149,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: memory.UserIDFromContext(ctx) != ""}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: memory.UserIDFromContext(ctx), Valid: true}})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
