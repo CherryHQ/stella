@@ -198,11 +198,18 @@ run = """
 
 [tasks."docker:dev"]
 description = "Run local Docker image with STELLA_HOME in ~/.stella-dev"
+depends = ["docker:build"]
 run = """
     docker image inspect stella:latest >/dev/null 2>&1 || { echo 'stella:latest not found; run mise run docker:build first' >&2; exit 1; }
     mkdir -p \"$HOME/.stella-dev\"
+    touch \"$HOME/.stella-dev/.env\"
+    if ! grep -q '^STELLA_VAULT_KEY=' \"$HOME/.stella-dev/.env\"; then
+        echo \"STELLA_VAULT_KEY=$(docker run --rm stella:latest stella vault keygen)\" >> \"$HOME/.stella-dev/.env\"
+        echo 'generated STELLA_VAULT_KEY in ~/.stella-dev/.env'
+    fi
     docker rm -f stella-dev >/dev/null 2>&1 || true
     docker run -d --name stella-dev -p 25678:25678 \
+        --env-file \"$HOME/.stella-dev/.env\" \
         --user 0:0 \
         --security-opt seccomp=unconfined \
         -v "$HOME/.stella-dev:/workspace" \

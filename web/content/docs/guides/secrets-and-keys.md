@@ -13,10 +13,10 @@ Before using the vault, you need to generate a master encryption key and provide
 ### 1. Generate a Master Key
 
 ```bash
-age-keygen
+stella vault keygen
 ```
 
-This prints a public key and a secret key. Copy the line starting with `AGE-SECRET-KEY-1`.
+This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`.
 
 ### 2. Start Stella with the Key
 

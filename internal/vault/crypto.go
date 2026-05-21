@@ -10,6 +10,14 @@ import (
 	"filippo.io/age/armor"
 )
 
+func GenerateMasterIdentity() (string, error) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		return "", fmt.Errorf("vault: generate master identity: %w", err)
+	}
+	return id.String(), nil
+}
+
 // ParseMasterIdentity parses an age identity string (e.g. "AGE-SECRET-KEY-1...")
 // and returns both the identity (for decryption) and its recipient (for encryption).
 func ParseMasterIdentity(identityStr string) (*age.X25519Identity, *age.X25519Recipient, error) {

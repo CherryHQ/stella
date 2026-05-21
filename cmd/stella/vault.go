@@ -9,6 +9,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 func vaultCommand() *ucli.Command {
@@ -20,10 +21,26 @@ func vaultCommand() *ucli.Command {
 with an age key. Secrets are available to the agent at runtime without
 exposing them in configuration files.`,
 		Subcommands: []*ucli.Command{
+			vaultKeygenCommand(),
 			vaultListCommand(),
 			vaultGetCommand(),
 			vaultSetCommand(),
 			vaultDeleteCommand(),
+		},
+	}
+}
+
+func vaultKeygenCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "keygen",
+		Usage: "Generate a STELLA_VAULT_KEY value",
+		Action: func(_ *ucli.Context) error {
+			key, err := vault.GenerateMasterIdentity()
+			if err != nil {
+				return err
+			}
+			fmt.Println(key)
+			return nil
 		},
 	}
 }
