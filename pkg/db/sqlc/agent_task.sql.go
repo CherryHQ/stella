@@ -89,20 +89,30 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 }
 
 const deleteAgentTask = `-- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?
+DELETE FROM agent_task WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAgentTask, id)
+type DeleteAgentTaskParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteAgentTask(ctx context.Context, arg DeleteAgentTaskParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentTask, arg.ID, arg.UserID)
 	return err
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ?
+SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ? AND user_id = ?
 `
 
-func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
-	row := q.db.QueryRowContext(ctx, getAgentTask, id)
+type GetAgentTaskParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) GetAgentTask(ctx context.Context, arg GetAgentTaskParams) (AgentTask, error) {
+	row := q.db.QueryRowContext(ctx, getAgentTask, arg.ID, arg.UserID)
 	var i AgentTask
 	err := row.Scan(
 		&i.ID,
@@ -355,7 +365,7 @@ func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error
 const updateAgentTask = `-- name: UpdateAgentTask :exec
 UPDATE agent_task
 SET title = ?, description = ?, priority = ?, agent_id = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND user_id = ?
 `
 
 type UpdateAgentTaskParams struct {
@@ -365,6 +375,7 @@ type UpdateAgentTaskParams struct {
 	AgentID     sql.NullString `json:"agent_id"`
 	UpdatedAt   string         `json:"updated_at"`
 	ID          string         `json:"id"`
+	UserID      string         `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgentTask(ctx context.Context, arg UpdateAgentTaskParams) error {
@@ -375,6 +386,7 @@ func (q *Queries) UpdateAgentTask(ctx context.Context, arg UpdateAgentTaskParams
 		arg.AgentID,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.UserID,
 	)
 	return err
 }
@@ -382,81 +394,106 @@ func (q *Queries) UpdateAgentTask(ctx context.Context, arg UpdateAgentTaskParams
 const updateAgentTaskContext = `-- name: UpdateAgentTaskContext :exec
 UPDATE agent_task
 SET context = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND user_id = ?
 `
 
 type UpdateAgentTaskContextParams struct {
 	Context   string `json:"context"`
 	UpdatedAt string `json:"updated_at"`
 	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgentTaskContext(ctx context.Context, arg UpdateAgentTaskContextParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskContext, arg.Context, arg.UpdatedAt, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateAgentTaskContext,
+		arg.Context,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
 	return err
 }
 
 const updateAgentTaskNotifyAt = `-- name: UpdateAgentTaskNotifyAt :exec
 UPDATE agent_task
 SET notify_at = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND user_id = ?
 `
 
 type UpdateAgentTaskNotifyAtParams struct {
 	NotifyAt  sql.NullString `json:"notify_at"`
 	UpdatedAt string         `json:"updated_at"`
 	ID        string         `json:"id"`
+	UserID    string         `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgentTaskNotifyAt(ctx context.Context, arg UpdateAgentTaskNotifyAtParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskNotifyAt, arg.NotifyAt, arg.UpdatedAt, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateAgentTaskNotifyAt,
+		arg.NotifyAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
 	return err
 }
 
 const updateAgentTaskReviewRequest = `-- name: UpdateAgentTaskReviewRequest :exec
 UPDATE agent_task
 SET review_request = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND user_id = ?
 `
 
 type UpdateAgentTaskReviewRequestParams struct {
 	ReviewRequest string `json:"review_request"`
 	UpdatedAt     string `json:"updated_at"`
 	ID            string `json:"id"`
+	UserID        string `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgentTaskReviewRequest(ctx context.Context, arg UpdateAgentTaskReviewRequestParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskReviewRequest, arg.ReviewRequest, arg.UpdatedAt, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateAgentTaskReviewRequest,
+		arg.ReviewRequest,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
 	return err
 }
 
 const updateAgentTaskStatus = `-- name: UpdateAgentTaskStatus :exec
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND user_id = ?
 `
 
 type UpdateAgentTaskStatusParams struct {
 	Status    string `json:"status"`
 	UpdatedAt string `json:"updated_at"`
 	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgentTaskStatus(ctx context.Context, arg UpdateAgentTaskStatusParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskStatus, arg.Status, arg.UpdatedAt, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateAgentTaskStatus,
+		arg.Status,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
 	return err
 }
 
 const updateAgentTaskStatusFrom = `-- name: UpdateAgentTaskStatusFrom :exec
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ? AND status = ?
+WHERE id = ? AND user_id = ? AND status = ?
 `
 
 type UpdateAgentTaskStatusFromParams struct {
 	Status    string `json:"status"`
 	UpdatedAt string `json:"updated_at"`
 	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
 	Status_2  string `json:"status_2"`
 }
 
@@ -465,6 +502,7 @@ func (q *Queries) UpdateAgentTaskStatusFrom(ctx context.Context, arg UpdateAgent
 		arg.Status,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.UserID,
 		arg.Status_2,
 	)
 	return err

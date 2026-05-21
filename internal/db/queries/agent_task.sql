@@ -7,7 +7,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
-SELECT * FROM agent_task WHERE id = ?;
+SELECT * FROM agent_task WHERE id = ? AND user_id = ?;
 
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC;
@@ -32,32 +32,32 @@ ORDER BY notify_at ASC;
 -- name: UpdateAgentTask :exec
 UPDATE agent_task
 SET title = ?, description = ?, priority = ?, agent_id = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND user_id = ?;
 
 -- name: UpdateAgentTaskStatus :exec
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND user_id = ?;
 
 -- name: UpdateAgentTaskStatusFrom :exec
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ? AND status = ?;
+WHERE id = ? AND user_id = ? AND status = ?;
 
 -- name: UpdateAgentTaskContext :exec
 UPDATE agent_task
 SET context = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND user_id = ?;
 
 -- name: UpdateAgentTaskReviewRequest :exec
 UPDATE agent_task
 SET review_request = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND user_id = ?;
 
 -- name: UpdateAgentTaskNotifyAt :exec
 UPDATE agent_task
 SET notify_at = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND user_id = ?;
 
 -- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ?;
+DELETE FROM agent_task WHERE id = ? AND user_id = ?;

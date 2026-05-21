@@ -30,13 +30,14 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		Status:    "running",
 		UpdatedAt: now,
 		ID:        task.ID,
+		UserID:    task.UserID,
 		Status_2:  "pending",
 	}); err != nil {
 		log.Error("failed to claim task", "error", err)
 		return
 	}
 	// Verify the claim succeeded (UpdateAgentTaskStatusFrom returns nil even on 0 rows).
-	claimed, err := cfg.q.GetAgentTask(ctx, task.ID)
+	claimed, err := cfg.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: task.UserID})
 	if err != nil {
 		log.Error("failed to verify task claim", "error", err)
 		return
@@ -62,12 +63,12 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	factory, ok := cfg.runnerFactory(agentID)
 	if !ok {
 		log.Error("no runner factory for agent", "agent_id", agentID)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("no runner available for agent %q", agentID))
+		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("no runner available for agent %q", agentID))
 		return
 	}
 
 	// Build the control tool with the worker's cancel func.
-	controlTool := newTaskControlTool(cfg.q, task.ID, cancel)
+	controlTool := newTaskControlTool(cfg.q, task.ID, task.UserID, cancel)
 
 	// Create a full runner (with sandbox tools) via the agent factory,
 	// injecting task_control as an extra tool.
@@ -79,7 +80,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	})
 	if err != nil {
 		log.Error("create runner failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("create runner: %v", err))
+		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("create runner: %v", err))
 		return
 	}
 	defer func() { _ = runner.Close() }()
@@ -92,12 +93,12 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 
 	if err := saveTaskSessionInfo(memCtx, cfg.mem, task, session); err != nil {
 		log.Error("memory session info failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("memory session info failed: %v", err))
+		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory session info failed: %v", err))
 		return
 	}
 	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
 		log.Error("memory bootstrap failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("memory bootstrap failed: %v", err))
+		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory bootstrap failed: %v", err))
 		return
 	}
 
@@ -105,7 +106,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	history, err := cfg.mem.Assemble(memCtx, session, 100_000, 20)
 	if err != nil {
 		log.Error("assemble history failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, fmt.Sprintf("assemble history: %v", err))
+		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("assemble history: %v", err))
 		return
 	}
 
@@ -143,7 +144,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	}
 
 	// If the task is still running (agent exited without calling task_control), finalize it.
-	final, err := cfg.q.GetAgentTask(cleanupCtx, task.ID)
+	final, err := cfg.q.GetAgentTask(cleanupCtx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: task.UserID})
 	if err != nil {
 		log.Error("failed to read final task status", "error", err)
 		return
@@ -152,10 +153,10 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	if final.Status == "running" {
 		if runErr != nil {
 			log.Error("agent loop failed", "error", runErr)
-			markFailed(cleanupCtx, cfg.q, task.ID, runErr.Error())
+			markFailed(cleanupCtx, cfg.q, task.ID, task.UserID, runErr.Error())
 		} else {
 			log.Info("agent loop finished without explicit task_control done call, marking done")
-			markDone(cleanupCtx, cfg.q, task.ID)
+			markDone(cleanupCtx, cfg.q, task.ID, task.UserID)
 		}
 	}
 }
@@ -176,12 +177,13 @@ func taskResumeMessage(task sqlc.AgentTask) string {
 	return fmt.Sprintf("[Resume] Task ID: %s\nTask: %s\nStatus before resume: %s\nStored context: %s\n\nContinue from the persisted conversation and this task context.", task.ID, task.Title, task.Status, task.Context)
 }
 
-func markFailed(ctx context.Context, q *sqlc.Queries, taskID, reason string) {
+func markFailed(ctx context.Context, q *sqlc.Queries, taskID, userID, reason string) {
 	now := time.Now().Format(time.RFC3339)
 	_ = q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 		Status:    "failed",
 		UpdatedAt: now,
 		ID:        taskID,
+		UserID:    userID,
 	})
 	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 		ID:        newID(),
@@ -193,12 +195,13 @@ func markFailed(ctx context.Context, q *sqlc.Queries, taskID, reason string) {
 	})
 }
 
-func markDone(ctx context.Context, q *sqlc.Queries, taskID string) {
+func markDone(ctx context.Context, q *sqlc.Queries, taskID, userID string) {
 	now := time.Now().Format(time.RFC3339)
 	_ = q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 		Status:    "done",
 		UpdatedAt: now,
 		ID:        taskID,
+		UserID:    userID,
 	})
 	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 		ID:        newID(),

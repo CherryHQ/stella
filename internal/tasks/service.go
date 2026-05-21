@@ -113,6 +113,7 @@ func (s *Service) Start(ctx context.Context) error {
 			Status:    "pending",
 			UpdatedAt: now,
 			ID:        t.ID,
+			UserID:    t.UserID,
 		}); err != nil {
 			s.log.Warn("failed to reset running task", "task_id", t.ID, "error", err)
 		}
@@ -159,6 +160,7 @@ func (s *Service) sweepNotifications(ctx context.Context, now string) {
 			NotifyAt:  sql.NullString{Valid: false},
 			UpdatedAt: now,
 			ID:        t.ID,
+			UserID:    t.UserID,
 		})
 	}
 }
@@ -197,7 +199,7 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 			continue
 		}
 		for _, depID := range deps {
-			dep, err := s.q.GetAgentTask(ctx, depID)
+			dep, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: t.UserID})
 			if err != nil {
 				continue
 			}
@@ -206,11 +208,13 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 					Status:    "blocked",
 					UpdatedAt: now,
 					ID:        t.ID,
+					UserID:    t.UserID,
 				})
 				_ = s.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
 					NotifyAt:  sql.NullString{String: now, Valid: true},
 					UpdatedAt: now,
 					ID:        t.ID,
+					UserID:    t.UserID,
 				})
 				_, _ = s.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
 					ID:        newID(),
@@ -262,7 +266,7 @@ func (s *Service) sweepDispatch(ctx context.Context) {
 // depsAllDone returns true if all dep tasks are in "done" status.
 func (s *Service) depsAllDone(ctx context.Context, t sqlc.AgentTask) bool {
 	for _, depID := range parseDeps(t.Deps) {
-		dep, err := s.q.GetAgentTask(ctx, depID)
+		dep, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: t.UserID})
 		if err != nil || dep.Status != "done" {
 			return false
 		}
@@ -278,7 +282,7 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	}
 
 	// Validate deps exist.
-	if err := s.validateDeps(ctx, params.Deps); err != nil {
+	if err := s.validateDeps(ctx, params.UserID, params.Deps); err != nil {
 		return sqlc.AgentTask{}, err
 	}
 
@@ -313,9 +317,9 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 }
 
 // validateDeps checks that all dep IDs exist and that adding them introduces no cycle.
-func (s *Service) validateDeps(ctx context.Context, deps []string) error {
+func (s *Service) validateDeps(ctx context.Context, userID string, deps []string) error {
 	for _, id := range deps {
-		if _, err := s.q.GetAgentTask(ctx, id); err != nil {
+		if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID}); err != nil {
 			return fmt.Errorf("tasks: dep %q not found: %w", id, err)
 		}
 	}
@@ -328,7 +332,7 @@ func (s *Service) validateDeps(ctx context.Context, deps []string) error {
 		}
 		inStack[id] = true
 		defer func() { inStack[id] = false }()
-		t, err := s.q.GetAgentTask(ctx, id)
+		t, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 		if err != nil {
 			return nil
 		}
@@ -348,8 +352,8 @@ func (s *Service) validateDeps(ctx context.Context, deps []string) error {
 }
 
 // GetTask returns a single task by ID.
-func (s *Service) GetTask(ctx context.Context, id string) (sqlc.AgentTask, error) {
-	task, err := s.q.GetAgentTask(ctx, id)
+func (s *Service) GetTask(ctx context.Context, id string, userID string) (sqlc.AgentTask, error) {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: get %s: %w", id, err)
 	}
@@ -386,13 +390,10 @@ func (s *Service) ListTasks(ctx context.Context, userID, agentID, status string)
 }
 
 // UpdateTask updates mutable task fields (title, description, priority, agent_id).
-func (s *Service) UpdateTask(ctx context.Context, id string, userID string, isAdmin bool, update UpdateTaskParams) (sqlc.AgentTask, error) {
-	task, err := s.q.GetAgentTask(ctx, id)
+func (s *Service) UpdateTask(ctx context.Context, id string, userID string, update UpdateTaskParams) (sqlc.AgentTask, error) {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: get for update: %w", err)
-	}
-	if !isAdmin && task.UserID != userID {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: forbidden")
 	}
 	title := update.Title
 	if title == "" {
@@ -417,20 +418,18 @@ func (s *Service) UpdateTask(ctx context.Context, id string, userID string, isAd
 		AgentID:     sql.NullString{String: agentID, Valid: agentID != ""},
 		UpdatedAt:   time.Now().Format(time.RFC3339),
 		ID:          id,
+		UserID:      userID,
 	}); err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: update: %w", err)
 	}
-	return s.q.GetAgentTask(ctx, id)
+	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 }
 
 // DeleteTask deletes a task (cancels running worker if present).
-func (s *Service) DeleteTask(ctx context.Context, id string, userID string, isAdmin bool) error {
-	task, err := s.q.GetAgentTask(ctx, id)
+func (s *Service) DeleteTask(ctx context.Context, id string, userID string) error {
+	_, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("tasks: get for delete: %w", err)
-	}
-	if !isAdmin && task.UserID != userID {
-		return fmt.Errorf("tasks: forbidden")
 	}
 	s.mu.Lock()
 	cancel, running := s.workers[id]
@@ -438,17 +437,14 @@ func (s *Service) DeleteTask(ctx context.Context, id string, userID string, isAd
 	if running {
 		cancel()
 	}
-	return s.q.DeleteAgentTask(ctx, id)
+	return s.q.DeleteAgentTask(ctx, sqlc.DeleteAgentTaskParams{ID: id, UserID: userID})
 }
 
 // HandleAction processes approve/reject/respond/cancel actions on a task.
-func (s *Service) HandleAction(ctx context.Context, id string, userID string, isAdmin bool, action ActionParams) (sqlc.AgentTask, error) {
-	task, err := s.q.GetAgentTask(ctx, id)
+func (s *Service) HandleAction(ctx context.Context, id string, userID string, action ActionParams) (sqlc.AgentTask, error) {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: get for action: %w", err)
-	}
-	if !isAdmin && task.UserID != userID {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: forbidden")
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -461,6 +457,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 				Status:    "cancelled",
 				UpdatedAt: now,
 				ID:        id,
+				UserID:    userID,
 			}); err != nil {
 				return sqlc.AgentTask{}, fmt.Errorf("tasks: cancel: %w", err)
 			}
@@ -475,6 +472,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 				Status:    "cancelled",
 				UpdatedAt: now,
 				ID:        id,
+				UserID:    userID,
 			}); err != nil {
 				return sqlc.AgentTask{}, fmt.Errorf("tasks: cancel running: %w", err)
 			}
@@ -490,6 +488,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 			ReviewRequest: "{}",
 			UpdatedAt:     now,
 			ID:            id,
+			UserID:        userID,
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: clear review_request: %w", err)
 		}
@@ -497,6 +496,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 			Status:    "pending",
 			UpdatedAt: now,
 			ID:        id,
+			UserID:    userID,
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set pending: %w", err)
 		}
@@ -509,6 +509,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 			Status:    "failed",
 			UpdatedAt: now,
 			ID:        id,
+			UserID:    userID,
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject: %w", err)
 		}
@@ -542,6 +543,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 			ReviewRequest: "{}",
 			UpdatedAt:     now,
 			ID:            id,
+			UserID:        userID,
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond clear review_request: %w", err)
 		}
@@ -549,6 +551,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 			Status:    "pending",
 			UpdatedAt: now,
 			ID:        id,
+			UserID:    userID,
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond set pending: %w", err)
 		}
@@ -557,7 +560,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, is
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: unknown action %q", action.Action)
 	}
 
-	return s.q.GetAgentTask(ctx, id)
+	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
 }
 
 // ListTaskEvents returns all events for a task ordered by creation time.
