@@ -12,15 +12,18 @@ FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS builder
 
 WORKDIR /go/src/app
 
+# download go mods
+COPY go.mod go.sum ./
+RUN go mod download
+
+# install mise
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
 RUN curl -fsSL https://mise.run | sh
 COPY mise.toml mise.toml
 RUN mise trust
 
-COPY go.mod go.sum ./
-RUN go mod download
-
+# Build app
 COPY . .
 COPY --from=web-builder /web/static/dist/ ./web/static/dist/
 
