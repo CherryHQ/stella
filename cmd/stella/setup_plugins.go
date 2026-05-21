@@ -1,0 +1,152 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"sync"
+
+	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/config"
+	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
+	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/pluginstate"
+	skills "github.com/CherryHQ/stella/internal/skills"
+	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+)
+
+type pluginSetup struct {
+	host                   *pluginhost.Host
+	mcpManager             *mcpplugin.Manager
+	channelRuntimeServices *pluginhost.ChannelPlatform
+	reflectRuntimeServices *pluginhost.ReflectPlatform
+	oauthRegistry          *oauth.ProviderRegistry
+	manifestToReconcile    *manifestplugins.Manifest
+}
+
+func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+	authStore := appdb.NewAuthStore(db)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	stateStore := pluginstate.New(db)
+
+	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
+		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithSkillStore(skillStore),
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
+
+	mcpManager := mcpplugin.NewManager()
+	phost.RegisterBuiltinTools(mcpManager)
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		return nil, fmt.Errorf("load plugin catalog: %w", err)
+	}
+
+	var (
+		oauthRegistry       *oauth.ProviderRegistry
+		manifestToReconcile *manifestplugins.Manifest
+	)
+
+	builtinManifest, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
+	} else {
+		userManifestPath := filepath.Join(config.StellaHome(), "plugins.yaml")
+		userManifest, err := manifestplugins.LoadUser(userManifestPath)
+		if err != nil {
+			slog.Warn("manifest plugin: failed to load user manifest", "path", userManifestPath, "error", err)
+			userManifest = &manifestplugins.Manifest{}
+		}
+		merged := manifestplugins.Merge(builtinManifest, userManifest)
+		manifestToReconcile = merged
+		phost.RegisterManifestPlugins(merged)
+
+		oauthRegistry = buildOAuthRegistry(merged)
+	}
+
+	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
+		return nil, fmt.Errorf("apply mcp runtime: %w", err)
+	}
+
+	return &pluginSetup{
+		host:                   phost,
+		mcpManager:             mcpManager,
+		channelRuntimeServices: channelRuntimeServices,
+		reflectRuntimeServices: reflectRuntimeServices,
+		oauthRegistry:          oauthRegistry,
+		manifestToReconcile:    manifestToReconcile,
+	}, nil
+}
+
+func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistry {
+	registry := oauth.NewProviderRegistry()
+	for _, op := range merged.OAuthProviders {
+		flows := make([]oauth.ProviderFlowConfig, 0, len(op.Flows))
+		for _, f := range op.Flows {
+			var authStyle oauth2.AuthStyle
+			switch f.AuthStyle {
+			case "in_params":
+				authStyle = oauth2.AuthStyleInParams
+			case "in_header":
+				authStyle = oauth2.AuthStyleInHeader
+			default:
+				authStyle = oauth2.AuthStyleAutoDetect
+			}
+			flows = append(flows, oauth.ProviderFlowConfig{
+				Type:          f.Type,
+				AuthURL:       f.AuthURL,
+				DeviceAuthURL: f.DeviceAuthURL,
+				TokenURL:      f.TokenURL,
+				AuthStyle:     authStyle,
+				PKCE:          f.PKCE,
+			})
+		}
+		registry.Register(oauth.ProviderConfig{
+			ID:           op.ID,
+			Icon:         op.Icon,
+			Scopes:       op.Scopes,
+			VaultKey:     op.VaultKey,
+			Flows:        flows,
+			ClientID:     op.ClientID,
+			ClientSecret: op.ClientSecret,
+		})
+	}
+	return registry
+}
+
+func buildPromptToolsBuilder(mcpManager *mcpplugin.Manager) func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
+	return func(_ context.Context) ([]pkgplugins.PromptToolInfo, error) {
+		validTools := mcpManager.ValidTools()
+		items := make([]pkgplugins.PromptToolInfo, 0, len(validTools))
+		for _, t := range validTools {
+			items = append(items, pkgplugins.PromptToolInfo{
+				Name:        t.ID,
+				Description: t.Description,
+				Metadata:    map[string]any{"server_name": t.ServerName},
+			})
+		}
+		return items, nil
+	}
+}
+
+func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string) {
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("manifest plugin reconcile panic", "panic", r)
+			}
+		}()
+		slog.Info("manifest plugin reconcile queued in background")
+		manifestplugins.Reconcile(ctx, m, stellaHome)
+	})
+}
