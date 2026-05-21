@@ -613,6 +613,78 @@ func TestPoolResolveSession(t *testing.T) {
 	}
 }
 
+func TestPoolResolveSessionTwoUsersSameAgent(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("agentA"))
+	defer func() { _ = pool.Close() }()
+
+	ctxA := memory.WithAgentID(memory.WithUserID(context.Background(), "userA"), "agentA")
+	ctxB := memory.WithAgentID(memory.WithUserID(context.Background(), "userB"), "agentA")
+
+	sessionA, err := pool.ResolveSession(ctxA, "agentA:user:userA:private", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionB, err := pool.ResolveSession(ctxB, "agentA:user:userB:private", "userB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionA.ID == sessionB.ID {
+		t.Fatalf("expected different sessions for different users, got %q", sessionA.ID)
+	}
+	if sessionA.UserID != "userA" {
+		t.Errorf("sessionA user = %q, want userA", sessionA.UserID)
+	}
+	if sessionB.UserID != "userB" {
+		t.Errorf("sessionB user = %q, want userB", sessionB.UserID)
+	}
+
+	againA, err := pool.ResolveSession(ctxA, "agentA:user:userA:private", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	againB, err := pool.ResolveSession(ctxB, "agentA:user:userB:private", "userB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againA.ID != sessionA.ID {
+		t.Errorf("userA resolve = %q, want %q", againA.ID, sessionA.ID)
+	}
+	if againB.ID != sessionB.ID {
+		t.Errorf("userB resolve = %q, want %q", againB.ID, sessionB.ID)
+	}
+}
+
+func TestPoolResolveSessionGroupDoesNotUsePrivateMain(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("agentA"))
+	defer func() { _ = pool.Close() }()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "userA"), "agentA")
+	privateSession, err := pool.ResolveSession(ctx, "agentA:user:userA:private", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupSession, err := pool.ResolveSession(ctx, "agentA:telegram:externalA:group:chat1", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if groupSession.ID == privateSession.ID {
+		t.Fatal("group session reused private main session")
+	}
+	if groupSession.Kind != "chat" {
+		t.Errorf("group session kind = %q, want chat", groupSession.Kind)
+	}
+
+	againGroup, err := pool.ResolveSession(ctx, "agentA:telegram:externalA:group:chat1", "userA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againGroup.ID != groupSession.ID {
+		t.Errorf("group resolve = %q, want %q", againGroup.ID, groupSession.ID)
+	}
+}
+
 func TestPoolRotateSession(t *testing.T) {
 	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
@@ -726,16 +798,16 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 		t.Error("legacy session with empty Channel should not match 'cli'")
 	}
 
-	// ResolveSession promotes the latest session to main.
+	// ResolveSession should not promote legacy sessions without user/channel scope.
 	info, err := pool.ResolveSession(context.Background(), "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.ID != "legacy-abc" {
-		t.Errorf("expected legacy session to be promoted, got %q", info.ID)
+	if info.ID == "legacy-abc" {
+		t.Error("legacy session should not be promoted")
 	}
-	if info.Kind != "main" {
-		t.Errorf("Kind = %q, want main", info.Kind)
+	if info.Channel != "cli" {
+		t.Errorf("Channel = %q, want cli", info.Channel)
 	}
 }
 

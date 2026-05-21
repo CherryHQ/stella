@@ -64,6 +64,23 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			return fmt.Errorf("update archived: %w", err)
 		}
 	}
+	if (info.Kind != "" && info.Kind != conv.Kind) || (info.ProjectID != "" && (!conv.ProjectID.Valid || info.ProjectID != conv.ProjectID.String)) {
+		kind := info.Kind
+		if kind == "" {
+			kind = conv.Kind
+		}
+		projectID := sql.NullString{String: info.ProjectID, Valid: info.ProjectID != ""}
+		if info.ProjectID == "" && conv.ProjectID.Valid {
+			projectID = conv.ProjectID
+		}
+		if err := p.q.UpdateConversationKindProject(ctx, sqlc.UpdateConversationKindProjectParams{
+			Kind:      kind,
+			ProjectID: projectID,
+			SessionID: info.ID,
+		}); err != nil {
+			return fmt.Errorf("update kind/project: %w", err)
+		}
+	}
 	// Update agent_id/user_id if provided and different.
 	if info.AgentID != "" || info.UserID != "" {
 		agentMatch := conv.AgentID.Valid && conv.AgentID.String == info.AgentID

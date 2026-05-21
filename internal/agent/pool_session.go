@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,7 +31,7 @@ func (p *Pool) CreateSessionWithKind(channel, kind, projectID string, userID ...
 		sess.Info.ProjectID = projectID
 	}
 	p.mu.Unlock()
-	return p.persistNewSession(info)
+	return p.persistNewSession(context.Background(), info)
 }
 
 // createSessionLocked creates a new session and adds it to the in-memory map.
@@ -52,9 +53,10 @@ func (p *Pool) createSessionLocked(channel string, userID ...string) SessionInfo
 }
 
 // persistNewSession saves session metadata to the memory provider and logs creation.
-func (p *Pool) persistNewSession(info SessionInfo) (SessionInfo, error) {
+func (p *Pool) persistNewSession(ctx context.Context, info SessionInfo) (SessionInfo, error) {
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		if err := sm.SaveInfo(context.Background(), info); err != nil {
+		ctx = p.sessionContext(ctx, info.UserID)
+		if err := sm.SaveInfo(ctx, info); err != nil {
 			return info, fmt.Errorf("persist session info: %w", err)
 		}
 	}
@@ -62,15 +64,51 @@ func (p *Pool) persistNewSession(info SessionInfo) (SessionInfo, error) {
 	return info, nil
 }
 
+func (p *Pool) sessionContext(ctx context.Context, userID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if userID != "" && memory.UserIDFromContext(ctx) == "" {
+		ctx = memory.WithUserID(ctx, userID)
+	}
+	if p.agentID != "" && memory.AgentIDFromContext(ctx) == "" {
+		ctx = memory.WithAgentID(ctx, p.agentID)
+	}
+	return ctx
+}
+
+func resolveUserID(userID []string) string {
+	if len(userID) == 0 {
+		return ""
+	}
+	return userID[0]
+}
+
+func isPrivateMainChannel(channel string, userID string) bool {
+	return userID != "" && !strings.Contains(channel, ":group:") && !strings.HasPrefix(channel, "task:")
+}
+
+func mainCandidate(info SessionInfo, userID string) bool {
+	if info.Archived || info.UserID != userID || info.ProjectID != "" {
+		return false
+	}
+	if info.Kind == "task" || info.Kind == "scheduler" {
+		return false
+	}
+	return isPrivateMainChannel(info.Channel, userID)
+}
+
 // activeSessionLocked returns the most recent non-archived session for a channel
 // from the in-memory map and persistent store. Caller must hold p.mu.
-func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
+func (p *Pool) activeSessionLocked(ctx context.Context, channel string, userID string) (SessionInfo, bool) {
 	var best *SessionInfo
 	seen := make(map[string]struct{})
 
-	// Check in-memory sessions (have the freshest LastActive).
 	for _, sess := range p.sessions {
 		if sess.Info.Archived || sess.Info.Channel != channel {
+			continue
+		}
+		if userID != "" && sess.Info.UserID != userID {
 			continue
 		}
 		seen[sess.Info.ID] = struct{}{}
@@ -80,9 +118,8 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 		}
 	}
 
-	// Check persistent store for sessions not yet in memory.
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		items, err := sm.ListInfo(context.Background(), memory.ListOptions{})
+		items, err := sm.ListInfo(p.sessionContext(ctx, userID), memory.ListOptions{AgentID: p.agentID, UserID: userID})
 		if err == nil {
 			for _, info := range items {
 				if info.Channel != channel {
@@ -107,14 +144,15 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 
 // mainSessionLocked returns the non-archived main session from the in-memory
 // map and persistent store. Caller must hold p.mu.
-func (p *Pool) mainSessionLocked() (SessionInfo, bool) {
+func (p *Pool) mainSessionLocked(ctx context.Context, userID string) (SessionInfo, bool) {
 	for _, sess := range p.sessions {
-		if !sess.Info.Archived && sess.Info.Kind == "main" {
-			return sess.Info, true
+		if sess.Info.Archived || sess.Info.Kind != "main" || sess.Info.UserID != userID {
+			continue
 		}
+		return sess.Info, true
 	}
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		items, err := sm.ListInfo(context.Background(), memory.ListOptions{Kind: "main"})
+		items, err := sm.ListInfo(p.sessionContext(ctx, userID), memory.ListOptions{Kind: "main", AgentID: p.agentID, UserID: userID})
 		if err == nil {
 			for _, info := range items {
 				return info, true
@@ -124,13 +162,13 @@ func (p *Pool) mainSessionLocked() (SessionInfo, bool) {
 	return SessionInfo{}, false
 }
 
-// latestSessionLocked returns the most recent non-archived session across all
-// channels. Caller must hold p.mu.
-func (p *Pool) latestSessionLocked() (SessionInfo, bool) {
+// latestSessionLocked returns the most recent non-archived private session for a user.
+// Caller must hold p.mu.
+func (p *Pool) latestSessionLocked(ctx context.Context, userID string) (SessionInfo, bool) {
 	var best *SessionInfo
 	seen := make(map[string]struct{})
 	for _, sess := range p.sessions {
-		if sess.Info.Archived {
+		if !mainCandidate(sess.Info, userID) {
 			continue
 		}
 		seen[sess.Info.ID] = struct{}{}
@@ -140,10 +178,10 @@ func (p *Pool) latestSessionLocked() (SessionInfo, bool) {
 		}
 	}
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		items, err := sm.ListInfo(context.Background(), memory.ListOptions{})
+		items, err := sm.ListInfo(p.sessionContext(ctx, userID), memory.ListOptions{AgentID: p.agentID, UserID: userID})
 		if err == nil {
 			for _, info := range items {
-				if _, inSeen := seen[info.ID]; inSeen {
+				if _, inSeen := seen[info.ID]; inSeen || !mainCandidate(info, userID) {
 					continue
 				}
 				if best == nil || info.LastActive.After(best.LastActive) {
@@ -160,60 +198,72 @@ func (p *Pool) latestSessionLocked() (SessionInfo, bool) {
 }
 
 // ActiveSession returns the most recent non-archived session for a channel.
-func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
+func (p *Pool) ActiveSession(channel string, userID ...string) (SessionInfo, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.activeSessionLocked(channel)
+	return p.activeSessionLocked(context.Background(), channel, resolveUserID(userID))
 }
 
-// ResolveSession returns the main session for a channel, creating or promoting one if needed.
-// An optional userID associates the session with a user (stored in conversations table).
+// ResolveSession returns the session for a channel, creating or promoting one if needed.
+// Private user channels resolve to a per-agent/user main session. Group and other
+// shared channels resolve by exact channel and remain chat sessions.
 func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...string) (SessionInfo, error) {
+	uid := resolveUserID(userID)
+	ctx = p.sessionContext(ctx, uid)
+	privateMain := isPrivateMainChannel(channel, uid)
+
 	p.mu.Lock()
 
-	// 1. Look for an existing main session.
-	if info, ok := p.mainSessionLocked(); ok {
+	if privateMain {
+		if info, ok := p.mainSessionLocked(ctx, uid); ok {
+			p.mu.Unlock()
+			return info, nil
+		}
+
+		if info, ok := p.latestSessionLocked(ctx, uid); ok {
+			info.Kind = "main"
+			if sess, exists := p.sessions[info.ID]; exists {
+				sess.Info.Kind = "main"
+			}
+			ensurer := p.projectEnsurer
+			p.mu.Unlock()
+			if ensurer != nil && info.UserID != "" {
+				if _, err := ensurer(ctx, p.agentID, info.UserID); err != nil {
+					p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
+				}
+			}
+			return p.persistNewSession(ctx, info)
+		}
+	} else if info, ok := p.activeSessionLocked(ctx, channel, uid); ok {
 		p.mu.Unlock()
 		return info, nil
 	}
 
-	// 2. Promote the latest active session (any channel) to main.
-	if info, ok := p.latestSessionLocked(); ok {
-		info.Kind = "main"
-		if sess, exists := p.sessions[info.ID]; exists {
-			sess.Info.Kind = "main"
-		}
-		ensurer := p.projectEnsurer
-		p.mu.Unlock()
-		if ensurer != nil && info.UserID != "" {
-			if _, err := ensurer(ctx, p.agentID, info.UserID); err != nil {
-				p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
-			}
-		}
-		return p.persistNewSession(info)
-	}
-
-	// 3. Create a new main session.
 	info := p.createSessionLocked(channel, userID...)
-	info.Kind = "main"
+	if privateMain {
+		info.Kind = "main"
+	} else {
+		info.Kind = "chat"
+	}
 	if sess, exists := p.sessions[info.ID]; exists {
-		sess.Info.Kind = "main"
+		sess.Info.Kind = info.Kind
 	}
 	ensurer := p.projectEnsurer
 	p.mu.Unlock()
 
-	if ensurer != nil && info.UserID != "" {
+	if privateMain && ensurer != nil && info.UserID != "" {
 		if _, err := ensurer(ctx, p.agentID, info.UserID); err != nil {
 			p.log.Warn("project ensurer failed", "agent_id", p.agentID, "user_id", info.UserID, "error", err)
 		}
 	}
 
-	return p.persistNewSession(info)
+	return p.persistNewSession(ctx, info)
 }
 
 // RotateSession archives the active session for a channel (if any) and creates a new one.
 func (p *Pool) RotateSession(channel string, userID ...string) (SessionInfo, error) {
-	if old, ok := p.ActiveSession(channel); ok {
+	uid := resolveUserID(userID)
+	if old, ok := p.ActiveSession(channel, uid); ok {
 		if err := p.ArchiveSession(old.ID); err != nil {
 			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)
 		}
