@@ -14,6 +14,17 @@ SELECT * FROM ctx_conversations
 WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id);
 
+-- name: GetUnownedConversationBySessionID :one
+SELECT * FROM ctx_conversations
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id IS NULL;
+
+-- name: ClaimConversationUserBySessionID :exec
+UPDATE ctx_conversations
+SET user_id = sqlc.arg(user_id), updated_at = datetime('now')
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id IS NULL;
+
 -- name: UpdateConversationTitle :exec
 UPDATE ctx_conversations SET title = sqlc.arg(title), updated_at = datetime('now')
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);

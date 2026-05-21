@@ -263,7 +263,16 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
 	if vc.AgentID == "" && vc.UserID == "" {
-		if sk, err := s.findSkillByID(r.Context(), id); err == nil && sk.Scope == "system" {
+		sk, err := s.findSkillByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "skill not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		if sk.Scope == "system" {
 			if systemStore, ok := store.(interface {
 				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
 			}); ok {
@@ -274,6 +283,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 				goto files
 			}
 		}
+		vc = skillOwnerViewContext(*sk)
 	}
 	if err := store.Update(r.Context(), id, vc, patch); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -296,6 +306,17 @@ func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) 
 	s.doDeleteSkill(w, r, id, skills.ViewContext{})
 }
 
+func skillOwnerViewContext(sk skills.Skill) skills.ViewContext {
+	switch sk.Scope {
+	case "agent":
+		return skills.ViewContext{AgentID: sk.AgentID}
+	case "user":
+		return skills.ViewContext{UserID: sk.UserID}
+	default:
+		return skills.ViewContext{}
+	}
+}
+
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
 func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
@@ -304,7 +325,16 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	if vc.AgentID == "" && vc.UserID == "" {
-		if sk, err := s.findSkillByID(r.Context(), id); err == nil && sk.Scope == "system" {
+		sk, err := s.findSkillByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "skill not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		if sk.Scope == "system" {
 			if systemStore, ok := store.(interface {
 				DeleteSystemSkill(context.Context, string) error
 			}); ok {
@@ -316,6 +346,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 				return
 			}
 		}
+		vc = skillOwnerViewContext(*sk)
 	}
 	if err := store.Delete(r.Context(), id, vc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

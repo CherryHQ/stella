@@ -363,7 +363,11 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 		}
 		j := dbRowToAPIJobRun(row)
 		if j.SessionId != "" && sm != nil {
-			if _, err := sm.LoadInfo(r.Context(), j.SessionId); err != nil {
+			ctx := r.Context()
+			if row.UserID.Valid {
+				ctx = memory.WithUserID(ctx, row.UserID.String)
+			}
+			if _, err := sm.LoadInfo(ctx, j.SessionId); err != nil {
 				j.SessionId = ""
 			}
 		}

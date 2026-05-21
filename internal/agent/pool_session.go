@@ -309,6 +309,7 @@ func (p *Pool) ListSessions(includeArchived bool) ([]SessionInfo, error) {
 func (p *Pool) ArchiveSession(sessionID string) error {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
+	hadSession := ok
 	var r Runner
 	if ok {
 		r = sess.Runner
@@ -317,10 +318,14 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	p.mu.Unlock()
 
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		info, err := sm.LoadInfo(context.Background(), sessionID)
+		ctx := context.Background()
+		if hadSession {
+			ctx = p.sessionContext(ctx, sess.Info.UserID)
+		}
+		info, err := sm.LoadInfo(ctx, sessionID)
 		if err == nil {
 			info.Archived = true
-			if err := sm.SaveInfo(context.Background(), info); err != nil {
+			if err := sm.SaveInfo(ctx, info); err != nil {
 				p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
 			}
 		}
