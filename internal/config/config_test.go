@@ -88,8 +88,8 @@ func TestHeartbeatFilePathAbsolute(t *testing.T) {
 
 func TestSandboxConfigDefaults(t *testing.T) {
 	c := SandboxConfig{}
-	if got := c.NetworkMode(); got != SandboxNetworkDisabled {
-		t.Fatalf("NetworkMode() = %q, want %q", got, SandboxNetworkDisabled)
+	if got := c.NetworkMode(); got != SandboxNetworkAllowAll {
+		t.Fatalf("NetworkMode() = %q, want %q", got, SandboxNetworkAllowAll)
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate(): %v", err)

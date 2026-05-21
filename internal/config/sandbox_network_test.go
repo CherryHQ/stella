@@ -166,9 +166,9 @@ func TestSandboxNetworkConfig_NetworkMode(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "empty mode returns disabled",
+			name:     "empty mode returns allow_all",
 			mode:     "",
-			expected: SandboxNetworkDisabled,
+			expected: SandboxNetworkAllowAll,
 		},
 		{
 			name:     "disabled mode is returned",

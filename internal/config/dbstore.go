@@ -589,10 +589,12 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 	// Seed all built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.
 	if err := s.seedBuiltinPlugins(ctx, PluginKindTool, builtinToolNames, func(name string) int64 {
-		if name == "mcp" {
+		switch name {
+		case "mcp", "webfetch":
 			return 0
+		default:
+			return 1
 		}
-		return 1
 	}); err != nil {
 		return err
 	}

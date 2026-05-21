@@ -49,8 +49,8 @@ func TestPolicyValidate(t *testing.T) {
 }
 
 func TestNetworkModeOrDefault(t *testing.T) {
-	if got := (Policy{}).NetworkModeOrDefault(); got != NetworkDisabled {
-		t.Fatalf("empty mode should default to disabled, got %q", got)
+	if got := (Policy{}).NetworkModeOrDefault(); got != NetworkAllowAll {
+		t.Fatalf("empty mode should default to allow_all, got %q", got)
 	}
 	p := Policy{Network: NetworkPolicy{Mode: NetworkAllowAll}}
 	if got := p.NetworkModeOrDefault(); got != NetworkAllowAll {

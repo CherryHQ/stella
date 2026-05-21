@@ -212,42 +212,6 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	}
 }
 
-func TestLoadInstalledSkillsIncludesCLIUserSkills(t *testing.T) {
-	setupCommandTestStellaHome(t)
-
-	// Insert a system-scoped skill directly into the DB (no FK constraint on user_id).
-	skillStore, closeDB, err := openSkillStore()
-	if err != nil {
-		t.Fatalf("openSkillStore: %v", err)
-	}
-	defer closeDB()
-
-	_, err = skillStore.Create(context.Background(), pkgplugins.Skill{
-		Scope:       "system",
-		Name:        "cli-test-skill",
-		Description: "CLI test skill",
-		Status:      "active",
-		Metadata:    []byte("{}"),
-	}, map[string]string{
-		"SKILL.md": "---\nname: cli-test-skill\ndescription: CLI test skill\nstatus: active\n---\nbody\n",
-	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	loaded, err := loadInstalledSkills(context.Background())
-	if err != nil {
-		t.Fatalf("loadInstalledSkills: %v", err)
-	}
-	for _, s := range loaded {
-		if s.Name == "cli-test-skill" {
-			// System skills are always visible to the CLI.
-			return
-		}
-	}
-	t.Fatal("expected cli-test-skill to be discoverable from DB via loadInstalledSkills")
-}
-
 func TestRunHelp(t *testing.T) {
 	app := newApp()
 	err := app.Run([]string{"stella", "--help"})

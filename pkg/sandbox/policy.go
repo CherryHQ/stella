@@ -81,7 +81,7 @@ func (p Policy) Validate() error {
 // NetworkModeOrDefault returns the network mode with default applied.
 func (p Policy) NetworkModeOrDefault() NetworkMode {
 	if p.Network.Mode == "" {
-		return NetworkDisabled
+		return NetworkAllowAll
 	}
 	return p.Network.Mode
 }

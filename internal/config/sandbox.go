@@ -28,7 +28,7 @@ type SandboxNetworkConfig struct {
 // NetworkMode returns the configured network mode with defaults applied.
 func (c SandboxConfig) NetworkMode() string {
 	if c.Network.Mode == "" {
-		return SandboxNetworkDisabled
+		return SandboxNetworkAllowAll
 	}
 	return c.Network.Mode
 }

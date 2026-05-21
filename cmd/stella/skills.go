@@ -1,23 +1,21 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 
+	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	internalskills "github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -37,21 +35,8 @@ skills, and manage the ones already installed.`,
 			skillsRemoveCommand(),
 			skillsMigrateCommand(),
 		},
-		Action: func(c *ucli.Context) error {
-			return skillsListAction(c.Context)
-		},
+		Action: skillsListAction,
 	}
-}
-
-// openSkillStore opens the application DB and returns a SkillStore backed by it.
-// The caller is responsible for closing db when done.
-func openSkillStore() (pkgplugins.SkillStore, func(), error) {
-	db, err := appdb.OpenDB(config.DBPath())
-	if err != nil {
-		return nil, nil, fmt.Errorf("open database: %w", err)
-	}
-	store := pluginhost.NewSkillStoreAdapter(internalskills.New(db))
-	return store, func() { _ = db.Close() }, nil
 }
 
 func skillsSearchCommand() *ucli.Command {
@@ -72,10 +57,13 @@ func skillsSearchCommand() *ucli.Command {
 				return fmt.Errorf("usage: stella skills search <query>")
 			}
 
-			ctx, cancel := context.WithTimeout(c.Context, 10*time.Second)
-			defer cancel()
-
-			results, err := mcpskills.Search(ctx, query, c.Int("limit"))
+			limit := c.Int("limit")
+			results, err := apiclient.Call[[]apitypes.SkillSearchResult](func(api *apiclient.Client) (*http.Response, error) {
+				return api.SearchSkills(c.Context, &apiclient.SearchSkillsParams{
+					Q:     query,
+					Limit: &limit,
+				})
+			})
 			if err != nil {
 				return err
 			}
@@ -87,8 +75,8 @@ func skillsSearchCommand() *ucli.Command {
 
 			fmt.Printf("Found %d skills:\n\n", len(results))
 			for _, s := range results {
-				fmt.Printf("  %s@%s\n", s.Source, s.SkillID)
-				fmt.Printf("    %s (%d installs)\n", s.Name, s.Installs)
+				fmt.Printf("  %s@%s\n", derefStr(s.Source), derefStr(s.SkillId))
+				fmt.Printf("    %s (%d installs)\n", derefStr(s.Name), derefInt(s.Installs))
 				fmt.Println()
 			}
 			fmt.Println("Install with: stella skills install <owner/repo@skill-name>")
@@ -119,20 +107,20 @@ func skillsInstallCommand() *ucli.Command {
 				return fmt.Errorf("usage: stella skills install <owner/repo@skill-name>")
 			}
 
-			skillStore, closeDB, err := openSkillStore()
+			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
+
+			scope := "user"
+			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
+				return api.InstallSkill(c.Context, apiclient.InstallSkillJSONRequestBody{
+					Source: source,
+					Scope:  &scope,
+				})
+			})
 			if err != nil {
 				return err
 			}
-			defer closeDB()
 
-			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%s)...\n", source, cliSkillsUserID)
-
-			name, err := skillstool.InstallToStore(c.Context, skillStore, source, "user", cliSkillsUserID, "")
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("Skill %q installed (scope=user, user_id=%s).\n", name, cliSkillsUserID)
+			fmt.Printf("Skill %q installed.\n", result["name"])
 			return nil
 		},
 	}
@@ -150,52 +138,56 @@ func skillsListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			if c.Bool("json") {
-				return skillsListJSON(c.Context)
+				return skillsListJSON(c)
 			}
-			return skillsListAction(c.Context)
+			return skillsListAction(c)
 		},
 	}
 }
 
-func skillsListAction(ctx context.Context) error {
-	loaded, err := loadInstalledSkills(ctx)
+func skillsListAction(c *ucli.Context) error {
+	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+		return api.ListSkills(c.Context)
+	})
 	if err != nil {
 		return err
 	}
-	if len(loaded) == 0 {
+	if len(skills) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
 	}
 
-	// Group by scope
-	grouped := map[string][]pkgplugins.Skill{}
+	grouped := map[string][]apitypes.Skill{}
 	var scopeOrder []string
 	seen := map[string]bool{}
-	for _, s := range loaded {
-		if !seen[s.Scope] {
-			seen[s.Scope] = true
-			scopeOrder = append(scopeOrder, s.Scope)
+	for _, s := range skills {
+		scope := derefStr(s.Scope)
+		if !seen[scope] {
+			seen[scope] = true
+			scopeOrder = append(scopeOrder, scope)
 		}
-		grouped[s.Scope] = append(grouped[s.Scope], s)
+		grouped[scope] = append(grouped[scope], s)
 	}
 
 	for _, scope := range scopeOrder {
 		fmt.Printf("%s:\n", scope)
 		for _, s := range grouped[scope] {
-			desc := s.Description
+			desc := derefStr(s.Description)
 			if len(desc) > 80 {
 				desc = desc[:77] + "..."
 			}
 			desc = strings.ReplaceAll(desc, "\n", " ")
-			fmt.Printf("  %-25s %s\n", s.Name, desc)
+			fmt.Printf("  %-25s %s\n", derefStr(s.Name), desc)
 		}
 		fmt.Println()
 	}
 	return nil
 }
 
-func skillsListJSON(ctx context.Context) error {
-	loaded, err := loadInstalledSkills(ctx)
+func skillsListJSON(c *ucli.Context) error {
+	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+		return api.ListSkills(c.Context)
+	})
 	if err != nil {
 		return err
 	}
@@ -207,54 +199,19 @@ func skillsListJSON(ctx context.Context) error {
 		Status      string `json:"status"`
 	}
 
-	entries := make([]entry, len(loaded))
-	for i, s := range loaded {
+	entries := make([]entry, len(skills))
+	for i, s := range skills {
 		entries[i] = entry{
-			Name:        s.Name,
-			Description: s.Description,
-			Scope:       s.Scope,
-			Status:      s.Status,
+			Name:        derefStr(s.Name),
+			Description: derefStr(s.Description),
+			Scope:       derefStr(s.Scope),
+			Status:      derefStr(s.Status),
 		}
 	}
 
 	out, _ := json.MarshalIndent(entries, "", "  ")
 	fmt.Println(string(out))
 	return nil
-}
-
-func loadInstalledSkills(ctx context.Context) ([]pkgplugins.Skill, error) {
-	skillStore, closeDB, err := openSkillStore()
-	if err != nil {
-		return nil, err
-	}
-	defer closeDB()
-
-	vc := pkgplugins.SkillViewContext{
-		UserID: cliSkillsUserID,
-	}
-	dbSkills, err := skillStore.List(ctx, vc)
-	if err != nil {
-		return nil, err
-	}
-
-	// Merge project skills from the current working directory.
-	cwd, _ := os.Getwd()
-	projSkills, _, _ := skillstool.ListProjectSkills(cwd)
-
-	// Deduplicate: project skills shadow same-named DB skills.
-	projNames := make(map[string]bool, len(projSkills))
-	for _, s := range projSkills {
-		projNames[s.Name] = true
-	}
-
-	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
-	all = append(all, projSkills...)
-	for _, s := range dbSkills {
-		if !projNames[s.Name] {
-			all = append(all, s)
-		}
-	}
-	return all, nil
 }
 
 func skillsRemoveCommand() *ucli.Command {
@@ -278,29 +235,31 @@ func skillsRemoveCommand() *ucli.Command {
 				}
 			}
 
-			skillStore, closeDB, err := openSkillStore()
+			skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListSkills(c.Context)
+			})
 			if err != nil {
 				return err
 			}
-			defer closeDB()
 
-			vc := pkgplugins.SkillViewContext{
-				UserID: cliSkillsUserID,
-			}
-
-			skill, err := skillStore.Resolve(c.Context, name, vc)
-			if err != nil {
-				return fmt.Errorf("resolve skill %q: %w", name, err)
+			var skill *apitypes.Skill
+			for i := range skills {
+				if derefStr(skills[i].Name) == name {
+					skill = &skills[i]
+					break
+				}
 			}
 			if skill == nil {
 				return fmt.Errorf("skill %q not found", name)
 			}
-			if skill.Scope == "system" {
+			if derefStr(skill.Scope) == "system" {
 				return fmt.Errorf("cannot remove system skill %q", name)
 			}
 
-			if err := skillStore.Delete(c.Context, skill.ID); err != nil {
-				return fmt.Errorf("remove skill %q: %w", name, err)
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteSkill(c.Context, derefStr(skill.Id))
+			}); err != nil {
+				return err
 			}
 
 			fmt.Printf("Skill %q removed.\n", name)
@@ -314,7 +273,6 @@ func skillsMigrateCommand() *ucli.Command {
 		Name:  "migrate",
 		Usage: "Import on-disk skills into the database (run once after upgrading from filesystem-based skills)",
 		Action: func(c *ucli.Context) error {
-			// Open DB directly so we can call SyncBuiltin on the SQLiteStore.
 			db, err := appdb.OpenDB(config.DBPath())
 			if err != nil {
 				return fmt.Errorf("open database: %w", err)
@@ -323,7 +281,6 @@ func skillsMigrateCommand() *ucli.Command {
 
 			sqliteStore := internalskills.New(db)
 
-			// 1. Sync builtins.
 			builtinSkillsFS, ok := resources.SubFS(resources.KindSkill)
 			if !ok {
 				return fmt.Errorf("builtin skills FS unavailable")
@@ -332,7 +289,6 @@ func skillsMigrateCommand() *ucli.Command {
 				return fmt.Errorf("sync builtins: %w", err)
 			}
 
-			// 2. Migrate on-disk skills.
 			configStore, err := openStore()
 			if err != nil {
 				return err
@@ -362,4 +318,11 @@ func skillsMigrateCommand() *ucli.Command {
 			return nil
 		},
 	}
+}
+
+func derefInt(i *int) int {
+	if i == nil {
+		return 0
+	}
+	return *i
 }
