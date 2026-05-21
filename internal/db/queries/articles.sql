@@ -8,7 +8,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetArticle :one
-SELECT * FROM articles WHERE id = ?;
+SELECT * FROM articles WHERE id = ? AND user_id = ?;
 
 -- name: GetArticleByCanonicalURL :one
 SELECT * FROM articles WHERE user_id = ? AND canonical_url = ?;
@@ -35,11 +35,11 @@ SET title       = sqlc.arg('title'),
     published_at = sqlc.arg('published_at'),
     read_at     = sqlc.arg('read_at'),
     updated_at  = datetime('now')
-WHERE id = sqlc.arg('id')
+WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')
 RETURNING *;
 
 -- name: DeleteArticle :exec
-DELETE FROM articles WHERE id = ?;
+DELETE FROM articles WHERE id = ? AND user_id = ?;
 
 -- name: SearchArticles :many
 -- Phase 1 MVP: LIKE-based search. Upgrade to FTS5 in future phase.

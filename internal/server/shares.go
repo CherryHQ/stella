@@ -168,7 +168,7 @@ func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusBadRequest, "article_id is required for article shares")
 		return "", "", nil, errors.New("missing article_id")
 	}
-	article, err := s.recally.store.GetArticle(r.Context(), articleID)
+	article, err := s.recally.store.GetArticle(r.Context(), userID, articleID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "article not found")
 		return "", "", nil, err

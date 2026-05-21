@@ -209,7 +209,7 @@ func TestStore_GetArticle(t *testing.T) {
 	}
 
 	// Get the article
-	article, err := store.GetArticle(ctx, created.ID)
+	article, err := store.GetArticle(ctx, "1", created.ID)
 	if err != nil {
 		t.Fatalf("GetArticle failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestStore_GetArticle(t *testing.T) {
 	}
 
 	// Get non-existent article
-	_, err = store.GetArticle(ctx, "nonexistent")
+	_, err = store.GetArticle(ctx, "1", "nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent article")
 	}
@@ -250,7 +250,7 @@ func TestStore_UpdateArticle(t *testing.T) {
 		"starred": true,
 	}
 
-	updated, err := store.UpdateArticle(ctx, created.ID, updates)
+	updated, err := store.UpdateArticle(ctx, "1", created.ID, updates)
 	if err != nil {
 		t.Fatalf("UpdateArticle failed: %v", err)
 	}
@@ -288,13 +288,13 @@ func TestStore_DeleteArticle(t *testing.T) {
 	}
 
 	// Delete article
-	err = store.DeleteArticle(ctx, created.ID)
+	err = store.DeleteArticle(ctx, "1", created.ID)
 	if err != nil {
 		t.Fatalf("DeleteArticle failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = store.GetArticle(ctx, created.ID)
+	_, err = store.GetArticle(ctx, "1", created.ID)
 	if err == nil {
 		t.Error("Expected error after deleting article")
 	}

@@ -42,6 +42,7 @@ func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest)
 	case err == nil:
 		updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
 			ID:          existing.ID,
+			UserID:      userID,
 			Title:       req.Title,
 			Author:      req.Author,
 			Summary:     req.Summary,
@@ -108,8 +109,8 @@ func (s *Store) GetArticleByCanonicalURL(ctx context.Context, userID string, can
 }
 
 // GetArticle retrieves an article by ID.
-func (s *Store) GetArticle(ctx context.Context, articleID string) (*Article, error) {
-	row, err := s.q.GetArticle(ctx, articleID)
+func (s *Store) GetArticle(ctx context.Context, userID string, articleID string) (*Article, error) {
+	row, err := s.q.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("article not found: %s", articleID)
@@ -122,8 +123,8 @@ func (s *Store) GetArticle(ctx context.Context, articleID string) (*Article, err
 }
 
 // UpdateArticle updates article metadata.
-func (s *Store) UpdateArticle(ctx context.Context, articleID string, updates map[string]any) (*Article, error) {
-	current, err := s.q.GetArticle(ctx, articleID)
+func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID string, updates map[string]any) (*Article, error) {
+	current, err := s.q.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("article not found: %s", articleID)
@@ -175,6 +176,7 @@ func (s *Store) UpdateArticle(ctx context.Context, articleID string, updates map
 
 	updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
 		ID:          articleID,
+		UserID:      userID,
 		Title:       title,
 		Author:      author,
 		Summary:     summary,
@@ -196,8 +198,8 @@ func (s *Store) UpdateArticle(ctx context.Context, articleID string, updates map
 }
 
 // DeleteArticle removes an article from the database.
-func (s *Store) DeleteArticle(ctx context.Context, articleID string) error {
-	if err := s.q.DeleteArticle(ctx, articleID); err != nil {
+func (s *Store) DeleteArticle(ctx context.Context, userID string, articleID string) error {
+	if err := s.q.DeleteArticle(ctx, sqlc.DeleteArticleParams{ID: articleID, UserID: userID}); err != nil {
 		return fmt.Errorf("delete article: %w", err)
 	}
 	return nil
@@ -472,8 +474,8 @@ func (s *Store) MarkFeedEntry(ctx context.Context, entryID string, status RSSEnt
 }
 
 // UpdateArticleFilePath updates only the file path of an article.
-func (s *Store) UpdateArticleFilePath(ctx context.Context, articleID, filePath string) error {
-	_, err := s.UpdateArticle(ctx, articleID, map[string]any{"file_path": filePath})
+func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, filePath string) error {
+	_, err := s.UpdateArticle(ctx, userID, articleID, map[string]any{"file_path": filePath})
 	if err != nil {
 		return fmt.Errorf("update file path: %w", err)
 	}

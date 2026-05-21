@@ -49,7 +49,7 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 // articleOwned loads an article and returns it only if the caller owns it.
 // Returns false (with the appropriate error response written) otherwise.
 func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
-	article, err := h.store.GetArticle(ctx, articleID)
+	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return nil, false
@@ -206,7 +206,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	relPath := h.files.RelativePath(filePath)
-	if err := h.store.UpdateArticleFilePath(r.Context(), article.ID, relPath); err != nil {
+	if err := h.store.UpdateArticleFilePath(r.Context(), userID, article.ID, relPath); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -287,7 +287,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 
 	updated := article
 	if len(updates) > 0 {
-		next, err := h.store.UpdateArticle(r.Context(), id, updates)
+		next, err := h.store.UpdateArticle(r.Context(), userID, id, updates)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -314,7 +314,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	if err := h.store.DeleteArticle(r.Context(), id); err != nil {
+	if err := h.store.DeleteArticle(r.Context(), userID, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
