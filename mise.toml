@@ -1,6 +1,5 @@
 [tools]
 # Common
-portless = "0.13.0"
 prek = "0.3.8"
 dprint = "0.54.0"
 jq = "1.8.1"
@@ -84,7 +83,7 @@ depends = ["dev:ui", "dev:api"]
 [tasks."dev:ui"]
 description = "Start stella webui"
 dir = "web"
-run = 'portless stella vp dev'
+run = 'vp dev'
 
 [tasks."dev:api"]
 description = "Start stella API server"
