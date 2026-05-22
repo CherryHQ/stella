@@ -1,5 +1,7 @@
 paths:
-  /api/tasks:
+  /api/agents/{agentID}/tasks:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List agent tasks
@@ -8,10 +10,6 @@ paths:
         - name: status
           in: query
           required: false
-          schema: { type: string }
-        - name: agent_id
-          in: query
-          required: true
           schema: { type: string }
       responses:
         "200":
@@ -50,9 +48,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/tasks/{id}:
+  /api/agents/{agentID}/tasks/{taskID}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: Get an agent task
@@ -112,9 +111,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/action:
+  /api/agents/{agentID}/tasks/{taskID}/action:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Take an action on an agent task
@@ -142,9 +142,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/events:
+  /api/agents/{agentID}/tasks/{taskID}/events:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List agent task events

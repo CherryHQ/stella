@@ -1459,29 +1459,30 @@ export type _1Api1Recally1Feeds1Id = unknown;
 
 export type _1Api1Recally1Feeds1Id1Poll = unknown;
 
-export type _1Api1Scheduler1Jobs = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs = unknown;
 
-export type _1Api1Scheduler1Jobs1Id = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId = unknown;
 
-export type _1Api1Scheduler1Jobs1Id1Run = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId1Run = unknown;
 
-export type _1Api1Scheduler1Jobs1Id1Runs = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId1Runs = unknown;
 
-export type _1Api1Sessions = unknown;
+export type _1Api1Agents1AgentId1Sessions = unknown;
 
-export type _1Api1Sessions1SessionId = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId = unknown;
 
-export type _1Api1Sessions1SessionId1Messages = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Messages = unknown;
 
-export type _1Api1Sessions1SessionId1SystemPrompt = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1SystemPrompt = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1FileContent = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1FileContent =
+  unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1Files = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1Files = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1Upload = unknown;
 
 export type _1Api1Shares = unknown;
 
@@ -1493,13 +1494,13 @@ export type _1Api1Skills1Search = unknown;
 
 export type _1Api1Status = unknown;
 
-export type _1Api1Tasks = unknown;
+export type _1Api1Agents1AgentId1Tasks = unknown;
 
-export type _1Api1Tasks1Id = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId = unknown;
 
-export type _1Api1Tasks1Id1Action = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Action = unknown;
 
-export type _1Api1Tasks1Id1Events = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Events = unknown;
 
 export type _1Api1Tools = unknown;
 
@@ -4046,7 +4047,9 @@ export type ListProviderTypesResponse =
 
 export type ListSessionsData = {
   body?: never;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: {
     /**
      * Maximum number of sessions to return
@@ -4061,15 +4064,11 @@ export type ListSessionsData = {
      */
     kind?: "main" | "chat" | "scheduler" | "task";
     /**
-     * Filter by agent ID
-     */
-    agent_id?: string;
-    /**
      * Filter by project ID
      */
     project_id?: string;
   };
-  url: "/api/sessions";
+  url: "/api/agents/{agentID}/sessions";
 };
 
 export type ListSessionsErrors = {
@@ -4095,9 +4094,11 @@ export type ListSessionsResponse =
 
 export type CreateSessionData = {
   body?: ComponentsCreateSessionRequest;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/sessions";
+  url: "/api/agents/{agentID}/sessions";
 };
 
 export type CreateSessionErrors = {
@@ -4130,10 +4131,11 @@ export type CreateSessionResponse =
 export type GetSessionData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}";
+  url: "/api/agents/{agentID}/sessions/{sessionID}";
 };
 
 export type GetSessionErrors = {
@@ -4171,6 +4173,7 @@ export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
 export type GetSessionMessagesData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: {
@@ -4191,7 +4194,7 @@ export type GetSessionMessagesData = {
      */
     before?: string;
   };
-  url: "/api/sessions/{sessionID}/messages";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/messages";
 };
 
 export type GetSessionMessagesErrors = {
@@ -4233,10 +4236,11 @@ export type GetSessionMessagesResponse =
 export type SendSessionMessageData = {
   body: ComponentsSendMessageRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/messages";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/messages";
 };
 
 export type SendSessionMessageErrors = {
@@ -4276,6 +4280,7 @@ export type SendSessionMessageResponse =
 export type GetSessionWorkspaceData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: {
@@ -4292,7 +4297,7 @@ export type GetSessionWorkspaceData = {
      */
     depth?: number;
   };
-  url: "/api/sessions/{sessionID}/workspace";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace";
 };
 
 export type GetSessionWorkspaceErrors = {
@@ -4332,10 +4337,11 @@ export type GetSessionWorkspaceResponse =
 export type DeleteWorkspaceFileData = {
   body: WorkspaceDeleteRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type DeleteWorkspaceFileErrors = {
@@ -4381,10 +4387,11 @@ export type DeleteWorkspaceFileResponse =
 export type MoveWorkspaceFileData = {
   body: WorkspaceMoveRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type MoveWorkspaceFileErrors = {
@@ -4430,10 +4437,11 @@ export type MoveWorkspaceFileResponse =
 export type CreateWorkspaceFileData = {
   body: WorkspaceCreateRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type CreateWorkspaceFileErrors = {
@@ -4479,6 +4487,7 @@ export type CreateWorkspaceFileResponse =
 export type GetWorkspaceFileContentData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query: {
@@ -4491,7 +4500,7 @@ export type GetWorkspaceFileContentData = {
      */
     raw?: boolean;
   };
-  url: "/api/sessions/{sessionID}/workspace/file-content";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content";
 };
 
 export type GetWorkspaceFileContentErrors = {
@@ -4537,10 +4546,11 @@ export type GetWorkspaceFileContentResponse =
 export type UpdateWorkspaceFileContentData = {
   body: WorkspaceUpdateContentRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/file-content";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content";
 };
 
 export type UpdateWorkspaceFileContentErrors = {
@@ -4591,10 +4601,11 @@ export type UploadWorkspaceFileData = {
     file: Blob | File;
   };
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/upload";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/upload";
 };
 
 export type UploadWorkspaceFileErrors = {
@@ -4640,10 +4651,11 @@ export type UploadWorkspaceFileResponse =
 export type GetSessionSystemPromptData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/system-prompt";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/system-prompt";
 };
 
 export type GetSessionSystemPromptErrors = {
@@ -6065,9 +6077,11 @@ export type SetOAuthProviderConfigResponse =
 
 export type ListSchedulerJobsData = {
   body?: never;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/scheduler/jobs";
+  url: "/api/agents/{agentID}/scheduler/jobs";
 };
 
 export type ListSchedulerJobsErrors = {
@@ -6094,9 +6108,11 @@ export type ListSchedulerJobsResponse =
 
 export type CreateSchedulerJobData = {
   body: ComponentsJobInput;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/scheduler/jobs";
+  url: "/api/agents/{agentID}/scheduler/jobs";
 };
 
 export type CreateSchedulerJobErrors = {
@@ -6130,10 +6146,11 @@ export type CreateSchedulerJobResponse =
 export type DeleteSchedulerJobData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
 };
 
 export type DeleteSchedulerJobErrors = {
@@ -6173,10 +6190,11 @@ export type DeleteSchedulerJobResponse =
 export type UpdateSchedulerJobData = {
   body: ComponentsJobInput;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
 };
 
 export type UpdateSchedulerJobErrors = {
@@ -6222,10 +6240,11 @@ export type UpdateSchedulerJobResponse =
 export type TriggerSchedulerJobData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}/run";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/run";
 };
 
 export type TriggerSchedulerJobErrors = {
@@ -6271,10 +6290,11 @@ export type TriggerSchedulerJobResponse =
 export type ListSchedulerJobRunsData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}/runs";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/runs";
 };
 
 export type ListSchedulerJobRunsErrors = {
@@ -6313,12 +6333,13 @@ export type ListSchedulerJobRunsResponse =
 
 export type ListAgentTasksData = {
   body?: never;
-  path?: never;
-  query: {
-    status?: string;
-    agent_id: string;
+  path: {
+    agentID: string;
   };
-  url: "/api/tasks";
+  query?: {
+    status?: string;
+  };
+  url: "/api/agents/{agentID}/tasks";
 };
 
 export type ListAgentTasksErrors = {
@@ -6345,9 +6366,11 @@ export type ListAgentTasksResponse =
 
 export type CreateAgentTaskData = {
   body: ComponentsAgentTaskInput;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/tasks";
+  url: "/api/agents/{agentID}/tasks";
 };
 
 export type CreateAgentTaskErrors = {
@@ -6381,10 +6404,11 @@ export type CreateAgentTaskResponse =
 export type DeleteAgentTaskData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type DeleteAgentTaskErrors = {
@@ -6418,10 +6442,11 @@ export type DeleteAgentTaskResponse =
 export type GetAgentTaskData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type GetAgentTaskErrors = {
@@ -6454,10 +6479,11 @@ export type GetAgentTaskResponse =
 export type UpdateAgentTaskData = {
   body: ComponentsAgentTaskUpdate;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type UpdateAgentTaskErrors = {
@@ -6497,10 +6523,11 @@ export type UpdateAgentTaskResponse =
 export type AgentTaskActionData = {
   body: ComponentsAgentTaskAction;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/action";
+  url: "/api/agents/{agentID}/tasks/{taskID}/action";
 };
 
 export type AgentTaskActionErrors = {
@@ -6540,10 +6567,11 @@ export type AgentTaskActionResponse =
 export type ListAgentTaskEventsData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/events";
+  url: "/api/agents/{agentID}/tasks/{taskID}/events";
 };
 
 export type ListAgentTaskEventsErrors = {

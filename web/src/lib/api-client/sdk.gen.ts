@@ -1554,15 +1554,15 @@ export const listProviderTypes = <ThrowOnError extends boolean = false>(
  * List sessions (all users see their own; admins see all)
  */
 export const listSessions = <ThrowOnError extends boolean = false>(
-  options?: Options<ListSessionsData, ThrowOnError>,
+  options: Options<ListSessionsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
+  (options.client ?? client).get<
     ListSessionsResponses,
     ListSessionsErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions",
+    url: "/api/agents/{agentID}/sessions",
     ...options,
   });
 
@@ -1570,19 +1570,19 @@ export const listSessions = <ThrowOnError extends boolean = false>(
  * Create a new session
  */
 export const createSession = <ThrowOnError extends boolean = false>(
-  options?: Options<CreateSessionData, ThrowOnError>,
+  options: Options<CreateSessionData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).post<
+  (options.client ?? client).post<
     CreateSessionResponses,
     CreateSessionErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions",
+    url: "/api/agents/{agentID}/sessions",
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...options?.headers,
+      ...options.headers,
     },
   });
 
@@ -1598,7 +1598,7 @@ export const getSession = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}",
+    url: "/api/agents/{agentID}/sessions/{sessionID}",
     ...options,
   });
 
@@ -1614,7 +1614,7 @@ export const getSessionMessages = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/messages",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/messages",
     ...options,
   });
 
@@ -1634,7 +1634,7 @@ export const sendSessionMessage = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/messages",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/messages",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1654,7 +1654,7 @@ export const getSessionWorkspace = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace",
     ...options,
   });
 
@@ -1670,7 +1670,7 @@ export const deleteWorkspaceFile = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/files",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1690,7 +1690,7 @@ export const moveWorkspaceFile = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/files",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1710,7 +1710,7 @@ export const createWorkspaceFile = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/files",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1730,7 +1730,7 @@ export const getWorkspaceFileContent = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/file-content",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content",
     ...options,
   });
 
@@ -1748,7 +1748,7 @@ export const updateWorkspaceFileContent = <
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/file-content",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1769,7 +1769,7 @@ export const uploadWorkspaceFile = <ThrowOnError extends boolean = false>(
   >({
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/workspace/upload",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/upload",
     ...options,
     headers: {
       "Content-Type": null,
@@ -1789,7 +1789,7 @@ export const getSessionSystemPrompt = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/sessions/{sessionID}/system-prompt",
+    url: "/api/agents/{agentID}/sessions/{sessionID}/system-prompt",
     ...options,
   });
 
@@ -2432,15 +2432,15 @@ export const setOAuthProviderConfig = <ThrowOnError extends boolean = false>(
  * List scheduler jobs
  */
 export const listSchedulerJobs = <ThrowOnError extends boolean = false>(
-  options?: Options<ListSchedulerJobsData, ThrowOnError>,
+  options: Options<ListSchedulerJobsData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
+  (options.client ?? client).get<
     ListSchedulerJobsResponses,
     ListSchedulerJobsErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs",
+    url: "/api/agents/{agentID}/scheduler/jobs",
     ...options,
   });
 
@@ -2456,7 +2456,7 @@ export const createSchedulerJob = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs",
+    url: "/api/agents/{agentID}/scheduler/jobs",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2476,7 +2476,7 @@ export const deleteSchedulerJob = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs/{id}",
+    url: "/api/agents/{agentID}/scheduler/jobs/{jobID}",
     ...options,
   });
 
@@ -2492,7 +2492,7 @@ export const updateSchedulerJob = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs/{id}",
+    url: "/api/agents/{agentID}/scheduler/jobs/{jobID}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2512,7 +2512,7 @@ export const triggerSchedulerJob = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs/{id}/run",
+    url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/run",
     ...options,
   });
 
@@ -2528,7 +2528,7 @@ export const listSchedulerJobRuns = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/scheduler/jobs/{id}/runs",
+    url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/runs",
     ...options,
   });
 
@@ -2544,7 +2544,7 @@ export const listAgentTasks = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks",
+    url: "/api/agents/{agentID}/tasks",
     ...options,
   });
 
@@ -2560,7 +2560,7 @@ export const createAgentTask = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks",
+    url: "/api/agents/{agentID}/tasks",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2580,7 +2580,7 @@ export const deleteAgentTask = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks/{id}",
+    url: "/api/agents/{agentID}/tasks/{taskID}",
     ...options,
   });
 
@@ -2596,7 +2596,7 @@ export const getAgentTask = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks/{id}",
+    url: "/api/agents/{agentID}/tasks/{taskID}",
     ...options,
   });
 
@@ -2612,7 +2612,7 @@ export const updateAgentTask = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks/{id}",
+    url: "/api/agents/{agentID}/tasks/{taskID}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2632,7 +2632,7 @@ export const agentTaskAction = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks/{id}/action",
+    url: "/api/agents/{agentID}/tasks/{taskID}/action",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2652,7 +2652,7 @@ export const listAgentTaskEvents = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/tasks/{id}/events",
+    url: "/api/agents/{agentID}/tasks/{taskID}/events",
     ...options,
   });
 

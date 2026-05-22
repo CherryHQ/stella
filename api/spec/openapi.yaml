@@ -148,22 +148,22 @@ paths:
   /api/provider-types:
     $ref: "./domain/providers/paths.yaml#/paths/~1api~1provider-types"
   # ── Sessions ───────────────────────────────────────────────────────────────
-  /api/sessions:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions"
-  /api/sessions/{sessionID}:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}"
-  /api/sessions/{sessionID}/messages:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1messages"
-  /api/sessions/{sessionID}/workspace:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace"
-  /api/sessions/{sessionID}/workspace/files:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1files"
-  /api/sessions/{sessionID}/workspace/file-content:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1file-content"
-  /api/sessions/{sessionID}/workspace/upload:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1workspace~1upload"
-  /api/sessions/{sessionID}/system-prompt:
-    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1sessions~1{sessionID}~1system-prompt"
+  /api/agents/{agentID}/sessions:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions"
+  /api/agents/{agentID}/sessions/{sessionID}:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}"
+  /api/agents/{agentID}/sessions/{sessionID}/messages:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1messages"
+  /api/agents/{agentID}/sessions/{sessionID}/workspace:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1workspace"
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/files:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1workspace~1files"
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1workspace~1file-content"
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/upload:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1workspace~1upload"
+  /api/agents/{agentID}/sessions/{sessionID}/system-prompt:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentID}~1sessions~1{sessionID}~1system-prompt"
   # ── Shares ─────────────────────────────────────────────────────────────────
   /api/shares:
     $ref: "./domain/shares/paths.yaml#/paths/~1api~1shares"
@@ -228,23 +228,23 @@ paths:
   /api/admin/oauth-providers/{id}/config:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"
   # ── Scheduler ──────────────────────────────────────────────────────────────
-  /api/scheduler/jobs:
-    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs"
-  /api/scheduler/jobs/{id}:
-    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}"
-  /api/scheduler/jobs/{id}/run:
-    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1run"
-  /api/scheduler/jobs/{id}/runs:
-    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1jobs~1{id}~1runs"
+  /api/agents/{agentID}/scheduler/jobs:
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs"
+  /api/agents/{agentID}/scheduler/jobs/{jobID}:
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs~1{jobID}"
+  /api/agents/{agentID}/scheduler/jobs/{jobID}/run:
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs~1{jobID}~1run"
+  /api/agents/{agentID}/scheduler/jobs/{jobID}/runs:
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs~1{jobID}~1runs"
   # ── Tasks ──────────────────────────────────────────────────────────────────
-  /api/tasks:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
-  /api/tasks/{id}:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}"
-  /api/tasks/{id}/action:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1action"
-  /api/tasks/{id}/events:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{id}~1events"
+  /api/agents/{agentID}/tasks:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks"
+  /api/agents/{agentID}/tasks/{taskID}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}"
+  /api/agents/{agentID}/tasks/{taskID}/action:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1action"
+  /api/agents/{agentID}/tasks/{taskID}/events:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1events"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"

@@ -1,5 +1,7 @@
 paths:
-  /api/scheduler/jobs:
+  /api/agents/{agentID}/scheduler/jobs:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     get:
       tags: [jobs]
       summary: List scheduler jobs
@@ -39,9 +41,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/scheduler/jobs/{id}:
+  /api/agents/{agentID}/scheduler/jobs/{jobID}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: jobID, in: path, required: true, schema: { type: string } }
     put:
       tags: [jobs]
       summary: Update a scheduler job (partial — missing fields are merged from existing)
@@ -85,9 +88,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/scheduler/jobs/{id}/run:
+  /api/agents/{agentID}/scheduler/jobs/{jobID}/run:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: jobID, in: path, required: true, schema: { type: string } }
     post:
       tags: [jobs]
       summary: Trigger a scheduler job immediately
@@ -107,9 +111,10 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/scheduler/jobs/{id}/runs:
+  /api/agents/{agentID}/scheduler/jobs/{jobID}/runs:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: jobID, in: path, required: true, schema: { type: string } }
     get:
       tags: [jobs]
       summary: List scheduler job runs

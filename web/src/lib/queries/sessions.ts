@@ -7,11 +7,10 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: string) {
     queryKey: ["sessions", agentId, kind],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
-      const agentParam = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : "";
       const kindParam = kind ? `&kind=${encodeURIComponent(kind)}` : "";
       return api<Session[]>(
         "GET",
-        `/api/sessions?limit=20&offset=${pageParam}${agentParam}${kindParam}`,
+        `/api/agents/${encodeURIComponent(agentId)}/sessions?limit=20&offset=${pageParam}${kindParam}`,
       );
     },
     getNextPageParam: (lastPage, allPages) =>

@@ -2395,13 +2395,13 @@ export const listProviderTypesOptions = (
     queryKey: listProviderTypesQueryKey(options),
   });
 
-export const listSessionsQueryKey = (options?: Options<ListSessionsData>) =>
+export const listSessionsQueryKey = (options: Options<ListSessionsData>) =>
   createQueryKey("listSessions", options);
 
 /**
  * List sessions (all users see their own; admins see all)
  */
-export const listSessionsOptions = (options?: Options<ListSessionsData>) =>
+export const listSessionsOptions = (options: Options<ListSessionsData>) =>
   queryOptions<
     ListSessionsResponse,
     ListSessionsError,
@@ -2421,7 +2421,7 @@ export const listSessionsOptions = (options?: Options<ListSessionsData>) =>
   });
 
 export const listSessionsInfiniteQueryKey = (
-  options?: Options<ListSessionsData>,
+  options: Options<ListSessionsData>,
 ): QueryKey<Options<ListSessionsData>> =>
   createQueryKey("listSessions", options, true);
 
@@ -2429,7 +2429,7 @@ export const listSessionsInfiniteQueryKey = (
  * List sessions (all users see their own; admins see all)
  */
 export const listSessionsInfiniteOptions = (
-  options?: Options<ListSessionsData>,
+  options: Options<ListSessionsData>,
 ) =>
   infiniteQueryOptions<
     ListSessionsResponse,
@@ -3814,14 +3814,14 @@ export const setOAuthProviderConfigMutation = (
 };
 
 export const listSchedulerJobsQueryKey = (
-  options?: Options<ListSchedulerJobsData>,
+  options: Options<ListSchedulerJobsData>,
 ) => createQueryKey("listSchedulerJobs", options);
 
 /**
  * List scheduler jobs
  */
 export const listSchedulerJobsOptions = (
-  options?: Options<ListSchedulerJobsData>,
+  options: Options<ListSchedulerJobsData>,
 ) =>
   queryOptions<
     ListSchedulerJobsResponse,

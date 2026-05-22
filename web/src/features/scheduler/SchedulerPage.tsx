@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -66,6 +66,7 @@ export function SchedulerPage() {
   const isAdmin = me?.is_admin ?? false;
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const agentsRef = useRef<Agent[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
@@ -82,8 +83,21 @@ export function SchedulerPage() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const list = await api<SchedulerJobList>("GET", "/api/scheduler/jobs");
-      setJobs(list.items || []);
+      let agentList = agentsRef.current;
+      if (agentList.length === 0) {
+        agentList = (await api<Agent[]>("GET", "/api/agents")) || [];
+        agentsRef.current = agentList;
+        setAgents(agentList);
+      }
+      const lists = await Promise.all(
+        agentList.map((agent) =>
+          api<SchedulerJobList>(
+            "GET",
+            `/api/agents/${encodeURIComponent(agent.id)}/scheduler/jobs`,
+          ).catch(() => ({ items: [] as SchedulerJob[] })),
+        ),
+      );
+      setJobs(lists.flatMap((list) => list.items || []));
     } catch (e) {
       console.error(e);
     }
@@ -91,8 +105,9 @@ export function SchedulerPage() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const list = await api<Agent[]>("GET", "/api/agents");
-      setAgents(list || []);
+      const list = (await api<Agent[]>("GET", "/api/agents")) || [];
+      agentsRef.current = list;
+      setAgents(list);
     } catch (e) {
       console.error(e);
     }
@@ -102,14 +117,22 @@ export function SchedulerPage() {
     void Promise.all([loadJobs(), loadAgents()]);
   }, [loadJobs, loadAgents]);
 
-  const loadRuns = useCallback(async (jobId: string) => {
-    try {
-      const runs = await api<SchedulerJobRun[]>("GET", "/api/scheduler/jobs/" + jobId + "/runs");
-      setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const loadRuns = useCallback(
+    async (jobId: string) => {
+      try {
+        const job = jobs.find((item) => item.id === jobId);
+        if (!job?.agent_id) return;
+        const runs = await api<SchedulerJobRun[]>(
+          "GET",
+          `/api/agents/${encodeURIComponent(job.agent_id)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
+        );
+        setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [jobs],
+  );
 
   useEffect(() => {
     if (selectedJobId !== null) {
@@ -165,9 +188,17 @@ export function SchedulerPage() {
     if (isAdmin && jobForm.system_job) payload.user_id = 0;
     try {
       if (editingJobId !== null) {
-        await api("PUT", "/api/scheduler/jobs/" + editingJobId, payload);
+        await api(
+          "PUT",
+          `/api/agents/${encodeURIComponent(jobForm.agent_id)}/scheduler/jobs/${encodeURIComponent(editingJobId)}`,
+          payload,
+        );
       } else {
-        await api("POST", "/api/scheduler/jobs", payload);
+        await api(
+          "POST",
+          `/api/agents/${encodeURIComponent(jobForm.agent_id)}/scheduler/jobs`,
+          payload,
+        );
       }
       resetForm();
       setSelectedJobId(null);
@@ -184,7 +215,10 @@ export function SchedulerPage() {
       const job = jobs.find((item) => item.id === id);
       if (job?.owner_kind !== "user") return;
       try {
-        await api("DELETE", "/api/scheduler/jobs/" + id);
+        await api(
+          "DELETE",
+          `/api/agents/${encodeURIComponent(job.agent_id)}/scheduler/jobs/${encodeURIComponent(id)}`,
+        );
         if (selectedJobId === id) {
           setSelectedJobId(null);
           resetForm();
@@ -202,7 +236,10 @@ export function SchedulerPage() {
     async (j: SchedulerJob) => {
       setTriggeringJobId(j.id);
       try {
-        await api("POST", "/api/scheduler/jobs/" + j.id + "/run");
+        await api(
+          "POST",
+          `/api/agents/${encodeURIComponent(j.agent_id)}/scheduler/jobs/${encodeURIComponent(j.id)}/run`,
+        );
         showToast("Job triggered");
         if (selectedJobId === j.id) {
           void loadRuns(j.id);

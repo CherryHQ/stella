@@ -33,12 +33,16 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      const task = await api<ComponentsAgentTask>("POST", "/api/tasks", {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        agent_id: agentId,
-      });
+      const task = await api<ComponentsAgentTask>(
+        "POST",
+        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
+        {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          priority,
+          agent_id: agentId,
+        },
+      );
       onCreated(task);
     } catch (e) {
       console.error(e);

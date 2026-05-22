@@ -115,10 +115,12 @@ function PluginSchedule({ job, label }: { job: SchedulerJob; label: string }) {
 }
 
 function ConversationPanel({
+  agentId,
   sessionId,
   emptyLabel,
   placeholder,
 }: {
+  agentId: string;
   sessionId: string;
   emptyLabel: string;
   placeholder: string;
@@ -132,6 +134,7 @@ function ConversationPanel({
   }
   return (
     <SessionConversation
+      agentId={agentId}
       sessionId={sessionId}
       placeholder={placeholder}
       className="h-full min-h-0"
@@ -159,10 +162,13 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     setLoading(true);
     try {
       const [j, jobRuns] = await Promise.all([
-        api<SchedulerJob>("GET", `/api/scheduler/jobs/${encodeURIComponent(jobId)}`),
+        api<SchedulerJob>(
+          "GET",
+          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}`,
+        ),
         api<SchedulerJobRun[]>(
           "GET",
-          `/api/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
+          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
         ).catch(() => []),
       ]);
       const f: Form = {
@@ -210,9 +216,13 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         agent_id: agentId,
       };
       if (isNew) {
-        await api("POST", "/api/scheduler/jobs", payload);
+        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs`, payload);
       } else {
-        await api("PUT", `/api/scheduler/jobs/${encodeURIComponent(jobId!)}`, payload);
+        await api(
+          "PUT",
+          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId!)}`,
+          payload,
+        );
       }
       setSavedForm(form);
       onSaved();
@@ -227,7 +237,10 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setDeleting(true);
     try {
-      await api("DELETE", `/api/scheduler/jobs/${encodeURIComponent(jobId)}`);
+      await api(
+        "DELETE",
+        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}`,
+      );
       onDeleted();
     } catch (e) {
       console.error(e);
@@ -240,7 +253,10 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setRunning(true);
     try {
-      await api("POST", `/api/scheduler/jobs/${encodeURIComponent(jobId)}/run`);
+      await api(
+        "POST",
+        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
+      );
       await load();
     } catch (e) {
       console.error(e);
@@ -477,6 +493,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
               style={{ minHeight: 240 }}
             >
               <ConversationPanel
+                agentId={agentId}
                 sessionId={sessionId}
                 emptyLabel={t("sessions.auto.noSession")}
                 placeholder={t("sessions.auto.askPlaceholder")}

@@ -45,7 +45,10 @@ export function SessionView() {
     let cancelled = false;
     const load = async () => {
       try {
-        const detail = await api<Session>("GET", `/api/sessions/${encodeURIComponent(sessionId)}`);
+        const detail = await api<Session>(
+          "GET",
+          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`,
+        );
         if (!cancelled) setSessionDetail(detail);
       } catch (e) {
         console.error(e);
@@ -55,7 +58,7 @@ export function SessionView() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [agentId, sessionId]);
 
   const loadWorkspace = useCallback(
     async (sid: string, scopePath?: string) => {
@@ -65,7 +68,7 @@ export function SessionView() {
         if (scopePath) params.set("path", scopePath);
         const data = await api<Workspace>(
           "GET",
-          `/api/sessions/${encodeURIComponent(sid)}/workspace?${params}`,
+          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sid)}/workspace?${params}`,
         );
         setWorkspace(data);
         if (
@@ -83,7 +86,7 @@ export function SessionView() {
         setWorkspaceLoading(false);
       }
     },
-    [project?.base_dir],
+    [agentId, project?.base_dir],
   );
 
   useEffect(() => {
@@ -173,6 +176,7 @@ export function SessionView() {
           />
         )}
         <WorkspacePanel
+          agentID={agentId}
           sessionID={sessionDetail?.id ?? ""}
           workspace={workspace}
           workspaceLoading={workspaceLoading}
@@ -187,6 +191,7 @@ export function SessionView() {
           <SheetDescription className="sr-only">Session workspace files</SheetDescription>
           <div className="flex h-full flex-col overflow-hidden">
             <WorkspacePanel
+              agentID={agentId}
               sessionID={sessionDetail?.id ?? ""}
               workspace={workspace}
               workspaceLoading={workspaceLoading}
