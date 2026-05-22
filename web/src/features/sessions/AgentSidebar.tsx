@@ -14,7 +14,6 @@ import { unwrapApiData } from "@/lib/api-data";
 import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
-import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
 import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
@@ -447,7 +446,6 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const { data: schedulerJobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
@@ -456,8 +454,11 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
       return unwrapApiData<AgentTaskList>(data);
     },
   });
-  const taskCount = taskList?.items?.length ?? 0;
-  const workCount = taskCount + schedulerJobs.filter((job) => job.enabled).length;
+  const taskAttentionCount =
+    taskList?.items?.filter(
+      (task) =>
+        task.status === "blocked" || task.status === "review_requested" || task.status === "failed",
+    ).length ?? 0;
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
@@ -609,7 +610,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               }
               icon={<IconAutomation />}
               label={t("sessions.sidebar.work")}
-              badge={workCount}
+              badge={taskAttentionCount}
               onClick={() => {
                 closeMobile();
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
