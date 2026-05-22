@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
@@ -138,6 +140,44 @@ func findSkill(list []map[string]any, name string) map[string]any {
 		}
 	}
 	return nil
+}
+
+func TestSessionSystemPromptIncludesSkills(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.sessionID, "prompt-skills-agent")
+	createTestSkill(t, env, "system", "", "", "inspect-skill")
+
+	sessionID := "prompt-skills-session"
+	sm := env.mem.(memory.SessionManager)
+	now := time.Now()
+	if err := sm.SaveInfo(context.Background(), memory.SessionInfo{
+		ID:         sessionID,
+		AgentID:    agentID,
+		UserID:     env.adminUser.ID,
+		Channel:    "admin",
+		Kind:       "chat",
+		CreatedAt:  now,
+		LastActive: now,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/agents/"+agentID+"/sessions/"+sessionID+"/system-prompt", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var got struct {
+		SystemPrompt string `json:"system_prompt"`
+	}
+	if err := json.Unmarshal(resp.Data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, want := range []string{"## Skills", "<name>inspect-skill</name>", "stella skills load <skill-name>"} {
+		if !strings.Contains(got.SystemPrompt, want) {
+			t.Fatalf("system prompt missing %q:\n%s", want, got.SystemPrompt)
+		}
+	}
 }
 
 // --- Agent-context skill endpoints ---

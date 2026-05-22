@@ -9,7 +9,7 @@ import {
   listTools,
   uploadWorkspaceFile,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
+import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { formatTime } from "@/lib/time";
 import type {
   Message,
@@ -138,7 +138,7 @@ export function SessionDetail({
           throwOnError: true,
         });
         if (sessionIDRef.current !== session.id) return;
-        if (pr.system_prompt) setSystemPrompt(pr.system_prompt);
+        setSystemPrompt(unwrapApiData<{ system_prompt: string }>(pr).system_prompt);
       } catch {
         // ignore like original .catch(() => null)
       }
