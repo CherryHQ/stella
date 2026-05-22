@@ -188,13 +188,6 @@ func (p *Pool) latestSessionLocked(ctx context.Context, userID string) (SessionI
 	return *best, true
 }
 
-// ActiveSession returns the most recent non-archived session for a channel.
-func (p *Pool) ActiveSession(channel, userID string) (SessionInfo, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.activeSessionLocked(context.Background(), channel, userID)
-}
-
 // ResolveSession returns the session for a channel, creating or promoting one if needed.
 // Private user channels resolve to a per-agent/user main session. Group and other
 // shared channels resolve by exact channel and remain chat sessions.
@@ -250,16 +243,6 @@ func (p *Pool) ResolveSession(ctx context.Context, channel, userID string) (Sess
 	return p.persistNewSession(ctx, info)
 }
 
-// RotateSession archives the active session for a channel (if any) and creates a new one.
-func (p *Pool) RotateSession(channel, userID string) (SessionInfo, error) {
-	if old, ok := p.ActiveSession(channel, userID); ok {
-		if err := p.ArchiveSession(old.ID); err != nil {
-			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)
-		}
-	}
-	return p.CreateSession(channel, userID)
-}
-
 // GetSession returns metadata for a session.
 func (p *Pool) GetSession(sessionID, userID string) (SessionInfo, error) {
 	p.mu.Lock()
@@ -291,41 +274,6 @@ func (p *Pool) ListSessions(includeArchived bool, userID string) ([]SessionInfo,
 	result := make([]SessionInfo, len(items))
 	copy(result, items)
 	return result, nil
-}
-
-// ArchiveSession marks a session as archived, closes its runner, but keeps history on disk.
-// The session is removed from the in-memory map; its metadata persists in the index.
-func (p *Pool) ArchiveSession(sessionID string) error {
-	p.mu.Lock()
-	sess, ok := p.sessions[sessionID]
-	hadSession := ok
-	var r Runner
-	if ok {
-		r = sess.Runner
-		delete(p.sessions, sessionID)
-	}
-	p.mu.Unlock()
-
-	if sm, ok := p.mem.(memory.SessionManager); ok {
-		ctx := context.Background()
-		if hadSession {
-			ctx = p.sessionContext(ctx, sess.Info.UserID)
-		}
-		info, err := sm.LoadInfo(ctx, sessionID)
-		if err == nil {
-			info.Archived = true
-			if err := sm.SaveInfo(ctx, info); err != nil {
-				p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
-			}
-		}
-	}
-
-	if r != nil {
-		return r.Close()
-	}
-
-	p.log.Info("session archived", "session_id", sessionID)
-	return nil
 }
 
 // History returns the message history for a session, loading from the memory provider.

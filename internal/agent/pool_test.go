@@ -299,54 +299,6 @@ func TestPoolChatErrorFromFactory(t *testing.T) {
 	}
 }
 
-func TestPoolArchiveAndRecreate(t *testing.T) {
-	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	ctx := testSessionContext()
-
-	stream := pool.Chat(ctx, "sess", "msg")
-	for range stream {
-	}
-
-	if err := pool.ArchiveSession("sess"); err != nil {
-		t.Fatalf("ArchiveSession: %v", err)
-	}
-
-	// The old runner should be closed.
-	if !(*runners)[0].closed {
-		t.Error("old runner should be closed after ArchiveSession")
-	}
-
-	// Session should be removed.
-	pool.mu.Lock()
-	_, exists := pool.sessions["sess"]
-	pool.mu.Unlock()
-	if exists {
-		t.Error("session should be removed after ArchiveSession")
-	}
-
-	// Next chat should create a new
-	stream = pool.Chat(ctx, "sess", "msg2")
-	for range stream {
-	}
-
-	if len(*runners) != 2 {
-		t.Errorf("expected 2 runners, got %d", len(*runners))
-	}
-}
-
-func TestPoolArchiveNonexistent(t *testing.T) {
-	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-
-	// Should not error on nonexistent session.
-	if err := pool.ArchiveSession("nonexistent"); err != nil {
-		t.Fatalf("ArchiveSession nonexistent: %v", err)
-	}
-}
-
 func TestPoolClose(t *testing.T) {
 	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
@@ -551,38 +503,6 @@ func TestPoolCreateAndListSessions(t *testing.T) {
 	}
 }
 
-func TestPoolActiveSession(t *testing.T) {
-	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	// No sessions yet.
-	_, ok := pool.ActiveSession("cli", "")
-	if ok {
-		t.Error("expected no active session")
-	}
-
-	// Create a session in "cli" channel.
-	info, _ := pool.CreateSession("cli", "")
-
-	got, ok := pool.ActiveSession("cli", "")
-	if !ok {
-		t.Fatal("expected active session")
-	}
-	if got.ID != info.ID {
-		t.Errorf("got ID %q, want %q", got.ID, info.ID)
-	}
-	if got.Channel != "cli" {
-		t.Errorf("got Channel %q, want %q", got.Channel, "cli")
-	}
-
-	// Different channel should not find it.
-	_, ok = pool.ActiveSession("tg123", "")
-	if ok {
-		t.Error("expected no active session for tg123")
-	}
-}
-
 func TestPoolResolveSession(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
@@ -606,16 +526,6 @@ func TestPoolResolveSession(t *testing.T) {
 	}
 	if info2.ID != info1.ID {
 		t.Errorf("second resolve returned different ID: %q vs %q", info2.ID, info1.ID)
-	}
-
-	// Archive and resolve again — should create a new session.
-	_ = pool.ArchiveSession(info1.ID)
-	info3, err := pool.ResolveSession(ctx, "cli", "test-user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info3.ID == info1.ID {
-		t.Error("expected new session after archive")
 	}
 }
 
@@ -721,60 +631,6 @@ func TestPoolResolveSessionNonUserChannelDoesNotUsePrivateMain(t *testing.T) {
 	}
 }
 
-func TestPoolRotateSession(t *testing.T) {
-	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	ch := "tg12345"
-
-	// Create initial session and chat.
-	info1, _ := pool.CreateSession(ch, "test-user")
-	stream := pool.Chat(testSessionContext(), info1.ID, "hello")
-	for range stream {
-	}
-
-	// Rotate: archives old, creates new.
-	info2, err := pool.RotateSession(ch, "test-user")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if info2.ID == info1.ID {
-		t.Error("new session should have different ID")
-	}
-
-	// New session should have no history.
-	history := pool.History(testSessionContext(), info2.ID)
-	if len(history) != 0 {
-		t.Errorf("new session should have empty history, got %d events", len(history))
-	}
-
-	// ActiveSession should return the new one.
-	active, ok := pool.ActiveSession(ch, "test-user")
-	if !ok {
-		t.Fatal("expected active session")
-	}
-	if active.ID != info2.ID {
-		t.Errorf("active session = %q, want %q", active.ID, info2.ID)
-	}
-}
-
-func TestPoolRotateSessionNoExisting(t *testing.T) {
-	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	// Rotate with no existing session should just create one.
-	info, err := pool.RotateSession("fresh", "test-user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Channel != "fresh" {
-		t.Errorf("Channel = %q, want fresh", info.Channel)
-	}
-}
-
 func TestPoolResolveSessionConcurrent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
@@ -828,12 +684,6 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 	}
 	pool.mu.Unlock()
 
-	// ActiveSession for "cli" should not match the legacy session.
-	_, ok := pool.ActiveSession("cli", "")
-	if ok {
-		t.Error("legacy session with empty Channel should not match 'cli'")
-	}
-
 	// ResolveSession should not promote legacy sessions without user/channel scope.
 	info, err := pool.ResolveSession(testSessionContext(), "cli", "test-user")
 	if err != nil {
@@ -844,36 +694,6 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 	}
 	if info.Channel != "cli" {
 		t.Errorf("Channel = %q, want cli", info.Channel)
-	}
-}
-
-func TestPoolArchiveSession(t *testing.T) {
-	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
-	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	info, _ := pool.CreateSession("test", "test-user")
-
-	// Chat to create a runner
-	stream := pool.Chat(testSessionContext(), info.ID, "test")
-	for range stream {
-	}
-
-	if err := pool.ArchiveSession(info.ID); err != nil {
-		t.Fatalf("ArchiveSession: %v", err)
-	}
-
-	// Runner should be closed
-	if !(*runners)[0].closed {
-		t.Error("runner should be closed after archive")
-	}
-
-	// Session should be removed from memory
-	pool.mu.Lock()
-	_, exists := pool.sessions[info.ID]
-	pool.mu.Unlock()
-	if exists {
-		t.Error("session should be removed from memory after archive")
 	}
 }
 
@@ -1253,41 +1073,13 @@ func TestPoolActiveSessionFromMemEngine(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 
-	// activeSessionLocked should find the session from the memory engine.
-	got, ok := pool.ActiveSession("telegram", "test-user")
-	if !ok {
-		t.Fatal("expected active session from memory engine")
+	// ResolveSession should find the session from the memory engine.
+	got, err := pool.ResolveSession(testSessionContext(), "telegram", "test-user")
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
 	}
 	if got.ID != "ext-sess-001" {
 		t.Errorf("got ID %q, want %q", got.ID, "ext-sess-001")
-	}
-}
-
-func TestPoolArchiveSessionWithMemEngine(t *testing.T) {
-	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
-	mem := testMemoryProvider(t)
-	pool := NewPool(factory, mem, WithAgentID("test-agent"))
-	defer func() { _ = pool.Close() }()
-
-	info, _ := pool.CreateSession("test", "test-user")
-
-	// Chat to create a
-	stream := pool.Chat(testSessionContext(), info.ID, "hello")
-	for range stream {
-	}
-
-	if err := pool.ArchiveSession(info.ID); err != nil {
-		t.Fatalf("ArchiveSession: %v", err)
-	}
-
-	// The session should be marked as archived in the memory provider.
-	sm := mem.(memory.SessionManager)
-	loaded, err := sm.LoadInfo(testSessionContext(), info.ID)
-	if err != nil {
-		t.Fatalf("LoadInfo after archive: %v", err)
-	}
-	if !loaded.Archived {
-		t.Error("expected session to be archived in memory engine")
 	}
 }
 
@@ -1440,8 +1232,13 @@ func TestPoolListSessionsWithMemEngine(t *testing.T) {
 		t.Fatalf("expected at least 2 sessions, got %d", len(sessions))
 	}
 
-	// Archive the first one.
-	_ = pool.ArchiveSession(sessions[0].ID)
+	// Mark the first one archived through the memory provider.
+	sm := mem.(memory.SessionManager)
+	archived := sessions[0]
+	archived.Archived = true
+	if err := sm.SaveInfo(testSessionContext(), archived); err != nil {
+		t.Fatalf("SaveInfo archived: %v", err)
+	}
 
 	// List without archived.
 	active, err := pool.ListSessions(false, "test-user")

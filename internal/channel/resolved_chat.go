@@ -24,10 +24,6 @@ func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, 
 	return rc.Pool.ResolveSession(ctx, rc.SessionKey, rc.User.ID)
 }
 
-func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
-	return rc.Pool.RotateSession(rc.SessionKey, rc.User.ID)
-}
-
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	info, err := rc.ResolveSession(ctx)
 	if err != nil {
