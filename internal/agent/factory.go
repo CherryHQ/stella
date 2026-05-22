@@ -28,6 +28,7 @@ type RunnerFactoryConfig struct {
 	PromptToolsBuilder       prompt.ToolsBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
+	SkillStore               pkgplugins.SkillStore
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
@@ -116,6 +117,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				UserID:              params.UserID,
 				AgentID:             params.AgentID,
 				UserRoot:            userRoot,
+				SkillStore:          cfg.SkillStore,
 				RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 				EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			}

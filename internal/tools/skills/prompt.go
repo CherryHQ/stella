@@ -9,10 +9,12 @@ import (
 )
 
 func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-	if build.Platform == nil {
-		return pkgplugins.SystemPromptSection{}, nil
+	var store pkgplugins.SkillStore
+	if build.SkillStore != nil {
+		store = build.SkillStore
+	} else if build.Platform != nil {
+		store = build.Platform.SkillStore()
 	}
-	store := build.Platform.SkillStore()
 	if store == nil {
 		return pkgplugins.SystemPromptSection{}, nil
 	}

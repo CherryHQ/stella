@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -492,11 +493,15 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			AgentRoot:           snap.Workspace,
 			UserID:              userID,
 			AgentID:             agentID,
+			SkillStore:          pm.skillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if pm.promptSectionsBuilder != nil {
 			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+			sections = append(sections, skillsSection)
 		}
 		params := prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
@@ -552,6 +557,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		PromptToolsBuilder:       pm.promptToolsBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
+		SkillStore:               pm.skillStore,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
