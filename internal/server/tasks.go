@@ -28,16 +28,17 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		userID = info.UserID
 	}
 
+	if _, code, msg := s.requireAgentAccess(r.Context(), params.AgentId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
 	var statusFilter string
 	if params.Status != nil {
 		statusFilter = *params.Status
 	}
-	var agentID string
-	if params.AgentId != nil {
-		agentID = *params.AgentId
-	}
 
-	list, err := s.tasksSvc.ListTasks(r.Context(), userID, agentID, statusFilter)
+	list, err := s.tasksSvc.ListTasks(r.Context(), userID, params.AgentId, statusFilter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -66,15 +67,18 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
+	if body.AgentId == "" {
+		writeError(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), body.AgentId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var userID string
 	if info != nil {
 		userID = info.UserID
-	}
-
-	agentID := ""
-	if body.AgentId != nil {
-		agentID = *body.AgentId
 	}
 	description := ""
 	if body.Description != nil {
@@ -93,7 +97,7 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 		Title:       body.Title,
 		Description: description,
 		Priority:    priority,
-		AgentID:     agentID,
+		AgentID:     body.AgentId,
 		UserID:      userID,
 		Deps:        deps,
 	})

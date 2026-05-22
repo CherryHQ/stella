@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -32,16 +33,31 @@ priorities, and human-in-the-loop actions like approve, reject, and respond.`,
 	}
 }
 
+func taskAgentID(c *ucli.Context) (string, error) {
+	if a := c.String("agent-id"); a != "" {
+		return a, nil
+	}
+	if a := os.Getenv("STELLA_AGENT_ID"); a != "" {
+		return a, nil
+	}
+	return "", fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
+}
+
 func taskListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
 		Usage: "List tasks",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status (pending, running, blocked, review, done, cancelled, failed)"},
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			params := &apiclient.ListAgentTasksParams{}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			params := &apiclient.ListAgentTasksParams{AgentId: agentID}
 			if s := c.String("status"); s != "" {
 				params.Status = &s
 			}
@@ -101,12 +117,17 @@ func taskCreateCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "title", Usage: "Task title (required)", Required: true},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
 			&ucli.StringFlag{Name: "priority", Usage: "Priority: low, medium, high (default: medium)"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID to assign the task to"},
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency task ID (can be repeated)"},
 		},
 		Action: func(c *ucli.Context) error {
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			body := apiclient.CreateAgentTaskJSONRequestBody{
-				Title: c.String("title"),
+				Title:   c.String("title"),
+				AgentId: agentID,
 			}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
@@ -114,9 +135,6 @@ func taskCreateCommand() *ucli.Command {
 			if p := c.String("priority"); p != "" {
 				prio := apitypes.AgentTaskInputPriority(p)
 				body.Priority = &prio
-			}
-			if a := c.String("agent-id"); a != "" {
-				body.AgentId = &a
 			}
 			if deps := c.StringSlice("dep"); len(deps) > 0 {
 				body.Deps = &deps

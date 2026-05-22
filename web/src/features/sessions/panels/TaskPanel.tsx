@@ -37,7 +37,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
-        agent_id: agentId || undefined,
+        agent_id: agentId,
       });
       onCreated(task);
     } catch (e) {

@@ -315,7 +315,7 @@ export type ComponentsAgentTaskInput = {
   title: string;
   description?: string;
   priority?: "routine" | "urgent";
-  agent_id?: string;
+  agent_id: string;
   /**
    * IDs of tasks that must be done before this task can run
    */
@@ -6314,9 +6314,9 @@ export type ListSchedulerJobRunsResponse =
 export type ListAgentTasksData = {
   body?: never;
   path?: never;
-  query?: {
+  query: {
     status?: string;
-    agent_id?: string;
+    agent_id: string;
   };
   url: "/api/tasks";
 };
