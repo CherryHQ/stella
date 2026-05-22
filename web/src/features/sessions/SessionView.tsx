@@ -23,7 +23,7 @@ export function SessionView() {
   const { draft } = useSearch({ strict: false }) as { draft?: string };
   const navigate = useNavigate();
   const { data: me } = useQuery(meQueryOptions);
-  const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
+  const currentUserID = me?.id ?? "";
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const project = useMemo(
     () => (projectId ? projects.find((p) => p.id === projectId) : undefined),
@@ -49,7 +49,7 @@ export function SessionView() {
           path: { agentID: agentId, sessionID: sessionId },
           throwOnError: true,
         });
-        if (!cancelled) setSessionDetail(detail as unknown as Session);
+        if (!cancelled) setSessionDetail(detail as Session);
       } catch (e) {
         console.error(e);
       }

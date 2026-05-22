@@ -12,6 +12,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { SaveManifestPluginsData } from "@/lib/api-client/types.gen";
 import type {
+  ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
   McpServer,
@@ -193,12 +194,8 @@ export function PluginsPage() {
   const loadManifestPlugins = useCallback(async () => {
     try {
       const { data } = await listManifestPlugins({ throwOnError: true });
-      const res = (data as unknown as {
-        plugins: ManifestPlugin[];
-        oauth_providers: ManifestOAuthProvider[];
-      }) ?? { plugins: [], oauth_providers: [] };
-      setManifestPlugins(res.plugins);
-      setOAuthProviders(res.oauth_providers);
+      setManifestPlugins((data.plugins ?? []) as unknown as ManifestPlugin[]);
+      setOAuthProviders((data.oauth_providers ?? []) as unknown as ManifestOAuthProvider[]);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -243,7 +240,7 @@ export function PluginsPage() {
         body: { enabled },
         throwOnError: true,
       });
-      const updated = data as unknown as Plugin;
+      const updated = data as Plugin;
       updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(id + (enabled ? " enabled" : " disabled"));
       void loadPlugins();
@@ -275,7 +272,7 @@ export function PluginsPage() {
         body: { enabled },
         throwOnError: true,
       });
-      const updated = data as unknown as Plugin;
+      const updated = data as Plugin;
       updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(enabled ? id + " set as active sandbox" : id + " disabled");
       void loadPlugins();
@@ -480,7 +477,7 @@ export function PluginsPage() {
         display_name: (draft.display_name || "").trim() || name,
         description: (draft.description || "").trim(),
         enabled: true,
-        binaries: [binary as unknown as import("@/lib/types").ManifestBinary],
+        binaries: [binary as unknown as ManifestBinary],
       };
       const updated = [...manifestPlugins, newPlugin];
       await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });

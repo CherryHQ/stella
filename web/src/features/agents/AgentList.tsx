@@ -15,7 +15,7 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
   const { agents, editingId, isAdmin, currentUserId } = state;
 
   const canEditAgent = (a: AgentDetail) =>
-    isAdmin || (a.creator_id !== 0 && a.creator_id === currentUserId);
+    isAdmin || (a.creator_id && a.creator_id === currentUserId);
 
   return (
     <div>
@@ -53,7 +53,7 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
                 <Button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onConfirmDelete(`Delete ${a.name}?`, () => onDeleteAgent(a.id));
+                    onConfirmDelete(`Delete ${a.name}?`, () => onDeleteAgent(a.id!));
                   }}
                   variant="ghost"
                   size="icon-xs"

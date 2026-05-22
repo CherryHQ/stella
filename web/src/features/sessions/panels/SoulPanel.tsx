@@ -27,7 +27,7 @@ export function SoulPanel({ agentId }: Props) {
         path: { id: agentId },
         throwOnError: true,
       });
-      const a = data as unknown as AgentDetail;
+      const a = data as AgentDetail;
       setAgent(a);
       setSoul(a.soul ?? "");
       setEditing(false);
@@ -57,7 +57,7 @@ export function SoulPanel({ agentId }: Props) {
     try {
       await updateAgent({
         path: { id: agentId },
-        body: { ...agent, soul: draft } as unknown as ComponentsAgent,
+        body: { ...agent, soul: draft } as ComponentsAgent,
         throwOnError: true,
       });
       setSoul(draft);

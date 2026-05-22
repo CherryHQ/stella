@@ -15,6 +15,7 @@ import {
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
+import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Channel, Identity, Plugin } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,9 +120,7 @@ function hasConfig(type: string, data: Record<string, unknown>): boolean {
 interface NormalizedChannel extends Record<string, unknown> {
   id: string;
   type: string;
-  label: string;
   agent_id: string;
-  agent_name: string;
   enabled: boolean;
 }
 
@@ -280,7 +279,7 @@ interface ChannelDetailProps {
   onDelete: (id: string) => void;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
-  onUnlink: (id: number | undefined) => void;
+  onUnlink: (id: string | undefined) => void;
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
@@ -561,7 +560,7 @@ function NewChannelForm({
 // ─── PublicChannelDetail ──────────────────────────────────────────────────────
 
 interface PublicChannelDetailProps {
-  channel: Channel;
+  channel: ComponentsPublicChannel;
   identity: Identity | null;
   linked: boolean;
   generating: boolean;
@@ -572,7 +571,7 @@ interface PublicChannelDetailProps {
   wxQrPolling: boolean;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
-  onUnlink: (id: number | undefined) => void;
+  onUnlink: (id: string | undefined) => void;
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
@@ -694,7 +693,7 @@ export function ChannelsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const [publicChannels, setPublicChannels] = useState<Channel[]>([]);
+  const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [enabledChannelTypeIDs, setEnabledChannelTypeIDs] = useState<string[]>(
@@ -741,7 +740,7 @@ export function ChannelsPage() {
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
-      setLinkedIdentities((data || []) as unknown as Identity[]);
+      setLinkedIdentities((data || []) as Identity[]);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -751,7 +750,7 @@ export function ChannelsPage() {
     setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
-      setPublicChannels((data || []) as unknown as Channel[]);
+      setPublicChannels(data?.items ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
@@ -777,7 +776,7 @@ export function ChannelsPage() {
       setLoadingInstances(true);
       try {
         const { data } = await listChannels({ throwOnError: true });
-        const channels = (data || []) as unknown as Channel[];
+        const channels = (data?.items ?? []) as Channel[];
         const normalized = (channels || [])
           .map(normalizeChannel)
           .filter((ch) => currentEnabledIDs.includes(ch.type))
@@ -929,7 +928,7 @@ export function ChannelsPage() {
 
   // ── identity management ──
 
-  const unlinkIdentity = async (id: number | undefined) => {
+  const unlinkIdentity = async (id: string | undefined) => {
     if (!id || !confirm("Unlink this identity?")) return;
     try {
       await unlinkProfileIdentity({ path: { id: String(id) }, throwOnError: true });
@@ -953,7 +952,7 @@ export function ChannelsPage() {
         body: { type: ch.type, agent_id: ch.agent_id || "", config: channelConfig(ch) },
         throwOnError: true,
       });
-      const normalized = normalizeChannel(saved as unknown as Channel);
+      const normalized = normalizeChannel(saved as Channel);
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
     } catch (e) {
@@ -995,8 +994,8 @@ export function ChannelsPage() {
       });
       setCreatingNew(false);
       await loadInstances(enabledChannelTypeIDs);
-      setSelectedId((saved as unknown as Channel).id);
-      showToast((saved as unknown as Channel).id + " created");
+      setSelectedId(saved.id);
+      showToast(saved.id + " created");
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {

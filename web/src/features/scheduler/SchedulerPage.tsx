@@ -12,6 +12,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { formatTime } from "@/lib/time";
+import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
 import type { Agent, SchedulerJob, SchedulerJobRun } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -94,14 +95,14 @@ export function SchedulerPage() {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
         const { data } = await listAgents({ throwOnError: true });
-        agentList = data.items as unknown as Agent[];
+        agentList = (data?.items ?? []) as Agent[];
         agentsRef.current = agentList;
         setAgents(agentList);
       }
       const lists = await Promise.all(
         agentList.map((agent) =>
           listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
-            .then(({ data }) => ({ items: data.items as unknown as SchedulerJob[] }))
+            .then(({ data }) => ({ items: (data?.items ?? []) as SchedulerJob[] }))
             .catch(() => ({ items: [] as SchedulerJob[] })),
         ),
       );
@@ -114,7 +115,7 @@ export function SchedulerPage() {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ throwOnError: true });
-      const list = data.items as unknown as Agent[];
+      const list = (data.items ?? []) as Agent[];
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -185,7 +186,7 @@ export function SchedulerPage() {
   }, [resetForm]);
 
   const saveJob = useCallback(async () => {
-    const payload: Record<string, unknown> = {
+    const payload: ComponentsJobInput = {
       name: jobForm.name,
       message: jobForm.message,
       cron: jobForm.schedule_type === "cron" ? jobForm.cron : "",
@@ -194,18 +195,18 @@ export function SchedulerPage() {
       enabled: jobForm.enabled,
       agent_id: jobForm.agent_id,
     };
-    if (isAdmin && jobForm.system_job) payload.user_id = 0;
+    if (isAdmin && jobForm.system_job) payload.user_id = "";
     try {
       if (editingJobId !== null) {
         await updateSchedulerJob({
           path: { agentID: jobForm.agent_id, jobID: editingJobId },
-          body: payload as any,
+          body: payload,
           throwOnError: true,
         });
       } else {
         await createSchedulerJob({
           path: { agentID: jobForm.agent_id },
-          body: payload as any,
+          body: payload,
           throwOnError: true,
         });
       }
@@ -225,7 +226,7 @@ export function SchedulerPage() {
       if (job?.owner_kind !== "user") return;
       try {
         await deleteSchedulerJob({
-          path: { agentID: job.agent_id, jobID: id },
+          path: { agentID: job.agent_id ?? "", jobID: id },
           throwOnError: true,
         });
         if (selectedJobId === id) {
@@ -246,7 +247,7 @@ export function SchedulerPage() {
       setTriggeringJobId(j.id);
       try {
         await triggerSchedulerJob({
-          path: { agentID: j.agent_id, jobID: j.id },
+          path: { agentID: j.agent_id ?? "", jobID: j.id },
           throwOnError: true,
         });
         showToast("Job triggered");

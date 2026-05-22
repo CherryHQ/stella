@@ -51,6 +51,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
 
+type SkillScope = "system" | "agent" | "user" | "project";
+
 type Toast = { message: string; type: "success" | "error" } | null;
 
 function ToastAlert({ toast }: { toast: Toast }) {
@@ -109,7 +111,7 @@ function emptyForm(): Omit<AgentDetail, "id"> {
     soul: "",
     scope: "restricted",
     enabled: true,
-    creator_id: 0,
+    creator_id: "",
     sandbox: { network: { mode: "disabled", allowlist: [] } },
     template_id: "",
   };
@@ -125,7 +127,7 @@ function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData["body"
     soul: form.soul,
     scope: form.scope,
     enabled: form.enabled,
-    creator_id: String(form.creator_id),
+    creator_id: form.creator_id,
     sandbox: form.sandbox,
     template_id: form.template_id,
   };
@@ -136,7 +138,7 @@ export interface AgentsSettingsLoaderData {
   channels: Channel[];
   cachedModels: string[];
   isAdmin: boolean;
-  currentUserId: number;
+  currentUserId: string;
   allUsers: User[];
   builtinTemplates: BuiltinItem[];
   builtinSouls: BuiltinItem[];
@@ -149,20 +151,20 @@ export interface AgentsSettingsLoaderData {
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
     listAgents({ throwOnError: true })
-      .then(({ data }) => (data?.items ?? []) as unknown as AgentDetail[])
+      .then(({ data }) => (data?.items ?? []) as AgentDetail[])
       .catch(() => []),
     listModels({ throwOnError: true })
-      .then(({ data }) => (data ?? []) as unknown as Array<{ provider: string; model: string }>)
+      .then(({ data }) => data ?? [])
       .catch(() => []),
     getMe({ throwOnError: true })
-      .then(({ data }) => data as unknown as { is_admin?: boolean; user_id?: number } | undefined)
+      .then(({ data }) => data)
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => (data ?? []) as unknown as BuiltinItem[])
+        .then(({ data }) => (data ?? []) as BuiltinItem[])
         .catch(() => []),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => (data ?? []) as unknown as BuiltinItem[])
+        .then(({ data }) => (data ?? []) as BuiltinItem[])
         .catch(() => []),
     ]),
   ]);
@@ -176,18 +178,18 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const channels = isAdmin
     ? (
         (await listChannels({ throwOnError: true })
-          .then(({ data }) => (data?.items ?? []) as unknown as Channel[])
+          .then(({ data }) => (data?.items ?? []) as Channel[])
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
   const allUsers = isAdmin
     ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => (data ?? []) as unknown as User[])
+        .then(({ data }) => (data ?? []) as User[])
         .catch(() => [])) ?? [])
     : [];
   const agentSkills = agentId
     ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-        .then(({ data }) => (data?.items ?? []) as unknown as Skill[])
+        .then(({ data }) => (data?.items ?? []) as Skill[])
         .catch(() => [])) ?? [])
     : [];
   let personalisation: Personalisation = {
@@ -201,7 +203,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     const { data: memsData } = await listProfileMemories({ throwOnError: true }).catch(() => ({
       data: undefined,
     }));
-    const mems = (memsData ?? []) as unknown as Array<{
+    const mems = (memsData ?? []) as Array<{
       agent_id: string;
       soul?: string;
       content?: string;
@@ -217,7 +219,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     channels,
     cachedModels: (modelsRaw ?? []).map((m) => `${m.provider}/${m.model}`),
     isAdmin,
-    currentUserId: me?.user_id ?? 0,
+    currentUserId: me?.id ?? "",
     allUsers,
     builtinTemplates: builtinTemplates ?? [],
     builtinSouls: builtinSouls ?? [],
@@ -235,7 +237,7 @@ export interface AgentsPageState {
   channels: Channel[];
   cachedModels: string[];
   isAdmin: boolean;
-  currentUserId: number;
+  currentUserId: string;
   allUsers: User[];
   showForm: boolean;
   editingId: string | null;
@@ -287,7 +289,7 @@ export function AgentsPage() {
     channels: loaderData?.channels ?? [],
     cachedModels: loaderData?.cachedModels ?? [],
     isAdmin: loaderData?.isAdmin ?? false,
-    currentUserId: loaderData?.currentUserId ?? 0,
+    currentUserId: loaderData?.currentUserId ?? "",
     allUsers: loaderData?.allUsers ?? [],
     showForm: !!selectedAgent,
     editingId: selectedAgent?.id ?? null,
@@ -351,7 +353,7 @@ export function AgentsPage() {
     async (currentState?: AgentsPageState) => {
       try {
         const { data } = await listAgents({ throwOnError: true });
-        const agents = ((data?.items ?? []) as unknown as AgentDetail[]).map((a) => ({
+        const agents = ((data?.items ?? []) as AgentDetail[]).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
@@ -372,7 +374,7 @@ export function AgentsPage() {
   const loadChannels = useCallback(async () => {
     try {
       const { data } = await listChannels({ throwOnError: true });
-      const channels = ((data?.items ?? []) as unknown as Channel[]).map(normalizeChannel);
+      const channels = ((data?.items ?? []) as Channel[]).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -389,7 +391,7 @@ export function AgentsPage() {
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
       const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
-      const agentSkills = (data?.items ?? []) as unknown as Skill[];
+      const agentSkills = (data?.items ?? []) as Skill[];
       setState((prev) => ({ ...prev, agentSkills, agentSkillsLoading: false }));
       return agentSkills;
     } catch {
@@ -406,7 +408,7 @@ export function AgentsPage() {
     }));
     try {
       const { data } = await listProfileMemories({ throwOnError: true });
-      const mems = (data ?? []) as unknown as Array<{
+      const mems = (data ?? []) as Array<{
         agent_id: string;
         soul?: string;
         content?: string;
@@ -429,7 +431,7 @@ export function AgentsPage() {
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
       const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
-      const assignedUsers = (data?.items ?? []) as unknown as User[];
+      const assignedUsers = (data?.items ?? []) as User[];
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));
@@ -556,7 +558,7 @@ export function AgentsPage() {
             body: agentRequestBody(payload),
             throwOnError: true,
           });
-          const newId = (created as unknown as AgentDetail).id;
+          const newId = created!.id!;
           setState((prev) => ({ ...prev, editingId: newId }));
           await Promise.all([
             saveChannelBindings(newId, { ...currentState, editingId: newId }),
@@ -657,10 +659,10 @@ export function AgentsPage() {
   );
 
   const removeUser = useCallback(
-    async (userId: number, editingId: string) => {
+    async (userId: string, editingId: string) => {
       try {
         await removeAgentUser({
-          path: { id: editingId, userId: String(userId) },
+          path: { id: editingId, userId },
           throwOnError: true,
         });
         await loadAssignedUsers(editingId);
@@ -697,7 +699,7 @@ export function AgentsPage() {
       setState((prev) => ({ ...prev, selectedSkillFileLoading: true }));
       try {
         const { data: res } = await getAgentScopedSkillFile({
-          path: { id: editingId ?? "", scope: skill.scope, skillId: skill.id },
+          path: { id: editingId ?? "", scope: skill.scope as SkillScope, skillId: skill.id },
           query: { path },
           throwOnError: true,
         });
@@ -736,14 +738,14 @@ export function AgentsPage() {
       }));
       try {
         const { data: full } = await getAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope, skillId: sk.id },
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
           throwOnError: true,
         });
         const skill: Skill = {
-          ...(full as unknown as Skill & { content?: string }),
+          ...(full as Skill),
           scope: sk.scope,
         };
-        const files = (full as unknown as Skill & { content?: string }).files ?? ["SKILL.md"];
+        const files = (full as Skill).files ?? ["SKILL.md"];
         const initialFile = files.includes("SKILL.md") ? "SKILL.md" : files[0];
         setState((prev) => ({
           ...prev,
@@ -765,7 +767,7 @@ export function AgentsPage() {
       const next = sk.status === "active" ? "draft" : "active";
       try {
         await updateAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope, skillId: sk.id },
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
           body: { status: next },
           throwOnError: true,
         });
@@ -798,7 +800,7 @@ export function AgentsPage() {
         await updateAgentScopedSkill({
           path: {
             id: currentState.editingId ?? "",
-            scope: selectedSkill.scope,
+            scope: selectedSkill.scope as SkillScope,
             skillId: selectedSkill.id,
           },
           body: {
@@ -820,14 +822,14 @@ export function AgentsPage() {
         const { data: full } = await getAgentScopedSkill({
           path: {
             id: currentState.editingId ?? "",
-            scope: selectedSkill.scope,
+            scope: selectedSkill.scope as SkillScope,
             skillId: selectedSkill.id,
           },
           throwOnError: true,
         });
         setState((prev) => ({
           ...prev,
-          selectedSkill: { ...(full as unknown as Skill), scope: selectedSkill.scope },
+          selectedSkill: { ...(full as Skill), scope: selectedSkill.scope },
           selectedSkillSaving: false,
         }));
         await loadAgentSkills(currentState.editingId);
@@ -846,7 +848,7 @@ export function AgentsPage() {
       if (!confirm(`Delete skill "${sk.name}"? This cannot be undone.`)) return;
       try {
         await deleteAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope, skillId: sk.id },
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
           throwOnError: true,
         });
         setState((prev) => {
@@ -884,12 +886,10 @@ export function AgentsPage() {
           body: { source } as InstallAgentScopedSkillData["body"],
           throwOnError: true,
         });
-        showToast("Installed: " + ((res as unknown as { name?: string })?.name ?? "skill"));
+        showToast("Installed: " + (res?.name ?? "skill"));
         setState((prev) => ({ ...prev, skillInstallModalOpen: false }));
         const updated = await loadAgentSkills(currentState.editingId);
-        const created = updated.find(
-          (sk) => sk.name === ((res as unknown as { name?: string })?.name ?? ""),
-        );
+        const created = updated.find((sk) => sk.name === (res?.name ?? ""));
         if (created) {
           await selectSkill({ ...created, scope }, { ...currentState, agentSkills: updated });
         }
@@ -919,10 +919,10 @@ export function AgentsPage() {
           body: { file },
           throwOnError: true,
         });
-        showToast("Uploaded: " + ((res as unknown as { name?: string })?.name ?? "skill"));
+        showToast("Uploaded: " + (res?.name ?? "skill"));
         setState((prev) => ({ ...prev, skillInstallModalOpen: false }));
         const updated = await loadAgentSkills(currentState.editingId);
-        const created = updated.find((sk) => sk.id === (res as unknown as { id?: string })?.id);
+        const created = updated.find((sk) => sk.id === res?.id);
         if (created) {
           await selectSkill({ ...created, scope }, { ...currentState, agentSkills: updated });
         }
@@ -940,7 +940,11 @@ export function AgentsPage() {
       if (!confirm(`Delete file "${selectedSkillActiveFile}"?`)) return;
       try {
         await deleteAgentScopedSkillFile({
-          path: { id: editingId ?? "", scope: selectedSkill.scope, skillId: selectedSkill.id },
+          path: {
+            id: editingId ?? "",
+            scope: selectedSkill.scope as SkillScope,
+            skillId: selectedSkill.id,
+          },
           query: { path: selectedSkillActiveFile },
           throwOnError: true,
         });
@@ -1022,7 +1026,7 @@ export function AgentsPage() {
         });
         setState((prev) => ({
           ...prev,
-          form: { ...prev.form, soul: (full as unknown as BuiltinItem).content ?? "" },
+          form: { ...prev.form, soul: full?.content ?? "" },
         }));
       } catch (e) {
         setState((prev) => ({ ...prev, selectedSoulID: "" }));
@@ -1039,7 +1043,7 @@ export function AgentsPage() {
           path: { kind: "template", id: tmpl.id },
           throwOnError: true,
         });
-        const meta = ((full as unknown as BuiltinItem).metadata ?? {}) as Record<string, string>;
+        const meta = (full?.metadata ?? {}) as Record<string, string>;
         let soulContent = "";
         if (meta.soul_id) {
           try {
@@ -1047,7 +1051,7 @@ export function AgentsPage() {
               path: { kind: "soul", id: meta.soul_id },
               throwOnError: true,
             });
-            soulContent = (soul as unknown as BuiltinItem).content ?? "";
+            soulContent = soul?.content ?? "";
           } catch {}
         }
         setState((prev) => ({
@@ -1056,7 +1060,7 @@ export function AgentsPage() {
             ...prev.form,
             name: prev.form.name || tmpl.name || "",
             model: meta.model || prev.form.model || "",
-            system_prompt: (full as unknown as BuiltinItem).content ?? "",
+            system_prompt: full?.content ?? "",
             soul: soulContent,
             template_id: tmpl.id,
           },

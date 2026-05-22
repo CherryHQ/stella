@@ -71,13 +71,13 @@ export function AutomationDashPanel({
   const selectedRun: RunWithMeta | null =
     selectedRunFromRuns ??
     (selectedRunFromJobRuns
-      ? {
+      ? ({
           ...selectedRunFromJobRuns,
           job_name: selectedJob?.name,
           job_id: selectedJobId,
           job_agent_id: selectedJob?.agent_id,
           job_session_mode: selectedJob?.session_mode,
-        }
+        } as RunWithMeta)
       : null);
 
   const loadRuns = useCallback(async () => {

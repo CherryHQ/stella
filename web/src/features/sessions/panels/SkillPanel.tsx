@@ -77,7 +77,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         },
         throwOnError: true,
       });
-      const sk = skRaw as unknown as Skill;
+      const sk = skRaw as Skill;
       const res = await getAgentScopedSkillFile({
         path: {
           id: agentId,
@@ -91,7 +91,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
-        status: sk.status ?? "active",
+        status: (sk.status as Form["status"]) ?? "active",
         disable_model_invocation: sk.disable_model_invocation ?? false,
         content,
       };

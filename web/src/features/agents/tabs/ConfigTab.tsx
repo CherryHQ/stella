@@ -126,7 +126,7 @@ export function ConfigTab({ state, onSetState }: Props) {
           <ModelComboField
             label="Default"
             field="model"
-            value={form.model}
+            value={form.model ?? ""}
             placeholder="anthropic/claude-..."
             cachedModels={cachedModels}
             onChange={(v) => setForm({ model: v })}
@@ -135,7 +135,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             <ModelComboField
               label="Strong"
               field="model_strong"
-              value={form.model_strong}
+              value={form.model_strong ?? ""}
               placeholder="Falls back to default"
               optional
               cachedModels={cachedModels}
@@ -144,7 +144,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             <ModelComboField
               label="Fast"
               field="model_fast"
-              value={form.model_fast}
+              value={form.model_fast ?? ""}
               placeholder="Falls back to default"
               optional
               cachedModels={cachedModels}

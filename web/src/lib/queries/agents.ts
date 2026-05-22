@@ -11,7 +11,7 @@ export const agentsQueryOptions = queryOptions({
   queryKey: ["agents"],
   queryFn: async () => {
     const { data } = await listAgents({ throwOnError: true });
-    return data.items as unknown as Agent[];
+    return (data.items ?? []) as Agent[];
   },
 });
 
@@ -20,7 +20,7 @@ export function agentSchedulerJobsOptions(agentId: string) {
     queryKey: ["agent-scheduler-jobs", agentId],
     queryFn: async () => {
       const { data } = await listSchedulerJobs({ path: { agentID: agentId }, throwOnError: true });
-      return (data.items ?? []) as unknown as SchedulerJob[];
+      return (data.items ?? []) as SchedulerJob[];
     },
     enabled: !!agentId,
   });
@@ -50,7 +50,7 @@ export function agentMemoriesOptions(agentId: string) {
     queryKey: ["agent-memories", agentId],
     queryFn: async () => {
       const { data } = await listProfileMemories({ throwOnError: true });
-      return ((data as unknown as UserMemory[]) ?? []).filter((m) => m.agent_id === agentId);
+      return ((data ?? []) as unknown as UserMemory[]).filter((m) => m.agent_id === agentId);
     },
     enabled: !!agentId,
   });

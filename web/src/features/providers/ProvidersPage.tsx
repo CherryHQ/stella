@@ -263,7 +263,7 @@ function ProviderDetail({
       const next = { ...provider, models: nextModels };
       setProvider(next);
       syncJSON(next);
-      setCustomModelForm(formFromModelConfig(modelID, nextModels[modelID]));
+      setCustomModelForm(formFromModelConfig(modelID, nextModels[modelID] as ModelConfig));
       setShowCustomModelForm(false);
       onAddCustomModel(provider.id, { ...customModelForm, id: modelID });
     } catch (e) {
@@ -272,8 +272,9 @@ function ProviderDetail({
   };
 
   const handleEditCustomModel = (model: ProviderModel) => {
-    const config = (provider.models || {})[model.id];
-    setCustomModelForm(formFromModelConfig(model.id, config));
+    const id = model.id ?? "";
+    const config = (provider.models || {})[id];
+    setCustomModelForm(formFromModelConfig(id, config as ModelConfig));
     setShowCustomModelForm(true);
   };
 

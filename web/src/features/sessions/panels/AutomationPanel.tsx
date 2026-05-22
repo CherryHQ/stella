@@ -178,7 +178,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
           throwOnError: true,
         }).catch(() => ({ data: [] as SchedulerJobRun[] })),
       ]);
-      const j = jRaw as unknown as SchedulerJob;
+      const j = jRaw as SchedulerJob;
       const f: Form = {
         name: j.name,
         schedule_type: j.cron ? "cron" : "every",

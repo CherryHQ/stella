@@ -42,7 +42,7 @@ interface LegacyUser extends User {
 export function UsersPage() {
   const { t } = useI18n();
   const [tab, setTab] = useState<"auth" | "memory">("auth");
-  const [currentUserId, setCurrentUserId] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const [authUsers, setAuthUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [userAgentIds, setUserAgentIds] = useState<string[]>([]);
@@ -50,7 +50,7 @@ export function UsersPage() {
   const [addAgentId, setAddAgentId] = useState("");
   const [legacyUsers, setLegacyUsers] = useState<LegacyUser[]>([]);
   const [userMemories, setUserMemories] = useState<
-    Record<number, (UserMemory & { _content: string })[]>
+    Record<string, (UserMemory & { _content: string })[]>
   >({});
   const { toasts, showToast } = useToast();
   const [confirmState, setConfirmState] = useState<{
@@ -65,17 +65,16 @@ export function UsersPage() {
   const loadAuthUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      const users = (data ?? []) as unknown as User[];
-      setAuthUsers(users);
+      setAuthUsers((data ?? []) as User[]);
     } catch (e) {
       console.error(e);
     }
   }, []);
 
-  const loadUserAgents = useCallback(async (userId: number) => {
+  const loadUserAgents = useCallback(async (userId: string) => {
     try {
       const { data } = await listAuthUserAgents({
-        path: { id: String(userId) },
+        path: { id: userId },
         throwOnError: true,
       });
       const ids = data ?? [];
@@ -90,10 +89,10 @@ export function UsersPage() {
     async (u: User) => {
       try {
         const { data: detail } = await getAuthUser({
-          path: { id: String(u.id) },
+          path: { id: u.id },
           throwOnError: true,
         });
-        setSelectedUser(detail as unknown as User);
+        setSelectedUser(detail as User);
         await loadUserAgents(u.id);
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -107,15 +106,15 @@ export function UsersPage() {
       if (!selectedUser) return;
       try {
         await updateAuthUserRole({
-          path: { id: String(selectedUser.id) },
+          path: { id: selectedUser.id },
           body: { role },
           throwOnError: true,
         });
         const { data: updated } = await getAuthUser({
-          path: { id: String(selectedUser.id) },
+          path: { id: selectedUser.id },
           throwOnError: true,
         });
-        setSelectedUser(updated as unknown as User);
+        setSelectedUser(updated as User);
         await loadAuthUsers();
         showToast(`Role updated to ${role}`);
       } catch (e) {
@@ -130,15 +129,15 @@ export function UsersPage() {
     const newActive = !selectedUser.is_active;
     try {
       await updateAuthUserActive({
-        path: { id: String(selectedUser.id) },
+        path: { id: selectedUser.id },
         body: { is_active: newActive },
         throwOnError: true,
       });
       const { data: updated } = await getAuthUser({
-        path: { id: String(selectedUser.id) },
+        path: { id: selectedUser.id },
         throwOnError: true,
       });
-      setSelectedUser(updated as unknown as User);
+      setSelectedUser(updated as User);
       await loadAuthUsers();
       showToast(newActive ? "User activated" : "User deactivated");
     } catch (e) {
@@ -151,7 +150,7 @@ export function UsersPage() {
     const newIds = [...userAgentIds, addAgentId];
     try {
       await updateAuthUserAgents({
-        path: { id: String(selectedUser.id) },
+        path: { id: selectedUser.id },
         body: { agent_ids: newIds },
         throwOnError: true,
       });
@@ -168,7 +167,7 @@ export function UsersPage() {
       const newIds = userAgentIds.filter((id) => id !== agentId);
       try {
         await updateAuthUserAgents({
-          path: { id: String(selectedUser.id) },
+          path: { id: selectedUser.id },
           body: { agent_ids: newIds },
           throwOnError: true,
         });
@@ -182,18 +181,18 @@ export function UsersPage() {
   );
 
   const unlinkIdentity = useCallback(
-    async (identityId: number) => {
+    async (identityId: string) => {
       if (!selectedUser) return;
       try {
         await deleteAuthUserIdentity({
-          path: { id: String(selectedUser.id), identityId: String(identityId) },
+          path: { id: selectedUser.id, identityId },
           throwOnError: true,
         });
         const { data: updated } = await getAuthUser({
-          path: { id: String(selectedUser.id) },
+          path: { id: selectedUser.id },
           throwOnError: true,
         });
-        setSelectedUser(updated as unknown as User);
+        setSelectedUser(updated as User);
         await loadAuthUsers();
         showToast("Identity unlinked");
       } catch (e) {
@@ -207,17 +206,16 @@ export function UsersPage() {
     async (identityId: string) => {
       if (!selectedUser) return;
       try {
-        const val = identityId ? parseInt(identityId, 10) : null;
         await updateUserNotifyIdentity({
-          path: { id: String(selectedUser.id) },
-          body: { notify_identity_id: val == null ? null : String(val) },
+          path: { id: selectedUser.id },
+          body: { notify_identity_id: identityId || null },
           throwOnError: true,
         });
         const { data: updated } = await getAuthUser({
-          path: { id: String(selectedUser.id) },
+          path: { id: selectedUser.id },
           throwOnError: true,
         });
-        setSelectedUser(updated as unknown as User);
+        setSelectedUser(updated as User);
         showToast("Notify channel updated");
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -229,7 +227,7 @@ export function UsersPage() {
   const loadLegacyUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      const list = (data ?? []) as unknown as User[];
+      const list = (data ?? []) as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -251,10 +249,10 @@ export function UsersPage() {
   }, []);
 
   const loadUserMemories = useCallback(
-    async (userId: number) => {
+    async (userId: string) => {
       try {
         const { data } = await listUserMemories({
-          path: { id: String(userId) },
+          path: { id: userId },
           throwOnError: true,
         });
         const mems = (data ?? []) as unknown as UserMemory[];
@@ -276,7 +274,7 @@ export function UsersPage() {
     async (u: LegacyUser) => {
       try {
         await updateUserDefaultAgent({
-          path: { id: String(u.id) },
+          path: { id: u.id },
           body: { default_agent_id: u._defaultAgent },
           throwOnError: true,
         });
@@ -292,10 +290,10 @@ export function UsersPage() {
   );
 
   const saveUserMemory = useCallback(
-    async (userId: number, agentId: string, content: string) => {
+    async (userId: string, agentId: string, content: string) => {
       try {
         await setUserMemory({
-          path: { id: String(userId), agentID: agentId },
+          path: { id: userId, agentID: agentId },
           body: { content },
           throwOnError: true,
         });
@@ -309,10 +307,10 @@ export function UsersPage() {
   );
 
   const doDeleteUserMemory = useCallback(
-    async (userId: number, agentId: string) => {
+    async (userId: string, agentId: string) => {
       try {
         await deleteUserMemory({
-          path: { id: String(userId), agentID: agentId },
+          path: { id: userId, agentID: agentId },
           throwOnError: true,
         });
         await loadUserMemories(userId);
@@ -329,7 +327,7 @@ export function UsersPage() {
       if (!u._newMemoryAgent || !u._newMemoryContent) return;
       try {
         await setUserMemory({
-          path: { id: String(u.id), agentID: u._newMemoryAgent },
+          path: { id: u.id, agentID: u._newMemoryAgent },
           body: { content: u._newMemoryContent },
           throwOnError: true,
         });
@@ -353,12 +351,12 @@ export function UsersPage() {
     void Promise.all([
       getMe({ throwOnError: true })
         .then(({ data }) => {
-          if (data?.id) setCurrentUserId(Number(data.id));
+          if (data?.id) setCurrentUserId(data.id);
         })
         .catch(() => {}),
       loadAuthUsers(),
       listAgents({ throwOnError: true })
-        .then(({ data }) => setAgents((data.items ?? []) as unknown as Agent[]))
+        .then(({ data }) => setAgents((data.items ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);
@@ -552,13 +550,13 @@ export function UsersPage() {
                   <FormSectionTitle>Notify Channel</FormSectionTitle>
                 </div>
                 <select
-                  value={selectedUser.notify_identity_id?.toString() ?? ""}
+                  value={selectedUser.notify_identity_id ?? ""}
                   onChange={(e) => void setNotifyIdentity(e.target.value)}
                   className="select select-bordered select-sm w-full text-sm"
                 >
                   <option value="">Auto (first linked)</option>
                   {selectedUser.identities.map((ident: Identity) => (
-                    <option key={ident.id} value={ident.id.toString()}>
+                    <option key={ident.id} value={ident.id}>
                       {ident.platform}
                       {ident.name ? ` — ${ident.name}` : ` — ${ident.external_id}`}
                     </option>

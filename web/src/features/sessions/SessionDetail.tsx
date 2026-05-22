@@ -10,7 +10,13 @@ import {
   uploadWorkspaceFile,
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
-import type { Message, Session, Skill, Tool } from "@/lib/types";
+import type {
+  Message,
+  Session,
+  SessionDetail as SessionDetailType,
+  Skill,
+  Tool,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +29,7 @@ import { Transcript } from "./Transcript";
 
 interface Props {
   session: Session | null;
-  currentUserID: number;
+  currentUserID: string;
   initialDraft?: string;
   onBack: () => void;
   onSessionUpdate: (s: Session) => void;
@@ -626,7 +632,9 @@ function InspectPanel({
             <dt className="font-mono text-muted-foreground/40">Channel</dt>
             <dd className="truncate">{channelLabel(session.channel) || "unknown"}</dd>
             <dt className="font-mono text-muted-foreground/40">Agent</dt>
-            <dd className="truncate">{session.agent_name || session.agent_id || "unknown"}</dd>
+            <dd className="truncate">
+              {(session as SessionDetailType).agent_name || session.agent_id || "unknown"}
+            </dd>
             <dt className="font-mono text-muted-foreground/40">Active</dt>
             <dd>{formatTime(session.last_active)}</dd>
             <dt className="font-mono text-muted-foreground/40">Messages</dt>
