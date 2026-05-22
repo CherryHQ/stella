@@ -406,6 +406,7 @@ export function WorkspacePanel({
 
 interface ArtifactShareDialogProps {
   path: string | null;
+  agentID: string;
   sessionID: string;
   onClose: () => void;
 }
@@ -417,7 +418,7 @@ const expirationOptions = [
   { value: "never", label: "Never" },
 ];
 
-function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogProps) {
+function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShareDialogProps) {
   const [expiresIn, setExpiresIn] = useState("7d");
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -440,6 +441,7 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
       const { data: result } = await sdkCreateShare({
         body: {
           source: "artifact",
+          agent_id: agentID,
           session_id: sessionID,
           path,
           expires_in: expiresIn as "1h" | "1d" | "7d" | "never",
@@ -453,7 +455,7 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     } finally {
       setCreating(false);
     }
-  }, [expiresIn, path, sessionID]);
+  }, [agentID, expiresIn, path, sessionID]);
 
   const revokeShare = useCallback(async () => {
     if (!share) return;
@@ -705,6 +707,7 @@ function TreeWithSearch({
     <div className="flex flex-col h-full">
       <ArtifactShareDialog
         path={sharePath}
+        agentID={agentID}
         sessionID={sessionID}
         onClose={() => setSharePath(null)}
       />

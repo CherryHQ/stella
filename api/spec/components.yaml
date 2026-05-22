@@ -1521,6 +1521,8 @@ components:
         source:
           type: string
           enum: [artifact, article]
+        agent_id:
+          type: string
         session_id:
           type: string
         path:

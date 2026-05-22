@@ -47,7 +47,7 @@ You can also share a Recally article by its ID:
 stella share article <article-id>
 ```
 
-The command prints the public URL. It uses the current session automatically when it runs inside Stella.
+The command prints the public URL. It uses the current agent and session automatically when it runs inside Stella. If you run it from your own shell, pass `--agent-id` and `--session-id`.
 
 ## Public link safety
 
