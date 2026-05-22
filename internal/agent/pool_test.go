@@ -1133,6 +1133,29 @@ func TestNeedsCompactionUnderThreshold(t *testing.T) {
 	}
 }
 
+func TestNeedsCompactionAfterRestart(t *testing.T) {
+	factory, _ := mockRunnerFactory([]Event{{Text: "short"}})
+	mem := testMemoryProvider(t)
+	pool := NewPool(factory, mem, WithCompaction(CompactionConfig{MaxTokens: 100_000}))
+	defer func() { _ = pool.Close() }()
+
+	ctx := memory.WithUserID(context.Background(), "user-1")
+	info, _ := pool.CreateSession("test", "user-1")
+	stream := pool.Chat(ctx, info.ID, "hi")
+	for range stream {
+	}
+
+	// Simulate server restart: clear the in-memory session map.
+	pool.mu.Lock()
+	pool.sessions = make(map[string]*Session)
+	pool.mu.Unlock()
+
+	// NeedsCompaction must still find the conversation via context user_id.
+	if pool.NeedsCompaction(ctx, info.ID) {
+		t.Error("small session should not need compaction even after restart")
+	}
+}
+
 func TestPoolCloseIdempotent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory, testMemoryProvider(t))
