@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  deleteAuthUserIdentity,
+  deleteUserMemory,
+  getAuthUser,
+  getMe,
+  listAgents,
+  listAuthUserAgents,
+  listAuthUsers,
+  listUserMemories,
+  setUserMemory,
+  updateAuthUserActive,
+  updateAuthUserAgents,
+  updateAuthUserRole,
+  updateUserDefaultAgent,
+  updateUserNotifyIdentity,
+} from "@/lib/api-client/sdk.gen";
 import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +64,8 @@ export function UsersPage() {
 
   const loadAuthUsers = useCallback(async () => {
     try {
-      const users = (await api<User[]>("GET", "/api/auth/users")) ?? [];
+      const { data } = await listAuthUsers({ throwOnError: true });
+      const users = (data ?? []) as unknown as User[];
       setAuthUsers(users);
     } catch (e) {
       console.error(e);
@@ -58,7 +74,11 @@ export function UsersPage() {
 
   const loadUserAgents = useCallback(async (userId: number) => {
     try {
-      const ids = (await api<string[]>("GET", `/api/auth/users/${userId}/agents`)) ?? [];
+      const { data } = await listAuthUserAgents({
+        path: { id: String(userId) },
+        throwOnError: true,
+      });
+      const ids = data ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -69,8 +89,11 @@ export function UsersPage() {
   const selectUser = useCallback(
     async (u: User) => {
       try {
-        const detail = await api<User>("GET", `/api/auth/users/${u.id}`);
-        setSelectedUser(detail);
+        const { data: detail } = await getAuthUser({
+          path: { id: String(u.id) },
+          throwOnError: true,
+        });
+        setSelectedUser(detail as unknown as User);
         await loadUserAgents(u.id);
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -83,9 +106,16 @@ export function UsersPage() {
     async (role: string) => {
       if (!selectedUser) return;
       try {
-        await api("PUT", `/api/auth/users/${selectedUser.id}/role`, { role });
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-        setSelectedUser(updated);
+        await updateAuthUserRole({
+          path: { id: String(selectedUser.id) },
+          body: { role },
+          throwOnError: true,
+        });
+        const { data: updated } = await getAuthUser({
+          path: { id: String(selectedUser.id) },
+          throwOnError: true,
+        });
+        setSelectedUser(updated as unknown as User);
         await loadAuthUsers();
         showToast(`Role updated to ${role}`);
       } catch (e) {
@@ -99,9 +129,16 @@ export function UsersPage() {
     if (!selectedUser) return;
     const newActive = !selectedUser.is_active;
     try {
-      await api("PUT", `/api/auth/users/${selectedUser.id}/active`, { is_active: newActive });
-      const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-      setSelectedUser(updated);
+      await updateAuthUserActive({
+        path: { id: String(selectedUser.id) },
+        body: { is_active: newActive },
+        throwOnError: true,
+      });
+      const { data: updated } = await getAuthUser({
+        path: { id: String(selectedUser.id) },
+        throwOnError: true,
+      });
+      setSelectedUser(updated as unknown as User);
       await loadAuthUsers();
       showToast(newActive ? "User activated" : "User deactivated");
     } catch (e) {
@@ -113,7 +150,11 @@ export function UsersPage() {
     if (!selectedUser || !addAgentId) return;
     const newIds = [...userAgentIds, addAgentId];
     try {
-      await api("PUT", `/api/auth/users/${selectedUser.id}/agents`, { agent_ids: newIds });
+      await updateAuthUserAgents({
+        path: { id: String(selectedUser.id) },
+        body: { agent_ids: newIds },
+        throwOnError: true,
+      });
       await loadUserAgents(selectedUser.id);
       showToast("Agent assigned");
     } catch (e) {
@@ -126,7 +167,11 @@ export function UsersPage() {
       if (!selectedUser) return;
       const newIds = userAgentIds.filter((id) => id !== agentId);
       try {
-        await api("PUT", `/api/auth/users/${selectedUser.id}/agents`, { agent_ids: newIds });
+        await updateAuthUserAgents({
+          path: { id: String(selectedUser.id) },
+          body: { agent_ids: newIds },
+          throwOnError: true,
+        });
         await loadUserAgents(selectedUser.id);
         showToast("Agent removed");
       } catch (e) {
@@ -140,9 +185,15 @@ export function UsersPage() {
     async (identityId: number) => {
       if (!selectedUser) return;
       try {
-        await api("DELETE", `/api/auth/users/${selectedUser.id}/identities/${identityId}`);
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-        setSelectedUser(updated);
+        await deleteAuthUserIdentity({
+          path: { id: String(selectedUser.id), identityId: String(identityId) },
+          throwOnError: true,
+        });
+        const { data: updated } = await getAuthUser({
+          path: { id: String(selectedUser.id) },
+          throwOnError: true,
+        });
+        setSelectedUser(updated as unknown as User);
         await loadAuthUsers();
         showToast("Identity unlinked");
       } catch (e) {
@@ -157,11 +208,16 @@ export function UsersPage() {
       if (!selectedUser) return;
       try {
         const val = identityId ? parseInt(identityId, 10) : null;
-        await api("PUT", `/api/users/${selectedUser.id}/notify-identity`, {
-          notify_identity_id: val,
+        await updateUserNotifyIdentity({
+          path: { id: String(selectedUser.id) },
+          body: { notify_identity_id: val == null ? null : String(val) },
+          throwOnError: true,
         });
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-        setSelectedUser(updated);
+        const { data: updated } = await getAuthUser({
+          path: { id: String(selectedUser.id) },
+          throwOnError: true,
+        });
+        setSelectedUser(updated as unknown as User);
         showToast("Notify channel updated");
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -172,7 +228,8 @@ export function UsersPage() {
 
   const loadLegacyUsers = useCallback(async () => {
     try {
-      const list = (await api<User[]>("GET", "/api/auth/users")) ?? [];
+      const { data } = await listAuthUsers({ throwOnError: true });
+      const list = (data ?? []) as unknown as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -196,7 +253,11 @@ export function UsersPage() {
   const loadUserMemories = useCallback(
     async (userId: number) => {
       try {
-        const mems = (await api<UserMemory[]>("GET", `/api/users/${userId}/memories`)) ?? [];
+        const { data } = await listUserMemories({
+          path: { id: String(userId) },
+          throwOnError: true,
+        });
+        const mems = (data ?? []) as unknown as UserMemory[];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),
@@ -214,7 +275,11 @@ export function UsersPage() {
   const saveUserDefaultAgent = useCallback(
     async (u: LegacyUser) => {
       try {
-        await api("PUT", `/api/users/${u.id}`, { default_agent_id: u._defaultAgent });
+        await updateUserDefaultAgent({
+          path: { id: String(u.id) },
+          body: { default_agent_id: u._defaultAgent },
+          throwOnError: true,
+        });
         setLegacyUsers((prev) =>
           prev.map((lu) => (lu.id === u.id ? { ...lu, default_agent_id: lu._defaultAgent } : lu)),
         );
@@ -229,7 +294,11 @@ export function UsersPage() {
   const saveUserMemory = useCallback(
     async (userId: number, agentId: string, content: string) => {
       try {
-        await api("PUT", `/api/users/${userId}/memories/${agentId}`, { content });
+        await setUserMemory({
+          path: { id: String(userId), agentID: agentId },
+          body: { content },
+          throwOnError: true,
+        });
         await loadUserMemories(userId);
         showToast("Saved");
       } catch (e) {
@@ -242,7 +311,10 @@ export function UsersPage() {
   const doDeleteUserMemory = useCallback(
     async (userId: number, agentId: string) => {
       try {
-        await api("DELETE", `/api/users/${userId}/memories/${agentId}`);
+        await deleteUserMemory({
+          path: { id: String(userId), agentID: agentId },
+          throwOnError: true,
+        });
         await loadUserMemories(userId);
         showToast("Deleted");
       } catch (e) {
@@ -256,8 +328,10 @@ export function UsersPage() {
     async (u: LegacyUser) => {
       if (!u._newMemoryAgent || !u._newMemoryContent) return;
       try {
-        await api("PUT", `/api/users/${u.id}/memories/${u._newMemoryAgent}`, {
-          content: u._newMemoryContent,
+        await setUserMemory({
+          path: { id: String(u.id), agentID: u._newMemoryAgent },
+          body: { content: u._newMemoryContent },
+          throwOnError: true,
         });
         setLegacyUsers((prev) =>
           prev.map((lu) =>
@@ -277,14 +351,14 @@ export function UsersPage() {
 
   useEffect(() => {
     void Promise.all([
-      api<{ id: number }>("GET", "/api/auth/me")
-        .then((r) => {
-          if (r?.id) setCurrentUserId(r.id);
+      getMe({ throwOnError: true })
+        .then(({ data }) => {
+          if (data?.id) setCurrentUserId(Number(data.id));
         })
         .catch(() => {}),
       loadAuthUsers(),
-      api<Agent[]>("GET", "/api/agents")
-        .then((r) => setAgents(r ?? []))
+      listAgents({ throwOnError: true })
+        .then(({ data }) => setAgents((data.items ?? []) as unknown as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);

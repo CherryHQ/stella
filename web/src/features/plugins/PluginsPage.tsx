@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  getPluginConfig,
+  getPluginConfigSchema,
+  getPluginStatus,
+  listManifestPlugins,
+  listPlugins,
+  saveManifestPlugins,
+  syncManifestPlugins,
+  togglePlugin as togglePluginRequest,
+  updatePluginConfig,
+} from "@/lib/api-client/sdk.gen";
 import type {
   ManifestOAuthProvider,
   ManifestPlugin,
@@ -21,8 +31,6 @@ import {
   pluginDescription,
   pluginLabel,
   pluginMetaBadges,
-  pluginToggleURL,
-  pluginToggleURLByID,
   sandboxMeta,
   semanticPlugins,
   snapshotMcpConfig,
@@ -119,7 +127,8 @@ export function PluginsPage() {
   // Load plugins
   const loadPlugins = useCallback(async () => {
     try {
-      const raw = (await api<Plugin[]>("GET", "/api/plugins")) ?? [];
+      const { data } = await listPlugins({ throwOnError: true });
+      const raw = (data ?? []) as Plugin[];
       const pluginList = raw.map((p) => ({
         ...p,
         capabilities: Array.isArray(p.capabilities) ? p.capabilities : [],
@@ -132,10 +141,10 @@ export function PluginsPage() {
           .filter((p) => p.has_config)
           .map(async (p) => {
             try {
-              const schema = await api<{ properties?: Record<string, PluginSchemaProperty> }>(
-                "GET",
-                `/api/plugin-config-schema/${encodeURIComponent(p.kind)}/${encodeURIComponent(p.name)}`,
-              );
+              const { data: schema } = await getPluginConfigSchema({
+                path: { kind: p.kind, name: p.name },
+                throwOnError: true,
+              });
               return [p.id, schema || {}] as [
                 string,
                 { properties?: Record<string, PluginSchemaProperty> },
@@ -163,10 +172,10 @@ export function PluginsPage() {
 
       // Load MCP status
       try {
-        const statusResp = await api<{ servers?: McpStatus[] }>(
-          "GET",
-          "/api/plugin-status/tool/mcp",
-        );
+        const { data: statusResp } = await getPluginStatus({
+          path: { kind: "tool", name: "mcp" },
+          throwOnError: true,
+        });
         setMcpStatuses(Array.isArray(statusResp?.servers) ? statusResp.servers : []);
       } catch {
         setMcpStatuses([]);
@@ -178,10 +187,11 @@ export function PluginsPage() {
 
   const loadManifestPlugins = useCallback(async () => {
     try {
-      const res = (await api<{
+      const { data } = await listManifestPlugins({ throwOnError: true });
+      const res = (data as unknown as {
         plugins: ManifestPlugin[];
         oauth_providers: ManifestOAuthProvider[];
-      }>("GET", "/api/manifest-plugins")) ?? { plugins: [], oauth_providers: [] };
+      }) ?? { plugins: [], oauth_providers: [] };
       setManifestPlugins(res.plugins);
       setOAuthProviders(res.oauth_providers);
     } catch (e) {
@@ -191,7 +201,7 @@ export function PluginsPage() {
 
   async function syncManifest(silent = false) {
     try {
-      await api("POST", "/api/manifest-plugins/sync");
+      await syncManifestPlugins({ throwOnError: true });
       if (!silent) showToast("Manifest sync complete");
     } catch (e) {
       if (!silent) showToast((e as Error).message, "error");
@@ -210,11 +220,25 @@ export function PluginsPage() {
     setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
   }
 
+  function pluginPathByID(id: string, pluginList: Plugin[]) {
+    const plugin = pluginList.find((p) => p.id === id);
+    if (plugin) return { kind: plugin.kind, name: plugin.name };
+    const slash = id.indexOf("/");
+    return slash !== -1
+      ? { kind: id.slice(0, slash), name: id.slice(slash + 1) }
+      : { kind: id, name: id };
+  }
+
   // Plugin toggle
   async function togglePlugin(id: string, enabled: boolean) {
     try {
       updatePluginEnabled(id, enabled);
-      const updated = await api<Plugin>("PATCH", pluginToggleURLByID(id, plugins), { enabled });
+      const { data } = await togglePluginRequest({
+        path: pluginPathByID(id, plugins),
+        body: { enabled },
+        throwOnError: true,
+      });
+      const updated = data as unknown as Plugin;
       updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(id + (enabled ? " enabled" : " disabled"));
       void loadPlugins();
@@ -233,11 +257,20 @@ export function PluginsPage() {
         }
         const others = sandboxPlugins.filter((p) => p.id !== id && p.enabled);
         for (const other of others) {
-          await api("PATCH", pluginToggleURL(other), { enabled: false });
+          await togglePluginRequest({
+            path: { kind: other.kind, name: other.name },
+            body: { enabled: false },
+            throwOnError: true,
+          });
         }
       }
       updatePluginEnabled(id, enabled);
-      const updated = await api<Plugin>("PATCH", pluginToggleURLByID(id, plugins), { enabled });
+      const { data } = await togglePluginRequest({
+        path: pluginPathByID(id, plugins),
+        body: { enabled },
+        throwOnError: true,
+      });
+      const updated = data as unknown as Plugin;
       updatePluginEnabled(updated.id || id, !!updated.enabled);
       showToast(enabled ? id + " set as active sandbox" : id + " disabled");
       void loadPlugins();
@@ -262,7 +295,7 @@ export function PluginsPage() {
     try {
       const updated = manifestPlugins.map((p) => (p.id === id ? { ...p, enabled } : p));
       setManifestPlugins(updated);
-      await api("PUT", "/api/manifest-plugins", { plugins: updated });
+      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
       await syncManifest(true);
       await loadManifestPlugins();
       await loadPlugins();
@@ -286,11 +319,11 @@ export function PluginsPage() {
     if (!force && pluginConfigLoaded[plugin.id]) return;
     setPluginConfigLoading((prev) => ({ ...prev, [plugin.id]: true }));
     try {
-      const config =
-        (await api<Record<string, unknown>>(
-          "GET",
-          `/api/plugin-config/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}`,
-        )) ?? {};
+      const { data } = await getPluginConfig({
+        path: { kind: plugin.kind, name: plugin.name },
+        throwOnError: true,
+      });
+      const config = (data ?? {}) as Record<string, unknown>;
       setPluginConfigRaw((prev) => ({ ...prev, [plugin.id]: config }));
       setPluginConfigDrafts((prev) => ({
         ...prev,
@@ -321,11 +354,11 @@ export function PluginsPage() {
         pluginConfigRaw[plugin.id] || {},
         schemas,
       );
-      await api(
-        "PUT",
-        `/api/plugin-config/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}`,
-        { config },
-      );
+      await updatePluginConfig({
+        path: { kind: plugin.kind, name: plugin.name },
+        body: { config },
+        throwOnError: true,
+      });
       setPluginConfigRaw((prev) => ({ ...prev, [plugin.id]: JSON.parse(JSON.stringify(config)) }));
       setPluginConfigDrafts((prev) => ({
         ...prev,
@@ -366,7 +399,7 @@ export function PluginsPage() {
       } else {
         updated = [...manifestPlugins, next];
       }
-      await api("PUT", "/api/manifest-plugins", { plugins: updated });
+      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
       await loadManifestPlugins();
       await loadPlugins();
       await syncManifest(true);
@@ -388,7 +421,11 @@ export function PluginsPage() {
     try {
       setMcpSaving(true);
       const config = snapshotMcpConfig(mcpServers);
-      await api("PUT", "/api/plugin-config/tool/mcp", { config });
+      await updatePluginConfig({
+        path: { kind: "tool", name: "mcp" },
+        body: { config },
+        throwOnError: true,
+      });
       setMcpSavedSignature(JSON.stringify(config));
       setMcpLastSavedAt(new Date().toISOString());
       await loadPlugins();
@@ -441,7 +478,7 @@ export function PluginsPage() {
         binaries: [binary as unknown as import("@/lib/types").ManifestBinary],
       };
       const updated = [...manifestPlugins, newPlugin];
-      await api("PUT", "/api/manifest-plugins", { plugins: updated });
+      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
       await loadManifestPlugins();
       await loadPlugins();
       await syncManifest(true);

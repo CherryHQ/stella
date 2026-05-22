@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  createProvider,
+  deleteProvider,
+  fetchProviderModels,
+  listProviderModels,
+  listProviders,
+  listProviderTypes,
+  updateProvider,
+} from "@/lib/api-client/sdk.gen";
 import type {
   CustomModelForm,
   ModelConfig,
@@ -830,7 +838,8 @@ export function ProvidersPage() {
 
   const loadProviderTypes = useCallback(async () => {
     try {
-      const types = (await api<ProviderType[]>("GET", "/api/provider-types")) || [];
+      const { data } = await listProviderTypes({ throwOnError: true });
+      const types = (data || []) as ProviderType[];
       const defaults: Record<string, { base_url: string; name: string }> = {};
       for (const t of types) {
         defaults[t.id] = { base_url: t.default_url, name: t.name };
@@ -848,8 +857,8 @@ export function ProvidersPage() {
 
   const loadProviderModels = useCallback(async (providerID: string) => {
     try {
-      const models =
-        (await api<ProviderModel[]>("GET", `/api/providers/${providerID}/models`)) || [];
+      const { data } = await listProviderModels({ path: { id: providerID }, throwOnError: true });
+      const models = (data || []) as ProviderModel[];
       setProviderModels((prev) => ({ ...prev, [providerID]: models }));
     } catch {
       setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
@@ -858,7 +867,8 @@ export function ProvidersPage() {
 
   const loadProviders = useCallback(async () => {
     try {
-      const list = (await api<Provider[]>("GET", "/api/providers")) || [];
+      const { data } = await listProviders({ throwOnError: true });
+      const list = (data || []) as Provider[];
       setProviders(
         list.map((p) => ({
           ...p,
@@ -891,14 +901,17 @@ export function ProvidersPage() {
   const handleAddProvider = async (type: string, id: string, name: string) => {
     const d = providerDefaults[type] || {};
     try {
-      await api("POST", "/api/providers", {
-        id,
-        type,
-        name: name || d.name || id,
-        enabled: true,
-        api_key: "",
-        base_url: "",
-        models: {},
+      await createProvider({
+        body: {
+          id,
+          type,
+          name: name || d.name || id,
+          enabled: true,
+          api_key: "",
+          base_url: "",
+          models: {},
+        },
+        throwOnError: true,
       });
       await loadProviders();
       setCreatingNew(false);
@@ -911,14 +924,18 @@ export function ProvidersPage() {
 
   const handleSaveProvider = async (p: Provider) => {
     try {
-      await api("PUT", `/api/providers/${p.id}`, {
-        id: p.id,
-        type: p.type,
-        name: p.name,
-        enabled: p.enabled,
-        api_key: p.api_key,
-        base_url: p.base_url,
-        models: p.models,
+      await updateProvider({
+        path: { id: p.id },
+        body: {
+          id: p.id,
+          type: p.type,
+          name: p.name,
+          enabled: p.enabled,
+          api_key: p.api_key,
+          base_url: p.base_url,
+          models: p.models,
+        },
+        throwOnError: true,
       });
       await loadProviders();
       showToast("Saved");
@@ -929,7 +946,7 @@ export function ProvidersPage() {
 
   const handleDeleteProvider = async (id: string) => {
     try {
-      await api("DELETE", `/api/providers/${id}`);
+      await deleteProvider({ path: { id }, throwOnError: true });
       setSelectedId(null);
       await loadProviders();
       showToast("Deleted");
@@ -940,11 +957,12 @@ export function ProvidersPage() {
 
   const handleFetchModels = async (p: Provider) => {
     try {
-      const models = await api<ProviderModel[]>("POST", `/api/providers/${p.id}/models`, {
-        api_key: p.api_key,
-        base_url: p.base_url,
+      const { data } = await fetchProviderModels({
+        path: { id: p.id },
+        body: { api_key: p.api_key, base_url: p.base_url },
+        throwOnError: true,
       });
-      const list = models || [];
+      const list = (data || []) as ProviderModel[];
       setProviderModels((prev) => ({ ...prev, [p.id]: list }));
       showToast(`${list.length} models available`);
     } catch (e) {
