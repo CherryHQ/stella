@@ -739,6 +739,9 @@ type ServerInterface interface {
 	// Delete a scheduler job
 	// (DELETE /api/agents/{agentID}/scheduler/jobs/{jobID})
 	DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// Get a scheduler job
+	// (GET /api/agents/{agentID}/scheduler/jobs/{jobID})
+	GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
 	// Update a scheduler job (partial — missing fields are merged from existing)
 	// (PUT /api/agents/{agentID}/scheduler/jobs/{jobID})
 	UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
@@ -1557,6 +1560,47 @@ func (siw *ServerInterfaceWrapper) DeleteSchedulerJob(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteSchedulerJob(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) GetSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSchedulerJob(w, r, agentID, jobID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6196,6 +6240,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.ListSchedulerJobs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.CreateSchedulerJob)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.DeleteSchedulerJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.GetSchedulerJob)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.UpdateSchedulerJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/run", wrapper.TriggerSchedulerJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/runs", wrapper.ListSchedulerJobRuns)

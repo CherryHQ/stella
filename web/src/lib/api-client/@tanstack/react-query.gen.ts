@@ -61,6 +61,7 @@ import {
   getPluginStatus,
   getProject,
   getProvider,
+  getSchedulerJob,
   getSession,
   getSessionMessages,
   getSessionSystemPrompt,
@@ -302,6 +303,9 @@ import type {
   GetProviderData,
   GetProviderError,
   GetProviderResponse,
+  GetSchedulerJobData,
+  GetSchedulerJobError,
+  GetSchedulerJobResponse,
   GetSessionData,
   GetSessionError,
   GetSessionMessagesData,
@@ -3894,6 +3898,32 @@ export const deleteSchedulerJobMutation = (
   };
   return mutationOptions;
 };
+
+export const getSchedulerJobQueryKey = (
+  options: Options<GetSchedulerJobData>,
+) => createQueryKey("getSchedulerJob", options);
+
+/**
+ * Get a scheduler job
+ */
+export const getSchedulerJobOptions = (options: Options<GetSchedulerJobData>) =>
+  queryOptions<
+    GetSchedulerJobResponse,
+    GetSchedulerJobError,
+    GetSchedulerJobResponse,
+    ReturnType<typeof getSchedulerJobQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSchedulerJob({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getSchedulerJobQueryKey(options),
+  });
 
 /**
  * Update a scheduler job (partial — missing fields are merged from existing)

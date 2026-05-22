@@ -161,6 +161,9 @@ import type {
   GetProviderData,
   GetProviderErrors,
   GetProviderResponses,
+  GetSchedulerJobData,
+  GetSchedulerJobErrors,
+  GetSchedulerJobResponses,
   GetSessionData,
   GetSessionErrors,
   GetSessionMessagesData,
@@ -2473,6 +2476,22 @@ export const deleteSchedulerJob = <ThrowOnError extends boolean = false>(
   (options.client ?? client).delete<
     DeleteSchedulerJobResponses,
     DeleteSchedulerJobErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/scheduler/jobs/{jobID}",
+    ...options,
+  });
+
+/**
+ * Get a scheduler job
+ */
+export const getSchedulerJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetSchedulerJobData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetSchedulerJobResponses,
+    GetSchedulerJobErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],

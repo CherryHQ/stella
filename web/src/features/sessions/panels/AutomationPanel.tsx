@@ -189,7 +189,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [agentId, jobId]);
 
   useEffect(() => {
     if (isNew) {
@@ -247,7 +247,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     } finally {
       setDeleting(false);
     }
-  }, [jobId, onDeleted]);
+  }, [agentId, jobId, onDeleted]);
 
   const runNow = useCallback(async () => {
     if (!jobId) return;
@@ -263,7 +263,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     } finally {
       setRunning(false);
     }
-  }, [jobId, load]);
+  }, [agentId, jobId, load]);
 
   if (loading) {
     return (

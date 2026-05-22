@@ -6187,6 +6187,50 @@ export type DeleteSchedulerJobResponses = {
 export type DeleteSchedulerJobResponse =
   DeleteSchedulerJobResponses[keyof DeleteSchedulerJobResponses];
 
+export type GetSchedulerJobData = {
+  body?: never;
+  path: {
+    agentID: string;
+    jobID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
+};
+
+export type GetSchedulerJobErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetSchedulerJobError =
+  GetSchedulerJobErrors[keyof GetSchedulerJobErrors];
+
+export type GetSchedulerJobResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsJob;
+};
+
+export type GetSchedulerJobResponse =
+  GetSchedulerJobResponses[keyof GetSchedulerJobResponses];
+
 export type UpdateSchedulerJobData = {
   body: ComponentsJobInput;
   path: {

@@ -822,6 +822,9 @@ type ClientInterface interface {
 	// DeleteSchedulerJob request
 	DeleteSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetSchedulerJob request
+	GetSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// UpdateSchedulerJobWithBody request with any body
 	UpdateSchedulerJobWithBody(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1487,6 +1490,18 @@ func (c *Client) CreateSchedulerJob(ctx context.Context, agentID string, body Cr
 
 func (c *Client) DeleteSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteSchedulerJobRequest(c.Server, agentID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSchedulerJobRequest(c.Server, agentID, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -4042,6 +4057,47 @@ func NewDeleteSchedulerJobRequest(server string, agentID string, jobID string) (
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSchedulerJobRequest generates requests for GetSchedulerJob
+func NewGetSchedulerJobRequest(server string, agentID string, jobID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -9728,6 +9784,9 @@ type ClientWithResponsesInterface interface {
 	// DeleteSchedulerJobWithResponse request
 	DeleteSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*DeleteSchedulerJobResponse, error)
 
+	// GetSchedulerJobWithResponse request
+	GetSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*GetSchedulerJobResponse, error)
+
 	// UpdateSchedulerJobWithBodyWithResponse request with any body
 	UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
 
@@ -10594,6 +10653,39 @@ func (r DeleteSchedulerJobResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DeleteSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Job
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSchedulerJobResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14775,6 +14867,15 @@ func (c *ClientWithResponses) DeleteSchedulerJobWithResponse(ctx context.Context
 	return ParseDeleteSchedulerJobResponse(rsp)
 }
 
+// GetSchedulerJobWithResponse request returning *GetSchedulerJobResponse
+func (c *ClientWithResponses) GetSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*GetSchedulerJobResponse, error) {
+	rsp, err := c.GetSchedulerJob(ctx, agentID, jobID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSchedulerJobResponse(rsp)
+}
+
 // UpdateSchedulerJobWithBodyWithResponse request with arbitrary body returning *UpdateSchedulerJobResponse
 func (c *ClientWithResponses) UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error) {
 	rsp, err := c.UpdateSchedulerJobWithBody(ctx, agentID, jobID, contentType, body, reqEditors...)
@@ -16703,6 +16804,53 @@ func ParseDeleteSchedulerJobResponse(rsp *http.Response) (*DeleteSchedulerJobRes
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest externalRef0.DeleteResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSchedulerJobResponse parses an HTTP response from a GetSchedulerJobWithResponse call
+func ParseGetSchedulerJobResponse(rsp *http.Response) (*GetSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Job
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
