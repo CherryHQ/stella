@@ -17,7 +17,11 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   const processed = processMessages(messages);
 
   return (
-    <div ref={ref} className="flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-7" onScroll={onScroll}>
+    <div
+      ref={ref}
+      className="stella-transcript-scroll flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-7"
+      onScroll={onScroll}
+    >
       {messagesLoading && messages.length > 0 && (
         <div className="flex items-center justify-center gap-2 mb-4">
           <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />

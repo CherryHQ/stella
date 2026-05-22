@@ -34,7 +34,7 @@ function AgentLayout() {
       className="h-full min-h-0"
       style={{ "--sidebar-width": "260px" } as React.CSSProperties}
     >
-      <Sidebar className="sticky top-0 h-full">
+      <Sidebar>
         <AgentSidebar
           agents={agents}
           agentId={agentId}

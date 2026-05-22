@@ -6,7 +6,7 @@ const en = {
   "locale.zh": "中文",
 
   // Navigation
-  "nav.sessions": "Sessions",
+  "nav.sessions": "Agents",
   "nav.automations": "Automations",
   "nav.scheduler": "Scheduler",
   "nav.tasks": "Tasks",
@@ -464,6 +464,7 @@ const en = {
   "sessions.sidebar.newChat": "New chat",
   "sessions.sidebar.search": "Search…",
   "sessions.sidebar.chats": "Chats",
+  "sessions.sidebar.work": "Tasks",
   "sessions.sidebar.automations": "Automations",
   "sessions.sidebar.tasks": "Tasks",
   "sessions.sidebar.skills": "Skills",
@@ -560,7 +561,7 @@ const zh: Record<MessageKey, string> = {
   "locale.zh": "中文",
 
   // Navigation
-  "nav.sessions": "会话",
+  "nav.sessions": "智能体",
   "nav.automations": "自动化",
   "nav.scheduler": "计划任务",
   "nav.tasks": "任务",
@@ -1018,6 +1019,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.sidebar.newChat": "新建对话",
   "sessions.sidebar.search": "搜索…",
   "sessions.sidebar.chats": "对话",
+  "sessions.sidebar.work": "任务",
   "sessions.sidebar.automations": "自动化",
   "sessions.sidebar.tasks": "任务",
   "sessions.sidebar.skills": "技能",

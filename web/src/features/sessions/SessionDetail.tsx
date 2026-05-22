@@ -1,25 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import { useI18n } from "@/lib/i18n";
 import {
-  getSessionMessages,
-  getSessionSystemPrompt,
-  listAgentSkills,
-  listTools,
-  uploadWorkspaceFile,
-} from "@/lib/api-client/sdk.gen";
-import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
-import { formatTime } from "@/lib/time";
-import type {
-  Message,
-  Session,
-  SessionDetail as SessionDetailType,
-  Skill,
-  Tool,
-} from "@/lib/types";
+  MessageCircleDashed,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
+import type { Message, Session } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -31,30 +26,31 @@ import { Transcript } from "./Transcript";
 interface Props {
   session: Session | null;
   currentUserID: string;
-  initialDraft?: string;
   onBack: () => void;
+  onNewSession?: () => void;
   onSessionUpdate: (s: Session) => void;
+  onToggleSidebar?: () => void;
+  sidebarCollapsed?: boolean;
   onToggleWorkspace?: () => void;
+  workspaceOpen?: boolean;
+  contextTitle?: string;
+  contextSubtitle?: string;
 }
 
 export function SessionDetail({
   session,
   currentUserID,
-  initialDraft,
   onBack,
+  onNewSession,
+  onToggleSidebar,
+  sidebarCollapsed,
   onToggleWorkspace,
+  workspaceOpen,
+  contextTitle,
+  contextSubtitle,
 }: Props) {
   const { t } = useI18n();
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [inspectOpen, setInspectOpen] = useState(false);
-  const [inspectTab, setInspectTab] = useState<"session" | "tools" | "prompt" | "skills">(
-    "session",
-  );
-  const [userInput, setUserInput] = useState(initialDraft ?? "");
+  const [userInput, setUserInput] = useState("");
   const [attachments, setAttachments] = useState<
     { name: string; path: string; uploading: boolean }[]
   >([]);
@@ -63,7 +59,6 @@ export function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
-  const autoSentRef = useRef(false);
 
   const sessionId = session?.id ?? "";
   const agentId = session?.agent_id ?? "";
@@ -122,28 +117,11 @@ export function SessionDetail({
   useEffect(() => {
     if (!session) {
       setChatMessages([]);
-      setSystemPrompt("");
-      setInspectOpen(false);
       setAttachments([]);
       return;
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
-    setSkills([]);
-
-    const load = async () => {
-      try {
-        const { data: pr } = await getSessionSystemPrompt({
-          path: { agentID: session.agent_id, sessionID: session.id },
-          throwOnError: true,
-        });
-        if (sessionIDRef.current !== session.id) return;
-        setSystemPrompt(unwrapApiData<{ system_prompt: string }>(pr).system_prompt);
-      } catch {
-        // ignore like original .catch(() => null)
-      }
-    };
-    load().catch(console.error);
   }, [session?.id]);
 
   useEffect(() => {
@@ -176,55 +154,6 @@ export function SessionDetail({
   const handleTranscriptScroll = useCallback(() => {
     void loadOlderMessages();
   }, [loadOlderMessages]);
-
-  const loadTools = useCallback(async () => {
-    setToolsLoading(true);
-    try {
-      const { data } = await listTools({ throwOnError: true });
-      setTools(unwrapApiList<Tool>(data));
-    } finally {
-      setToolsLoading(false);
-    }
-  }, []);
-
-  const loadSkills = useCallback(async () => {
-    if (!session) return;
-    setSkillsLoading(true);
-    try {
-      const { data } = await listAgentSkills({
-        path: { id: session.agent_id },
-        query: { session_id: session.id },
-        throwOnError: true,
-      });
-      setSkills(unwrapApiItems<Skill>(data));
-    } finally {
-      setSkillsLoading(false);
-    }
-  }, [session]);
-
-  const loadInspectTab = useCallback(
-    (tab: "session" | "tools" | "prompt" | "skills") => {
-      if (tab === "tools" && tools.length === 0) loadTools().catch(console.error);
-      if (tab === "skills" && skills.length === 0) loadSkills().catch(console.error);
-    },
-    [tools.length, skills.length, loadTools, loadSkills],
-  );
-
-  const toggleInspect = useCallback(() => {
-    setInspectOpen((prev) => {
-      const next = !prev;
-      if (next) loadInspectTab(inspectTab);
-      return next;
-    });
-  }, [inspectTab, loadInspectTab]);
-
-  const selectInspectTab = useCallback(
-    (tab: "session" | "tools" | "prompt" | "skills") => {
-      setInspectTab(tab);
-      loadInspectTab(tab);
-    },
-    [loadInspectTab],
-  );
 
   const handleFileSelect = useCallback(
     async (files: FileList | null) => {
@@ -277,17 +206,6 @@ export function SessionDetail({
     void chatSendMessage({ text });
   }, [userInput, isStreaming, session, attachments, chatSendMessage]);
 
-  useEffect(() => {
-    if (!initialDraft?.trim() || !session || autoSentRef.current) return;
-    autoSentRef.current = true;
-    void sendMessage();
-  }, [initialDraft, session, sendMessage]);
-
-  const copyID = useCallback(async () => {
-    if (!session?.id) return;
-    await navigator.clipboard.writeText(session.id);
-  }, [session]);
-
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -307,6 +225,21 @@ export function SessionDetail({
       {/* Header */}
       <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
         <div className="flex items-center gap-2.5 w-full min-w-0">
+          {onToggleSidebar && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onToggleSidebar}
+              className="hidden h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground md:inline-flex"
+              title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="size-3.5" />
+              ) : (
+                <PanelLeftClose className="size-3.5" />
+              )}
+            </Button>
+          )}
           <button
             onClick={onBack}
             className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
@@ -315,55 +248,45 @@ export function SessionDetail({
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
-              {session.title || "Untitled session"}
+              {contextTitle || session.title || "Untitled session"}
             </h1>
             <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {messages.length} messages · {channelLabel(session.channel) || "chat"}
+              {contextSubtitle ||
+                `${messages.length} messages · ${channelLabel(session.channel) || "chat"}`}
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={toggleInspect}
-              className={cn(inspectOpen ? "text-primary" : "text-muted-foreground")}
-              title="Inspect session"
-            >
-              <svg
-                className="w-[15px] h-[15px]"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.8"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
+            {onNewSession && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={onNewSession}
+                      className="hidden h-7 w-7 rounded-full p-0 text-muted-foreground sm:inline-flex"
+                      aria-label="Start temporary thread"
+                    >
+                      <MessageCircleDashed className="size-3.5" />
+                    </Button>
+                  }
                 />
-              </svg>
-            </Button>
+                <TooltipPopup side="bottom">Start temporary thread</TooltipPopup>
+              </Tooltip>
+            )}
             {onToggleWorkspace && (
               <Button
                 variant="ghost"
                 size="xs"
                 onClick={onToggleWorkspace}
-                className="text-muted-foreground md:hidden"
-                title="Workspace"
+                className="h-7 w-7 rounded-full p-0 text-muted-foreground"
+                title={workspaceOpen ? "Hide inspector" : "Show inspector"}
               >
-                <svg
-                  className="size-[15px]"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="1.8"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
-                  />
-                </svg>
+                {workspaceOpen ? (
+                  <PanelRightClose className="size-3.5" />
+                ) : (
+                  <PanelRightOpen className="size-3.5" />
+                )}
               </Button>
             )}
           </div>
@@ -549,202 +472,7 @@ export function SessionDetail({
             </div>
           )}
         </div>
-        {inspectOpen && (
-          <InspectPanel
-            tab={inspectTab}
-            session={session}
-            messages={messages}
-            systemPrompt={systemPrompt}
-            tools={tools}
-            toolsLoading={toolsLoading}
-            skills={skills}
-            skillsLoading={skillsLoading}
-            onTabChange={selectInspectTab}
-            onClose={() => setInspectOpen(false)}
-            onCopyID={copyID}
-          />
-        )}
       </div>
-    </div>
-  );
-}
-
-function InspectPanel({
-  tab,
-  session,
-  messages,
-  systemPrompt,
-  tools,
-  toolsLoading,
-  skills,
-  skillsLoading,
-  onTabChange,
-  onClose,
-  onCopyID,
-}: {
-  tab: "session" | "tools" | "prompt" | "skills";
-  onTabChange: (tab: "session" | "tools" | "prompt" | "skills") => void;
-  session: Session;
-  messages: Message[];
-  systemPrompt: string;
-  tools: Tool[];
-  toolsLoading: boolean;
-  skills: Skill[];
-  skillsLoading: boolean;
-  onClose: () => void;
-  onCopyID: () => void;
-}) {
-  const sessionTotalTokens = messages.reduce((sum, m) => sum + (m.token_count ?? 0), 0);
-  return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-border/70 bg-sidebar/80">
-      <div className="h-9 shrink-0 border-b border-border px-3 flex items-center justify-between">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40">
-          Inspect
-        </span>
-        <button
-          onClick={onClose}
-          className="text-xs text-muted-foreground/50 hover:text-foreground cursor-pointer"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="h-10 shrink-0 border-b border-border px-2 flex items-center gap-1">
-        {(["session", "tools", "prompt", "skills"] as const).map((item) => (
-          <button
-            key={item}
-            onClick={() => onTabChange(item)}
-            className={cn(
-              "flex-1 rounded-md px-2 py-1.5 text-[10px] font-mono capitalize cursor-pointer",
-              tab === item
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/50",
-            )}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
-      {tab === "session" && (
-        <div className="p-3 space-y-3 overflow-auto">
-          <dl className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-2 text-xs">
-            <dt className="font-mono text-muted-foreground/40">Channel</dt>
-            <dd className="truncate">{channelLabel(session.channel) || "unknown"}</dd>
-            <dt className="font-mono text-muted-foreground/40">Agent</dt>
-            <dd className="truncate">
-              {(session as SessionDetailType).agent_name || session.agent_id || "unknown"}
-            </dd>
-            <dt className="font-mono text-muted-foreground/40">Active</dt>
-            <dd>{formatTime(session.last_active)}</dd>
-            <dt className="font-mono text-muted-foreground/40">Messages</dt>
-            <dd>{messages.length.toLocaleString()}</dd>
-            <dt className="font-mono text-muted-foreground/40">Tokens</dt>
-            <dd>{sessionTotalTokens > 0 ? sessionTotalTokens.toLocaleString() : "—"}</dd>
-          </dl>
-          <div className="pt-3 border-t border-border">
-            <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40 mb-2">
-              Session ID
-            </div>
-            <button
-              onClick={onCopyID}
-              className="w-full text-left text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border rounded-lg px-2 py-1.5 truncate cursor-pointer flex items-center gap-2"
-              title="Copy session ID"
-            >
-              <span className="truncate flex-1">{session.id}</span>
-              <span className="text-[10px] text-muted-foreground/40 shrink-0">copy</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {tab === "tools" && (
-        <div className="overflow-auto">
-          {toolsLoading ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading tools…</div>
-          ) : tools.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">
-              No tools loaded.
-            </div>
-          ) : (
-            <div className="p-2 space-y-2">
-              {tools.map((tool) => (
-                <ToolRow key={tool.name} tool={tool} compact />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "skills" && (
-        <div className="overflow-auto">
-          {skillsLoading ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">Loading skills…</div>
-          ) : skills.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground font-mono">
-              No enabled skills available for this session.
-            </div>
-          ) : (
-            <div className="p-2 space-y-2">
-              {skills.map((skill) => (
-                <SkillRow key={skill.id} skill={skill} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "prompt" && (
-        <div className="p-3 overflow-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono text-muted-foreground/40">
-              ~{Math.round(systemPrompt.length / 4)} tokens
-            </span>
-            <button
-              onClick={() => navigator.clipboard.writeText(systemPrompt).catch(console.error)}
-              className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              Copy
-            </button>
-          </div>
-          <pre className="text-[10px] font-mono text-muted-foreground/70 whitespace-pre-wrap leading-relaxed bg-muted/50 rounded-lg p-3">
-            {systemPrompt || "No system prompt available."}
-          </pre>
-        </div>
-      )}
-    </aside>
-  );
-}
-
-function SkillRow({ skill }: { skill: Skill }) {
-  return (
-    <div className="border border-border rounded-lg px-2 py-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm font-mono font-medium truncate">{skill.name || skill.id}</span>
-        <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5 shrink-0">
-          {skill.scope}
-        </span>
-        <span
-          className={cn(
-            "text-[9px] rounded-full px-1.5 py-0.5 shrink-0",
-            skill.status === "active"
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {skill.status}
-        </span>
-      </div>
-      {skill.description && (
-        <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-          {skill.description}
-        </p>
-      )}
-      {skill.files && skill.files.length > 0 && (
-        <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">
-          {skill.files.length} files
-        </p>
-      )}
     </div>
   );
 }
@@ -753,37 +481,4 @@ function channelLabel(ch: string | null | undefined): string {
   if (!ch) return "";
   const m = ch.match(/:channel:([^:]+)/);
   return m ? m[1] : ch;
-}
-
-function ToolRow({ tool, compact = false }: { tool: Tool; compact?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          "w-full text-left flex items-center gap-3 hover:bg-muted transition-colors cursor-pointer",
-          compact ? "px-2 py-2 border border-border rounded-lg" : "px-5 py-2.5",
-        )}
-      >
-        <span className="text-[10px] text-muted-foreground">{expanded ? "▾" : "▸"}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-mono font-medium">{tool.name}</span>
-            <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5">
-              {tool.category}
-            </span>
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{tool.description}</p>
-        </div>
-      </button>
-      {expanded && (
-        <div className="px-5 pb-3">
-          <pre className="text-[10px] font-mono text-muted-foreground/70 bg-muted px-3 py-2 rounded overflow-x-auto">
-            {JSON.stringify(tool.input_schema, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
 }

@@ -14,7 +14,7 @@ import { unwrapApiData } from "@/lib/api-data";
 import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
-import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
+import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
 import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
@@ -59,6 +59,13 @@ function sessionTitle(s: Session): string {
   return s.title || "Untitled";
 }
 
+function sessionKindLabel(s: Session): string {
+  if (s.kind === "main") return "main";
+  if (s.kind === "task") return "task";
+  if (s.kind === "scheduler") return "run";
+  return "chat";
+}
+
 // ── icons ────────────────────────────────────────────────────────────────────
 
 function ChevRight({ className }: { className?: string }) {
@@ -75,36 +82,10 @@ function ChevRight({ className }: { className?: string }) {
   );
 }
 
-function IconTask() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="m9 11 3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  );
-}
-
 function IconAutomation() {
   return (
     <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M13 2 3 14h8l-1 8 11-13h-8l0-7z" />
-    </svg>
-  );
-}
-
-function IconSkills() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1" />
-    </svg>
-  );
-}
-
-function IconMemory() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7z" />
-      <circle cx="12" cy="10" r="2" />
     </svg>
   );
 }
@@ -466,8 +447,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const { data: _skills = [] } = useQuery(agentSkillsOptions(agentId));
-  const { data: _memories = [] } = useQuery(agentMemoriesOptions(agentId));
+  const { data: schedulerJobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
@@ -477,6 +457,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     },
   });
   const taskCount = taskList?.items?.length ?? 0;
+  const workCount = taskCount + schedulerJobs.filter((job) => job.enabled).length;
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
@@ -623,43 +604,15 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           <SectionLabel>Workspace</SectionLabel>
           <div className="grid gap-0.5">
             <NavItem
-              active={isActive(`/agents/${agentId}/tasks`)}
-              icon={<IconTask />}
-              label={t("sessions.sidebar.tasks")}
-              badge={taskCount}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/automations`)}
+              active={
+                isActive(`/agents/${agentId}/automations`) || isActive(`/agents/${agentId}/tasks`)
+              }
               icon={<IconAutomation />}
-              label={t("sessions.sidebar.automations")}
+              label={t("sessions.sidebar.work")}
+              badge={workCount}
               onClick={() => {
                 closeMobile();
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/skills`)}
-              icon={<IconSkills />}
-              label={t("sessions.sidebar.skills")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={
-                isActive(`/agents/${agentId}/memories/soul`) ||
-                isActive(`/agents/${agentId}/memories/profile`)
-              }
-              icon={<IconMemory />}
-              label={t("sessions.sidebar.memory")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } });
               }}
             />
           </div>
@@ -741,7 +694,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           />
         )}
 
-        {/* ── Chats ──────────────────────────────────────────────────── */}
+        {/* ── Sessions ──────────────────────────────────────────────────── */}
         <section className="mt-3">
           <div className="flex h-[30px] items-center gap-1 pr-1">
             <button
@@ -749,7 +702,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               onClick={() => setChatsOpen((v) => !v)}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
-              <span>Chats</span>
+              <span>Sessions</span>
               <ChevRight
                 className={cn(
                   "size-2.5 text-muted-foreground/40 transition-transform duration-150",
@@ -762,7 +715,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 type="button"
                 onClick={() => void createSession()}
                 className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-                title="New chat"
+                title="New temporary thread"
               >
                 <IconNewChat />
               </button>
@@ -782,13 +735,16 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     });
                   }}
                   className={cn(
-                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
+                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
                     activeSessionId === s.id
                       ? "bg-foreground/[0.045] text-primary"
                       : "text-foreground hover:bg-foreground/[0.045]",
                   )}
                 >
                   <span className="truncate">{sessionTitle(s)}</span>
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground/70">
+                    {sessionKindLabel(s)}
+                  </span>
                   <time className="text-[12px] font-medium text-muted-foreground/60">
                     {relativeTime(s.last_active)}
                   </time>

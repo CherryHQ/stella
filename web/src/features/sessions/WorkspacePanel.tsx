@@ -121,6 +121,7 @@ export function WorkspacePanel({
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [rootCopied, setRootCopied] = useState(false);
   const reload = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
   }, [sessionID, onReload, projectDir]);
@@ -220,7 +221,18 @@ export function WorkspacePanel({
   const entryCount = workspace?.paths?.length ?? 0;
   const fileCount = workspace?.total_files ?? 0;
   const dirCount = workspace?.total_dirs ?? 0;
-  const workspaceStats = `${fileCount}F ${dirCount}D ${formatBytes(workspace?.total_bytes ?? 0)}`;
+  const rootLabel = workspace?.root ?? "";
+  const workspaceStats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
+  const copyRootPath = useCallback(() => {
+    if (!workspace?.root) return;
+    navigator.clipboard
+      .writeText(workspace.root)
+      .then(() => {
+        setRootCopied(true);
+        window.setTimeout(() => setRootCopied(false), 1400);
+      })
+      .catch(console.error);
+  }, [workspace?.root]);
 
   if (!sessionID) {
     return (
@@ -258,16 +270,37 @@ export function WorkspacePanel({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
       {/* Header */}
-      <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 pl-8 pr-3">
-        <div className="min-w-0 pl-1">
-          <span className="block text-[11px] font-semibold tracking-[-0.01em] text-foreground">
-            Workspace
-          </span>
-          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-border/70 py-1.5 pl-8 pr-3">
+        <div className="min-w-0 flex-1 pl-1">
+          <span
+            className="block truncate font-mono text-[10px] font-medium text-muted-foreground"
+            title={
+              workspace?.root
+                ? `${workspace.root}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace.total_bytes)}`
+                : undefined
+            }
+          >
             {workspaceStats}
           </span>
+          {rootLabel && (
+            <div className="flex min-w-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={copyRootPath}
+                className="block min-w-0 truncate rounded-sm font-mono text-[10px] text-muted-foreground/55 transition-colors hover:text-foreground"
+                title={workspace?.root}
+              >
+                in {rootLabel}
+              </button>
+              {rootCopied && (
+                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                  Copied
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-0">
+        <div className="flex shrink-0 items-center gap-0">
           <Button
             variant="ghost"
             size="xs"
@@ -311,21 +344,8 @@ export function WorkspacePanel({
           >
             <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />
           </Button>
-          <div className="w-px h-3 bg-border mx-0.5" />
-          {workspaceLoading ? (
+          {workspaceLoading && (
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
-          ) : (
-            <span className="text-[10px] font-mono text-muted-foreground/30 mx-1">
-              <span
-                title={
-                  workspace?.root
-                    ? `${workspace.root}\n${fileCount} files, ${dirCount} dirs, ${formatBytes(workspace.total_bytes)}`
-                    : undefined
-                }
-              >
-                {workspaceStats}
-              </span>
-            </span>
           )}
         </div>
       </div>

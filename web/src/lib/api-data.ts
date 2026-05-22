@@ -6,11 +6,13 @@ export function unwrapApiData<T>(value: unknown): T {
 
 export function unwrapApiList<T>(value: unknown): T[] {
   if (value == null) return [];
-  return unwrapApiData(value);
+  const data = unwrapApiData<unknown>(value);
+  return Array.isArray(data) ? (data as T[]) : [];
 }
 
 export function unwrapApiItems<T>(value: unknown): T[] {
   if (value == null) return [];
   const data = unwrapApiData<T[] | { items?: T[] }>(value);
-  return Array.isArray(data) ? data : (data.items ?? []);
+  if (Array.isArray(data)) return data;
+  return data?.items ?? [];
 }

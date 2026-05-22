@@ -185,7 +185,7 @@ export function AutomationDashPanel({
         {/* Header */}
         <div className="flex-shrink-0 h-12 px-3 border-b border-border/60 bg-background flex items-center gap-2 sm:px-5 sm:gap-3">
           <h2 className="shrink-0 text-[15px] font-medium tracking-tight">
-            {t("sessions.sidebar.automations")}
+            {t("sessions.sidebar.work")}
           </h2>
           <div className="flex items-center gap-1">
             <button
