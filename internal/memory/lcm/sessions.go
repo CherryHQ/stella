@@ -35,6 +35,24 @@ func requireSessionScope(ctx context.Context, userID, agentID string) (string, s
 	return userID, agentID, nil
 }
 
+func requireMemorySessionScope(ctx context.Context, session memory.Session) (memory.Session, error) {
+	userID, agentID, err := requireSessionScope(ctx, session.UserID, session.AgentID)
+	if err != nil {
+		return memory.Session{}, err
+	}
+	session.UserID = userID
+	session.AgentID = agentID
+	return session, nil
+}
+
+func conversationScopeParams(session memory.Session) sqlc.GetConversationBySessionIDParams {
+	return sqlc.GetConversationBySessionIDParams{
+		SessionID: session.ID,
+		UserID:    sql.NullString{String: session.UserID, Valid: true},
+		AgentID:   nullAgent(session.AgentID),
+	}
+}
+
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
 	userID, agentIDValue, err := requireSessionScope(ctx, info.UserID, info.AgentID)

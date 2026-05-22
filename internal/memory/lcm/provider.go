@@ -40,7 +40,6 @@ type Provider struct {
 	retrieval  *retrievalEngine
 	summarizer memory.Summarizer
 	sessionMu  map[string]*sync.Mutex
-	convCache  map[string]string
 	globalMu   sync.Mutex
 	freshTail  int
 	log        *slog.Logger
@@ -73,7 +72,6 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 		assembler: newAssembler(q, slog.Default()),
 		retrieval: newRetrievalEngine(q),
 		sessionMu: make(map[string]*sync.Mutex),
-		convCache: make(map[string]string),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
@@ -164,7 +162,11 @@ func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget,
 
 // Stats implements memory.Provider.
 func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return memory.SessionStats{}, err
+	}
+	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if errors.Is(err, sql.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
@@ -209,7 +211,11 @@ func (p *Provider) Close() error {
 
 // NeedsCompaction implements memory.Compactor.
 func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, threshold float64) bool {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false
+	}
+	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if err != nil {
 		return false
 	}

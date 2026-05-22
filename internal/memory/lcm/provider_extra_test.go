@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,90 @@ func newLCMTestSession(suffix string) memory.Session {
 		AgentID: "test",
 		UserID:  "1",
 		Channel: "cli",
+	}
+}
+
+func TestLCMProvider_RequiresSessionUserAndAgentScope(t *testing.T) {
+	p, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	base := newLCMTestSession("missing-scope")
+	cases := []struct {
+		name string
+		sess memory.Session
+	}{
+		{name: "missing user", sess: memory.Session{ID: base.ID, AgentID: base.AgentID, Channel: base.Channel}},
+		{name: "missing agent", sess: memory.Session{ID: base.ID, UserID: base.UserID, Channel: base.Channel}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := p.Bootstrap(ctx, tc.sess); err == nil {
+				t.Fatal("Bootstrap succeeded without complete scope")
+			}
+			if err := p.Append(ctx, tc.sess, ai.UserMessage{Content: "hello"}); err == nil {
+				t.Fatal("Append succeeded without complete scope")
+			}
+			if _, err := p.Assemble(ctx, tc.sess, 1000, 0); err == nil {
+				t.Fatal("Assemble succeeded without complete scope")
+			}
+			if _, err := p.Stats(ctx, tc.sess); err == nil {
+				t.Fatal("Stats succeeded without complete scope")
+			}
+
+			searcher := p.(memory.Searcher)
+			if _, err := searcher.Search(ctx, tc.sess, memory.SearchQuery{Text: "hello"}); err == nil {
+				t.Fatal("Search succeeded without complete scope")
+			}
+
+			reviewer := p.(memory.Reviewer)
+			if _, err := reviewer.BuildReviewContext(ctx, tc.sess, time.Time{}); err == nil {
+				t.Fatal("BuildReviewContext succeeded without complete scope")
+			}
+
+			explorer := p.(memory.Explorer)
+			if _, err := explorer.Describe(ctx, "missing-summary"); err == nil {
+				t.Fatal("Describe succeeded without complete scope")
+			}
+			if _, err := explorer.Expand(ctx, "missing-summary", 1000); err == nil {
+				t.Fatal("Expand succeeded without complete scope")
+			}
+
+			compactor := p.(memory.Compactor)
+			if compactor.NeedsCompaction(ctx, tc.sess, 0) {
+				t.Fatal("NeedsCompaction returned true without complete scope")
+			}
+			if _, err := compactor.Compact(ctx, tc.sess, memory.CompactionIncremental); err == nil {
+				t.Fatal("Compact succeeded without complete scope")
+			}
+		})
+	}
+}
+
+func TestLCMProvider_DoesNotReuseConversationCacheAcrossScope(t *testing.T) {
+	p, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	sess := newLCMTestSession("scope-cache")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Append(ctx, sess, ai.UserMessage{Content: "private user one message"}); err != nil {
+		t.Fatal(err)
+	}
+
+	otherUser := sess
+	otherUser.UserID = "2"
+	got, err := p.Assemble(ctx, otherUser, 100000, 0)
+	if err == nil {
+		for _, msg := range got {
+			if strings.Contains(fmt.Sprint(msg), "private user one message") {
+				t.Fatal("Assemble returned another user's conversation")
+			}
+		}
+		t.Fatal("Assemble unexpectedly succeeded for same session ID under a different user")
 	}
 }
 

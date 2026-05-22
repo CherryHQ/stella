@@ -58,19 +58,15 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 	return fn()
 }
 
-// getOrCreateConversation retrieves or creates a conversation for the session.
-// Results are cached since conversation IDs are immutable once created.
+// getOrCreateConversation retrieves or creates a scoped conversation for the session.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
-	p.globalMu.Lock()
-	if id, ok := p.convCache[session.ID]; ok {
-		p.globalMu.Unlock()
-		return id, nil
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return "", err
 	}
-	p.globalMu.Unlock()
 
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
+	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if err == nil {
-		p.cacheConvID(session.ID, conv.ID)
 		return conv.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -83,21 +79,14 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		SessionID:  session.ID,
 		Channel:    session.Channel,
 		Kind:       "chat",
-		AgentID:    sql.NullString{String: session.AgentID, Valid: session.AgentID != ""},
+		AgentID:    nullAgent(session.AgentID),
 		UserID:     sql.NullString{String: session.UserID, Valid: true},
 		LastActive: now,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create conversation: %w", err)
 	}
-	p.cacheConvID(session.ID, conv.ID)
 	return conv.ID, nil
-}
-
-func (p *Provider) cacheConvID(sessionID string, convID string) {
-	p.globalMu.Lock()
-	p.convCache[sessionID] = convID
-	p.globalMu.Unlock()
 }
 
 // --- Message conversion ---

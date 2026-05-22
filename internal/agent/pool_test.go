@@ -1013,13 +1013,15 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 
 	info, _ := pool.CreateSession("test", "test-user")
 
+	ctx := testSessionContext()
+
 	// Chat to create a session with history.
-	stream := pool.Chat(testSessionContext(), info.ID, "hello")
+	stream := pool.Chat(ctx, info.ID, "hello")
 	for range stream {
 	}
 
 	// Compact should succeed via memory engine.
-	summary, err := pool.CompactSession(context.Background(), info.ID)
+	summary, err := pool.CompactSession(ctx, info.ID)
 	if err != nil {
 		t.Fatalf("CompactSession: %v", err)
 	}
