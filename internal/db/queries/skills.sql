@@ -14,20 +14,55 @@ WHERE status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?)
-    OR (scope = 'user'    AND user_id  = ?)
+    OR (scope = 'agent'   AND agent_id = sqlc.narg(agent_id))
+    OR (scope = 'user'    AND user_id = sqlc.narg(user_id) AND (
+      (sqlc.narg(agent_id) IS NULL AND agent_id IS NULL)
+      OR agent_id = sqlc.narg(agent_id)
+    ))
   )
 ORDER BY created_at;
 
+-- name: ListSkillsForAgentContext :many
+SELECT * FROM skills
+WHERE status != 'deprecated'
+  AND (
+    scope = 'system'
+    OR (scope = 'agent' AND agent_id = sqlc.arg(agent_id))
+    OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND agent_id = sqlc.arg(agent_id))
+  )
+ORDER BY scope, created_at;
+
+-- name: ListSkillsForAdmin :many
+SELECT * FROM skills
+WHERE scope != 'user'
+   OR user_id = sqlc.arg(user_id)
+ORDER BY scope, created_at;
+
+-- name: ListSkillsForUser :many
+SELECT * FROM skills
+WHERE status != 'deprecated'
+  AND (
+    scope = 'system'
+    OR (scope = 'agent' AND instr(',' || sqlc.arg(agent_ids_csv) || ',', ',' || agent_id || ',') > 0)
+    OR (scope = 'user' AND user_id = sqlc.arg(user_id) AND (
+      agent_id IS NULL
+      OR instr(',' || sqlc.arg(agent_ids_csv) || ',', ',' || agent_id || ',') > 0
+    ))
+  )
+ORDER BY scope, created_at;
+
 -- name: ResolveSkill :one
 SELECT * FROM skills
-WHERE name = ?
+WHERE name = sqlc.arg(name)
   AND status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?)
-    OR (scope = 'user'    AND user_id  = ?)
+    OR (scope = 'agent'   AND agent_id = sqlc.narg(agent_id))
+    OR (scope = 'user'    AND user_id = sqlc.narg(user_id) AND (
+      (sqlc.narg(agent_id) IS NULL AND agent_id IS NULL)
+      OR agent_id = sqlc.narg(agent_id)
+    ))
   )
 ORDER BY
   CASE scope
@@ -103,7 +138,7 @@ WHERE disable_model_invocation = 1
   AND (
     scope = 'system'
     OR (scope = 'agent' AND agent_id = sqlc.arg(agent_id))
-    OR (scope = 'user'  AND user_id  = sqlc.arg(user_id))
+    OR (scope = 'user'  AND user_id  = sqlc.arg(user_id) AND agent_id = sqlc.arg(agent_id))
   )
   AND (sqlc.arg(knowledge_type) = '' OR metadata LIKE '%"knowledge_type":"' || sqlc.arg(knowledge_type) || '"%')
 ORDER BY created_at DESC;

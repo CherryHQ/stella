@@ -4,11 +4,12 @@ import { agentSkillsOptions } from "@/lib/queries/agents";
 import { SkillPanel } from "@/features/sessions/panels/SkillPanel";
 
 export function SkillEditPage() {
-  const { agentId, skillId } = useParams({ from: "/_app/agents/$agentId/skills/$skillId" });
+  const { agentId, scope, skillId } = useParams({
+    from: "/_app/agents/$agentId/skills/$scope/$skillId",
+  });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
-  const scope = skills.find((s) => s.id === skillId)?.scope;
+  useQuery(agentSkillsOptions(agentId));
 
   return (
     <SkillPanel

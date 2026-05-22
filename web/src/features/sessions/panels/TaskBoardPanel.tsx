@@ -57,8 +57,10 @@ export function TaskBoardPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-      const res = await api<{ items: ComponentsAgentTask[] }>("GET", `/api/tasks${params}`);
+      const res = await api<{ items: ComponentsAgentTask[] }>(
+        "GET",
+        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
+      );
       setTasks(res.items ?? []);
     } catch (e) {
       console.error(e);
@@ -200,6 +202,7 @@ export function TaskBoardPanel({
           </div>
         ) : selectedTask ? (
           <TaskDetail
+            agentId={agentId}
             task={selectedTask}
             onBack={() => onSelectTask?.(null)}
             onOpenSession={() => {
@@ -217,10 +220,12 @@ export function TaskBoardPanel({
 }
 
 function TaskDetail({
+  agentId,
   task,
   onBack,
   onOpenSession,
 }: {
+  agentId: string;
   task: ComponentsAgentTask;
   onBack: () => void;
   onOpenSession: () => void;
@@ -229,7 +234,10 @@ function TaskDetail({
 
   useEffect(() => {
     let cancelled = false;
-    api<ComponentsAgentTaskDepsInfo>("GET", `/api/tasks/${task.id}/deps`)
+    api<ComponentsAgentTaskDepsInfo>(
+      "GET",
+      `/api/agents/${encodeURIComponent(agentId)}/tasks/${task.id}/deps`,
+    )
       .then((info) => {
         if (!cancelled) setDepsInfo(info);
       })
@@ -347,6 +355,7 @@ function TaskDetail({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {task.session_id ? (
           <SessionConversation
+            agentId={agentId}
             sessionId={task.session_id}
             placeholder="Ask about this task..."
             className="h-full"

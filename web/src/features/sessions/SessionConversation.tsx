@@ -20,6 +20,7 @@ import {
 import { Transcript } from "./Transcript";
 
 interface Props {
+  agentId: string;
   sessionId: string;
   placeholder?: string;
   className?: string;
@@ -30,6 +31,7 @@ interface Props {
 }
 
 export function SessionConversation({
+  agentId,
   sessionId,
   placeholder = "Ask Stella about this…",
   className = "",
@@ -44,7 +46,8 @@ export function SessionConversation({
   const initialScrollSessionRef = useRef<string | null>(null);
   const enc = encodeURIComponent(sessionId);
 
-  const transport = useMemo(() => createSessionTransport(sessionId), [sessionId]);
+  const agentEnc = encodeURIComponent(agentId);
+  const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
 
   const {
     messages: chatMessages,
@@ -60,13 +63,13 @@ export function SessionConversation({
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["session-messages", sessionId, after, before],
+    queryKey: ["session-messages", agentId, sessionId, after, before],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ limit: "20", skip: String(pageParam) });
       if (after) params.set("after", after);
       if (before) params.set("before", before);
-      return api<Message[]>("GET", `/api/sessions/${enc}/messages?${params}`);
+      return api<Message[]>("GET", `/api/agents/${agentEnc}/sessions/${enc}/messages?${params}`);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,

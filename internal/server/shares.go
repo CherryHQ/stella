@@ -127,7 +127,7 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 		return "", "", nil, errors.New("missing path")
 	}
 
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+	root, err := s.sessionWorkspaceRoot(w, r, "", sessionID)
 	if err != nil {
 		return "", "", nil, err
 	}

@@ -394,40 +394,112 @@ type ListProjectsParams struct {
 	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
-// UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
-type UploadAgentSkillMultipartBody struct {
+// ListSessionsParams defines parameters for ListSessions.
+type ListSessionsParams struct {
+	// Limit Maximum number of sessions to return
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of sessions to skip
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Kind Filter by session kind
+	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// ProjectId Filter by project ID
+	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
+// ListSessionsParamsKind defines parameters for ListSessions.
+type ListSessionsParamsKind string
+
+// GetSessionMessagesParams defines parameters for GetSessionMessages.
+type GetSessionMessagesParams struct {
+	// Limit Maximum number of messages to return
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Skip Number of messages to skip from the end
+	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+
+	// After Only return messages created at or after this timestamp
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only return messages created at or before this timestamp
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+}
+
+// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
+type GetSessionWorkspaceParams struct {
+	// ShowHidden Include dot-prefixed files and directories
+	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+
+	// Path Directory path to list relative to the workspace root
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// Depth Maximum number of levels to return below path
+	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
+}
+
+// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
+type GetWorkspaceFileContentParams struct {
+	// Path Relative path of the file within the workspace
+	Path string `form:"path" json:"path"`
+
+	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
+}
+
+// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
+type UploadWorkspaceFileMultipartBody struct {
+	// File The file to upload
+	File openapi_types.File `json:"file"`
+}
+
+// ListAgentTasksParams defines parameters for ListAgentTasks.
+type ListAgentTasksParams struct {
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListAgentSkillsParams defines parameters for ListAgentSkills.
+type ListAgentSkillsParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UploadAgentScopedSkillMultipartBody defines parameters for UploadAgentScopedSkill.
+type UploadAgentScopedSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
-// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
-type DeleteAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// DeleteAgentScopedSkillParams defines parameters for DeleteAgentScopedSkill.
+type DeleteAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
-type GetAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// GetAgentScopedSkillParams defines parameters for GetAgentScopedSkill.
+type GetAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UpdateAgentScopedSkillParams defines parameters for UpdateAgentScopedSkill.
+type UpdateAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// DeleteAgentScopedSkillFileParams defines parameters for DeleteAgentScopedSkillFile.
+type DeleteAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// GetAgentScopedSkillFileParams defines parameters for GetAgentScopedSkillFile.
+type GetAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
 	State string `form:"state" json:"state"`
-}
-
-// UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
-type UploadProfileSkillMultipartBody struct {
-	File *openapi_types.File `json:"file,omitempty"`
-}
-
-// DeleteProfileSkillFileParams defines parameters for DeleteProfileSkillFile.
-type DeleteProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetProfileSkillFileParams defines parameters for GetProfileSkillFile.
-type GetProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
 }
 
 // PollWeixinQRStatusParams defines parameters for PollWeixinQRStatus.
@@ -484,94 +556,10 @@ type PollFeedParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ListSessionsParams defines parameters for ListSessions.
-type ListSessionsParams struct {
-	// Limit Maximum number of sessions to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Offset Number of sessions to skip
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-
-	// Kind Filter by session kind
-	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
-
-	// AgentId Filter by agent ID
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
-
-	// ProjectId Filter by project ID
-	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
-}
-
-// ListSessionsParamsKind defines parameters for ListSessions.
-type ListSessionsParamsKind string
-
-// GetSessionMessagesParams defines parameters for GetSessionMessages.
-type GetSessionMessagesParams struct {
-	// Limit Maximum number of messages to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Skip Number of messages to skip from the end
-	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
-
-	// After Only return messages created at or after this timestamp
-	After *string `form:"after,omitempty" json:"after,omitempty"`
-
-	// Before Only return messages created at or before this timestamp
-	Before *string `form:"before,omitempty" json:"before,omitempty"`
-}
-
-// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
-type GetSessionWorkspaceParams struct {
-	// ShowHidden Include dot-prefixed files and directories
-	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
-
-	// Path Directory path to list relative to the workspace root
-	Path *string `form:"path,omitempty" json:"path,omitempty"`
-
-	// Depth Maximum number of levels to return below path
-	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
-}
-
-// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
-type GetWorkspaceFileContentParams struct {
-	// Path Relative path of the file within the workspace
-	Path string `form:"path" json:"path"`
-
-	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
-	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
-}
-
-// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
-type UploadWorkspaceFileMultipartBody struct {
-	// File The file to upload
-	File openapi_types.File `json:"file"`
-}
-
 // SearchSkillsParams defines parameters for SearchSkills.
 type SearchSkillsParams struct {
 	Q     string `form:"q" json:"q"`
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// DeleteSkillFileParams defines parameters for DeleteSkillFile.
-type DeleteSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetSkillFileParams defines parameters for GetSkillFile.
-type GetSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// ListAgentTasksParams defines parameters for ListAgentTasks.
-type ListAgentTasksParams struct {
-	Status  *string `form:"status,omitempty" json:"status,omitempty"`
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
-}
-
-// ListUnblockedAgentTasksParams defines parameters for ListUnblockedAgentTasks.
-type ListUnblockedAgentTasksParams struct {
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 }
 
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
@@ -586,17 +574,62 @@ type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 
+// CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
+type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
+
+// UpdateSchedulerJobJSONRequestBody defines body for UpdateSchedulerJob for application/json ContentType.
+type UpdateSchedulerJobJSONRequestBody = externalRef0.JobInput
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
+
+// SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
+type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
+
+// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
+type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
+
+// DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
+type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
+
+// MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
+type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
+
+// CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
+type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
+
+// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
+type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
+
+// CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
+type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
+
+// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
+type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
+
+// UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
+type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
+
+// AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
+type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
+
+// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
+type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
+
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
 
-// InstallAgentSkillJSONRequestBody defines body for InstallAgentSkill for application/json ContentType.
-type InstallAgentSkillJSONRequestBody = externalRef0.InstallSkillRequest
+// CreateAgentScopedSkillJSONRequestBody defines body for CreateAgentScopedSkill for application/json ContentType.
+type CreateAgentScopedSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
-// UploadAgentSkillMultipartRequestBody defines body for UploadAgentSkill for multipart/form-data ContentType.
-type UploadAgentSkillMultipartRequestBody UploadAgentSkillMultipartBody
+// InstallAgentScopedSkillJSONRequestBody defines body for InstallAgentScopedSkill for application/json ContentType.
+type InstallAgentScopedSkillJSONRequestBody = externalRef0.InstallSkillRequest
 
-// UpdateAgentSkillJSONRequestBody defines body for UpdateAgentSkill for application/json ContentType.
-type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+// UploadAgentScopedSkillMultipartRequestBody defines body for UploadAgentScopedSkill for multipart/form-data ContentType.
+type UploadAgentScopedSkillMultipartRequestBody UploadAgentScopedSkillMultipartBody
+
+// UpdateAgentScopedSkillJSONRequestBody defines body for UpdateAgentScopedSkill for application/json ContentType.
+type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
@@ -612,15 +645,6 @@ type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
-
-// InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
-type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
-
-// UploadProfileSkillMultipartRequestBody defines body for UploadProfileSkill for multipart/form-data ContentType.
-type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
-
-// UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
-type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
 type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
@@ -682,59 +706,8 @@ type UpdateFeedEntryJSONRequestBody = externalRef0.UpdateFeedEntryRequest
 // UpdateFeedJSONRequestBody defines body for UpdateFeed for application/json ContentType.
 type UpdateFeedJSONRequestBody = externalRef0.UpdateFeedRequest
 
-// CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
-type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
-
-// UpdateSchedulerJobJSONRequestBody defines body for UpdateSchedulerJob for application/json ContentType.
-type UpdateSchedulerJobJSONRequestBody = externalRef0.JobInput
-
-// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
-type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
-
-// SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
-type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
-
-// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
-type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
-
-// DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
-type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
-
-// MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
-type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
-
-// CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
-type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
-
-// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
-type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
-
 // CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
 type CreateShareJSONRequestBody = externalRef0.CreateShareRequest
-
-// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
-type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
-
-// InstallSkillJSONRequestBody defines body for InstallSkill for application/json ContentType.
-type InstallSkillJSONRequestBody = externalRef0.GlobalInstallSkillRequest
-
-// UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
-type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
-
-// CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
-type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
-
-// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
-type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
-
-// UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
-type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
-
-// AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
-type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
-
-// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
-type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
 
 // UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
 type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
@@ -838,23 +811,145 @@ type ClientInterface interface {
 	CreateAgent(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProjects request
-	ListProjects(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListProjects(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateProjectWithBody request with any body
-	CreateProjectWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CreateProjectWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	CreateProject(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CreateProject(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteProject request
-	DeleteProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetProject request
-	GetProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateProjectWithBody request with any body
-	UpdateProjectWithBody(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateProjectWithBody(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateProject(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateProject(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSchedulerJobs request
+	ListSchedulerJobs(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSchedulerJobWithBody request with any body
+	CreateSchedulerJobWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateSchedulerJob(ctx context.Context, agentID string, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteSchedulerJob request
+	DeleteSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSchedulerJob request
+	GetSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateSchedulerJobWithBody request with any body
+	UpdateSchedulerJobWithBody(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateSchedulerJob(ctx context.Context, agentID string, jobID string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TriggerSchedulerJob request
+	TriggerSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSchedulerJobRuns request
+	ListSchedulerJobRuns(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessions request
+	ListSessions(ctx context.Context, agentID string, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSessionWithBody request with any body
+	CreateSessionWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateSession(ctx context.Context, agentID string, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSession request
+	GetSession(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionMessages request
+	GetSessionMessages(ctx context.Context, agentID string, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SendSessionMessageWithBody request with any body
+	SendSessionMessageWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SendSessionMessage(ctx context.Context, agentID string, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionSystemPrompt request
+	GetSessionSystemPrompt(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionWorkspace request
+	GetSessionWorkspace(ctx context.Context, agentID string, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetWorkspaceFileContent request
+	GetWorkspaceFileContent(ctx context.Context, agentID string, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkspaceFileContentWithBody request with any body
+	UpdateWorkspaceFileContentWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateWorkspaceFileContent(ctx context.Context, agentID string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteWorkspaceFileWithBody request with any body
+	DeleteWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	DeleteWorkspaceFile(ctx context.Context, agentID string, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveWorkspaceFileWithBody request with any body
+	MoveWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	MoveWorkspaceFile(ctx context.Context, agentID string, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkspaceFileWithBody request with any body
+	CreateWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateWorkspaceFile(ctx context.Context, agentID string, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadWorkspaceFileWithBody request with any body
+	UploadWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAgentTasks request
+	ListAgentTasks(ctx context.Context, agentID string, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateAgentTaskWithBody request with any body
+	CreateAgentTaskWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateAgentTask(ctx context.Context, agentID string, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BatchCreateAgentTasksWithBody request with any body
+	BatchCreateAgentTasksWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	BatchCreateAgentTasks(ctx context.Context, agentID string, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUnblockedAgentTasks request
+	ListUnblockedAgentTasks(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteAgentTask request
+	DeleteAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAgentTask request
+	GetAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateAgentTaskWithBody request with any body
+	UpdateAgentTaskWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateAgentTask(ctx context.Context, agentID string, taskID string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AgentTaskActionWithBody request with any body
+	AgentTaskActionWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AgentTaskAction(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAgentTaskDeps request
+	GetAgentTaskDeps(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddAgentTaskDepWithBody request with any body
+	AddAgentTaskDepWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AddAgentTaskDep(ctx context.Context, agentID string, taskID string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveAgentTaskDep request
+	RemoveAgentTaskDep(ctx context.Context, agentID string, taskID string, depID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAgentTaskEvents request
+	ListAgentTaskEvents(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAgent request
 	DeleteAgent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -868,35 +963,37 @@ type ClientInterface interface {
 	UpdateAgent(ctx context.Context, id string, body UpdateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentSkills request
-	ListAgentSkills(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListAgentSkills(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DuplicateBuiltinSkillToAgent request
-	DuplicateBuiltinSkillToAgent(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// CreateAgentScopedSkillWithBody request with any body
+	CreateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// InstallAgentSkillWithBody request with any body
-	InstallAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CreateAgentScopedSkill(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	InstallAgentSkill(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// InstallAgentScopedSkillWithBody request with any body
+	InstallAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UploadAgentSkillWithBody request with any body
-	UploadAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	InstallAgentScopedSkill(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteAgentSkill request
-	DeleteAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// UploadAgentScopedSkillWithBody request with any body
+	UploadAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetAgentSkill request
-	GetAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteAgentScopedSkill request
+	DeleteAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateAgentSkillWithBody request with any body
-	UpdateAgentSkillWithBody(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetAgentScopedSkill request
+	GetAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateAgentSkill(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// UpdateAgentScopedSkillWithBody request with any body
+	UpdateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteAgentSkillFile request
-	DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetAgentSkillFile request
-	GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteAgentScopedSkillFile request
+	DeleteAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAgentScopedSkillFile request
+	GetAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentUsers request
 	ListAgentUsers(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -935,12 +1032,12 @@ type ClientInterface interface {
 	ListProfileMemories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteProfileMemory request
-	DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteProfileMemory(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetProfileMemoryWithBody request with any body
-	SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileMemoryWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileMemory(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListOAuthProviders request
 	ListOAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -965,38 +1062,10 @@ type ClientInterface interface {
 
 	ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListProfileSkills request
-	ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// InstallProfileSkillWithBody request with any body
-	InstallProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	InstallProfileSkill(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UploadProfileSkillWithBody request with any body
-	UploadProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteProfileSkill request
-	DeleteProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetProfileSkill request
-	GetProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateProfileSkillWithBody request with any body
-	UpdateProfileSkillWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateProfileSkill(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteProfileSkillFile request
-	DeleteProfileSkillFile(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetProfileSkillFile request
-	GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// SetProfileSoulWithBody request with any body
-	SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileSoulWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileSoul(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListVaultEntries request
 	ListVaultEntries(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1207,79 +1276,6 @@ type ClientInterface interface {
 	// PollFeed request
 	PollFeed(ctx context.Context, id string, params *PollFeedParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListSchedulerJobs request
-	ListSchedulerJobs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateSchedulerJobWithBody request with any body
-	CreateSchedulerJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateSchedulerJob(ctx context.Context, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteSchedulerJob request
-	DeleteSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateSchedulerJobWithBody request with any body
-	UpdateSchedulerJobWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateSchedulerJob(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// TriggerSchedulerJob request
-	TriggerSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListSchedulerJobRuns request
-	ListSchedulerJobRuns(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListSessions request
-	ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateSessionWithBody request with any body
-	CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSession request
-	GetSession(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSessionMessages request
-	GetSessionMessages(ctx context.Context, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// SendSessionMessageWithBody request with any body
-	SendSessionMessageWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	SendSessionMessage(ctx context.Context, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSessionSystemPrompt request
-	GetSessionSystemPrompt(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSessionWorkspace request
-	GetSessionWorkspace(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetWorkspaceFileContent request
-	GetWorkspaceFileContent(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateWorkspaceFileContentWithBody request with any body
-	UpdateWorkspaceFileContentWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateWorkspaceFileContent(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteWorkspaceFileWithBody request with any body
-	DeleteWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	DeleteWorkspaceFile(ctx context.Context, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// MoveWorkspaceFileWithBody request with any body
-	MoveWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	MoveWorkspaceFile(ctx context.Context, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateWorkspaceFileWithBody request with any body
-	CreateWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateWorkspaceFile(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UploadWorkspaceFileWithBody request with any body
-	UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListShares request
 	ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1294,87 +1290,11 @@ type ClientInterface interface {
 	// RevokeShare request
 	RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListSkills request
-	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateSkillWithBody request with any body
-	CreateSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateSkill(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// InstallSkillWithBody request with any body
-	InstallSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	InstallSkill(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// SearchSkills request
 	SearchSkills(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteSkill request
-	DeleteSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSkill request
-	GetSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateSkillWithBody request with any body
-	UpdateSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateSkill(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteSkillFile request
-	DeleteSkillFile(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSkillFile request
-	GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GetStatus request
 	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListAgentTasks request
-	ListAgentTasks(ctx context.Context, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateAgentTaskWithBody request with any body
-	CreateAgentTaskWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateAgentTask(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// BatchCreateAgentTasksWithBody request with any body
-	BatchCreateAgentTasksWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	BatchCreateAgentTasks(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListUnblockedAgentTasks request
-	ListUnblockedAgentTasks(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteAgentTask request
-	DeleteAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetAgentTask request
-	GetAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateAgentTaskWithBody request with any body
-	UpdateAgentTaskWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateAgentTask(ctx context.Context, id string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// AgentTaskActionWithBody request with any body
-	AgentTaskActionWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	AgentTaskAction(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetAgentTaskDeps request
-	GetAgentTaskDeps(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// AddAgentTaskDepWithBody request with any body
-	AddAgentTaskDepWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	AddAgentTaskDep(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// RemoveAgentTaskDep request
-	RemoveAgentTaskDep(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListAgentTaskEvents request
-	ListAgentTaskEvents(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTools request
 	ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1388,12 +1308,12 @@ type ClientInterface interface {
 	ListUserMemories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteUserMemory request
-	DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteUserMemory(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetUserMemoryWithBody request with any body
-	SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemoryWithBody(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemory(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateUserNotifyIdentityWithBody request with any body
 	UpdateUserNotifyIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1485,8 +1405,8 @@ func (c *Client) CreateAgent(ctx context.Context, body CreateAgentJSONRequestBod
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListProjects(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListProjectsRequest(c.Server, agentId, params)
+func (c *Client) ListProjects(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProjectsRequest(c.Server, agentID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1497,8 +1417,8 @@ func (c *Client) ListProjects(ctx context.Context, agentId string, params *ListP
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateProjectWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateProjectRequestWithBody(c.Server, agentId, contentType, body)
+func (c *Client) CreateProjectWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequestWithBody(c.Server, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1509,8 +1429,8 @@ func (c *Client) CreateProjectWithBody(ctx context.Context, agentId string, cont
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateProject(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateProjectRequest(c.Server, agentId, body)
+func (c *Client) CreateProject(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1521,8 +1441,8 @@ func (c *Client) CreateProject(ctx context.Context, agentId string, body CreateP
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProjectRequest(c.Server, agentId, projectId)
+func (c *Client) DeleteProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProjectRequest(c.Server, agentID, projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -1533,8 +1453,8 @@ func (c *Client) DeleteProject(ctx context.Context, agentId string, projectId st
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProjectRequest(c.Server, agentId, projectId)
+func (c *Client) GetProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProjectRequest(c.Server, agentID, projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -1545,8 +1465,8 @@ func (c *Client) GetProject(ctx context.Context, agentId string, projectId strin
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateProjectWithBody(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProjectRequestWithBody(c.Server, agentId, projectId, contentType, body)
+func (c *Client) UpdateProjectWithBody(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequestWithBody(c.Server, agentID, projectId, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1557,8 +1477,548 @@ func (c *Client) UpdateProjectWithBody(ctx context.Context, agentId string, proj
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateProject(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProjectRequest(c.Server, agentId, projectId, body)
+func (c *Client) UpdateProject(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequest(c.Server, agentID, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListSchedulerJobs(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSchedulerJobsRequest(c.Server, agentID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateSchedulerJobWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSchedulerJobRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateSchedulerJob(ctx context.Context, agentID string, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSchedulerJobRequest(c.Server, agentID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteSchedulerJobRequest(c.Server, agentID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSchedulerJobRequest(c.Server, agentID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateSchedulerJobWithBody(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateSchedulerJobRequestWithBody(c.Server, agentID, jobID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateSchedulerJob(ctx context.Context, agentID string, jobID string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateSchedulerJobRequest(c.Server, agentID, jobID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TriggerSchedulerJob(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTriggerSchedulerJobRequest(c.Server, agentID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListSchedulerJobRuns(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSchedulerJobRunsRequest(c.Server, agentID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListSessions(ctx context.Context, agentID string, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionsRequest(c.Server, agentID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateSessionWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateSession(ctx context.Context, agentID string, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionRequest(c.Server, agentID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSession(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionRequest(c.Server, agentID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSessionMessages(ctx context.Context, agentID string, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionMessagesRequest(c.Server, agentID, sessionID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SendSessionMessageWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSendSessionMessageRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SendSessionMessage(ctx context.Context, agentID string, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSendSessionMessageRequest(c.Server, agentID, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSessionSystemPrompt(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionSystemPromptRequest(c.Server, agentID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSessionWorkspace(ctx context.Context, agentID string, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionWorkspaceRequest(c.Server, agentID, sessionID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetWorkspaceFileContent(ctx context.Context, agentID string, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetWorkspaceFileContentRequest(c.Server, agentID, sessionID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateWorkspaceFileContentWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkspaceFileContentRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateWorkspaceFileContent(ctx context.Context, agentID string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkspaceFileContentRequest(c.Server, agentID, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkspaceFileRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteWorkspaceFile(ctx context.Context, agentID string, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkspaceFileRequest(c.Server, agentID, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) MoveWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveWorkspaceFileRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) MoveWorkspaceFile(ctx context.Context, agentID string, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveWorkspaceFileRequest(c.Server, agentID, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkspaceFileRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateWorkspaceFile(ctx context.Context, agentID string, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkspaceFileRequest(c.Server, agentID, sessionID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadWorkspaceFileWithBody(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadWorkspaceFileRequestWithBody(c.Server, agentID, sessionID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAgentTasks(ctx context.Context, agentID string, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentTasksRequest(c.Server, agentID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateAgentTaskWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentTaskRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateAgentTask(ctx context.Context, agentID string, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentTaskRequest(c.Server, agentID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) BatchCreateAgentTasksWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchCreateAgentTasksRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) BatchCreateAgentTasks(ctx context.Context, agentID string, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchCreateAgentTasksRequest(c.Server, agentID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListUnblockedAgentTasks(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUnblockedAgentTasksRequest(c.Server, agentID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentTaskRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentTaskRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateAgentTaskWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentTaskRequestWithBody(c.Server, agentID, taskID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateAgentTask(ctx context.Context, agentID string, taskID string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentTaskRequest(c.Server, agentID, taskID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AgentTaskActionWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAgentTaskActionRequestWithBody(c.Server, agentID, taskID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AgentTaskAction(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAgentTaskActionRequest(c.Server, agentID, taskID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAgentTaskDeps(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentTaskDepsRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AddAgentTaskDepWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddAgentTaskDepRequestWithBody(c.Server, agentID, taskID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AddAgentTaskDep(ctx context.Context, agentID string, taskID string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddAgentTaskDepRequest(c.Server, agentID, taskID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RemoveAgentTaskDep(ctx context.Context, agentID string, taskID string, depID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveAgentTaskDepRequest(c.Server, agentID, taskID, depID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAgentTaskEvents(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentTaskEventsRequest(c.Server, agentID, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -1617,8 +2077,8 @@ func (c *Client) UpdateAgent(ctx context.Context, id string, body UpdateAgentJSO
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListAgentSkills(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListAgentSkillsRequest(c.Server, id)
+func (c *Client) ListAgentSkills(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentSkillsRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1629,8 +2089,8 @@ func (c *Client) ListAgentSkills(ctx context.Context, id string, reqEditors ...R
 	return c.Client.Do(req)
 }
 
-func (c *Client) DuplicateBuiltinSkillToAgent(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDuplicateBuiltinSkillToAgentRequest(c.Server, id, skillId)
+func (c *Client) CreateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1641,8 +2101,8 @@ func (c *Client) DuplicateBuiltinSkillToAgent(ctx context.Context, id string, sk
 	return c.Client.Do(req)
 }
 
-func (c *Client) InstallAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallAgentSkillRequestWithBody(c.Server, id, contentType, body)
+func (c *Client) CreateAgentScopedSkill(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentScopedSkillRequest(c.Server, id, scope, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1653,8 +2113,8 @@ func (c *Client) InstallAgentSkillWithBody(ctx context.Context, id string, conte
 	return c.Client.Do(req)
 }
 
-func (c *Client) InstallAgentSkill(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallAgentSkillRequest(c.Server, id, body)
+func (c *Client) InstallAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInstallAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1665,8 +2125,8 @@ func (c *Client) InstallAgentSkill(ctx context.Context, id string, body InstallA
 	return c.Client.Do(req)
 }
 
-func (c *Client) UploadAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUploadAgentSkillRequestWithBody(c.Server, id, contentType, body)
+func (c *Client) InstallAgentScopedSkill(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInstallAgentScopedSkillRequest(c.Server, id, scope, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1677,8 +2137,8 @@ func (c *Client) UploadAgentSkillWithBody(ctx context.Context, id string, conten
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentSkillRequest(c.Server, id, skillId)
+func (c *Client) UploadAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1689,8 +2149,8 @@ func (c *Client) DeleteAgentSkill(ctx context.Context, id string, skillId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentSkillRequest(c.Server, id, skillId)
+func (c *Client) DeleteAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentScopedSkillRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1701,8 +2161,8 @@ func (c *Client) GetAgentSkill(ctx context.Context, id string, skillId string, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAgentSkillWithBody(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentSkillRequestWithBody(c.Server, id, skillId, contentType, body)
+func (c *Client) GetAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentScopedSkillRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1713,8 +2173,8 @@ func (c *Client) UpdateAgentSkillWithBody(ctx context.Context, id string, skillI
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAgentSkill(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentSkillRequest(c.Server, id, skillId, body)
+func (c *Client) UpdateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentScopedSkillRequestWithBody(c.Server, id, scope, skillId, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1725,8 +2185,8 @@ func (c *Client) UpdateAgentSkill(ctx context.Context, id string, skillId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentSkillFileRequest(c.Server, id, skillId, params)
+func (c *Client) UpdateAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentScopedSkillRequest(c.Server, id, scope, skillId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1737,8 +2197,20 @@ func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId st
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentSkillFileRequest(c.Server, id, skillId, params)
+func (c *Client) DeleteAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentScopedSkillFileRequest(c.Server, id, scope, skillId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentScopedSkillFileRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1905,8 +2377,8 @@ func (c *Client) ListProfileMemories(ctx context.Context, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileMemoryRequest(c.Server, agentId)
+func (c *Client) DeleteProfileMemory(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProfileMemoryRequest(c.Server, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1917,8 +2389,8 @@ func (c *Client) DeleteProfileMemory(ctx context.Context, agentId string, reqEdi
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileMemoryRequestWithBody(c.Server, agentId, contentType, body)
+func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequestWithBody(c.Server, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1929,8 +2401,8 @@ func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentId string, c
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileMemoryRequest(c.Server, agentId, body)
+func (c *Client) SetProfileMemory(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2037,8 +2509,8 @@ func (c *Client) ChangePassword(ctx context.Context, body ChangePasswordJSONRequ
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListProfileSkillsRequest(c.Server)
+func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequestWithBody(c.Server, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2049,128 +2521,8 @@ func (c *Client) ListProfileSkills(ctx context.Context, reqEditors ...RequestEdi
 	return c.Client.Do(req)
 }
 
-func (c *Client) InstallProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallProfileSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallProfileSkill(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallProfileSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UploadProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUploadProfileSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileSkillRequest(c.Server, skillId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProfileSkillRequest(c.Server, skillId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProfileSkillWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProfileSkillRequestWithBody(c.Server, skillId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProfileSkill(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProfileSkillRequest(c.Server, skillId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteProfileSkillFile(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileSkillFileRequest(c.Server, skillId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProfileSkillFileRequest(c.Server, skillId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileSoulRequestWithBody(c.Server, agentId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileSoulRequest(c.Server, agentId, body)
+func (c *Client) SetProfileSoul(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3093,330 +3445,6 @@ func (c *Client) PollFeed(ctx context.Context, id string, params *PollFeedParams
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListSchedulerJobs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSchedulerJobsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSchedulerJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSchedulerJobRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSchedulerJob(ctx context.Context, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSchedulerJobRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteSchedulerJobRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSchedulerJobWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSchedulerJobRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSchedulerJob(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSchedulerJobRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) TriggerSchedulerJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewTriggerSchedulerJobRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListSchedulerJobRuns(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSchedulerJobRunsRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSessionsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSessionRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSessionRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSession(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSessionRequest(c.Server, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSessionMessages(ctx context.Context, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSessionMessagesRequest(c.Server, sessionID, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) SendSessionMessageWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSendSessionMessageRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) SendSessionMessage(ctx context.Context, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSendSessionMessageRequest(c.Server, sessionID, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSessionSystemPrompt(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSessionSystemPromptRequest(c.Server, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSessionWorkspace(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSessionWorkspaceRequest(c.Server, sessionID, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetWorkspaceFileContent(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetWorkspaceFileContentRequest(c.Server, sessionID, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateWorkspaceFileContentWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateWorkspaceFileContentRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateWorkspaceFileContent(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateWorkspaceFileContentRequest(c.Server, sessionID, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteWorkspaceFile(ctx context.Context, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteWorkspaceFileRequest(c.Server, sessionID, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) MoveWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewMoveWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) MoveWorkspaceFile(ctx context.Context, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewMoveWorkspaceFileRequest(c.Server, sessionID, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateWorkspaceFile(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateWorkspaceFileRequest(c.Server, sessionID, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UploadWorkspaceFileWithBody(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUploadWorkspaceFileRequestWithBody(c.Server, sessionID, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSharesRequest(c.Server)
 	if err != nil {
@@ -3477,66 +3505,6 @@ func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...Reque
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSkillsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSkill(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallSkill(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) SearchSkills(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSearchSkillsRequest(c.Server, params)
 	if err != nil {
@@ -3549,284 +3517,8 @@ func (c *Client) SearchSkills(ctx context.Context, params *SearchSkillsParams, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteSkillRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSkillRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSkillRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSkill(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSkillRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteSkillFile(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteSkillFileRequest(c.Server, id, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSkillFileRequest(c.Server, id, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetStatusRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListAgentTasks(ctx context.Context, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListAgentTasksRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateAgentTaskWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateAgentTaskRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateAgentTask(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateAgentTaskRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) BatchCreateAgentTasksWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewBatchCreateAgentTasksRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) BatchCreateAgentTasks(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewBatchCreateAgentTasksRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListUnblockedAgentTasks(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListUnblockedAgentTasksRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentTaskRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetAgentTask(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentTaskRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateAgentTaskWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentTaskRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateAgentTask(ctx context.Context, id string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentTaskRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) AgentTaskActionWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAgentTaskActionRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) AgentTaskAction(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAgentTaskActionRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetAgentTaskDeps(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentTaskDepsRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) AddAgentTaskDepWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddAgentTaskDepRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) AddAgentTaskDep(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddAgentTaskDepRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) RemoveAgentTaskDep(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRemoveAgentTaskDepRequest(c.Server, id, depId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListAgentTaskEvents(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListAgentTaskEventsRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -3885,8 +3577,8 @@ func (c *Client) ListUserMemories(ctx context.Context, id string, reqEditors ...
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteUserMemoryRequest(c.Server, id, agentId)
+func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteUserMemoryRequest(c.Server, id, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -3897,8 +3589,8 @@ func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetUserMemoryRequestWithBody(c.Server, id, agentId, contentType, body)
+func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserMemoryRequestWithBody(c.Server, id, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3909,8 +3601,8 @@ func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentId s
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetUserMemoryRequest(c.Server, id, agentId, body)
+func (c *Client) SetUserMemory(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserMemoryRequest(c.Server, id, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4128,12 +3820,12 @@ func NewCreateAgentRequestWithBody(server string, contentType string, body io.Re
 }
 
 // NewListProjectsRequest generates requests for ListProjects
-func NewListProjectsRequest(server string, agentId string, params *ListProjectsParams) (*http.Request, error) {
+func NewListProjectsRequest(server string, agentID string, params *ListProjectsParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4189,23 +3881,23 @@ func NewListProjectsRequest(server string, agentId string, params *ListProjectsP
 }
 
 // NewCreateProjectRequest calls the generic CreateProject builder with application/json body
-func NewCreateProjectRequest(server string, agentId string, body CreateProjectJSONRequestBody) (*http.Request, error) {
+func NewCreateProjectRequest(server string, agentID string, body CreateProjectJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewCreateProjectRequestWithBody(server, agentId, "application/json", bodyReader)
+	return NewCreateProjectRequestWithBody(server, agentID, "application/json", bodyReader)
 }
 
 // NewCreateProjectRequestWithBody generates requests for CreateProject with any type of body
-func NewCreateProjectRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewCreateProjectRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4236,12 +3928,12 @@ func NewCreateProjectRequestWithBody(server string, agentId string, contentType 
 }
 
 // NewDeleteProjectRequest generates requests for DeleteProject
-func NewDeleteProjectRequest(server string, agentId string, projectId string) (*http.Request, error) {
+func NewDeleteProjectRequest(server string, agentID string, projectId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4277,12 +3969,12 @@ func NewDeleteProjectRequest(server string, agentId string, projectId string) (*
 }
 
 // NewGetProjectRequest generates requests for GetProject
-func NewGetProjectRequest(server string, agentId string, projectId string) (*http.Request, error) {
+func NewGetProjectRequest(server string, agentID string, projectId string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4318,23 +4010,23 @@ func NewGetProjectRequest(server string, agentId string, projectId string) (*htt
 }
 
 // NewUpdateProjectRequest calls the generic UpdateProject builder with application/json body
-func NewUpdateProjectRequest(server string, agentId string, projectId string, body UpdateProjectJSONRequestBody) (*http.Request, error) {
+func NewUpdateProjectRequest(server string, agentID string, projectId string, body UpdateProjectJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewUpdateProjectRequestWithBody(server, agentId, projectId, "application/json", bodyReader)
+	return NewUpdateProjectRequestWithBody(server, agentID, projectId, "application/json", bodyReader)
 }
 
 // NewUpdateProjectRequestWithBody generates requests for UpdateProject with any type of body
-func NewUpdateProjectRequestWithBody(server string, agentId string, projectId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateProjectRequestWithBody(server string, agentID string, projectId string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4367,6 +4059,1679 @@ func NewUpdateProjectRequestWithBody(server string, agentId string, projectId st
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListSchedulerJobsRequest generates requests for ListSchedulerJobs
+func NewListSchedulerJobsRequest(server string, agentID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateSchedulerJobRequest calls the generic CreateSchedulerJob builder with application/json body
+func NewCreateSchedulerJobRequest(server string, agentID string, body CreateSchedulerJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateSchedulerJobRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewCreateSchedulerJobRequestWithBody generates requests for CreateSchedulerJob with any type of body
+func NewCreateSchedulerJobRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteSchedulerJobRequest generates requests for DeleteSchedulerJob
+func NewDeleteSchedulerJobRequest(server string, agentID string, jobID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSchedulerJobRequest generates requests for GetSchedulerJob
+func NewGetSchedulerJobRequest(server string, agentID string, jobID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateSchedulerJobRequest calls the generic UpdateSchedulerJob builder with application/json body
+func NewUpdateSchedulerJobRequest(server string, agentID string, jobID string, body UpdateSchedulerJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateSchedulerJobRequestWithBody(server, agentID, jobID, "application/json", bodyReader)
+}
+
+// NewUpdateSchedulerJobRequestWithBody generates requests for UpdateSchedulerJob with any type of body
+func NewUpdateSchedulerJobRequestWithBody(server string, agentID string, jobID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewTriggerSchedulerJobRequest generates requests for TriggerSchedulerJob
+func NewTriggerSchedulerJobRequest(server string, agentID string, jobID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s/run", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListSchedulerJobRunsRequest generates requests for ListSchedulerJobRuns
+func NewListSchedulerJobRunsRequest(server string, agentID string, jobID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "jobID", jobID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/scheduler/jobs/%s/runs", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListSessionsRequest generates requests for ListSessions
+func NewListSessionsRequest(server string, agentID string, params *ListSessionsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ProjectId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "project_id", *params.ProjectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateSessionRequest calls the generic CreateSession builder with application/json body
+func NewCreateSessionRequest(server string, agentID string, body CreateSessionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateSessionRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewCreateSessionRequestWithBody generates requests for CreateSession with any type of body
+func NewCreateSessionRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetSessionRequest generates requests for GetSession
+func NewGetSessionRequest(server string, agentID string, sessionID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSessionMessagesRequest generates requests for GetSessionMessages
+func NewGetSessionMessagesRequest(server string, agentID string, sessionID string, params *GetSessionMessagesParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/messages", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Skip != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "skip", *params.Skip, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Before != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSendSessionMessageRequest calls the generic SendSessionMessage builder with application/json body
+func NewSendSessionMessageRequest(server string, agentID string, sessionID string, body SendSessionMessageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSendSessionMessageRequestWithBody(server, agentID, sessionID, "application/json", bodyReader)
+}
+
+// NewSendSessionMessageRequestWithBody generates requests for SendSessionMessage with any type of body
+func NewSendSessionMessageRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/messages", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetSessionSystemPromptRequest generates requests for GetSessionSystemPrompt
+func NewGetSessionSystemPromptRequest(server string, agentID string, sessionID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/system-prompt", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSessionWorkspaceRequest generates requests for GetSessionWorkspace
+func NewGetSessionWorkspaceRequest(server string, agentID string, sessionID string, params *GetSessionWorkspaceParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ShowHidden != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "show_hidden", *params.ShowHidden, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Path != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", *params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Depth != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "depth", *params.Depth, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetWorkspaceFileContentRequest generates requests for GetWorkspaceFileContent
+func NewGetWorkspaceFileContentRequest(server string, agentID string, sessionID string, params *GetWorkspaceFileContentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/file-content", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Raw != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "raw", *params.Raw, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateWorkspaceFileContentRequest calls the generic UpdateWorkspaceFileContent builder with application/json body
+func NewUpdateWorkspaceFileContentRequest(server string, agentID string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateWorkspaceFileContentRequestWithBody(server, agentID, sessionID, "application/json", bodyReader)
+}
+
+// NewUpdateWorkspaceFileContentRequestWithBody generates requests for UpdateWorkspaceFileContent with any type of body
+func NewUpdateWorkspaceFileContentRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/file-content", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteWorkspaceFileRequest calls the generic DeleteWorkspaceFile builder with application/json body
+func NewDeleteWorkspaceFileRequest(server string, agentID string, sessionID string, body DeleteWorkspaceFileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDeleteWorkspaceFileRequestWithBody(server, agentID, sessionID, "application/json", bodyReader)
+}
+
+// NewDeleteWorkspaceFileRequestWithBody generates requests for DeleteWorkspaceFile with any type of body
+func NewDeleteWorkspaceFileRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/files", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewMoveWorkspaceFileRequest calls the generic MoveWorkspaceFile builder with application/json body
+func NewMoveWorkspaceFileRequest(server string, agentID string, sessionID string, body MoveWorkspaceFileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveWorkspaceFileRequestWithBody(server, agentID, sessionID, "application/json", bodyReader)
+}
+
+// NewMoveWorkspaceFileRequestWithBody generates requests for MoveWorkspaceFile with any type of body
+func NewMoveWorkspaceFileRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/files", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateWorkspaceFileRequest calls the generic CreateWorkspaceFile builder with application/json body
+func NewCreateWorkspaceFileRequest(server string, agentID string, sessionID string, body CreateWorkspaceFileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateWorkspaceFileRequestWithBody(server, agentID, sessionID, "application/json", bodyReader)
+}
+
+// NewCreateWorkspaceFileRequestWithBody generates requests for CreateWorkspaceFile with any type of body
+func NewCreateWorkspaceFileRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/files", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewUploadWorkspaceFileRequestWithBody generates requests for UploadWorkspaceFile with any type of body
+func NewUploadWorkspaceFileRequestWithBody(server string, agentID string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/upload", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListAgentTasksRequest generates requests for ListAgentTasks
+func NewListAgentTasksRequest(server string, agentID string, params *ListAgentTasksParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateAgentTaskRequest calls the generic CreateAgentTask builder with application/json body
+func NewCreateAgentTaskRequest(server string, agentID string, body CreateAgentTaskJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateAgentTaskRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewCreateAgentTaskRequestWithBody generates requests for CreateAgentTask with any type of body
+func NewCreateAgentTaskRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewBatchCreateAgentTasksRequest calls the generic BatchCreateAgentTasks builder with application/json body
+func NewBatchCreateAgentTasksRequest(server string, agentID string, body BatchCreateAgentTasksJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBatchCreateAgentTasksRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewBatchCreateAgentTasksRequestWithBody generates requests for BatchCreateAgentTasks with any type of body
+func NewBatchCreateAgentTasksRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/batch", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListUnblockedAgentTasksRequest generates requests for ListUnblockedAgentTasks
+func NewListUnblockedAgentTasksRequest(server string, agentID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/unblocked", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteAgentTaskRequest generates requests for DeleteAgentTask
+func NewDeleteAgentTaskRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAgentTaskRequest generates requests for GetAgentTask
+func NewGetAgentTaskRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateAgentTaskRequest calls the generic UpdateAgentTask builder with application/json body
+func NewUpdateAgentTaskRequest(server string, agentID string, taskID string, body UpdateAgentTaskJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateAgentTaskRequestWithBody(server, agentID, taskID, "application/json", bodyReader)
+}
+
+// NewUpdateAgentTaskRequestWithBody generates requests for UpdateAgentTask with any type of body
+func NewUpdateAgentTaskRequestWithBody(server string, agentID string, taskID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAgentTaskActionRequest calls the generic AgentTaskAction builder with application/json body
+func NewAgentTaskActionRequest(server string, agentID string, taskID string, body AgentTaskActionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAgentTaskActionRequestWithBody(server, agentID, taskID, "application/json", bodyReader)
+}
+
+// NewAgentTaskActionRequestWithBody generates requests for AgentTaskAction with any type of body
+func NewAgentTaskActionRequestWithBody(server string, agentID string, taskID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/action", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetAgentTaskDepsRequest generates requests for GetAgentTaskDeps
+func NewGetAgentTaskDepsRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/deps", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAddAgentTaskDepRequest calls the generic AddAgentTaskDep builder with application/json body
+func NewAddAgentTaskDepRequest(server string, agentID string, taskID string, body AddAgentTaskDepJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAddAgentTaskDepRequestWithBody(server, agentID, taskID, "application/json", bodyReader)
+}
+
+// NewAddAgentTaskDepRequestWithBody generates requests for AddAgentTaskDep with any type of body
+func NewAddAgentTaskDepRequestWithBody(server string, agentID string, taskID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/deps", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveAgentTaskDepRequest generates requests for RemoveAgentTaskDep
+func NewRemoveAgentTaskDepRequest(server string, agentID string, taskID string, depID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "depID", depID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/deps/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListAgentTaskEventsRequest generates requests for ListAgentTaskEvents
+func NewListAgentTaskEventsRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/events", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4487,7 +5852,7 @@ func NewUpdateAgentRequestWithBody(server string, id string, contentType string,
 }
 
 // NewListAgentSkillsRequest generates requests for ListAgentSkills
-func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) {
+func NewListAgentSkillsRequest(server string, id string, params *ListAgentSkillsParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4512,6 +5877,33 @@ func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) 
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -4520,8 +5912,19 @@ func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) 
 	return req, nil
 }
 
-// NewDuplicateBuiltinSkillToAgentRequest generates requests for DuplicateBuiltinSkillToAgent
-func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId string) (*http.Request, error) {
+// NewCreateAgentScopedSkillRequest calls the generic CreateAgentScopedSkill builder with application/json body
+func NewCreateAgentScopedSkillRequest(server string, id string, scope string, body CreateAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateAgentScopedSkillRequestWithBody(server, id, scope, "application/json", bodyReader)
+}
+
+// NewCreateAgentScopedSkillRequestWithBody generates requests for CreateAgentScopedSkill with any type of body
+func NewCreateAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4533,7 +5936,7 @@ func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId st
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4543,52 +5946,7 @@ func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId st
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/from-builtin/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewInstallAgentSkillRequest calls the generic InstallAgentSkill builder with application/json body
-func NewInstallAgentSkillRequest(server string, id string, body InstallAgentSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallAgentSkillRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewInstallAgentSkillRequestWithBody generates requests for InstallAgentSkill with any type of body
-func NewInstallAgentSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/install", pathParam0)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4608,8 +5966,19 @@ func NewInstallAgentSkillRequestWithBody(server string, id string, contentType s
 	return req, nil
 }
 
-// NewUploadAgentSkillRequestWithBody generates requests for UploadAgentSkill with any type of body
-func NewUploadAgentSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+// NewInstallAgentScopedSkillRequest calls the generic InstallAgentScopedSkill builder with application/json body
+func NewInstallAgentScopedSkillRequest(server string, id string, scope string, body InstallAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewInstallAgentScopedSkillRequestWithBody(server, id, scope, "application/json", bodyReader)
+}
+
+// NewInstallAgentScopedSkillRequestWithBody generates requests for InstallAgentScopedSkill with any type of body
+func NewInstallAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4619,12 +5988,19 @@ func NewUploadAgentSkillRequestWithBody(server string, id string, contentType st
 		return nil, err
 	}
 
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/upload", pathParam0)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/install", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4644,8 +6020,8 @@ func NewUploadAgentSkillRequestWithBody(server string, id string, contentType st
 	return req, nil
 }
 
-// NewDeleteAgentSkillRequest generates requests for DeleteAgentSkill
-func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http.Request, error) {
+// NewUploadAgentScopedSkillRequestWithBody generates requests for UploadAgentScopedSkill with any type of body
+func NewUploadAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4657,7 +6033,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4667,7 +6043,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/upload", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4677,100 +6053,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetAgentSkillRequest generates requests for GetAgentSkill
-func NewGetAgentSkillRequest(server string, id string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateAgentSkillRequest calls the generic UpdateAgentSkill builder with application/json body
-func NewUpdateAgentSkillRequest(server string, id string, skillId string, body UpdateAgentSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateAgentSkillRequestWithBody(server, id, skillId, "application/json", bodyReader)
-}
-
-// NewUpdateAgentSkillRequestWithBody generates requests for UpdateAgentSkill with any type of body
-func NewUpdateAgentSkillRequestWithBody(server string, id string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -4780,8 +6063,8 @@ func NewUpdateAgentSkillRequestWithBody(server string, id string, skillId string
 	return req, nil
 }
 
-// NewDeleteAgentSkillFileRequest generates requests for DeleteAgentSkillFile
-func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, params *DeleteAgentSkillFileParams) (*http.Request, error) {
+// NewDeleteAgentScopedSkillRequest generates requests for DeleteAgentScopedSkill
+func NewDeleteAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4793,7 +6076,14 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4803,7 +6093,7 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/file", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4822,12 +6112,16 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 		// per the OpenAPI spec (e.g. "color=blue,black,brown").
 		var rawQueryFragments []string
 
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
 			}
+
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -4844,8 +6138,8 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 	return req, nil
 }
 
-// NewGetAgentSkillFileRequest generates requests for GetAgentSkillFile
-func NewGetAgentSkillFileRequest(server string, id string, skillId string, params *GetAgentSkillFileParams) (*http.Request, error) {
+// NewGetAgentScopedSkillRequest generates requests for GetAgentScopedSkill
+func NewGetAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *GetAgentScopedSkillParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4857,7 +6151,14 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4867,7 +6168,170 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/file", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateAgentScopedSkillRequest calls the generic UpdateAgentScopedSkill builder with application/json body
+func NewUpdateAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateAgentScopedSkillRequestWithBody(server, id, scope, skillId, params, "application/json", bodyReader)
+}
+
+// NewUpdateAgentScopedSkillRequestWithBody generates requests for UpdateAgentScopedSkill with any type of body
+func NewUpdateAgentScopedSkillRequestWithBody(server string, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteAgentScopedSkillFileRequest generates requests for DeleteAgentScopedSkillFile
+func NewDeleteAgentScopedSkillFileRequest(server string, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s/file", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4892,6 +6356,101 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 			for _, qp := range strings.Split(queryFrag, "&") {
 				rawQueryFragments = append(rawQueryFragments, qp)
 			}
+		}
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAgentScopedSkillFileRequest generates requests for GetAgentScopedSkillFile
+func NewGetAgentScopedSkillFileRequest(server string, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s/file", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -5253,12 +6812,12 @@ func NewListProfileMemoriesRequest(server string) (*http.Request, error) {
 }
 
 // NewDeleteProfileMemoryRequest generates requests for DeleteProfileMemory
-func NewDeleteProfileMemoryRequest(server string, agentId string) (*http.Request, error) {
+func NewDeleteProfileMemoryRequest(server string, agentID string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5287,23 +6846,23 @@ func NewDeleteProfileMemoryRequest(server string, agentId string) (*http.Request
 }
 
 // NewSetProfileMemoryRequest calls the generic SetProfileMemory builder with application/json body
-func NewSetProfileMemoryRequest(server string, agentId string, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
+func NewSetProfileMemoryRequest(server string, agentID string, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetProfileMemoryRequestWithBody(server, agentId, "application/json", bodyReader)
+	return NewSetProfileMemoryRequestWithBody(server, agentID, "application/json", bodyReader)
 }
 
 // NewSetProfileMemoryRequestWithBody generates requests for SetProfileMemory with any type of body
-func NewSetProfileMemoryRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetProfileMemoryRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5608,349 +7167,24 @@ func NewChangePasswordRequestWithBody(server string, contentType string, body io
 	return req, nil
 }
 
-// NewListProfileSkillsRequest generates requests for ListProfileSkills
-func NewListProfileSkillsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewInstallProfileSkillRequest calls the generic InstallProfileSkill builder with application/json body
-func NewInstallProfileSkillRequest(server string, body InstallProfileSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallProfileSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewInstallProfileSkillRequestWithBody generates requests for InstallProfileSkill with any type of body
-func NewInstallProfileSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/install")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewUploadProfileSkillRequestWithBody generates requests for UploadProfileSkill with any type of body
-func NewUploadProfileSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/upload")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteProfileSkillRequest generates requests for DeleteProfileSkill
-func NewDeleteProfileSkillRequest(server string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetProfileSkillRequest generates requests for GetProfileSkill
-func NewGetProfileSkillRequest(server string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateProfileSkillRequest calls the generic UpdateProfileSkill builder with application/json body
-func NewUpdateProfileSkillRequest(server string, skillId string, body UpdateProfileSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateProfileSkillRequestWithBody(server, skillId, "application/json", bodyReader)
-}
-
-// NewUpdateProfileSkillRequestWithBody generates requests for UpdateProfileSkill with any type of body
-func NewUpdateProfileSkillRequestWithBody(server string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteProfileSkillFileRequest generates requests for DeleteProfileSkillFile
-func NewDeleteProfileSkillFileRequest(server string, skillId string, params *DeleteProfileSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetProfileSkillFileRequest generates requests for GetProfileSkillFile
-func NewGetProfileSkillFileRequest(server string, skillId string, params *GetProfileSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewSetProfileSoulRequest calls the generic SetProfileSoul builder with application/json body
-func NewSetProfileSoulRequest(server string, agentId string, body SetProfileSoulJSONRequestBody) (*http.Request, error) {
+func NewSetProfileSoulRequest(server string, agentID string, body SetProfileSoulJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetProfileSoulRequestWithBody(server, agentId, "application/json", bodyReader)
+	return NewSetProfileSoulRequestWithBody(server, agentID, "application/json", bodyReader)
 }
 
 // NewSetProfileSoulRequestWithBody generates requests for SetProfileSoul with any type of body
-func NewSetProfileSoulRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetProfileSoulRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -8329,954 +9563,6 @@ func NewPollFeedRequest(server string, id string, params *PollFeedParams) (*http
 	return req, nil
 }
 
-// NewListSchedulerJobsRequest generates requests for ListSchedulerJobs
-func NewListSchedulerJobsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateSchedulerJobRequest calls the generic CreateSchedulerJob builder with application/json body
-func NewCreateSchedulerJobRequest(server string, body CreateSchedulerJobJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateSchedulerJobRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateSchedulerJobRequestWithBody generates requests for CreateSchedulerJob with any type of body
-func NewCreateSchedulerJobRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteSchedulerJobRequest generates requests for DeleteSchedulerJob
-func NewDeleteSchedulerJobRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateSchedulerJobRequest calls the generic UpdateSchedulerJob builder with application/json body
-func NewUpdateSchedulerJobRequest(server string, id string, body UpdateSchedulerJobJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateSchedulerJobRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewUpdateSchedulerJobRequestWithBody generates requests for UpdateSchedulerJob with any type of body
-func NewUpdateSchedulerJobRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewTriggerSchedulerJobRequest generates requests for TriggerSchedulerJob
-func NewTriggerSchedulerJobRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s/run", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListSchedulerJobRunsRequest generates requests for ListSchedulerJobRuns
-func NewListSchedulerJobRunsRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/scheduler/jobs/%s/runs", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListSessionsRequest generates requests for ListSessions
-func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.Limit != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Offset != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Kind != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.AgentId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.ProjectId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "project_id", *params.ProjectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateSessionRequest calls the generic CreateSession builder with application/json body
-func NewCreateSessionRequest(server string, body CreateSessionJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateSessionRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateSessionRequestWithBody generates requests for CreateSession with any type of body
-func NewCreateSessionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetSessionRequest generates requests for GetSession
-func NewGetSessionRequest(server string, sessionID string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSessionMessagesRequest generates requests for GetSessionMessages
-func NewGetSessionMessagesRequest(server string, sessionID string, params *GetSessionMessagesParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/messages", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.Limit != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Skip != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "skip", *params.Skip, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.After != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Before != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewSendSessionMessageRequest calls the generic SendSessionMessage builder with application/json body
-func NewSendSessionMessageRequest(server string, sessionID string, body SendSessionMessageJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewSendSessionMessageRequestWithBody(server, sessionID, "application/json", bodyReader)
-}
-
-// NewSendSessionMessageRequestWithBody generates requests for SendSessionMessage with any type of body
-func NewSendSessionMessageRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/messages", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetSessionSystemPromptRequest generates requests for GetSessionSystemPrompt
-func NewGetSessionSystemPromptRequest(server string, sessionID string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/system-prompt", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSessionWorkspaceRequest generates requests for GetSessionWorkspace
-func NewGetSessionWorkspaceRequest(server string, sessionID string, params *GetSessionWorkspaceParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.ShowHidden != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "show_hidden", *params.ShowHidden, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Path != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", *params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Depth != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "depth", *params.Depth, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetWorkspaceFileContentRequest generates requests for GetWorkspaceFileContent
-func NewGetWorkspaceFileContentRequest(server string, sessionID string, params *GetWorkspaceFileContentParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/file-content", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if params.Raw != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "raw", *params.Raw, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateWorkspaceFileContentRequest calls the generic UpdateWorkspaceFileContent builder with application/json body
-func NewUpdateWorkspaceFileContentRequest(server string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateWorkspaceFileContentRequestWithBody(server, sessionID, "application/json", bodyReader)
-}
-
-// NewUpdateWorkspaceFileContentRequestWithBody generates requests for UpdateWorkspaceFileContent with any type of body
-func NewUpdateWorkspaceFileContentRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/file-content", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteWorkspaceFileRequest calls the generic DeleteWorkspaceFile builder with application/json body
-func NewDeleteWorkspaceFileRequest(server string, sessionID string, body DeleteWorkspaceFileJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewDeleteWorkspaceFileRequestWithBody(server, sessionID, "application/json", bodyReader)
-}
-
-// NewDeleteWorkspaceFileRequestWithBody generates requests for DeleteWorkspaceFile with any type of body
-func NewDeleteWorkspaceFileRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/files", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewMoveWorkspaceFileRequest calls the generic MoveWorkspaceFile builder with application/json body
-func NewMoveWorkspaceFileRequest(server string, sessionID string, body MoveWorkspaceFileJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewMoveWorkspaceFileRequestWithBody(server, sessionID, "application/json", bodyReader)
-}
-
-// NewMoveWorkspaceFileRequestWithBody generates requests for MoveWorkspaceFile with any type of body
-func NewMoveWorkspaceFileRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/files", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewCreateWorkspaceFileRequest calls the generic CreateWorkspaceFile builder with application/json body
-func NewCreateWorkspaceFileRequest(server string, sessionID string, body CreateWorkspaceFileJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateWorkspaceFileRequestWithBody(server, sessionID, "application/json", bodyReader)
-}
-
-// NewCreateWorkspaceFileRequestWithBody generates requests for CreateWorkspaceFile with any type of body
-func NewCreateWorkspaceFileRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/files", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewUploadWorkspaceFileRequestWithBody generates requests for UploadWorkspaceFile with any type of body
-func NewUploadWorkspaceFileRequestWithBody(server string, sessionID string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionID", sessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/workspace/upload", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewListSharesRequest generates requests for ListShares
 func NewListSharesRequest(server string) (*http.Request, error) {
 	var err error
@@ -9412,113 +9698,6 @@ func NewRevokeShareRequest(server string, id string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewListSkillsRequest generates requests for ListSkills
-func NewListSkillsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateSkillRequest calls the generic CreateSkill builder with application/json body
-func NewCreateSkillRequest(server string, body CreateSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateSkillRequestWithBody generates requests for CreateSkill with any type of body
-func NewCreateSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewInstallSkillRequest calls the generic InstallSkill builder with application/json body
-func NewInstallSkillRequest(server string, body InstallSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewInstallSkillRequestWithBody generates requests for InstallSkill with any type of body
-func NewInstallSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/install")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewSearchSkillsRequest generates requests for SearchSkills
 func NewSearchSkillsRequest(server string, params *SearchSkillsParams) (*http.Request, error) {
 	var err error
@@ -9581,235 +9760,6 @@ func NewSearchSkillsRequest(server string, params *SearchSkillsParams) (*http.Re
 	return req, nil
 }
 
-// NewDeleteSkillRequest generates requests for DeleteSkill
-func NewDeleteSkillRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSkillRequest generates requests for GetSkill
-func NewGetSkillRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateSkillRequest calls the generic UpdateSkill builder with application/json body
-func NewUpdateSkillRequest(server string, id string, body UpdateSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateSkillRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewUpdateSkillRequestWithBody generates requests for UpdateSkill with any type of body
-func NewUpdateSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteSkillFileRequest generates requests for DeleteSkillFile
-func NewDeleteSkillFileRequest(server string, id string, params *DeleteSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSkillFileRequest generates requests for GetSkillFile
-func NewGetSkillFileRequest(server string, id string, params *GetSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewGetStatusRequest generates requests for GetStatus
 func NewGetStatusRequest(server string) (*http.Request, error) {
 	var err error
@@ -9820,524 +9770,6 @@ func NewGetStatusRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/status")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListAgentTasksRequest generates requests for ListAgentTasks
-func NewListAgentTasksRequest(server string, params *ListAgentTasksParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.Status != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.AgentId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateAgentTaskRequest calls the generic CreateAgentTask builder with application/json body
-func NewCreateAgentTaskRequest(server string, body CreateAgentTaskJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateAgentTaskRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateAgentTaskRequestWithBody generates requests for CreateAgentTask with any type of body
-func NewCreateAgentTaskRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewBatchCreateAgentTasksRequest calls the generic BatchCreateAgentTasks builder with application/json body
-func NewBatchCreateAgentTasksRequest(server string, body BatchCreateAgentTasksJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewBatchCreateAgentTasksRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewBatchCreateAgentTasksRequestWithBody generates requests for BatchCreateAgentTasks with any type of body
-func NewBatchCreateAgentTasksRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/batch")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewListUnblockedAgentTasksRequest generates requests for ListUnblockedAgentTasks
-func NewListUnblockedAgentTasksRequest(server string, params *ListUnblockedAgentTasksParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/unblocked")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.AgentId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent_id", *params.AgentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewDeleteAgentTaskRequest generates requests for DeleteAgentTask
-func NewDeleteAgentTaskRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetAgentTaskRequest generates requests for GetAgentTask
-func NewGetAgentTaskRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateAgentTaskRequest calls the generic UpdateAgentTask builder with application/json body
-func NewUpdateAgentTaskRequest(server string, id string, body UpdateAgentTaskJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateAgentTaskRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewUpdateAgentTaskRequestWithBody generates requests for UpdateAgentTask with any type of body
-func NewUpdateAgentTaskRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewAgentTaskActionRequest calls the generic AgentTaskAction builder with application/json body
-func NewAgentTaskActionRequest(server string, id string, body AgentTaskActionJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewAgentTaskActionRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewAgentTaskActionRequestWithBody generates requests for AgentTaskAction with any type of body
-func NewAgentTaskActionRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s/action", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetAgentTaskDepsRequest generates requests for GetAgentTaskDeps
-func NewGetAgentTaskDepsRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s/deps", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewAddAgentTaskDepRequest calls the generic AddAgentTaskDep builder with application/json body
-func NewAddAgentTaskDepRequest(server string, id string, body AddAgentTaskDepJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewAddAgentTaskDepRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewAddAgentTaskDepRequestWithBody generates requests for AddAgentTaskDep with any type of body
-func NewAddAgentTaskDepRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s/deps", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewRemoveAgentTaskDepRequest generates requests for RemoveAgentTaskDep
-func NewRemoveAgentTaskDepRequest(server string, id string, depId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "depId", depId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s/deps/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListAgentTaskEventsRequest generates requests for ListAgentTaskEvents
-func NewListAgentTaskEventsRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/tasks/%s/events", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -10464,7 +9896,7 @@ func NewListUserMemoriesRequest(server string, id string) (*http.Request, error)
 }
 
 // NewDeleteUserMemoryRequest generates requests for DeleteUserMemory
-func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http.Request, error) {
+func NewDeleteUserMemoryRequest(server string, id string, agentID string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -10476,7 +9908,7 @@ func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -10505,18 +9937,18 @@ func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http
 }
 
 // NewSetUserMemoryRequest calls the generic SetUserMemory builder with application/json body
-func NewSetUserMemoryRequest(server string, id string, agentId string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
+func NewSetUserMemoryRequest(server string, id string, agentID string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetUserMemoryRequestWithBody(server, id, agentId, "application/json", bodyReader)
+	return NewSetUserMemoryRequestWithBody(server, id, agentID, "application/json", bodyReader)
 }
 
 // NewSetUserMemoryRequestWithBody generates requests for SetUserMemory with any type of body
-func NewSetUserMemoryRequestWithBody(server string, id string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetUserMemoryRequestWithBody(server string, id string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -10528,7 +9960,7 @@ func NewSetUserMemoryRequestWithBody(server string, id string, agentId string, c
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -10668,23 +10100,145 @@ type ClientWithResponsesInterface interface {
 	CreateAgentWithResponse(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentResponse, error)
 
 	// ListProjectsWithResponse request
-	ListProjectsWithResponse(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
+	ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
 
 	// CreateProjectWithBodyWithResponse request with any body
-	CreateProjectWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+	CreateProjectWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
 
-	CreateProjectWithResponse(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+	CreateProjectWithResponse(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
 
 	// DeleteProjectWithResponse request
-	DeleteProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error)
+	DeleteProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error)
 
 	// GetProjectWithResponse request
-	GetProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
+	GetProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
 
 	// UpdateProjectWithBodyWithResponse request with any body
-	UpdateProjectWithBodyWithResponse(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+	UpdateProjectWithBodyWithResponse(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
 
-	UpdateProjectWithResponse(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+	UpdateProjectWithResponse(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+
+	// ListSchedulerJobsWithResponse request
+	ListSchedulerJobsWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error)
+
+	// CreateSchedulerJobWithBodyWithResponse request with any body
+	CreateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error)
+
+	CreateSchedulerJobWithResponse(ctx context.Context, agentID string, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error)
+
+	// DeleteSchedulerJobWithResponse request
+	DeleteSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*DeleteSchedulerJobResponse, error)
+
+	// GetSchedulerJobWithResponse request
+	GetSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*GetSchedulerJobResponse, error)
+
+	// UpdateSchedulerJobWithBodyWithResponse request with any body
+	UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
+
+	UpdateSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
+
+	// TriggerSchedulerJobWithResponse request
+	TriggerSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error)
+
+	// ListSchedulerJobRunsWithResponse request
+	ListSchedulerJobRunsWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error)
+
+	// ListSessionsWithResponse request
+	ListSessionsWithResponse(ctx context.Context, agentID string, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error)
+
+	// CreateSessionWithBodyWithResponse request with any body
+	CreateSessionWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error)
+
+	CreateSessionWithResponse(ctx context.Context, agentID string, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error)
+
+	// GetSessionWithResponse request
+	GetSessionWithResponse(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
+
+	// GetSessionMessagesWithResponse request
+	GetSessionMessagesWithResponse(ctx context.Context, agentID string, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*GetSessionMessagesResponse, error)
+
+	// SendSessionMessageWithBodyWithResponse request with any body
+	SendSessionMessageWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error)
+
+	SendSessionMessageWithResponse(ctx context.Context, agentID string, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error)
+
+	// GetSessionSystemPromptWithResponse request
+	GetSessionSystemPromptWithResponse(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error)
+
+	// GetSessionWorkspaceWithResponse request
+	GetSessionWorkspaceWithResponse(ctx context.Context, agentID string, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
+
+	// GetWorkspaceFileContentWithResponse request
+	GetWorkspaceFileContentWithResponse(ctx context.Context, agentID string, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error)
+
+	// UpdateWorkspaceFileContentWithBodyWithResponse request with any body
+	UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
+
+	UpdateWorkspaceFileContentWithResponse(ctx context.Context, agentID string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
+
+	// DeleteWorkspaceFileWithBodyWithResponse request with any body
+	DeleteWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
+
+	DeleteWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
+
+	// MoveWorkspaceFileWithBodyWithResponse request with any body
+	MoveWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error)
+
+	MoveWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error)
+
+	// CreateWorkspaceFileWithBodyWithResponse request with any body
+	CreateWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
+
+	CreateWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
+
+	// UploadWorkspaceFileWithBodyWithResponse request with any body
+	UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error)
+
+	// ListAgentTasksWithResponse request
+	ListAgentTasksWithResponse(ctx context.Context, agentID string, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*ListAgentTasksResponse, error)
+
+	// CreateAgentTaskWithBodyWithResponse request with any body
+	CreateAgentTaskWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error)
+
+	CreateAgentTaskWithResponse(ctx context.Context, agentID string, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error)
+
+	// BatchCreateAgentTasksWithBodyWithResponse request with any body
+	BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
+
+	BatchCreateAgentTasksWithResponse(ctx context.Context, agentID string, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
+
+	// ListUnblockedAgentTasksWithResponse request
+	ListUnblockedAgentTasksWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error)
+
+	// DeleteAgentTaskWithResponse request
+	DeleteAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error)
+
+	// GetAgentTaskWithResponse request
+	GetAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskResponse, error)
+
+	// UpdateAgentTaskWithBodyWithResponse request with any body
+	UpdateAgentTaskWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error)
+
+	UpdateAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error)
+
+	// AgentTaskActionWithBodyWithResponse request with any body
+	AgentTaskActionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
+
+	AgentTaskActionWithResponse(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
+
+	// GetAgentTaskDepsWithResponse request
+	GetAgentTaskDepsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error)
+
+	// AddAgentTaskDepWithBodyWithResponse request with any body
+	AddAgentTaskDepWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
+
+	AddAgentTaskDepWithResponse(ctx context.Context, agentID string, taskID string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
+
+	// RemoveAgentTaskDepWithResponse request
+	RemoveAgentTaskDepWithResponse(ctx context.Context, agentID string, taskID string, depID string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error)
+
+	// ListAgentTaskEventsWithResponse request
+	ListAgentTaskEventsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error)
 
 	// DeleteAgentWithResponse request
 	DeleteAgentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentResponse, error)
@@ -10698,35 +10252,37 @@ type ClientWithResponsesInterface interface {
 	UpdateAgentWithResponse(ctx context.Context, id string, body UpdateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentResponse, error)
 
 	// ListAgentSkillsWithResponse request
-	ListAgentSkillsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error)
+	ListAgentSkillsWithResponse(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error)
 
-	// DuplicateBuiltinSkillToAgentWithResponse request
-	DuplicateBuiltinSkillToAgentWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DuplicateBuiltinSkillToAgentResponse, error)
+	// CreateAgentScopedSkillWithBodyWithResponse request with any body
+	CreateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error)
 
-	// InstallAgentSkillWithBodyWithResponse request with any body
-	InstallAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error)
+	CreateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error)
 
-	InstallAgentSkillWithResponse(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error)
+	// InstallAgentScopedSkillWithBodyWithResponse request with any body
+	InstallAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error)
 
-	// UploadAgentSkillWithBodyWithResponse request with any body
-	UploadAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentSkillResponse, error)
+	InstallAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error)
 
-	// DeleteAgentSkillWithResponse request
-	DeleteAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillResponse, error)
+	// UploadAgentScopedSkillWithBodyWithResponse request with any body
+	UploadAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentScopedSkillResponse, error)
 
-	// GetAgentSkillWithResponse request
-	GetAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillResponse, error)
+	// DeleteAgentScopedSkillWithResponse request
+	DeleteAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillResponse, error)
 
-	// UpdateAgentSkillWithBodyWithResponse request with any body
-	UpdateAgentSkillWithBodyWithResponse(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error)
+	// GetAgentScopedSkillWithResponse request
+	GetAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillResponse, error)
 
-	UpdateAgentSkillWithResponse(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error)
+	// UpdateAgentScopedSkillWithBodyWithResponse request with any body
+	UpdateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error)
 
-	// DeleteAgentSkillFileWithResponse request
-	DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error)
+	UpdateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error)
 
-	// GetAgentSkillFileWithResponse request
-	GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error)
+	// DeleteAgentScopedSkillFileWithResponse request
+	DeleteAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillFileResponse, error)
+
+	// GetAgentScopedSkillFileWithResponse request
+	GetAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillFileResponse, error)
 
 	// ListAgentUsersWithResponse request
 	ListAgentUsersWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentUsersResponse, error)
@@ -10765,12 +10321,12 @@ type ClientWithResponsesInterface interface {
 	ListProfileMemoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileMemoriesResponse, error)
 
 	// DeleteProfileMemoryWithResponse request
-	DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error)
+	DeleteProfileMemoryWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error)
 
 	// SetProfileMemoryWithBodyWithResponse request with any body
-	SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+	SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
-	SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+	SetProfileMemoryWithResponse(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
 	// ListOAuthProvidersWithResponse request
 	ListOAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOAuthProvidersResponse, error)
@@ -10795,38 +10351,10 @@ type ClientWithResponsesInterface interface {
 
 	ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
 
-	// ListProfileSkillsWithResponse request
-	ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error)
-
-	// InstallProfileSkillWithBodyWithResponse request with any body
-	InstallProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error)
-
-	InstallProfileSkillWithResponse(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error)
-
-	// UploadProfileSkillWithBodyWithResponse request with any body
-	UploadProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadProfileSkillResponse, error)
-
-	// DeleteProfileSkillWithResponse request
-	DeleteProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*DeleteProfileSkillResponse, error)
-
-	// GetProfileSkillWithResponse request
-	GetProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetProfileSkillResponse, error)
-
-	// UpdateProfileSkillWithBodyWithResponse request with any body
-	UpdateProfileSkillWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error)
-
-	UpdateProfileSkillWithResponse(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error)
-
-	// DeleteProfileSkillFileWithResponse request
-	DeleteProfileSkillFileWithResponse(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteProfileSkillFileResponse, error)
-
-	// GetProfileSkillFileWithResponse request
-	GetProfileSkillFileWithResponse(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*GetProfileSkillFileResponse, error)
-
 	// SetProfileSoulWithBodyWithResponse request with any body
-	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
 
-	SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+	SetProfileSoulWithResponse(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
 
 	// ListVaultEntriesWithResponse request
 	ListVaultEntriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVaultEntriesResponse, error)
@@ -11037,79 +10565,6 @@ type ClientWithResponsesInterface interface {
 	// PollFeedWithResponse request
 	PollFeedWithResponse(ctx context.Context, id string, params *PollFeedParams, reqEditors ...RequestEditorFn) (*PollFeedResponse, error)
 
-	// ListSchedulerJobsWithResponse request
-	ListSchedulerJobsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error)
-
-	// CreateSchedulerJobWithBodyWithResponse request with any body
-	CreateSchedulerJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error)
-
-	CreateSchedulerJobWithResponse(ctx context.Context, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error)
-
-	// DeleteSchedulerJobWithResponse request
-	DeleteSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSchedulerJobResponse, error)
-
-	// UpdateSchedulerJobWithBodyWithResponse request with any body
-	UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
-
-	UpdateSchedulerJobWithResponse(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error)
-
-	// TriggerSchedulerJobWithResponse request
-	TriggerSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error)
-
-	// ListSchedulerJobRunsWithResponse request
-	ListSchedulerJobRunsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error)
-
-	// ListSessionsWithResponse request
-	ListSessionsWithResponse(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error)
-
-	// CreateSessionWithBodyWithResponse request with any body
-	CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error)
-
-	CreateSessionWithResponse(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error)
-
-	// GetSessionWithResponse request
-	GetSessionWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
-
-	// GetSessionMessagesWithResponse request
-	GetSessionMessagesWithResponse(ctx context.Context, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*GetSessionMessagesResponse, error)
-
-	// SendSessionMessageWithBodyWithResponse request with any body
-	SendSessionMessageWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error)
-
-	SendSessionMessageWithResponse(ctx context.Context, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error)
-
-	// GetSessionSystemPromptWithResponse request
-	GetSessionSystemPromptWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error)
-
-	// GetSessionWorkspaceWithResponse request
-	GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error)
-
-	// GetWorkspaceFileContentWithResponse request
-	GetWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error)
-
-	// UpdateWorkspaceFileContentWithBodyWithResponse request with any body
-	UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
-
-	UpdateWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error)
-
-	// DeleteWorkspaceFileWithBodyWithResponse request with any body
-	DeleteWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
-
-	DeleteWorkspaceFileWithResponse(ctx context.Context, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
-
-	// MoveWorkspaceFileWithBodyWithResponse request with any body
-	MoveWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error)
-
-	MoveWorkspaceFileWithResponse(ctx context.Context, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error)
-
-	// CreateWorkspaceFileWithBodyWithResponse request with any body
-	CreateWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
-
-	CreateWorkspaceFileWithResponse(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error)
-
-	// UploadWorkspaceFileWithBodyWithResponse request with any body
-	UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error)
-
 	// ListSharesWithResponse request
 	ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error)
 
@@ -11124,87 +10579,11 @@ type ClientWithResponsesInterface interface {
 	// RevokeShareWithResponse request
 	RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error)
 
-	// ListSkillsWithResponse request
-	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
-
-	// CreateSkillWithBodyWithResponse request with any body
-	CreateSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error)
-
-	CreateSkillWithResponse(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error)
-
-	// InstallSkillWithBodyWithResponse request with any body
-	InstallSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error)
-
-	InstallSkillWithResponse(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error)
-
 	// SearchSkillsWithResponse request
 	SearchSkillsWithResponse(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*SearchSkillsResponse, error)
 
-	// DeleteSkillWithResponse request
-	DeleteSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSkillResponse, error)
-
-	// GetSkillWithResponse request
-	GetSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSkillResponse, error)
-
-	// UpdateSkillWithBodyWithResponse request with any body
-	UpdateSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error)
-
-	UpdateSkillWithResponse(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error)
-
-	// DeleteSkillFileWithResponse request
-	DeleteSkillFileWithResponse(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteSkillFileResponse, error)
-
-	// GetSkillFileWithResponse request
-	GetSkillFileWithResponse(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*GetSkillFileResponse, error)
-
 	// GetStatusWithResponse request
 	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
-
-	// ListAgentTasksWithResponse request
-	ListAgentTasksWithResponse(ctx context.Context, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*ListAgentTasksResponse, error)
-
-	// CreateAgentTaskWithBodyWithResponse request with any body
-	CreateAgentTaskWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error)
-
-	CreateAgentTaskWithResponse(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error)
-
-	// BatchCreateAgentTasksWithBodyWithResponse request with any body
-	BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
-
-	BatchCreateAgentTasksWithResponse(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error)
-
-	// ListUnblockedAgentTasksWithResponse request
-	ListUnblockedAgentTasksWithResponse(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error)
-
-	// DeleteAgentTaskWithResponse request
-	DeleteAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error)
-
-	// GetAgentTaskWithResponse request
-	GetAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskResponse, error)
-
-	// UpdateAgentTaskWithBodyWithResponse request with any body
-	UpdateAgentTaskWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error)
-
-	UpdateAgentTaskWithResponse(ctx context.Context, id string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error)
-
-	// AgentTaskActionWithBodyWithResponse request with any body
-	AgentTaskActionWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
-
-	AgentTaskActionWithResponse(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
-
-	// GetAgentTaskDepsWithResponse request
-	GetAgentTaskDepsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error)
-
-	// AddAgentTaskDepWithBodyWithResponse request with any body
-	AddAgentTaskDepWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
-
-	AddAgentTaskDepWithResponse(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error)
-
-	// RemoveAgentTaskDepWithResponse request
-	RemoveAgentTaskDepWithResponse(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error)
-
-	// ListAgentTaskEventsWithResponse request
-	ListAgentTaskEventsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error)
 
 	// ListToolsWithResponse request
 	ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error)
@@ -11218,12 +10597,12 @@ type ClientWithResponsesInterface interface {
 	ListUserMemoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error)
 
 	// DeleteUserMemoryWithResponse request
-	DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
+	DeleteUserMemoryWithResponse(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
 
 	// SetUserMemoryWithBodyWithResponse request with any body
-	SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
-	SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithResponse(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
 	// UpdateUserNotifyIdentityWithBodyWithResponse request with any body
 	UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
@@ -11548,6 +10927,1052 @@ func (r UpdateProjectResponse) ContentType() string {
 	return ""
 }
 
+type ListSchedulerJobsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.JobList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSchedulerJobsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSchedulerJobsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSchedulerJobsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.Job
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.DeleteResult
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Job
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Job
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TriggerSchedulerJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON202      *externalRef0.TriggerJobResult
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+	JSON409      *externalRef0.Conflict
+}
+
+// Status returns HTTPResponse.Status
+func (r TriggerSchedulerJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TriggerSchedulerJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TriggerSchedulerJobResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListSchedulerJobRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.JobRunList
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSchedulerJobRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSchedulerJobRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSchedulerJobRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListSessionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.Session
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.Session
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SessionDetail
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSessionMessagesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]map[string]interface{}
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionMessagesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionMessagesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionMessagesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SendSessionMessageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r SendSessionMessageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SendSessionMessageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SendSessionMessageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSessionSystemPromptResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SystemPromptResponse
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionSystemPromptResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionSystemPromptResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionSystemPromptResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSessionWorkspaceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SessionWorkspace
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionWorkspaceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionWorkspaceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionWorkspaceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetWorkspaceFileContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.WorkspaceFileContent
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetWorkspaceFileContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetWorkspaceFileContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetWorkspaceFileContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateWorkspaceFileContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.WorkspaceFileContent
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateWorkspaceFileContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateWorkspaceFileContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateWorkspaceFileContentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SessionWorkspace
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MoveWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.SessionWorkspace
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.SessionWorkspace
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UploadWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.WorkspaceUploadResponse
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAgentTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAgentTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAgentTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAgentTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateAgentTaskResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateAgentTaskResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateAgentTaskResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateAgentTaskResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type BatchCreateAgentTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTaskList
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r BatchCreateAgentTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BatchCreateAgentTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BatchCreateAgentTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUnblockedAgentTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUnblockedAgentTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUnblockedAgentTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUnblockedAgentTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteAgentTaskResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.DeleteResult
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteAgentTaskResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteAgentTaskResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteAgentTaskResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetAgentTaskResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAgentTaskResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAgentTaskResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAgentTaskResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateAgentTaskResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateAgentTaskResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateAgentTaskResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateAgentTaskResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AgentTaskActionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r AgentTaskActionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AgentTaskActionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AgentTaskActionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetAgentTaskDepsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskDepsInfo
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAgentTaskDepsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAgentTaskDepsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAgentTaskDepsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AddAgentTaskDepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r AddAgentTaskDepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddAgentTaskDepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddAgentTaskDepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveAgentTaskDepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveAgentTaskDepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveAgentTaskDepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveAgentTaskDepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAgentTaskEventsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskEventList
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAgentTaskEventsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAgentTaskEventsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAgentTaskEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteAgentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -11680,17 +12105,18 @@ func (r ListAgentSkillsResponse) ContentType() string {
 	return ""
 }
 
-type DuplicateBuiltinSkillToAgentResponse struct {
+type CreateAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *externalRef0.DuplicateSkillResult
+	JSON201      *externalRef0.SkillUploadResult
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r DuplicateBuiltinSkillToAgentResponse) Status() string {
+func (r CreateAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11698,7 +12124,7 @@ func (r DuplicateBuiltinSkillToAgentResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DuplicateBuiltinSkillToAgentResponse) StatusCode() int {
+func (r CreateAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11706,24 +12132,25 @@ func (r DuplicateBuiltinSkillToAgentResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DuplicateBuiltinSkillToAgentResponse) ContentType() string {
+func (r CreateAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type InstallAgentSkillResponse struct {
+type InstallAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *externalRef0.SkillUploadResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r InstallAgentSkillResponse) Status() string {
+func (r InstallAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11731,7 +12158,7 @@ func (r InstallAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r InstallAgentSkillResponse) StatusCode() int {
+func (r InstallAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11739,24 +12166,25 @@ func (r InstallAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallAgentSkillResponse) ContentType() string {
+func (r InstallAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type UploadAgentSkillResponse struct {
+type UploadAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *externalRef0.SkillUploadResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r UploadAgentSkillResponse) Status() string {
+func (r UploadAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11764,7 +12192,7 @@ func (r UploadAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r UploadAgentSkillResponse) StatusCode() int {
+func (r UploadAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11772,14 +12200,14 @@ func (r UploadAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UploadAgentSkillResponse) ContentType() string {
+func (r UploadAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type DeleteAgentSkillResponse struct {
+type DeleteAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.DeleteResult
@@ -11789,7 +12217,7 @@ type DeleteAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteAgentSkillResponse) Status() string {
+func (r DeleteAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11797,7 +12225,7 @@ func (r DeleteAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteAgentSkillResponse) StatusCode() int {
+func (r DeleteAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11805,14 +12233,14 @@ func (r DeleteAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteAgentSkillResponse) ContentType() string {
+func (r DeleteAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type GetAgentSkillResponse struct {
+type GetAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.Skill
@@ -11822,7 +12250,7 @@ type GetAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r GetAgentSkillResponse) Status() string {
+func (r GetAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11830,7 +12258,7 @@ func (r GetAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentSkillResponse) StatusCode() int {
+func (r GetAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11838,14 +12266,14 @@ func (r GetAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentSkillResponse) ContentType() string {
+func (r GetAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type UpdateAgentSkillResponse struct {
+type UpdateAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.Skill
@@ -11856,7 +12284,7 @@ type UpdateAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r UpdateAgentSkillResponse) Status() string {
+func (r UpdateAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11864,7 +12292,7 @@ func (r UpdateAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r UpdateAgentSkillResponse) StatusCode() int {
+func (r UpdateAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11872,24 +12300,25 @@ func (r UpdateAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateAgentSkillResponse) ContentType() string {
+func (r UpdateAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type DeleteAgentSkillFileResponse struct {
+type DeleteAgentScopedSkillFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
+	JSON200      *externalRef0.DeleteFileResult
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteAgentSkillFileResponse) Status() string {
+func (r DeleteAgentScopedSkillFileResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11897,7 +12326,7 @@ func (r DeleteAgentSkillFileResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteAgentSkillFileResponse) StatusCode() int {
+func (r DeleteAgentScopedSkillFileResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11905,23 +12334,25 @@ func (r DeleteAgentSkillFileResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteAgentSkillFileResponse) ContentType() string {
+func (r DeleteAgentScopedSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type GetAgentSkillFileResponse struct {
+type GetAgentScopedSkillFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON200      *externalRef0.SkillFileResponse
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r GetAgentSkillFileResponse) Status() string {
+func (r GetAgentScopedSkillFileResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11929,7 +12360,7 @@ func (r GetAgentSkillFileResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentSkillFileResponse) StatusCode() int {
+func (r GetAgentScopedSkillFileResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11937,7 +12368,7 @@ func (r GetAgentSkillFileResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentSkillFileResponse) ContentType() string {
+func (r GetAgentScopedSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12542,270 +12973,6 @@ func (r ChangePasswordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ChangePasswordResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListProfileSkillsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillList
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListProfileSkillsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListProfileSkillsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListProfileSkillsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type InstallProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Name *string `json:"name,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r InstallProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r InstallProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UploadProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.SkillUploadResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r UploadProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UploadProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UploadProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Skill
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteProfileSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteFileResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteProfileSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteProfileSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteProfileSkillFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetProfileSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillFileResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetProfileSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetProfileSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetProfileSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14684,634 +14851,6 @@ func (r PollFeedResponse) ContentType() string {
 	return ""
 }
 
-type ListSchedulerJobsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.JobList
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSchedulerJobsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSchedulerJobsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSchedulerJobsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateSchedulerJobResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.Job
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateSchedulerJobResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateSchedulerJobResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateSchedulerJobResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteSchedulerJobResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteSchedulerJobResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteSchedulerJobResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteSchedulerJobResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateSchedulerJobResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Job
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateSchedulerJobResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateSchedulerJobResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateSchedulerJobResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type TriggerSchedulerJobResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON202      *externalRef0.TriggerJobResult
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-	JSON409      *externalRef0.Conflict
-}
-
-// Status returns HTTPResponse.Status
-func (r TriggerSchedulerJobResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r TriggerSchedulerJobResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r TriggerSchedulerJobResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListSchedulerJobRunsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.JobRunList
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSchedulerJobRunsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSchedulerJobRunsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSchedulerJobRunsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListSessionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *[]externalRef0.Session
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSessionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSessionsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSessionsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateSessionResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.Session
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateSessionResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateSessionResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateSessionResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSessionResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SessionDetail
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSessionResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSessionResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSessionResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSessionMessagesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *[]map[string]interface{}
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSessionMessagesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSessionMessagesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSessionMessagesResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type SendSessionMessageResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r SendSessionMessageResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r SendSessionMessageResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r SendSessionMessageResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSessionSystemPromptResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SystemPromptResponse
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSessionSystemPromptResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSessionSystemPromptResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSessionSystemPromptResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSessionWorkspaceResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SessionWorkspace
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSessionWorkspaceResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSessionWorkspaceResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSessionWorkspaceResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetWorkspaceFileContentResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.WorkspaceFileContent
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetWorkspaceFileContentResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetWorkspaceFileContentResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetWorkspaceFileContentResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateWorkspaceFileContentResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.WorkspaceFileContent
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateWorkspaceFileContentResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateWorkspaceFileContentResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateWorkspaceFileContentResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteWorkspaceFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SessionWorkspace
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteWorkspaceFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteWorkspaceFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteWorkspaceFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type MoveWorkspaceFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SessionWorkspace
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r MoveWorkspaceFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r MoveWorkspaceFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r MoveWorkspaceFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateWorkspaceFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.SessionWorkspace
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateWorkspaceFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateWorkspaceFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateWorkspaceFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UploadWorkspaceFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.WorkspaceUploadResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UploadWorkspaceFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UploadWorkspaceFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UploadWorkspaceFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type ListSharesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15438,108 +14977,6 @@ func (r RevokeShareResponse) ContentType() string {
 	return ""
 }
 
-type ListSkillsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillList
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSkillsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSkillsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSkillsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type InstallSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Name *string `json:"name,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r InstallSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r InstallSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type SearchSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15572,178 +15009,6 @@ func (r SearchSkillsResponse) ContentType() string {
 	return ""
 }
 
-type DeleteSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Skill
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteFileResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteSkillFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillFileResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSkillFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type GetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15768,391 +15033,6 @@ func (r GetStatusResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetStatusResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListAgentTasksResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTaskList
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListAgentTasksResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListAgentTasksResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListAgentTasksResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateAgentTaskResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.AgentTask
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateAgentTaskResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateAgentTaskResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateAgentTaskResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type BatchCreateAgentTasksResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.AgentTaskList
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r BatchCreateAgentTasksResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r BatchCreateAgentTasksResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r BatchCreateAgentTasksResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListUnblockedAgentTasksResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTaskList
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListUnblockedAgentTasksResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListUnblockedAgentTasksResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListUnblockedAgentTasksResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteAgentTaskResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteAgentTaskResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteAgentTaskResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteAgentTaskResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetAgentTaskResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTask
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetAgentTaskResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentTaskResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentTaskResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateAgentTaskResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTask
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateAgentTaskResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateAgentTaskResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateAgentTaskResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type AgentTaskActionResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTask
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r AgentTaskActionResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r AgentTaskActionResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r AgentTaskActionResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetAgentTaskDepsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTaskDepsInfo
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetAgentTaskDepsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentTaskDepsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentTaskDepsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type AddAgentTaskDepResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTask
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r AddAgentTaskDepResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r AddAgentTaskDepResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r AddAgentTaskDepResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type RemoveAgentTaskDepResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTask
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r RemoveAgentTaskDepResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RemoveAgentTaskDepResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RemoveAgentTaskDepResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListAgentTaskEventsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AgentTaskEventList
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r ListAgentTaskEventsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListAgentTaskEventsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListAgentTaskEventsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -16416,8 +15296,8 @@ func (c *ClientWithResponses) CreateAgentWithResponse(ctx context.Context, body 
 }
 
 // ListProjectsWithResponse request returning *ListProjectsResponse
-func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
-	rsp, err := c.ListProjects(ctx, agentId, params, reqEditors...)
+func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
+	rsp, err := c.ListProjects(ctx, agentID, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16425,16 +15305,16 @@ func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agen
 }
 
 // CreateProjectWithBodyWithResponse request with arbitrary body returning *CreateProjectResponse
-func (c *ClientWithResponses) CreateProjectWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
-	rsp, err := c.CreateProjectWithBody(ctx, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) CreateProjectWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProjectWithBody(ctx, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseCreateProjectResponse(rsp)
 }
 
-func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
-	rsp, err := c.CreateProject(ctx, agentId, body, reqEditors...)
+func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProject(ctx, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16442,8 +15322,8 @@ func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, age
 }
 
 // DeleteProjectWithResponse request returning *DeleteProjectResponse
-func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error) {
-	rsp, err := c.DeleteProject(ctx, agentId, projectId, reqEditors...)
+func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error) {
+	rsp, err := c.DeleteProject(ctx, agentID, projectId, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16451,8 +15331,8 @@ func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, age
 }
 
 // GetProjectWithResponse request returning *GetProjectResponse
-func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error) {
-	rsp, err := c.GetProject(ctx, agentId, projectId, reqEditors...)
+func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error) {
+	rsp, err := c.GetProject(ctx, agentID, projectId, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16460,20 +15340,412 @@ func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, agentI
 }
 
 // UpdateProjectWithBodyWithResponse request with arbitrary body returning *UpdateProjectResponse
-func (c *ClientWithResponses) UpdateProjectWithBodyWithResponse(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
-	rsp, err := c.UpdateProjectWithBody(ctx, agentId, projectId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) UpdateProjectWithBodyWithResponse(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProjectWithBody(ctx, agentID, projectId, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseUpdateProjectResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateProjectWithResponse(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
-	rsp, err := c.UpdateProject(ctx, agentId, projectId, body, reqEditors...)
+func (c *ClientWithResponses) UpdateProjectWithResponse(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProject(ctx, agentID, projectId, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseUpdateProjectResponse(rsp)
+}
+
+// ListSchedulerJobsWithResponse request returning *ListSchedulerJobsResponse
+func (c *ClientWithResponses) ListSchedulerJobsWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error) {
+	rsp, err := c.ListSchedulerJobs(ctx, agentID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSchedulerJobsResponse(rsp)
+}
+
+// CreateSchedulerJobWithBodyWithResponse request with arbitrary body returning *CreateSchedulerJobResponse
+func (c *ClientWithResponses) CreateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error) {
+	rsp, err := c.CreateSchedulerJobWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSchedulerJobResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateSchedulerJobWithResponse(ctx context.Context, agentID string, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error) {
+	rsp, err := c.CreateSchedulerJob(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSchedulerJobResponse(rsp)
+}
+
+// DeleteSchedulerJobWithResponse request returning *DeleteSchedulerJobResponse
+func (c *ClientWithResponses) DeleteSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*DeleteSchedulerJobResponse, error) {
+	rsp, err := c.DeleteSchedulerJob(ctx, agentID, jobID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteSchedulerJobResponse(rsp)
+}
+
+// GetSchedulerJobWithResponse request returning *GetSchedulerJobResponse
+func (c *ClientWithResponses) GetSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*GetSchedulerJobResponse, error) {
+	rsp, err := c.GetSchedulerJob(ctx, agentID, jobID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSchedulerJobResponse(rsp)
+}
+
+// UpdateSchedulerJobWithBodyWithResponse request with arbitrary body returning *UpdateSchedulerJobResponse
+func (c *ClientWithResponses) UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, agentID string, jobID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error) {
+	rsp, err := c.UpdateSchedulerJobWithBody(ctx, agentID, jobID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateSchedulerJobResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error) {
+	rsp, err := c.UpdateSchedulerJob(ctx, agentID, jobID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateSchedulerJobResponse(rsp)
+}
+
+// TriggerSchedulerJobWithResponse request returning *TriggerSchedulerJobResponse
+func (c *ClientWithResponses) TriggerSchedulerJobWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error) {
+	rsp, err := c.TriggerSchedulerJob(ctx, agentID, jobID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTriggerSchedulerJobResponse(rsp)
+}
+
+// ListSchedulerJobRunsWithResponse request returning *ListSchedulerJobRunsResponse
+func (c *ClientWithResponses) ListSchedulerJobRunsWithResponse(ctx context.Context, agentID string, jobID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error) {
+	rsp, err := c.ListSchedulerJobRuns(ctx, agentID, jobID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSchedulerJobRunsResponse(rsp)
+}
+
+// ListSessionsWithResponse request returning *ListSessionsResponse
+func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, agentID string, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error) {
+	rsp, err := c.ListSessions(ctx, agentID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionsResponse(rsp)
+}
+
+// CreateSessionWithBodyWithResponse request with arbitrary body returning *CreateSessionResponse
+func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error) {
+	rsp, err := c.CreateSessionWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, agentID string, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error) {
+	rsp, err := c.CreateSession(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionResponse(rsp)
+}
+
+// GetSessionWithResponse request returning *GetSessionResponse
+func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionResponse, error) {
+	rsp, err := c.GetSession(ctx, agentID, sessionID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionResponse(rsp)
+}
+
+// GetSessionMessagesWithResponse request returning *GetSessionMessagesResponse
+func (c *ClientWithResponses) GetSessionMessagesWithResponse(ctx context.Context, agentID string, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*GetSessionMessagesResponse, error) {
+	rsp, err := c.GetSessionMessages(ctx, agentID, sessionID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionMessagesResponse(rsp)
+}
+
+// SendSessionMessageWithBodyWithResponse request with arbitrary body returning *SendSessionMessageResponse
+func (c *ClientWithResponses) SendSessionMessageWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error) {
+	rsp, err := c.SendSessionMessageWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSendSessionMessageResponse(rsp)
+}
+
+func (c *ClientWithResponses) SendSessionMessageWithResponse(ctx context.Context, agentID string, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error) {
+	rsp, err := c.SendSessionMessage(ctx, agentID, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSendSessionMessageResponse(rsp)
+}
+
+// GetSessionSystemPromptWithResponse request returning *GetSessionSystemPromptResponse
+func (c *ClientWithResponses) GetSessionSystemPromptWithResponse(ctx context.Context, agentID string, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error) {
+	rsp, err := c.GetSessionSystemPrompt(ctx, agentID, sessionID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionSystemPromptResponse(rsp)
+}
+
+// GetSessionWorkspaceWithResponse request returning *GetSessionWorkspaceResponse
+func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Context, agentID string, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error) {
+	rsp, err := c.GetSessionWorkspace(ctx, agentID, sessionID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionWorkspaceResponse(rsp)
+}
+
+// GetWorkspaceFileContentWithResponse request returning *GetWorkspaceFileContentResponse
+func (c *ClientWithResponses) GetWorkspaceFileContentWithResponse(ctx context.Context, agentID string, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error) {
+	rsp, err := c.GetWorkspaceFileContent(ctx, agentID, sessionID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetWorkspaceFileContentResponse(rsp)
+}
+
+// UpdateWorkspaceFileContentWithBodyWithResponse request with arbitrary body returning *UpdateWorkspaceFileContentResponse
+func (c *ClientWithResponses) UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
+	rsp, err := c.UpdateWorkspaceFileContentWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkspaceFileContentResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateWorkspaceFileContentWithResponse(ctx context.Context, agentID string, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
+	rsp, err := c.UpdateWorkspaceFileContent(ctx, agentID, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkspaceFileContentResponse(rsp)
+}
+
+// DeleteWorkspaceFileWithBodyWithResponse request with arbitrary body returning *DeleteWorkspaceFileResponse
+func (c *ClientWithResponses) DeleteWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error) {
+	rsp, err := c.DeleteWorkspaceFileWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkspaceFileResponse(rsp)
+}
+
+func (c *ClientWithResponses) DeleteWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error) {
+	rsp, err := c.DeleteWorkspaceFile(ctx, agentID, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkspaceFileResponse(rsp)
+}
+
+// MoveWorkspaceFileWithBodyWithResponse request with arbitrary body returning *MoveWorkspaceFileResponse
+func (c *ClientWithResponses) MoveWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error) {
+	rsp, err := c.MoveWorkspaceFileWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveWorkspaceFileResponse(rsp)
+}
+
+func (c *ClientWithResponses) MoveWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error) {
+	rsp, err := c.MoveWorkspaceFile(ctx, agentID, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveWorkspaceFileResponse(rsp)
+}
+
+// CreateWorkspaceFileWithBodyWithResponse request with arbitrary body returning *CreateWorkspaceFileResponse
+func (c *ClientWithResponses) CreateWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error) {
+	rsp, err := c.CreateWorkspaceFileWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkspaceFileResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateWorkspaceFileWithResponse(ctx context.Context, agentID string, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error) {
+	rsp, err := c.CreateWorkspaceFile(ctx, agentID, sessionID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkspaceFileResponse(rsp)
+}
+
+// UploadWorkspaceFileWithBodyWithResponse request with arbitrary body returning *UploadWorkspaceFileResponse
+func (c *ClientWithResponses) UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, agentID string, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error) {
+	rsp, err := c.UploadWorkspaceFileWithBody(ctx, agentID, sessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadWorkspaceFileResponse(rsp)
+}
+
+// ListAgentTasksWithResponse request returning *ListAgentTasksResponse
+func (c *ClientWithResponses) ListAgentTasksWithResponse(ctx context.Context, agentID string, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*ListAgentTasksResponse, error) {
+	rsp, err := c.ListAgentTasks(ctx, agentID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAgentTasksResponse(rsp)
+}
+
+// CreateAgentTaskWithBodyWithResponse request with arbitrary body returning *CreateAgentTaskResponse
+func (c *ClientWithResponses) CreateAgentTaskWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error) {
+	rsp, err := c.CreateAgentTaskWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateAgentTaskResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateAgentTaskWithResponse(ctx context.Context, agentID string, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error) {
+	rsp, err := c.CreateAgentTask(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateAgentTaskResponse(rsp)
+}
+
+// BatchCreateAgentTasksWithBodyWithResponse request with arbitrary body returning *BatchCreateAgentTasksResponse
+func (c *ClientWithResponses) BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
+	rsp, err := c.BatchCreateAgentTasksWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchCreateAgentTasksResponse(rsp)
+}
+
+func (c *ClientWithResponses) BatchCreateAgentTasksWithResponse(ctx context.Context, agentID string, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
+	rsp, err := c.BatchCreateAgentTasks(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchCreateAgentTasksResponse(rsp)
+}
+
+// ListUnblockedAgentTasksWithResponse request returning *ListUnblockedAgentTasksResponse
+func (c *ClientWithResponses) ListUnblockedAgentTasksWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error) {
+	rsp, err := c.ListUnblockedAgentTasks(ctx, agentID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUnblockedAgentTasksResponse(rsp)
+}
+
+// DeleteAgentTaskWithResponse request returning *DeleteAgentTaskResponse
+func (c *ClientWithResponses) DeleteAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error) {
+	rsp, err := c.DeleteAgentTask(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteAgentTaskResponse(rsp)
+}
+
+// GetAgentTaskWithResponse request returning *GetAgentTaskResponse
+func (c *ClientWithResponses) GetAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskResponse, error) {
+	rsp, err := c.GetAgentTask(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentTaskResponse(rsp)
+}
+
+// UpdateAgentTaskWithBodyWithResponse request with arbitrary body returning *UpdateAgentTaskResponse
+func (c *ClientWithResponses) UpdateAgentTaskWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error) {
+	rsp, err := c.UpdateAgentTaskWithBody(ctx, agentID, taskID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateAgentTaskResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error) {
+	rsp, err := c.UpdateAgentTask(ctx, agentID, taskID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateAgentTaskResponse(rsp)
+}
+
+// AgentTaskActionWithBodyWithResponse request with arbitrary body returning *AgentTaskActionResponse
+func (c *ClientWithResponses) AgentTaskActionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error) {
+	rsp, err := c.AgentTaskActionWithBody(ctx, agentID, taskID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAgentTaskActionResponse(rsp)
+}
+
+func (c *ClientWithResponses) AgentTaskActionWithResponse(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error) {
+	rsp, err := c.AgentTaskAction(ctx, agentID, taskID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAgentTaskActionResponse(rsp)
+}
+
+// GetAgentTaskDepsWithResponse request returning *GetAgentTaskDepsResponse
+func (c *ClientWithResponses) GetAgentTaskDepsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error) {
+	rsp, err := c.GetAgentTaskDeps(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentTaskDepsResponse(rsp)
+}
+
+// AddAgentTaskDepWithBodyWithResponse request with arbitrary body returning *AddAgentTaskDepResponse
+func (c *ClientWithResponses) AddAgentTaskDepWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
+	rsp, err := c.AddAgentTaskDepWithBody(ctx, agentID, taskID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddAgentTaskDepResponse(rsp)
+}
+
+func (c *ClientWithResponses) AddAgentTaskDepWithResponse(ctx context.Context, agentID string, taskID string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
+	rsp, err := c.AddAgentTaskDep(ctx, agentID, taskID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddAgentTaskDepResponse(rsp)
+}
+
+// RemoveAgentTaskDepWithResponse request returning *RemoveAgentTaskDepResponse
+func (c *ClientWithResponses) RemoveAgentTaskDepWithResponse(ctx context.Context, agentID string, taskID string, depID string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error) {
+	rsp, err := c.RemoveAgentTaskDep(ctx, agentID, taskID, depID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveAgentTaskDepResponse(rsp)
+}
+
+// ListAgentTaskEventsWithResponse request returning *ListAgentTaskEventsResponse
+func (c *ClientWithResponses) ListAgentTaskEventsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error) {
+	rsp, err := c.ListAgentTaskEvents(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAgentTaskEventsResponse(rsp)
 }
 
 // DeleteAgentWithResponse request returning *DeleteAgentResponse
@@ -16512,100 +15784,108 @@ func (c *ClientWithResponses) UpdateAgentWithResponse(ctx context.Context, id st
 }
 
 // ListAgentSkillsWithResponse request returning *ListAgentSkillsResponse
-func (c *ClientWithResponses) ListAgentSkillsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error) {
-	rsp, err := c.ListAgentSkills(ctx, id, reqEditors...)
+func (c *ClientWithResponses) ListAgentSkillsWithResponse(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error) {
+	rsp, err := c.ListAgentSkills(ctx, id, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseListAgentSkillsResponse(rsp)
 }
 
-// DuplicateBuiltinSkillToAgentWithResponse request returning *DuplicateBuiltinSkillToAgentResponse
-func (c *ClientWithResponses) DuplicateBuiltinSkillToAgentWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DuplicateBuiltinSkillToAgentResponse, error) {
-	rsp, err := c.DuplicateBuiltinSkillToAgent(ctx, id, skillId, reqEditors...)
+// CreateAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *CreateAgentScopedSkillResponse
+func (c *ClientWithResponses) CreateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error) {
+	rsp, err := c.CreateAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDuplicateBuiltinSkillToAgentResponse(rsp)
+	return ParseCreateAgentScopedSkillResponse(rsp)
 }
 
-// InstallAgentSkillWithBodyWithResponse request with arbitrary body returning *InstallAgentSkillResponse
-func (c *ClientWithResponses) InstallAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error) {
-	rsp, err := c.InstallAgentSkillWithBody(ctx, id, contentType, body, reqEditors...)
+func (c *ClientWithResponses) CreateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error) {
+	rsp, err := c.CreateAgentScopedSkill(ctx, id, scope, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseInstallAgentSkillResponse(rsp)
+	return ParseCreateAgentScopedSkillResponse(rsp)
 }
 
-func (c *ClientWithResponses) InstallAgentSkillWithResponse(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error) {
-	rsp, err := c.InstallAgentSkill(ctx, id, body, reqEditors...)
+// InstallAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *InstallAgentScopedSkillResponse
+func (c *ClientWithResponses) InstallAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error) {
+	rsp, err := c.InstallAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseInstallAgentSkillResponse(rsp)
+	return ParseInstallAgentScopedSkillResponse(rsp)
 }
 
-// UploadAgentSkillWithBodyWithResponse request with arbitrary body returning *UploadAgentSkillResponse
-func (c *ClientWithResponses) UploadAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentSkillResponse, error) {
-	rsp, err := c.UploadAgentSkillWithBody(ctx, id, contentType, body, reqEditors...)
+func (c *ClientWithResponses) InstallAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error) {
+	rsp, err := c.InstallAgentScopedSkill(ctx, id, scope, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUploadAgentSkillResponse(rsp)
+	return ParseInstallAgentScopedSkillResponse(rsp)
 }
 
-// DeleteAgentSkillWithResponse request returning *DeleteAgentSkillResponse
-func (c *ClientWithResponses) DeleteAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillResponse, error) {
-	rsp, err := c.DeleteAgentSkill(ctx, id, skillId, reqEditors...)
+// UploadAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *UploadAgentScopedSkillResponse
+func (c *ClientWithResponses) UploadAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentScopedSkillResponse, error) {
+	rsp, err := c.UploadAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteAgentSkillResponse(rsp)
+	return ParseUploadAgentScopedSkillResponse(rsp)
 }
 
-// GetAgentSkillWithResponse request returning *GetAgentSkillResponse
-func (c *ClientWithResponses) GetAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillResponse, error) {
-	rsp, err := c.GetAgentSkill(ctx, id, skillId, reqEditors...)
+// DeleteAgentScopedSkillWithResponse request returning *DeleteAgentScopedSkillResponse
+func (c *ClientWithResponses) DeleteAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillResponse, error) {
+	rsp, err := c.DeleteAgentScopedSkill(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetAgentSkillResponse(rsp)
+	return ParseDeleteAgentScopedSkillResponse(rsp)
 }
 
-// UpdateAgentSkillWithBodyWithResponse request with arbitrary body returning *UpdateAgentSkillResponse
-func (c *ClientWithResponses) UpdateAgentSkillWithBodyWithResponse(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error) {
-	rsp, err := c.UpdateAgentSkillWithBody(ctx, id, skillId, contentType, body, reqEditors...)
+// GetAgentScopedSkillWithResponse request returning *GetAgentScopedSkillResponse
+func (c *ClientWithResponses) GetAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillResponse, error) {
+	rsp, err := c.GetAgentScopedSkill(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUpdateAgentSkillResponse(rsp)
+	return ParseGetAgentScopedSkillResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateAgentSkillWithResponse(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error) {
-	rsp, err := c.UpdateAgentSkill(ctx, id, skillId, body, reqEditors...)
+// UpdateAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *UpdateAgentScopedSkillResponse
+func (c *ClientWithResponses) UpdateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error) {
+	rsp, err := c.UpdateAgentScopedSkillWithBody(ctx, id, scope, skillId, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUpdateAgentSkillResponse(rsp)
+	return ParseUpdateAgentScopedSkillResponse(rsp)
 }
 
-// DeleteAgentSkillFileWithResponse request returning *DeleteAgentSkillFileResponse
-func (c *ClientWithResponses) DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error) {
-	rsp, err := c.DeleteAgentSkillFile(ctx, id, skillId, params, reqEditors...)
+func (c *ClientWithResponses) UpdateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error) {
+	rsp, err := c.UpdateAgentScopedSkill(ctx, id, scope, skillId, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteAgentSkillFileResponse(rsp)
+	return ParseUpdateAgentScopedSkillResponse(rsp)
 }
 
-// GetAgentSkillFileWithResponse request returning *GetAgentSkillFileResponse
-func (c *ClientWithResponses) GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error) {
-	rsp, err := c.GetAgentSkillFile(ctx, id, skillId, params, reqEditors...)
+// DeleteAgentScopedSkillFileWithResponse request returning *DeleteAgentScopedSkillFileResponse
+func (c *ClientWithResponses) DeleteAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillFileResponse, error) {
+	rsp, err := c.DeleteAgentScopedSkillFile(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetAgentSkillFileResponse(rsp)
+	return ParseDeleteAgentScopedSkillFileResponse(rsp)
+}
+
+// GetAgentScopedSkillFileWithResponse request returning *GetAgentScopedSkillFileResponse
+func (c *ClientWithResponses) GetAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillFileResponse, error) {
+	rsp, err := c.GetAgentScopedSkillFile(ctx, id, scope, skillId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentScopedSkillFileResponse(rsp)
 }
 
 // ListAgentUsersWithResponse request returning *ListAgentUsersResponse
@@ -16723,8 +16003,8 @@ func (c *ClientWithResponses) ListProfileMemoriesWithResponse(ctx context.Contex
 }
 
 // DeleteProfileMemoryWithResponse request returning *DeleteProfileMemoryResponse
-func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error) {
-	rsp, err := c.DeleteProfileMemory(ctx, agentId, reqEditors...)
+func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error) {
+	rsp, err := c.DeleteProfileMemory(ctx, agentID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16732,16 +16012,16 @@ func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Contex
 }
 
 // SetProfileMemoryWithBodyWithResponse request with arbitrary body returning *SetProfileMemoryResponse
-func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
-	rsp, err := c.SetProfileMemoryWithBody(ctx, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemoryWithBody(ctx, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetProfileMemoryResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
-	rsp, err := c.SetProfileMemory(ctx, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemory(ctx, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16819,105 +16099,17 @@ func (c *ClientWithResponses) ChangePasswordWithResponse(ctx context.Context, bo
 	return ParseChangePasswordResponse(rsp)
 }
 
-// ListProfileSkillsWithResponse request returning *ListProfileSkillsResponse
-func (c *ClientWithResponses) ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error) {
-	rsp, err := c.ListProfileSkills(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListProfileSkillsResponse(rsp)
-}
-
-// InstallProfileSkillWithBodyWithResponse request with arbitrary body returning *InstallProfileSkillResponse
-func (c *ClientWithResponses) InstallProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error) {
-	rsp, err := c.InstallProfileSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallProfileSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) InstallProfileSkillWithResponse(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error) {
-	rsp, err := c.InstallProfileSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallProfileSkillResponse(rsp)
-}
-
-// UploadProfileSkillWithBodyWithResponse request with arbitrary body returning *UploadProfileSkillResponse
-func (c *ClientWithResponses) UploadProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadProfileSkillResponse, error) {
-	rsp, err := c.UploadProfileSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUploadProfileSkillResponse(rsp)
-}
-
-// DeleteProfileSkillWithResponse request returning *DeleteProfileSkillResponse
-func (c *ClientWithResponses) DeleteProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*DeleteProfileSkillResponse, error) {
-	rsp, err := c.DeleteProfileSkill(ctx, skillId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteProfileSkillResponse(rsp)
-}
-
-// GetProfileSkillWithResponse request returning *GetProfileSkillResponse
-func (c *ClientWithResponses) GetProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetProfileSkillResponse, error) {
-	rsp, err := c.GetProfileSkill(ctx, skillId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetProfileSkillResponse(rsp)
-}
-
-// UpdateProfileSkillWithBodyWithResponse request with arbitrary body returning *UpdateProfileSkillResponse
-func (c *ClientWithResponses) UpdateProfileSkillWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error) {
-	rsp, err := c.UpdateProfileSkillWithBody(ctx, skillId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProfileSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateProfileSkillWithResponse(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error) {
-	rsp, err := c.UpdateProfileSkill(ctx, skillId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProfileSkillResponse(rsp)
-}
-
-// DeleteProfileSkillFileWithResponse request returning *DeleteProfileSkillFileResponse
-func (c *ClientWithResponses) DeleteProfileSkillFileWithResponse(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteProfileSkillFileResponse, error) {
-	rsp, err := c.DeleteProfileSkillFile(ctx, skillId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteProfileSkillFileResponse(rsp)
-}
-
-// GetProfileSkillFileWithResponse request returning *GetProfileSkillFileResponse
-func (c *ClientWithResponses) GetProfileSkillFileWithResponse(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*GetProfileSkillFileResponse, error) {
-	rsp, err := c.GetProfileSkillFile(ctx, skillId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetProfileSkillFileResponse(rsp)
-}
-
 // SetProfileSoulWithBodyWithResponse request with arbitrary body returning *SetProfileSoulResponse
-func (c *ClientWithResponses) SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
-	rsp, err := c.SetProfileSoulWithBody(ctx, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileSoulWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoulWithBody(ctx, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetProfileSoulResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
-	rsp, err := c.SetProfileSoul(ctx, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileSoulWithResponse(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoul(ctx, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -17589,241 +16781,6 @@ func (c *ClientWithResponses) PollFeedWithResponse(ctx context.Context, id strin
 	return ParsePollFeedResponse(rsp)
 }
 
-// ListSchedulerJobsWithResponse request returning *ListSchedulerJobsResponse
-func (c *ClientWithResponses) ListSchedulerJobsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error) {
-	rsp, err := c.ListSchedulerJobs(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSchedulerJobsResponse(rsp)
-}
-
-// CreateSchedulerJobWithBodyWithResponse request with arbitrary body returning *CreateSchedulerJobResponse
-func (c *ClientWithResponses) CreateSchedulerJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error) {
-	rsp, err := c.CreateSchedulerJobWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSchedulerJobResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateSchedulerJobWithResponse(ctx context.Context, body CreateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSchedulerJobResponse, error) {
-	rsp, err := c.CreateSchedulerJob(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSchedulerJobResponse(rsp)
-}
-
-// DeleteSchedulerJobWithResponse request returning *DeleteSchedulerJobResponse
-func (c *ClientWithResponses) DeleteSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSchedulerJobResponse, error) {
-	rsp, err := c.DeleteSchedulerJob(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteSchedulerJobResponse(rsp)
-}
-
-// UpdateSchedulerJobWithBodyWithResponse request with arbitrary body returning *UpdateSchedulerJobResponse
-func (c *ClientWithResponses) UpdateSchedulerJobWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error) {
-	rsp, err := c.UpdateSchedulerJobWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSchedulerJobResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateSchedulerJobWithResponse(ctx context.Context, id string, body UpdateSchedulerJobJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSchedulerJobResponse, error) {
-	rsp, err := c.UpdateSchedulerJob(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSchedulerJobResponse(rsp)
-}
-
-// TriggerSchedulerJobWithResponse request returning *TriggerSchedulerJobResponse
-func (c *ClientWithResponses) TriggerSchedulerJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TriggerSchedulerJobResponse, error) {
-	rsp, err := c.TriggerSchedulerJob(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseTriggerSchedulerJobResponse(rsp)
-}
-
-// ListSchedulerJobRunsWithResponse request returning *ListSchedulerJobRunsResponse
-func (c *ClientWithResponses) ListSchedulerJobRunsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListSchedulerJobRunsResponse, error) {
-	rsp, err := c.ListSchedulerJobRuns(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSchedulerJobRunsResponse(rsp)
-}
-
-// ListSessionsWithResponse request returning *ListSessionsResponse
-func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error) {
-	rsp, err := c.ListSessions(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSessionsResponse(rsp)
-}
-
-// CreateSessionWithBodyWithResponse request with arbitrary body returning *CreateSessionResponse
-func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error) {
-	rsp, err := c.CreateSessionWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSessionResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error) {
-	rsp, err := c.CreateSession(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSessionResponse(rsp)
-}
-
-// GetSessionWithResponse request returning *GetSessionResponse
-func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionResponse, error) {
-	rsp, err := c.GetSession(ctx, sessionID, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSessionResponse(rsp)
-}
-
-// GetSessionMessagesWithResponse request returning *GetSessionMessagesResponse
-func (c *ClientWithResponses) GetSessionMessagesWithResponse(ctx context.Context, sessionID string, params *GetSessionMessagesParams, reqEditors ...RequestEditorFn) (*GetSessionMessagesResponse, error) {
-	rsp, err := c.GetSessionMessages(ctx, sessionID, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSessionMessagesResponse(rsp)
-}
-
-// SendSessionMessageWithBodyWithResponse request with arbitrary body returning *SendSessionMessageResponse
-func (c *ClientWithResponses) SendSessionMessageWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error) {
-	rsp, err := c.SendSessionMessageWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSendSessionMessageResponse(rsp)
-}
-
-func (c *ClientWithResponses) SendSessionMessageWithResponse(ctx context.Context, sessionID string, body SendSessionMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendSessionMessageResponse, error) {
-	rsp, err := c.SendSessionMessage(ctx, sessionID, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSendSessionMessageResponse(rsp)
-}
-
-// GetSessionSystemPromptWithResponse request returning *GetSessionSystemPromptResponse
-func (c *ClientWithResponses) GetSessionSystemPromptWithResponse(ctx context.Context, sessionID string, reqEditors ...RequestEditorFn) (*GetSessionSystemPromptResponse, error) {
-	rsp, err := c.GetSessionSystemPrompt(ctx, sessionID, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSessionSystemPromptResponse(rsp)
-}
-
-// GetSessionWorkspaceWithResponse request returning *GetSessionWorkspaceResponse
-func (c *ClientWithResponses) GetSessionWorkspaceWithResponse(ctx context.Context, sessionID string, params *GetSessionWorkspaceParams, reqEditors ...RequestEditorFn) (*GetSessionWorkspaceResponse, error) {
-	rsp, err := c.GetSessionWorkspace(ctx, sessionID, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSessionWorkspaceResponse(rsp)
-}
-
-// GetWorkspaceFileContentWithResponse request returning *GetWorkspaceFileContentResponse
-func (c *ClientWithResponses) GetWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, params *GetWorkspaceFileContentParams, reqEditors ...RequestEditorFn) (*GetWorkspaceFileContentResponse, error) {
-	rsp, err := c.GetWorkspaceFileContent(ctx, sessionID, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetWorkspaceFileContentResponse(rsp)
-}
-
-// UpdateWorkspaceFileContentWithBodyWithResponse request with arbitrary body returning *UpdateWorkspaceFileContentResponse
-func (c *ClientWithResponses) UpdateWorkspaceFileContentWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
-	rsp, err := c.UpdateWorkspaceFileContentWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateWorkspaceFileContentResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateWorkspaceFileContentWithResponse(ctx context.Context, sessionID string, body UpdateWorkspaceFileContentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkspaceFileContentResponse, error) {
-	rsp, err := c.UpdateWorkspaceFileContent(ctx, sessionID, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateWorkspaceFileContentResponse(rsp)
-}
-
-// DeleteWorkspaceFileWithBodyWithResponse request with arbitrary body returning *DeleteWorkspaceFileResponse
-func (c *ClientWithResponses) DeleteWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error) {
-	rsp, err := c.DeleteWorkspaceFileWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteWorkspaceFileResponse(rsp)
-}
-
-func (c *ClientWithResponses) DeleteWorkspaceFileWithResponse(ctx context.Context, sessionID string, body DeleteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error) {
-	rsp, err := c.DeleteWorkspaceFile(ctx, sessionID, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteWorkspaceFileResponse(rsp)
-}
-
-// MoveWorkspaceFileWithBodyWithResponse request with arbitrary body returning *MoveWorkspaceFileResponse
-func (c *ClientWithResponses) MoveWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error) {
-	rsp, err := c.MoveWorkspaceFileWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseMoveWorkspaceFileResponse(rsp)
-}
-
-func (c *ClientWithResponses) MoveWorkspaceFileWithResponse(ctx context.Context, sessionID string, body MoveWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveWorkspaceFileResponse, error) {
-	rsp, err := c.MoveWorkspaceFile(ctx, sessionID, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseMoveWorkspaceFileResponse(rsp)
-}
-
-// CreateWorkspaceFileWithBodyWithResponse request with arbitrary body returning *CreateWorkspaceFileResponse
-func (c *ClientWithResponses) CreateWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error) {
-	rsp, err := c.CreateWorkspaceFileWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateWorkspaceFileResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateWorkspaceFileWithResponse(ctx context.Context, sessionID string, body CreateWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceFileResponse, error) {
-	rsp, err := c.CreateWorkspaceFile(ctx, sessionID, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateWorkspaceFileResponse(rsp)
-}
-
-// UploadWorkspaceFileWithBodyWithResponse request with arbitrary body returning *UploadWorkspaceFileResponse
-func (c *ClientWithResponses) UploadWorkspaceFileWithBodyWithResponse(ctx context.Context, sessionID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadWorkspaceFileResponse, error) {
-	rsp, err := c.UploadWorkspaceFileWithBody(ctx, sessionID, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUploadWorkspaceFileResponse(rsp)
-}
-
 // ListSharesWithResponse request returning *ListSharesResponse
 func (c *ClientWithResponses) ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error) {
 	rsp, err := c.ListShares(ctx, reqEditors...)
@@ -17868,49 +16825,6 @@ func (c *ClientWithResponses) RevokeShareWithResponse(ctx context.Context, id st
 	return ParseRevokeShareResponse(rsp)
 }
 
-// ListSkillsWithResponse request returning *ListSkillsResponse
-func (c *ClientWithResponses) ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error) {
-	rsp, err := c.ListSkills(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSkillsResponse(rsp)
-}
-
-// CreateSkillWithBodyWithResponse request with arbitrary body returning *CreateSkillResponse
-func (c *ClientWithResponses) CreateSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error) {
-	rsp, err := c.CreateSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateSkillWithResponse(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error) {
-	rsp, err := c.CreateSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSkillResponse(rsp)
-}
-
-// InstallSkillWithBodyWithResponse request with arbitrary body returning *InstallSkillResponse
-func (c *ClientWithResponses) InstallSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error) {
-	rsp, err := c.InstallSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) InstallSkillWithResponse(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error) {
-	rsp, err := c.InstallSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallSkillResponse(rsp)
-}
-
 // SearchSkillsWithResponse request returning *SearchSkillsResponse
 func (c *ClientWithResponses) SearchSkillsWithResponse(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*SearchSkillsResponse, error) {
 	rsp, err := c.SearchSkills(ctx, params, reqEditors...)
@@ -17920,59 +16834,6 @@ func (c *ClientWithResponses) SearchSkillsWithResponse(ctx context.Context, para
 	return ParseSearchSkillsResponse(rsp)
 }
 
-// DeleteSkillWithResponse request returning *DeleteSkillResponse
-func (c *ClientWithResponses) DeleteSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSkillResponse, error) {
-	rsp, err := c.DeleteSkill(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteSkillResponse(rsp)
-}
-
-// GetSkillWithResponse request returning *GetSkillResponse
-func (c *ClientWithResponses) GetSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSkillResponse, error) {
-	rsp, err := c.GetSkill(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSkillResponse(rsp)
-}
-
-// UpdateSkillWithBodyWithResponse request with arbitrary body returning *UpdateSkillResponse
-func (c *ClientWithResponses) UpdateSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error) {
-	rsp, err := c.UpdateSkillWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateSkillWithResponse(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error) {
-	rsp, err := c.UpdateSkill(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSkillResponse(rsp)
-}
-
-// DeleteSkillFileWithResponse request returning *DeleteSkillFileResponse
-func (c *ClientWithResponses) DeleteSkillFileWithResponse(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteSkillFileResponse, error) {
-	rsp, err := c.DeleteSkillFile(ctx, id, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteSkillFileResponse(rsp)
-}
-
-// GetSkillFileWithResponse request returning *GetSkillFileResponse
-func (c *ClientWithResponses) GetSkillFileWithResponse(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*GetSkillFileResponse, error) {
-	rsp, err := c.GetSkillFile(ctx, id, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSkillFileResponse(rsp)
-}
-
 // GetStatusWithResponse request returning *GetStatusResponse
 func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error) {
 	rsp, err := c.GetStatus(ctx, reqEditors...)
@@ -17980,154 +16841,6 @@ func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetStatusResponse(rsp)
-}
-
-// ListAgentTasksWithResponse request returning *ListAgentTasksResponse
-func (c *ClientWithResponses) ListAgentTasksWithResponse(ctx context.Context, params *ListAgentTasksParams, reqEditors ...RequestEditorFn) (*ListAgentTasksResponse, error) {
-	rsp, err := c.ListAgentTasks(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListAgentTasksResponse(rsp)
-}
-
-// CreateAgentTaskWithBodyWithResponse request with arbitrary body returning *CreateAgentTaskResponse
-func (c *ClientWithResponses) CreateAgentTaskWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error) {
-	rsp, err := c.CreateAgentTaskWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateAgentTaskResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateAgentTaskWithResponse(ctx context.Context, body CreateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskResponse, error) {
-	rsp, err := c.CreateAgentTask(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateAgentTaskResponse(rsp)
-}
-
-// BatchCreateAgentTasksWithBodyWithResponse request with arbitrary body returning *BatchCreateAgentTasksResponse
-func (c *ClientWithResponses) BatchCreateAgentTasksWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
-	rsp, err := c.BatchCreateAgentTasksWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseBatchCreateAgentTasksResponse(rsp)
-}
-
-func (c *ClientWithResponses) BatchCreateAgentTasksWithResponse(ctx context.Context, body BatchCreateAgentTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchCreateAgentTasksResponse, error) {
-	rsp, err := c.BatchCreateAgentTasks(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseBatchCreateAgentTasksResponse(rsp)
-}
-
-// ListUnblockedAgentTasksWithResponse request returning *ListUnblockedAgentTasksResponse
-func (c *ClientWithResponses) ListUnblockedAgentTasksWithResponse(ctx context.Context, params *ListUnblockedAgentTasksParams, reqEditors ...RequestEditorFn) (*ListUnblockedAgentTasksResponse, error) {
-	rsp, err := c.ListUnblockedAgentTasks(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListUnblockedAgentTasksResponse(rsp)
-}
-
-// DeleteAgentTaskWithResponse request returning *DeleteAgentTaskResponse
-func (c *ClientWithResponses) DeleteAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentTaskResponse, error) {
-	rsp, err := c.DeleteAgentTask(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteAgentTaskResponse(rsp)
-}
-
-// GetAgentTaskWithResponse request returning *GetAgentTaskResponse
-func (c *ClientWithResponses) GetAgentTaskWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskResponse, error) {
-	rsp, err := c.GetAgentTask(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetAgentTaskResponse(rsp)
-}
-
-// UpdateAgentTaskWithBodyWithResponse request with arbitrary body returning *UpdateAgentTaskResponse
-func (c *ClientWithResponses) UpdateAgentTaskWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error) {
-	rsp, err := c.UpdateAgentTaskWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateAgentTaskResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateAgentTaskWithResponse(ctx context.Context, id string, body UpdateAgentTaskJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentTaskResponse, error) {
-	rsp, err := c.UpdateAgentTask(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateAgentTaskResponse(rsp)
-}
-
-// AgentTaskActionWithBodyWithResponse request with arbitrary body returning *AgentTaskActionResponse
-func (c *ClientWithResponses) AgentTaskActionWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error) {
-	rsp, err := c.AgentTaskActionWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseAgentTaskActionResponse(rsp)
-}
-
-func (c *ClientWithResponses) AgentTaskActionWithResponse(ctx context.Context, id string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error) {
-	rsp, err := c.AgentTaskAction(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseAgentTaskActionResponse(rsp)
-}
-
-// GetAgentTaskDepsWithResponse request returning *GetAgentTaskDepsResponse
-func (c *ClientWithResponses) GetAgentTaskDepsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error) {
-	rsp, err := c.GetAgentTaskDeps(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetAgentTaskDepsResponse(rsp)
-}
-
-// AddAgentTaskDepWithBodyWithResponse request with arbitrary body returning *AddAgentTaskDepResponse
-func (c *ClientWithResponses) AddAgentTaskDepWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
-	rsp, err := c.AddAgentTaskDepWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseAddAgentTaskDepResponse(rsp)
-}
-
-func (c *ClientWithResponses) AddAgentTaskDepWithResponse(ctx context.Context, id string, body AddAgentTaskDepJSONRequestBody, reqEditors ...RequestEditorFn) (*AddAgentTaskDepResponse, error) {
-	rsp, err := c.AddAgentTaskDep(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseAddAgentTaskDepResponse(rsp)
-}
-
-// RemoveAgentTaskDepWithResponse request returning *RemoveAgentTaskDepResponse
-func (c *ClientWithResponses) RemoveAgentTaskDepWithResponse(ctx context.Context, id string, depId string, reqEditors ...RequestEditorFn) (*RemoveAgentTaskDepResponse, error) {
-	rsp, err := c.RemoveAgentTaskDep(ctx, id, depId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRemoveAgentTaskDepResponse(rsp)
-}
-
-// ListAgentTaskEventsWithResponse request returning *ListAgentTaskEventsResponse
-func (c *ClientWithResponses) ListAgentTaskEventsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error) {
-	rsp, err := c.ListAgentTaskEvents(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListAgentTaskEventsResponse(rsp)
 }
 
 // ListToolsWithResponse request returning *ListToolsResponse
@@ -18166,8 +16879,8 @@ func (c *ClientWithResponses) ListUserMemoriesWithResponse(ctx context.Context, 
 }
 
 // DeleteUserMemoryWithResponse request returning *DeleteUserMemoryResponse
-func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
-	rsp, err := c.DeleteUserMemory(ctx, id, agentId, reqEditors...)
+func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
+	rsp, err := c.DeleteUserMemory(ctx, id, agentID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -18175,16 +16888,16 @@ func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, 
 }
 
 // SetUserMemoryWithBodyWithResponse request with arbitrary body returning *SetUserMemoryResponse
-func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
-	rsp, err := c.SetUserMemoryWithBody(ctx, id, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+	rsp, err := c.SetUserMemoryWithBody(ctx, id, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetUserMemoryResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
-	rsp, err := c.SetUserMemory(ctx, id, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+	rsp, err := c.SetUserMemory(ctx, id, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -18587,6 +17300,1443 @@ func ParseUpdateProjectResponse(rsp *http.Response) (*UpdateProjectResponse, err
 	return response, nil
 }
 
+// ParseListSchedulerJobsResponse parses an HTTP response from a ListSchedulerJobsWithResponse call
+func ParseListSchedulerJobsResponse(rsp *http.Response) (*ListSchedulerJobsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSchedulerJobsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.JobList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateSchedulerJobResponse parses an HTTP response from a CreateSchedulerJobWithResponse call
+func ParseCreateSchedulerJobResponse(rsp *http.Response) (*CreateSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.Job
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteSchedulerJobResponse parses an HTTP response from a DeleteSchedulerJobWithResponse call
+func ParseDeleteSchedulerJobResponse(rsp *http.Response) (*DeleteSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.DeleteResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSchedulerJobResponse parses an HTTP response from a GetSchedulerJobWithResponse call
+func ParseGetSchedulerJobResponse(rsp *http.Response) (*GetSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Job
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateSchedulerJobResponse parses an HTTP response from a UpdateSchedulerJobWithResponse call
+func ParseUpdateSchedulerJobResponse(rsp *http.Response) (*UpdateSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Job
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTriggerSchedulerJobResponse parses an HTTP response from a TriggerSchedulerJobWithResponse call
+func ParseTriggerSchedulerJobResponse(rsp *http.Response) (*TriggerSchedulerJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TriggerSchedulerJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest externalRef0.TriggerJobResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest externalRef0.Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSchedulerJobRunsResponse parses an HTTP response from a ListSchedulerJobRunsWithResponse call
+func ParseListSchedulerJobRunsResponse(rsp *http.Response) (*ListSchedulerJobRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSchedulerJobRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.JobRunList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSessionsResponse parses an HTTP response from a ListSessionsWithResponse call
+func ParseListSessionsResponse(rsp *http.Response) (*ListSessionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.Session
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateSessionResponse parses an HTTP response from a CreateSessionWithResponse call
+func ParseCreateSessionResponse(rsp *http.Response) (*CreateSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.Session
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionResponse parses an HTTP response from a GetSessionWithResponse call
+func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SessionDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionMessagesResponse parses an HTTP response from a GetSessionMessagesWithResponse call
+func ParseGetSessionMessagesResponse(rsp *http.Response) (*GetSessionMessagesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionMessagesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSendSessionMessageResponse parses an HTTP response from a SendSessionMessageWithResponse call
+func ParseSendSessionMessageResponse(rsp *http.Response) (*SendSessionMessageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SendSessionMessageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionSystemPromptResponse parses an HTTP response from a GetSessionSystemPromptWithResponse call
+func ParseGetSessionSystemPromptResponse(rsp *http.Response) (*GetSessionSystemPromptResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionSystemPromptResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SystemPromptResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionWorkspaceResponse parses an HTTP response from a GetSessionWorkspaceWithResponse call
+func ParseGetSessionWorkspaceResponse(rsp *http.Response) (*GetSessionWorkspaceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionWorkspaceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SessionWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetWorkspaceFileContentResponse parses an HTTP response from a GetWorkspaceFileContentWithResponse call
+func ParseGetWorkspaceFileContentResponse(rsp *http.Response) (*GetWorkspaceFileContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetWorkspaceFileContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.WorkspaceFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case rsp.StatusCode == 200:
+		// Content-type (application/octet-stream) unsupported
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateWorkspaceFileContentResponse parses an HTTP response from a UpdateWorkspaceFileContentWithResponse call
+func ParseUpdateWorkspaceFileContentResponse(rsp *http.Response) (*UpdateWorkspaceFileContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateWorkspaceFileContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.WorkspaceFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteWorkspaceFileResponse parses an HTTP response from a DeleteWorkspaceFileWithResponse call
+func ParseDeleteWorkspaceFileResponse(rsp *http.Response) (*DeleteWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SessionWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMoveWorkspaceFileResponse parses an HTTP response from a MoveWorkspaceFileWithResponse call
+func ParseMoveWorkspaceFileResponse(rsp *http.Response) (*MoveWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SessionWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateWorkspaceFileResponse parses an HTTP response from a CreateWorkspaceFileWithResponse call
+func ParseCreateWorkspaceFileResponse(rsp *http.Response) (*CreateWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.SessionWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadWorkspaceFileResponse parses an HTTP response from a UploadWorkspaceFileWithResponse call
+func ParseUploadWorkspaceFileResponse(rsp *http.Response) (*UploadWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.WorkspaceUploadResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAgentTasksResponse parses an HTTP response from a ListAgentTasksWithResponse call
+func ParseListAgentTasksResponse(rsp *http.Response) (*ListAgentTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAgentTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateAgentTaskResponse parses an HTTP response from a CreateAgentTaskWithResponse call
+func ParseCreateAgentTaskResponse(rsp *http.Response) (*CreateAgentTaskResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateAgentTaskResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseBatchCreateAgentTasksResponse parses an HTTP response from a BatchCreateAgentTasksWithResponse call
+func ParseBatchCreateAgentTasksResponse(rsp *http.Response) (*BatchCreateAgentTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BatchCreateAgentTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUnblockedAgentTasksResponse parses an HTTP response from a ListUnblockedAgentTasksWithResponse call
+func ParseListUnblockedAgentTasksResponse(rsp *http.Response) (*ListUnblockedAgentTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUnblockedAgentTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteAgentTaskResponse parses an HTTP response from a DeleteAgentTaskWithResponse call
+func ParseDeleteAgentTaskResponse(rsp *http.Response) (*DeleteAgentTaskResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteAgentTaskResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.DeleteResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAgentTaskResponse parses an HTTP response from a GetAgentTaskWithResponse call
+func ParseGetAgentTaskResponse(rsp *http.Response) (*GetAgentTaskResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAgentTaskResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateAgentTaskResponse parses an HTTP response from a UpdateAgentTaskWithResponse call
+func ParseUpdateAgentTaskResponse(rsp *http.Response) (*UpdateAgentTaskResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateAgentTaskResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAgentTaskActionResponse parses an HTTP response from a AgentTaskActionWithResponse call
+func ParseAgentTaskActionResponse(rsp *http.Response) (*AgentTaskActionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AgentTaskActionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAgentTaskDepsResponse parses an HTTP response from a GetAgentTaskDepsWithResponse call
+func ParseGetAgentTaskDepsResponse(rsp *http.Response) (*GetAgentTaskDepsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAgentTaskDepsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskDepsInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddAgentTaskDepResponse parses an HTTP response from a AddAgentTaskDepWithResponse call
+func ParseAddAgentTaskDepResponse(rsp *http.Response) (*AddAgentTaskDepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddAgentTaskDepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveAgentTaskDepResponse parses an HTTP response from a RemoveAgentTaskDepWithResponse call
+func ParseRemoveAgentTaskDepResponse(rsp *http.Response) (*RemoveAgentTaskDepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveAgentTaskDepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAgentTaskEventsResponse parses an HTTP response from a ListAgentTaskEventsWithResponse call
+func ParseListAgentTaskEventsResponse(rsp *http.Response) (*ListAgentTaskEventsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAgentTaskEventsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskEventList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteAgentResponse parses an HTTP response from a DeleteAgentWithResponse call
 func ParseDeleteAgentResponse(rsp *http.Response) (*DeleteAgentResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -18775,26 +18925,33 @@ func ParseListAgentSkillsResponse(rsp *http.Response) (*ListAgentSkillsResponse,
 	return response, nil
 }
 
-// ParseDuplicateBuiltinSkillToAgentResponse parses an HTTP response from a DuplicateBuiltinSkillToAgentWithResponse call
-func ParseDuplicateBuiltinSkillToAgentResponse(rsp *http.Response) (*DuplicateBuiltinSkillToAgentResponse, error) {
+// ParseCreateAgentScopedSkillResponse parses an HTTP response from a CreateAgentScopedSkillWithResponse call
+func ParseCreateAgentScopedSkillResponse(rsp *http.Response) (*CreateAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DuplicateBuiltinSkillToAgentResponse{
+	response := &CreateAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.DuplicateSkillResult
+		var dest externalRef0.SkillUploadResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
@@ -18822,15 +18979,15 @@ func ParseDuplicateBuiltinSkillToAgentResponse(rsp *http.Response) (*DuplicateBu
 	return response, nil
 }
 
-// ParseInstallAgentSkillResponse parses an HTTP response from a InstallAgentSkillWithResponse call
-func ParseInstallAgentSkillResponse(rsp *http.Response) (*InstallAgentSkillResponse, error) {
+// ParseInstallAgentScopedSkillResponse parses an HTTP response from a InstallAgentScopedSkillWithResponse call
+func ParseInstallAgentScopedSkillResponse(rsp *http.Response) (*InstallAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &InstallAgentSkillResponse{
+	response := &InstallAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18864,20 +19021,27 @@ func ParseInstallAgentSkillResponse(rsp *http.Response) (*InstallAgentSkillRespo
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseUploadAgentSkillResponse parses an HTTP response from a UploadAgentSkillWithResponse call
-func ParseUploadAgentSkillResponse(rsp *http.Response) (*UploadAgentSkillResponse, error) {
+// ParseUploadAgentScopedSkillResponse parses an HTTP response from a UploadAgentScopedSkillWithResponse call
+func ParseUploadAgentScopedSkillResponse(rsp *http.Response) (*UploadAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &UploadAgentSkillResponse{
+	response := &UploadAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18911,20 +19075,27 @@ func ParseUploadAgentSkillResponse(rsp *http.Response) (*UploadAgentSkillRespons
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseDeleteAgentSkillResponse parses an HTTP response from a DeleteAgentSkillWithResponse call
-func ParseDeleteAgentSkillResponse(rsp *http.Response) (*DeleteAgentSkillResponse, error) {
+// ParseDeleteAgentScopedSkillResponse parses an HTTP response from a DeleteAgentScopedSkillWithResponse call
+func ParseDeleteAgentScopedSkillResponse(rsp *http.Response) (*DeleteAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteAgentSkillResponse{
+	response := &DeleteAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18963,15 +19134,15 @@ func ParseDeleteAgentSkillResponse(rsp *http.Response) (*DeleteAgentSkillRespons
 	return response, nil
 }
 
-// ParseGetAgentSkillResponse parses an HTTP response from a GetAgentSkillWithResponse call
-func ParseGetAgentSkillResponse(rsp *http.Response) (*GetAgentSkillResponse, error) {
+// ParseGetAgentScopedSkillResponse parses an HTTP response from a GetAgentScopedSkillWithResponse call
+func ParseGetAgentScopedSkillResponse(rsp *http.Response) (*GetAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetAgentSkillResponse{
+	response := &GetAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -19010,15 +19181,15 @@ func ParseGetAgentSkillResponse(rsp *http.Response) (*GetAgentSkillResponse, err
 	return response, nil
 }
 
-// ParseUpdateAgentSkillResponse parses an HTTP response from a UpdateAgentSkillWithResponse call
-func ParseUpdateAgentSkillResponse(rsp *http.Response) (*UpdateAgentSkillResponse, error) {
+// ParseUpdateAgentScopedSkillResponse parses an HTTP response from a UpdateAgentScopedSkillWithResponse call
+func ParseUpdateAgentScopedSkillResponse(rsp *http.Response) (*UpdateAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &UpdateAgentSkillResponse{
+	response := &UpdateAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -19064,26 +19235,33 @@ func ParseUpdateAgentSkillResponse(rsp *http.Response) (*UpdateAgentSkillRespons
 	return response, nil
 }
 
-// ParseDeleteAgentSkillFileResponse parses an HTTP response from a DeleteAgentSkillFileWithResponse call
-func ParseDeleteAgentSkillFileResponse(rsp *http.Response) (*DeleteAgentSkillFileResponse, error) {
+// ParseDeleteAgentScopedSkillFileResponse parses an HTTP response from a DeleteAgentScopedSkillFileWithResponse call
+func ParseDeleteAgentScopedSkillFileResponse(rsp *http.Response) (*DeleteAgentScopedSkillFileResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteAgentSkillFileResponse{
+	response := &DeleteAgentScopedSkillFileResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
+		var dest externalRef0.DeleteFileResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
@@ -19111,20 +19289,34 @@ func ParseDeleteAgentSkillFileResponse(rsp *http.Response) (*DeleteAgentSkillFil
 	return response, nil
 }
 
-// ParseGetAgentSkillFileResponse parses an HTTP response from a GetAgentSkillFileWithResponse call
-func ParseGetAgentSkillFileResponse(rsp *http.Response) (*GetAgentSkillFileResponse, error) {
+// ParseGetAgentScopedSkillFileResponse parses an HTTP response from a GetAgentScopedSkillFileWithResponse call
+func ParseGetAgentScopedSkillFileResponse(rsp *http.Response) (*GetAgentScopedSkillFileResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetAgentSkillFileResponse{
+	response := &GetAgentScopedSkillFileResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SkillFileResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19862,346 +20054,6 @@ func ParseChangePasswordResponse(rsp *http.Response) (*ChangePasswordResponse, e
 			return nil, err
 		}
 		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListProfileSkillsResponse parses an HTTP response from a ListProfileSkillsWithResponse call
-func ParseListProfileSkillsResponse(rsp *http.Response) (*ListProfileSkillsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListProfileSkillsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseInstallProfileSkillResponse parses an HTTP response from a InstallProfileSkillWithResponse call
-func ParseInstallProfileSkillResponse(rsp *http.Response) (*InstallProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &InstallProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Name *string `json:"name,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUploadProfileSkillResponse parses an HTTP response from a UploadProfileSkillWithResponse call
-func ParseUploadProfileSkillResponse(rsp *http.Response) (*UploadProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UploadProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.SkillUploadResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteProfileSkillResponse parses an HTTP response from a DeleteProfileSkillWithResponse call
-func ParseDeleteProfileSkillResponse(rsp *http.Response) (*DeleteProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetProfileSkillResponse parses an HTTP response from a GetProfileSkillWithResponse call
-func ParseGetProfileSkillResponse(rsp *http.Response) (*GetProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Skill
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateProfileSkillResponse parses an HTTP response from a UpdateProfileSkillWithResponse call
-func ParseUpdateProfileSkillResponse(rsp *http.Response) (*UpdateProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteProfileSkillFileResponse parses an HTTP response from a DeleteProfileSkillFileWithResponse call
-func ParseDeleteProfileSkillFileResponse(rsp *http.Response) (*DeleteProfileSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteProfileSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteFileResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetProfileSkillFileResponse parses an HTTP response from a GetProfileSkillFileWithResponse call
-func ParseGetProfileSkillFileResponse(rsp *http.Response) (*GetProfileSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetProfileSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillFileResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	}
 
@@ -22640,909 +22492,6 @@ func ParsePollFeedResponse(rsp *http.Response) (*PollFeedResponse, error) {
 	return response, nil
 }
 
-// ParseListSchedulerJobsResponse parses an HTTP response from a ListSchedulerJobsWithResponse call
-func ParseListSchedulerJobsResponse(rsp *http.Response) (*ListSchedulerJobsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSchedulerJobsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.JobList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateSchedulerJobResponse parses an HTTP response from a CreateSchedulerJobWithResponse call
-func ParseCreateSchedulerJobResponse(rsp *http.Response) (*CreateSchedulerJobResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateSchedulerJobResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.Job
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteSchedulerJobResponse parses an HTTP response from a DeleteSchedulerJobWithResponse call
-func ParseDeleteSchedulerJobResponse(rsp *http.Response) (*DeleteSchedulerJobResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteSchedulerJobResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateSchedulerJobResponse parses an HTTP response from a UpdateSchedulerJobWithResponse call
-func ParseUpdateSchedulerJobResponse(rsp *http.Response) (*UpdateSchedulerJobResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateSchedulerJobResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Job
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseTriggerSchedulerJobResponse parses an HTTP response from a TriggerSchedulerJobWithResponse call
-func ParseTriggerSchedulerJobResponse(rsp *http.Response) (*TriggerSchedulerJobResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &TriggerSchedulerJobResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
-		var dest externalRef0.TriggerJobResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON202 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest externalRef0.Conflict
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListSchedulerJobRunsResponse parses an HTTP response from a ListSchedulerJobRunsWithResponse call
-func ParseListSchedulerJobRunsResponse(rsp *http.Response) (*ListSchedulerJobRunsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSchedulerJobRunsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.JobRunList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListSessionsResponse parses an HTTP response from a ListSessionsWithResponse call
-func ParseListSessionsResponse(rsp *http.Response) (*ListSessionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSessionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []externalRef0.Session
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateSessionResponse parses an HTTP response from a CreateSessionWithResponse call
-func ParseCreateSessionResponse(rsp *http.Response) (*CreateSessionResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateSessionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.Session
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSessionResponse parses an HTTP response from a GetSessionWithResponse call
-func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSessionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SessionDetail
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSessionMessagesResponse parses an HTTP response from a GetSessionMessagesWithResponse call
-func ParseGetSessionMessagesResponse(rsp *http.Response) (*GetSessionMessagesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSessionMessagesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseSendSessionMessageResponse parses an HTTP response from a SendSessionMessageWithResponse call
-func ParseSendSessionMessageResponse(rsp *http.Response) (*SendSessionMessageResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &SendSessionMessageResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSessionSystemPromptResponse parses an HTTP response from a GetSessionSystemPromptWithResponse call
-func ParseGetSessionSystemPromptResponse(rsp *http.Response) (*GetSessionSystemPromptResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSessionSystemPromptResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SystemPromptResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSessionWorkspaceResponse parses an HTTP response from a GetSessionWorkspaceWithResponse call
-func ParseGetSessionWorkspaceResponse(rsp *http.Response) (*GetSessionWorkspaceResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSessionWorkspaceResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SessionWorkspace
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetWorkspaceFileContentResponse parses an HTTP response from a GetWorkspaceFileContentWithResponse call
-func ParseGetWorkspaceFileContentResponse(rsp *http.Response) (*GetWorkspaceFileContentResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetWorkspaceFileContentResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.WorkspaceFileContent
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case rsp.StatusCode == 200:
-		// Content-type (application/octet-stream) unsupported
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateWorkspaceFileContentResponse parses an HTTP response from a UpdateWorkspaceFileContentWithResponse call
-func ParseUpdateWorkspaceFileContentResponse(rsp *http.Response) (*UpdateWorkspaceFileContentResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateWorkspaceFileContentResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.WorkspaceFileContent
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteWorkspaceFileResponse parses an HTTP response from a DeleteWorkspaceFileWithResponse call
-func ParseDeleteWorkspaceFileResponse(rsp *http.Response) (*DeleteWorkspaceFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteWorkspaceFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SessionWorkspace
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseMoveWorkspaceFileResponse parses an HTTP response from a MoveWorkspaceFileWithResponse call
-func ParseMoveWorkspaceFileResponse(rsp *http.Response) (*MoveWorkspaceFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &MoveWorkspaceFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SessionWorkspace
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateWorkspaceFileResponse parses an HTTP response from a CreateWorkspaceFileWithResponse call
-func ParseCreateWorkspaceFileResponse(rsp *http.Response) (*CreateWorkspaceFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateWorkspaceFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.SessionWorkspace
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUploadWorkspaceFileResponse parses an HTTP response from a UploadWorkspaceFileWithResponse call
-func ParseUploadWorkspaceFileResponse(rsp *http.Response) (*UploadWorkspaceFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UploadWorkspaceFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.WorkspaceUploadResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListSharesResponse parses an HTTP response from a ListSharesWithResponse call
 func ParseListSharesResponse(rsp *http.Response) (*ListSharesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23689,144 +22638,6 @@ func ParseRevokeShareResponse(rsp *http.Response) (*RevokeShareResponse, error) 
 	return response, nil
 }
 
-// ParseListSkillsResponse parses an HTTP response from a ListSkillsWithResponse call
-func ParseListSkillsResponse(rsp *http.Response) (*ListSkillsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSkillsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateSkillResponse parses an HTTP response from a CreateSkillWithResponse call
-func ParseCreateSkillResponse(rsp *http.Response) (*CreateSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseInstallSkillResponse parses an HTTP response from a InstallSkillWithResponse call
-func ParseInstallSkillResponse(rsp *http.Response) (*InstallSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &InstallSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Name *string `json:"name,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseSearchSkillsResponse parses an HTTP response from a SearchSkillsWithResponse call
 func ParseSearchSkillsResponse(rsp *http.Response) (*SearchSkillsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23867,266 +22678,6 @@ func ParseSearchSkillsResponse(rsp *http.Response) (*SearchSkillsResponse, error
 	return response, nil
 }
 
-// ParseDeleteSkillResponse parses an HTTP response from a DeleteSkillWithResponse call
-func ParseDeleteSkillResponse(rsp *http.Response) (*DeleteSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSkillResponse parses an HTTP response from a GetSkillWithResponse call
-func ParseGetSkillResponse(rsp *http.Response) (*GetSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Skill
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateSkillResponse parses an HTTP response from a UpdateSkillWithResponse call
-func ParseUpdateSkillResponse(rsp *http.Response) (*UpdateSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteSkillFileResponse parses an HTTP response from a DeleteSkillFileWithResponse call
-func ParseDeleteSkillFileResponse(rsp *http.Response) (*DeleteSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteFileResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSkillFileResponse parses an HTTP response from a GetSkillFileWithResponse call
-func ParseGetSkillFileResponse(rsp *http.Response) (*GetSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillFileResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseGetStatusResponse parses an HTTP response from a GetStatusWithResponse call
 func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -24147,493 +22698,6 @@ func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListAgentTasksResponse parses an HTTP response from a ListAgentTasksWithResponse call
-func ParseListAgentTasksResponse(rsp *http.Response) (*ListAgentTasksResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListAgentTasksResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTaskList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateAgentTaskResponse parses an HTTP response from a CreateAgentTaskWithResponse call
-func ParseCreateAgentTaskResponse(rsp *http.Response) (*CreateAgentTaskResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateAgentTaskResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseBatchCreateAgentTasksResponse parses an HTTP response from a BatchCreateAgentTasksWithResponse call
-func ParseBatchCreateAgentTasksResponse(rsp *http.Response) (*BatchCreateAgentTasksResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &BatchCreateAgentTasksResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.AgentTaskList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListUnblockedAgentTasksResponse parses an HTTP response from a ListUnblockedAgentTasksWithResponse call
-func ParseListUnblockedAgentTasksResponse(rsp *http.Response) (*ListUnblockedAgentTasksResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListUnblockedAgentTasksResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTaskList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteAgentTaskResponse parses an HTTP response from a DeleteAgentTaskWithResponse call
-func ParseDeleteAgentTaskResponse(rsp *http.Response) (*DeleteAgentTaskResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteAgentTaskResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetAgentTaskResponse parses an HTTP response from a GetAgentTaskWithResponse call
-func ParseGetAgentTaskResponse(rsp *http.Response) (*GetAgentTaskResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetAgentTaskResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateAgentTaskResponse parses an HTTP response from a UpdateAgentTaskWithResponse call
-func ParseUpdateAgentTaskResponse(rsp *http.Response) (*UpdateAgentTaskResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateAgentTaskResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseAgentTaskActionResponse parses an HTTP response from a AgentTaskActionWithResponse call
-func ParseAgentTaskActionResponse(rsp *http.Response) (*AgentTaskActionResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &AgentTaskActionResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetAgentTaskDepsResponse parses an HTTP response from a GetAgentTaskDepsWithResponse call
-func ParseGetAgentTaskDepsResponse(rsp *http.Response) (*GetAgentTaskDepsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetAgentTaskDepsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTaskDepsInfo
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseAddAgentTaskDepResponse parses an HTTP response from a AddAgentTaskDepWithResponse call
-func ParseAddAgentTaskDepResponse(rsp *http.Response) (*AddAgentTaskDepResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &AddAgentTaskDepResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseRemoveAgentTaskDepResponse parses an HTTP response from a RemoveAgentTaskDepWithResponse call
-func ParseRemoveAgentTaskDepResponse(rsp *http.Response) (*RemoveAgentTaskDepResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RemoveAgentTaskDepResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTask
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListAgentTaskEventsResponse parses an HTTP response from a ListAgentTaskEventsWithResponse call
-func ParseListAgentTaskEventsResponse(rsp *http.Response) (*ListAgentTaskEventsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListAgentTaskEventsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AgentTaskEventList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	}
 

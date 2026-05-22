@@ -53,10 +53,11 @@ export function SessionDetail({
   const autoSentRef = useRef(false);
 
   const enc = session ? encodeURIComponent(session.id) : "";
+  const agentEnc = session ? encodeURIComponent(session.agent_id) : "";
 
   const transport = useMemo(
-    () => (session ? createSessionTransport(session.id) : undefined),
-    [session?.id],
+    () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
+    [session?.agent_id, session?.id],
   );
 
   const {
@@ -77,7 +78,10 @@ export function SessionDetail({
     enabled: !!session,
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      api<Message[]>("GET", `/api/sessions/${enc}/messages?limit=20&skip=${pageParam}`),
+      api<Message[]>(
+        "GET",
+        `/api/agents/${agentEnc}/sessions/${enc}/messages?limit=20&skip=${pageParam}`,
+      ),
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
@@ -116,7 +120,7 @@ export function SessionDetail({
       const e = encodeURIComponent(session.id);
       const pr = await api<{ system_prompt: string }>(
         "GET",
-        `/api/sessions/${e}/system-prompt`,
+        `/api/agents/${encodeURIComponent(session.agent_id)}/sessions/${e}/system-prompt`,
       ).catch(() => null);
       if (sessionIDRef.current !== session.id) return;
       if (pr?.system_prompt) setSystemPrompt(pr.system_prompt);
@@ -168,16 +172,12 @@ export function SessionDetail({
     if (!session) return;
     setSkillsLoading(true);
     try {
-      const all = (await api<Skill[]>("GET", "/api/skills")) ?? [];
+      const query = new URLSearchParams({ session_id: session.id });
       setSkills(
-        all.filter(
-          (skill) =>
-            skill.status !== "deprecated" &&
-            !skill.disable_model_invocation &&
-            (skill.scope === "system" ||
-              (skill.scope === "agent" && skill.agent_id === session.agent_id) ||
-              (skill.scope === "user" && skill.user_id === session.user_id)),
-        ),
+        (await api<Skill[]>(
+          "GET",
+          `/api/agents/${encodeURIComponent(session.agent_id)}/skills?${query.toString()}`,
+        )) ?? [],
       );
     } finally {
       setSkillsLoading(false);
@@ -219,7 +219,7 @@ export function SessionDetail({
           form.append("file", file);
           const res = await api<{ path: string }>(
             "POST",
-            `/api/sessions/${enc}/workspace/upload`,
+            `/api/agents/${agentEnc}/sessions/${enc}/workspace/upload`,
             form,
           );
           setAttachments((prev) =>
@@ -231,7 +231,7 @@ export function SessionDetail({
         }
       }
     },
-    [session, enc],
+    [session, agentEnc, enc],
   );
 
   const removeAttachment = useCallback((idx: number) => {

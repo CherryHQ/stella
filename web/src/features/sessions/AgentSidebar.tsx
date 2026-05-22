@@ -203,11 +203,13 @@ function parseDirs(paths: string[]): DirEntry[] {
 }
 
 function FolderTree({
+  agentId,
   sessionId,
   selected,
   onSelect,
   onRootResolved,
 }: {
+  agentId: string;
   sessionId: string;
   selected: string;
   onSelect: (path: string) => void;
@@ -219,7 +221,10 @@ function FolderTree({
 
   useEffect(() => {
     const enc = encodeURIComponent(sessionId);
-    api<{ root: string; paths: string[] }>("GET", `/api/sessions/${enc}/workspace?depth=4`).then(
+    api<{ root: string; paths: string[] }>(
+      "GET",
+      `/api/agents/${encodeURIComponent(agentId)}/sessions/${enc}/workspace?depth=4`,
+    ).then(
       (ws) => {
         setDirs(parseDirs(ws.paths));
         if (ws.root) onRootResolved?.(ws.root);
@@ -227,7 +232,7 @@ function FolderTree({
       },
       () => setLoading(false),
     );
-  }, [sessionId, onRootResolved]);
+  }, [agentId, sessionId, onRootResolved]);
 
   const toggle = (path: string) =>
     setExpanded((prev) => {
@@ -360,6 +365,7 @@ function CreateProjectDialog({
           {sessionId ? (
             <div className="overflow-hidden rounded-lg border border-border">
               <FolderTree
+                agentId={agentId}
                 sessionId={sessionId}
                 selected={selectedDir}
                 onSelect={handleSelect}
@@ -457,7 +463,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
-    queryFn: () => api<AgentTaskList>("GET", `/api/tasks?agent_id=${encodeURIComponent(agentId)}`),
+    queryFn: () => api<AgentTaskList>("GET", `/api/agents/${encodeURIComponent(agentId)}/tasks`),
   });
   const taskCount = taskList?.items?.length ?? 0;
 
@@ -480,7 +486,11 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
-    const sess = await api<Session>("POST", "/api/sessions", { agent_id: agentId });
+    const sess = await api<Session>(
+      "POST",
+      `/api/agents/${encodeURIComponent(agentId)}/sessions`,
+      {},
+    );
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     closeMobile();
     void navigate({
@@ -573,7 +583,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                   onClick={(e) => {
                     e.stopPropagation();
                     closeMobile();
-                    void navigate({ to: "/settings/agents" });
+                    void navigate({
+                      to: "/settings/agents/$agentId/$tab",
+                      params: { agentId: ag.id, tab: "config" },
+                    });
                   }}
                   className="grid size-7 place-items-center rounded-full text-muted-foreground/42 transition-all hover:bg-primary/10 hover:text-primary"
                   aria-label={`${ag.name} settings`}

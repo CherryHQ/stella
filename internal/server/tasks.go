@@ -18,7 +18,7 @@ func (s *Server) SetTasksService(svc *tasks.Service) {
 	s.tasksSvc = svc
 }
 
-func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params apiserver.ListAgentTasksParams) {
+func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListAgentTasksParams) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -29,13 +29,14 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		userID = info.UserID
 	}
 
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
 	var statusFilter string
 	if params.Status != nil {
 		statusFilter = *params.Status
-	}
-	var agentID string
-	if params.AgentId != nil {
-		agentID = *params.AgentId
 	}
 
 	list, err := s.tasksSvc.ListTasks(r.Context(), userID, agentID, statusFilter)
@@ -51,7 +52,7 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 	writeData(w, http.StatusOK, apiserver.AgentTaskList{Items: items})
 }
 
-func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request, agentID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -67,15 +68,14 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var userID string
 	if info != nil {
 		userID = info.UserID
-	}
-
-	agentID := ""
-	if body.AgentId != nil {
-		agentID = *body.AgentId
 	}
 	description := ""
 	if body.Description != nil {
@@ -105,14 +105,18 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, toAPITask(task))
 }
 
-func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
 	info := UserFromContext(r.Context())
+	var userID string
+	if info != nil {
+		userID = info.UserID
+	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -122,10 +126,14 @@ func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, id string)
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
+	if !task.AgentID.Valid || task.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
 	writeData(w, http.StatusOK, toAPITask(task))
 }
 
-func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -154,16 +162,20 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id stri
 	if body.Priority != nil {
 		priority = string(*body.Priority)
 	}
-	agentID := ""
-	if body.AgentId != nil {
-		agentID = *body.AgentId
+	existing, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
 	}
 
-	task, err := s.tasksSvc.UpdateTask(r.Context(), id, userID, tasks.UpdateTaskParams{
+	task, err := s.tasksSvc.UpdateTask(r.Context(), taskID, userID, tasks.UpdateTaskParams{
 		Title:       title,
 		Description: description,
 		Priority:    priority,
-		AgentID:     agentID,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "forbidden") {
@@ -176,7 +188,7 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, toAPITask(task))
 }
 
-func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -187,7 +199,17 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, id stri
 		userID = info.UserID
 	}
 
-	if err := s.tasksSvc.DeleteTask(r.Context(), id, userID); err != nil {
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !task.AgentID.Valid || task.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	if err := s.tasksSvc.DeleteTask(r.Context(), taskID, userID); err != nil {
 		if strings.Contains(err.Error(), "forbidden") {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
@@ -198,7 +220,7 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, apiserver.DeleteResult{Status: "deleted"})
 }
 
-func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -220,7 +242,17 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id stri
 		message = *body.Message
 	}
 
-	task, err := s.tasksSvc.HandleAction(r.Context(), id, userID, tasks.ActionParams{
+	existing, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	task, err := s.tasksSvc.HandleAction(r.Context(), taskID, userID, tasks.ActionParams{
 		Action:  string(body.Type),
 		Message: message,
 	})
@@ -235,14 +267,18 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, toAPITask(task))
 }
 
-func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
 	info := UserFromContext(r.Context())
+	var userID string
+	if info != nil {
+		userID = info.UserID
+	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -251,8 +287,12 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
+	if !task.AgentID.Valid || task.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
 
-	events, err := s.tasksSvc.ListTaskEvents(r.Context(), id)
+	events, err := s.tasksSvc.ListTaskEvents(r.Context(), taskID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -339,16 +379,12 @@ func (s *Server) toAPITaskWithDeps(ctx context.Context, t sqlc.AgentTask) apiser
 	return at
 }
 
-func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, params apiserver.ListUnblockedAgentTasksParams) {
+func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, agentID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
 	info := UserFromContext(r.Context())
-	var agentID string
-	if params.AgentId != nil {
-		agentID = *params.AgentId
-	}
 	list, err := s.tasksSvc.ListUnblockedTasks(r.Context(), info.UserID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -361,7 +397,7 @@ func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request,
 	writeData(w, http.StatusOK, apiserver.AgentTaskList{Items: items})
 }
 
-func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
+func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, agentID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -419,14 +455,14 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, apiserver.AgentTaskList{Items: items})
 }
 
-func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
 	info := UserFromContext(r.Context())
 
-	deps, err := s.tasksSvc.GetTaskDeps(r.Context(), id, info.UserID)
+	deps, err := s.tasksSvc.GetTaskDeps(r.Context(), taskID, info.UserID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, "task not found")
@@ -450,7 +486,7 @@ func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, id str
 	})
 }
 
-func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -463,7 +499,7 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	if err := s.tasksSvc.AddDep(r.Context(), id, body.DepId, info.UserID); err != nil {
+	if err := s.tasksSvc.AddDep(r.Context(), taskID, body.DepId, info.UserID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -472,7 +508,7 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -480,14 +516,14 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, s.toAPITaskWithDeps(r.Context(), task))
 }
 
-func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, id string, depId string) {
+func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID string, taskID string, depID string) {
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
 	info := UserFromContext(r.Context())
 
-	if err := s.tasksSvc.RemoveDep(r.Context(), id, depId, info.UserID); err != nil {
+	if err := s.tasksSvc.RemoveDep(r.Context(), taskID, depID, info.UserID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
@@ -496,7 +532,7 @@ func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), id, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

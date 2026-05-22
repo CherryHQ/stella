@@ -370,19 +370,12 @@ func (s *Service) GetTask(ctx context.Context, id string, userID string) (sqlc.A
 	return task, nil
 }
 
-// ListTasks returns tasks filtered by userID, agentID, and status.
+// ListTasks returns tasks for a specific agent, filtered by status.
 func (s *Service) ListTasks(ctx context.Context, userID, agentID, status string) ([]sqlc.AgentTask, error) {
-	var tasks []sqlc.AgentTask
-	var err error
-
-	if agentID != "" {
-		tasks, err = s.q.ListAgentTasksByUserAndAgent(ctx, sqlc.ListAgentTasksByUserAndAgentParams{
-			UserID:  userID,
-			AgentID: sql.NullString{String: agentID, Valid: true},
-		})
-	} else {
-		tasks, err = s.q.ListAgentTasksByUser(ctx, userID)
-	}
+	tasks, err := s.q.ListAgentTasksByUserAndAgent(ctx, sqlc.ListAgentTasksByUserAndAgentParams{
+		UserID:  userID,
+		AgentID: sql.NullString{String: agentID, Valid: true},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("tasks: list: %w", err)
 	}

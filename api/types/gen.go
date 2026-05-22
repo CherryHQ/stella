@@ -519,7 +519,7 @@ type AgentTaskEventList struct {
 
 // AgentTaskInput Fields for creating an agent task
 type AgentTaskInput struct {
-	AgentId *string `json:"agent_id,omitempty"`
+	AgentId string `json:"agent_id"`
 
 	// Deps IDs of tasks that must be done before this task can run
 	Deps        *[]string               `json:"deps,omitempty"`

@@ -73,10 +73,11 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 stella                          # Show help
 stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
 stella server --port 8080       # Start server with web UI on custom port
-stella skill list               # List installed skills
-stella skill search <q>         # Search skill ecosystem
-stella skill install <s>        # Install a skill
-stella skill remove <s>         # Remove a skill
+stella skill list --agent-id <id>          # List skills visible to an agent
+stella skill list --agent-id <id> --session-id <sid> # Include project skills
+stella skill search <q>                    # Search skill ecosystem
+stella skill install --agent-id <id> <s>   # Install a user skill for an agent
+stella skill remove --agent-id <id> <s>    # Remove a user skill from an agent
 stella vault list               # List stored secrets
 stella vault get <name>         # Retrieve a secret value
 stella vault set <name> <value> # Store a secret (use '-' to read from stdin)

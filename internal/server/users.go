@@ -55,7 +55,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 	writeData(w, http.StatusOK, memories)
 }
 
-func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string) {
+func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -67,19 +67,19 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentId, body.Content); err != nil {
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentID, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
-func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string) {
+func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
 	if !requireAdmin(w, r) {
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentId); err != nil {
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

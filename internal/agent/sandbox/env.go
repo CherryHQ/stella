@@ -85,6 +85,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		return nil, err
 	}
 
+	if cfg.AgentID != "" {
+		env["STELLA_AGENT_ID"] = cfg.AgentID
+	}
 	if cfg.SessionID != "" {
 		env["STELLA_SESSION_ID"] = cfg.SessionID
 	}

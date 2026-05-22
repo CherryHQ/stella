@@ -40,6 +40,7 @@ function schedulerRunSessionId(
 }
 
 export function AutomationDashPanel({
+  agentId,
   schedulerJobs,
   selectedJobId,
   selectedRunId,
@@ -88,7 +89,7 @@ export function AutomationDashPanel({
           try {
             const res = await api<SchedulerJobRun[]>(
               "GET",
-              `/api/scheduler/jobs/${encodeURIComponent(job.id)}/runs`,
+              `/api/agents/${encodeURIComponent(job.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(job.id)}/runs`,
             );
             for (const r of res ?? []) {
               allRuns.push({
@@ -109,26 +110,29 @@ export function AutomationDashPanel({
     } finally {
       setRunsLoading(false);
     }
-  }, [schedulerJobs]);
+  }, [agentId, schedulerJobs]);
 
   useEffect(() => {
     if (tab === "runs" || selectedRunId) void loadRuns();
   }, [tab, selectedRunId, loadRuns]);
 
-  const loadJobRuns = useCallback(async (jobId: string) => {
-    setJobRunsLoading(true);
-    try {
-      const res = await api<SchedulerJobRun[]>(
-        "GET",
-        `/api/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-      );
-      setJobRuns(res ?? []);
-    } catch {
-      setJobRuns([]);
-    } finally {
-      setJobRunsLoading(false);
-    }
-  }, []);
+  const loadJobRuns = useCallback(
+    async (jobId: string) => {
+      setJobRunsLoading(true);
+      try {
+        const res = await api<SchedulerJobRun[]>(
+          "GET",
+          `/api/agents/${encodeURIComponent(selectedJob?.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
+        );
+        setJobRuns(res ?? []);
+      } catch {
+        setJobRuns([]);
+      } finally {
+        setJobRunsLoading(false);
+      }
+    },
+    [agentId, selectedJob?.agent_id],
+  );
 
   useEffect(() => {
     if (selectedJobId) void loadJobRuns(selectedJobId);
@@ -155,7 +159,11 @@ export function AutomationDashPanel({
 
   const hasSidePanel = !!(selectedRun || (selectedJob && !selectedRun));
   const sidePanelContent = selectedRun ? (
-    <RunDetailPanel run={selectedRun} onClose={() => onSelectRun(selectedRun.job_id ?? "", null)} />
+    <RunDetailPanel
+      agentId={agentId}
+      run={selectedRun}
+      onClose={() => onSelectRun(selectedRun.job_id ?? "", null)}
+    />
   ) : selectedJob && !selectedRun ? (
     <JobDetailPanel
       job={selectedJob}
@@ -496,7 +504,15 @@ function JobDetailPanel({
   );
 }
 
-function RunDetailPanel({ run, onClose }: { run: RunWithMeta; onClose: () => void }) {
+function RunDetailPanel({
+  agentId,
+  run,
+  onClose,
+}: {
+  agentId: string;
+  run: RunWithMeta;
+  onClose: () => void;
+}) {
   const sessionId = schedulerRunSessionId(
     { id: run.job_id ?? "", agent_id: run.job_agent_id, session_mode: run.job_session_mode },
     run,
@@ -557,6 +573,7 @@ function RunDetailPanel({ run, onClose }: { run: RunWithMeta; onClose: () => voi
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {sessionId ? (
           <SessionConversation
+            agentId={run.job_agent_id || agentId}
             sessionId={sessionId}
             placeholder="Ask about this run..."
             className="h-full"

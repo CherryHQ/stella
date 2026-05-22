@@ -1,15 +1,13 @@
 paths:
-  /api/tasks:
+  /api/agents/{agentID}/tasks:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List agent tasks
       operationId: listAgentTasks
       parameters:
         - name: status
-          in: query
-          required: false
-          schema: { type: string }
-        - name: agent_id
           in: query
           required: false
           schema: { type: string }
@@ -50,7 +48,9 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/tasks/batch:
+  /api/agents/{agentID}/tasks/batch:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Batch create agent tasks with intra-batch dependencies
@@ -77,16 +77,13 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/tasks/unblocked:
+  /api/agents/{agentID}/tasks/unblocked:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List unblocked agent tasks (all deps done)
       operationId: listUnblockedAgentTasks
-      parameters:
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
       responses:
         "200":
           description: ok
@@ -99,9 +96,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/tasks/{id}:
+  /api/agents/{agentID}/tasks/{taskID}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: Get an agent task
@@ -161,9 +159,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/action:
+  /api/agents/{agentID}/tasks/{taskID}/action:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Take an action on an agent task
@@ -191,9 +190,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/events:
+  /api/agents/{agentID}/tasks/{taskID}/events:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List agent task events
@@ -211,9 +211,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/deps:
+  /api/agents/{agentID}/tasks/{taskID}/deps:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: Get task dependency info (upstream and downstream)
@@ -257,10 +258,11 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{id}/deps/{depId}:
+  /api/agents/{agentID}/tasks/{taskID}/deps/{depID}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: depId, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: depID, in: path, required: true, schema: { type: string } }
     delete:
       tags: [tasks]
       summary: Remove a dependency from a task

@@ -59,8 +59,8 @@ export function SkillsListPage() {
                 agentId={agentId}
                 onSelect={(id) =>
                   void navigate({
-                    to: "/agents/$agentId/skills/$skillId",
-                    params: { agentId, skillId: id },
+                    to: "/agents/$agentId/skills/$scope/$skillId",
+                    params: { agentId, scope: "user", skillId: id },
                   })
                 }
               />
@@ -72,8 +72,8 @@ export function SkillsListPage() {
                 agentId={agentId}
                 onSelect={(id) =>
                   void navigate({
-                    to: "/agents/$agentId/skills/$skillId",
-                    params: { agentId, skillId: id },
+                    to: "/agents/$agentId/skills/$scope/$skillId",
+                    params: { agentId, scope: "agent", skillId: id },
                   })
                 }
               />
@@ -85,8 +85,8 @@ export function SkillsListPage() {
                 agentId={agentId}
                 onSelect={(id) =>
                   void navigate({
-                    to: "/agents/$agentId/skills/$skillId",
-                    params: { agentId, skillId: id },
+                    to: "/agents/$agentId/skills/$scope/$skillId",
+                    params: { agentId, scope: "system", skillId: id },
                   })
                 }
               />
@@ -104,7 +104,7 @@ function SkillGroup({
   onSelect,
 }: {
   label: string;
-  skills: { id: string; name: string; description: string; scope: string }[];
+  skills: { id: string; name: string; description: string; scope: string; status?: string }[];
   agentId: string;
   onSelect: (id: string) => void;
 }) {
@@ -122,7 +122,14 @@ function SkillGroup({
               "rounded-xl border border-border/60 bg-card p-4 cursor-pointer hover:shadow-sm transition-all duration-150",
             )}
           >
-            <p className="text-[13px] font-medium truncate">{s.name}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-[13px] font-medium truncate">{s.name}</p>
+              {s.status && s.status !== "active" && (
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {s.status}
+                </span>
+              )}
+            </div>
             {s.description && (
               <p className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">
                 {s.description}

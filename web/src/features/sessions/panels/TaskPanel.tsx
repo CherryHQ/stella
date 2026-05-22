@@ -32,8 +32,8 @@ export function TaskPanel({ agentId, onCreated }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-    api<{ items: ComponentsAgentTask[] }>("GET", `/api/tasks${params}`)
+    if (!agentId) return;
+    api<{ items: ComponentsAgentTask[] }>("GET", `/api/agents/${encodeURIComponent(agentId)}/tasks`)
       .then((res) => setAvailableTasks(res.items ?? []))
       .catch(() => {});
   }, [agentId]);
@@ -42,13 +42,17 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      const task = await api<ComponentsAgentTask>("POST", "/api/tasks", {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        agent_id: agentId || undefined,
-        deps: selectedDeps.length > 0 ? selectedDeps : undefined,
-      });
+      const task = await api<ComponentsAgentTask>(
+        "POST",
+        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
+        {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          priority,
+          agent_id: agentId,
+          deps: selectedDeps.length > 0 ? selectedDeps : undefined,
+        },
+      );
       onCreated(task);
     } catch (e) {
       console.error(e);

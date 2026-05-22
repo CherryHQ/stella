@@ -2,9 +2,9 @@ import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import type { Message } from "./types";
 
-export function createSessionTransport(sessionId: string) {
+export function createSessionTransport(agentId: string, sessionId: string) {
   return new DefaultChatTransport({
-    api: `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+    api: `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
       const parts = last.parts

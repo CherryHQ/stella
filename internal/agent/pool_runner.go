@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -14,26 +15,6 @@ import (
 func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model string) (*Session, Runner, error) {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
-	if ok && sess.Runner != nil {
-		// Check if the runner is still alive.
-		if !sess.Runner.Alive() {
-			p.log.Warn("replacing dead runner", "session_id", sessionID)
-			_ = sess.Runner.Close()
-			sess.Runner = nil
-		}
-	}
-	if ok && sess.Runner != nil {
-		// If a specific model was requested and it differs from the session's
-		// current model, replace the runner.
-		if model != "" && sess.Model != model {
-			p.log.Info("switching model", "session_id", sessionID, "from", sess.Model, "to", model)
-			_ = sess.Runner.Close()
-			sess.Runner = nil
-		} else {
-			p.mu.Unlock()
-			return sess, sess.Runner, nil
-		}
-	}
 	if !ok {
 		sess = &Session{}
 		p.sessions[sessionID] = sess
@@ -49,6 +30,8 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
 	}
+
+	contextIncompleteBefore := sess.Info.UserID == "" || sess.Info.AgentID == ""
 	if sess.Info.UserID == "" {
 		if userID := memory.UserIDFromContext(ctx); userID != "" {
 			sess.Info.UserID = userID
@@ -59,6 +42,39 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info.AgentID = agentID
 		} else if p.agentID != "" {
 			sess.Info.AgentID = p.agentID
+		}
+	}
+	if sess.Info.UserID == "" {
+		p.mu.Unlock()
+		return nil, nil, fmt.Errorf("session %q missing user context", sessionID)
+	}
+	if sess.Info.AgentID == "" {
+		p.mu.Unlock()
+		return nil, nil, fmt.Errorf("session %q missing agent context", sessionID)
+	}
+	if contextIncompleteBefore && sess.Runner != nil {
+		p.log.Warn("replacing runner created with incomplete context", "session_id", sessionID)
+		_ = sess.Runner.Close()
+		sess.Runner = nil
+	}
+	if sess.Runner != nil {
+		// Check if the runner is still alive.
+		if !sess.Runner.Alive() {
+			p.log.Warn("replacing dead runner", "session_id", sessionID)
+			_ = sess.Runner.Close()
+			sess.Runner = nil
+		}
+	}
+	if sess.Runner != nil {
+		// If a specific model was requested and it differs from the session's
+		// current model, replace the runner.
+		if model != "" && sess.Model != model {
+			p.log.Info("switching model", "session_id", sessionID, "from", sess.Model, "to", model)
+			_ = sess.Runner.Close()
+			sess.Runner = nil
+		} else {
+			p.mu.Unlock()
+			return sess, sess.Runner, nil
 		}
 	}
 
@@ -77,7 +93,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = defaultModel
 	}
 
-	r, err := factory(ctx, RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, SessionID: sessionID, AgentID: p.agentID, ProjectID: sess.Info.ProjectID, HooksFn: hooksFn})
+	r, err := factory(ctx, RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, SessionID: sessionID, AgentID: sess.Info.AgentID, ProjectID: sess.Info.ProjectID, HooksFn: hooksFn})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -95,7 +111,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	p.mu.Unlock()
 
 	// Memory: bootstrap the conversation for this session.
-	memSession := memory.Session{ID: sessionID, AgentID: p.agentID, UserID: sess.Info.UserID}
+	memSession := memory.Session{ID: sessionID, AgentID: sess.Info.AgentID, UserID: sess.Info.UserID}
 	if err := p.mem.Bootstrap(ctx, memSession); err != nil {
 		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
 	}

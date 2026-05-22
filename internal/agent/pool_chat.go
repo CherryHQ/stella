@@ -78,7 +78,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	// Auto-compact if the session has grown too large. Use a short detached
 	// context so a slow summarizer cannot consume the channel request deadline
 	// and poison the rest of this chat turn with context.Canceled/DeadlineExceeded.
-	if p.NeedsCompaction(sessionID) {
+	if p.NeedsCompaction(ctx, sessionID) {
 		p.log.Info("auto-compaction triggered", "session_id", sessionID)
 		compactCtx, cancelCompact := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
 		if summary, err := p.CompactSession(compactCtx, sessionID); err != nil {
@@ -121,7 +121,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 
 	// Persist updated session info (LastActive, Title).
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		if err := sm.SaveInfo(context.Background(), infoSnapshot); err != nil {
+		if err := sm.SaveInfo(ctx, infoSnapshot); err != nil {
 			p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
 		}
 	}

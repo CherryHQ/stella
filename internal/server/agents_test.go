@@ -143,6 +143,36 @@ func TestAgentScopeInUpdate(t *testing.T) {
 	}
 }
 
+func TestAdminCanUpdateAgentCreatedByAnotherUser(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, creatorSID := newNonAdmin(t, env, "agent-owner")
+	agentID := createAgentAsUser(t, env, creatorSID, "owned-agent")
+
+	body := config.Agent{
+		Name:    "Admin Edited",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "system",
+		Enabled: true,
+	}
+	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var updated config.Agent
+	if err := json.Unmarshal(resp.Data, &updated); err != nil {
+		t.Fatalf("unmarshal updated agent: %v", err)
+	}
+	if updated.Name != "Admin Edited" {
+		t.Fatalf("updated name = %q, want %q", updated.Name, "Admin Edited")
+	}
+	if updated.Scope != "system" {
+		t.Fatalf("updated scope = %q, want %q", updated.Scope, "system")
+	}
+}
+
 func TestAgentInvalidScope(t *testing.T) {
 	env := setupAdmin(t)
 

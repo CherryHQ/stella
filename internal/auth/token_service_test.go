@@ -102,7 +102,7 @@ type fakeVault struct {
 
 func newFakeVault() *fakeVault { return &fakeVault{env: make(map[string]map[string]string)} }
 
-func (v *fakeVault) Set(_ context.Context, userID string, name string, plaintext string) error {
+func (v *fakeVault) SetReserved(_ context.Context, userID string, name string, plaintext string) error {
 	if v.env[userID] == nil {
 		v.env[userID] = make(map[string]string)
 	}

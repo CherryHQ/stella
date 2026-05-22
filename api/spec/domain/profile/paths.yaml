@@ -118,9 +118,9 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/memories/{agentId}:
+  /api/auth/profile/memories/{agentID}:
     parameters:
-      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     put:
       tags: [profile]
       summary: Set the memory for a specific agent
@@ -159,9 +159,9 @@ paths:
         }
 
   # ── Soul ────────────────────────────────────────────────────────────────────
-  /api/auth/profile/soul/{agentId}:
+  /api/auth/profile/soul/{agentID}:
     parameters:
-      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     put:
       tags: [profile]
       summary: Set the soul for a specific agent

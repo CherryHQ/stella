@@ -360,7 +360,7 @@ export type ComponentsAgentTaskInput = {
   title: string;
   description?: string;
   priority?: "routine" | "urgent";
-  agent_id?: string;
+  agent_id: string;
   /**
    * IDs of tasks that must be done before this task can run
    */
@@ -1388,15 +1388,15 @@ export type _1Api1Agents1Id = unknown;
 
 export type _1Api1Agents1Id1Skills = unknown;
 
-export type _1Api1Agents1Id1Skills1FromBuiltin1SkillId = unknown;
+export type _1Api1Agents1Id1Skills1Scope = unknown;
 
-export type _1Api1Agents1Id1Skills1Install = unknown;
+export type _1Api1Agents1Id1Skills1Scope1Install = unknown;
 
-export type _1Api1Agents1Id1Skills1Upload = unknown;
+export type _1Api1Agents1Id1Skills1Scope1Upload = unknown;
 
-export type _1Api1Agents1Id1Skills1SkillId = unknown;
+export type _1Api1Agents1Id1Skills1Scope1SkillId = unknown;
 
-export type _1Api1Agents1Id1Skills1SkillId1File = unknown;
+export type _1Api1Agents1Id1Skills1Scope1SkillId1File = unknown;
 
 export type _1Api1Agents1Id1Users = unknown;
 
@@ -1504,29 +1504,30 @@ export type _1Api1Recally1Feeds1Id = unknown;
 
 export type _1Api1Recally1Feeds1Id1Poll = unknown;
 
-export type _1Api1Scheduler1Jobs = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs = unknown;
 
-export type _1Api1Scheduler1Jobs1Id = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId = unknown;
 
-export type _1Api1Scheduler1Jobs1Id1Run = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId1Run = unknown;
 
-export type _1Api1Scheduler1Jobs1Id1Runs = unknown;
+export type _1Api1Agents1AgentId1Scheduler1Jobs1JobId1Runs = unknown;
 
-export type _1Api1Sessions = unknown;
+export type _1Api1Agents1AgentId1Sessions = unknown;
 
-export type _1Api1Sessions1SessionId = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId = unknown;
 
-export type _1Api1Sessions1SessionId1Messages = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Messages = unknown;
 
-export type _1Api1Sessions1SessionId1SystemPrompt = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1SystemPrompt = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1FileContent = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1FileContent =
+  unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1Files = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1Files = unknown;
 
-export type _1Api1Sessions1SessionId1Workspace1Upload = unknown;
+export type _1Api1Agents1AgentId1Sessions1SessionId1Workspace1Upload = unknown;
 
 export type _1Api1Shares = unknown;
 
@@ -1534,43 +1535,25 @@ export type _1Api1Shares1Public1Token = unknown;
 
 export type _1Api1Shares1Id = unknown;
 
-export type _1Api1Auth1Profile1Skills = unknown;
-
-export type _1Api1Auth1Profile1Skills1Install = unknown;
-
-export type _1Api1Auth1Profile1Skills1Upload = unknown;
-
-export type _1Api1Auth1Profile1Skills1SkillId = unknown;
-
-export type _1Api1Auth1Profile1Skills1SkillId1File = unknown;
-
-export type _1Api1Skills = unknown;
-
-export type _1Api1Skills1Install = unknown;
-
 export type _1Api1Skills1Search = unknown;
-
-export type _1Api1Skills1Id = unknown;
-
-export type _1Api1Skills1Id1File = unknown;
 
 export type _1Api1Status = unknown;
 
-export type _1Api1Tasks = unknown;
+export type _1Api1Agents1AgentId1Tasks = unknown;
 
-export type _1Api1Tasks1Batch = unknown;
+export type _1Api1Agents1AgentId1Tasks1Batch = unknown;
 
-export type _1Api1Tasks1Unblocked = unknown;
+export type _1Api1Agents1AgentId1Tasks1Unblocked = unknown;
 
-export type _1Api1Tasks1Id = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId = unknown;
 
-export type _1Api1Tasks1Id1Action = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Action = unknown;
 
-export type _1Api1Tasks1Id1Deps = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Deps = unknown;
 
-export type _1Api1Tasks1Id1Deps1DepId = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Deps1DepId = unknown;
 
-export type _1Api1Tasks1Id1Events = unknown;
+export type _1Api1Agents1AgentId1Tasks1TaskId1Events = unknown;
 
 export type _1Api1Tools = unknown;
 
@@ -2051,7 +2034,9 @@ export type ListAgentSkillsData = {
   path: {
     id: string;
   };
-  query?: never;
+  query?: {
+    session_id?: string;
+  };
   url: "/api/agents/{id}/skills";
 };
 
@@ -2083,16 +2068,17 @@ export type ListAgentSkillsResponses = {
 export type ListAgentSkillsResponse =
   ListAgentSkillsResponses[keyof ListAgentSkillsResponses];
 
-export type InstallAgentSkillData = {
-  body: ComponentsInstallSkillRequest;
+export type CreateAgentScopedSkillData = {
+  body: ComponentsCreateSkillRequest;
   path: {
     id: string;
+    scope: "agent" | "user";
   };
   query?: never;
-  url: "/api/agents/{id}/skills/install";
+  url: "/api/agents/{id}/skills/{scope}";
 };
 
-export type InstallAgentSkillErrors = {
+export type CreateAgentScopedSkillErrors = {
   /**
    * malformed request
    */
@@ -2111,33 +2097,90 @@ export type InstallAgentSkillErrors = {
   403: {
     error: string;
   };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
 };
 
-export type InstallAgentSkillError =
-  InstallAgentSkillErrors[keyof InstallAgentSkillErrors];
+export type CreateAgentScopedSkillError =
+  CreateAgentScopedSkillErrors[keyof CreateAgentScopedSkillErrors];
 
-export type InstallAgentSkillResponses = {
+export type CreateAgentScopedSkillResponses = {
+  /**
+   * created
+   */
+  201: ComponentsSkillUploadResult;
+};
+
+export type CreateAgentScopedSkillResponse =
+  CreateAgentScopedSkillResponses[keyof CreateAgentScopedSkillResponses];
+
+export type InstallAgentScopedSkillData = {
+  body: ComponentsInstallSkillRequest;
+  path: {
+    id: string;
+    scope: "agent" | "user";
+  };
+  query?: never;
+  url: "/api/agents/{id}/skills/{scope}/install";
+};
+
+export type InstallAgentScopedSkillErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type InstallAgentScopedSkillError =
+  InstallAgentScopedSkillErrors[keyof InstallAgentScopedSkillErrors];
+
+export type InstallAgentScopedSkillResponses = {
   /**
    * installed
    */
   201: ComponentsSkillUploadResult;
 };
 
-export type InstallAgentSkillResponse =
-  InstallAgentSkillResponses[keyof InstallAgentSkillResponses];
+export type InstallAgentScopedSkillResponse =
+  InstallAgentScopedSkillResponses[keyof InstallAgentScopedSkillResponses];
 
-export type UploadAgentSkillData = {
+export type UploadAgentScopedSkillData = {
   body: {
     file?: Blob | File;
   };
   path: {
     id: string;
+    scope: "agent" | "user";
   };
   query?: never;
-  url: "/api/agents/{id}/skills/upload";
+  url: "/api/agents/{id}/skills/{scope}/upload";
 };
 
-export type UploadAgentSkillErrors = {
+export type UploadAgentScopedSkillErrors = {
   /**
    * malformed request
    */
@@ -2156,32 +2199,41 @@ export type UploadAgentSkillErrors = {
   403: {
     error: string;
   };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
 };
 
-export type UploadAgentSkillError =
-  UploadAgentSkillErrors[keyof UploadAgentSkillErrors];
+export type UploadAgentScopedSkillError =
+  UploadAgentScopedSkillErrors[keyof UploadAgentScopedSkillErrors];
 
-export type UploadAgentSkillResponses = {
+export type UploadAgentScopedSkillResponses = {
   /**
    * uploaded
    */
   201: ComponentsSkillUploadResult;
 };
 
-export type UploadAgentSkillResponse =
-  UploadAgentSkillResponses[keyof UploadAgentSkillResponses];
+export type UploadAgentScopedSkillResponse =
+  UploadAgentScopedSkillResponses[keyof UploadAgentScopedSkillResponses];
 
-export type DuplicateBuiltinSkillToAgentData = {
+export type DeleteAgentScopedSkillData = {
   body?: never;
   path: {
     id: string;
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
-  url: "/api/agents/{id}/skills/from-builtin/{skillId}";
+  query?: {
+    session_id?: string;
+  };
+  url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
-export type DuplicateBuiltinSkillToAgentErrors = {
+export type DeleteAgentScopedSkillErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -2202,74 +2254,33 @@ export type DuplicateBuiltinSkillToAgentErrors = {
   };
 };
 
-export type DuplicateBuiltinSkillToAgentError =
-  DuplicateBuiltinSkillToAgentErrors[keyof DuplicateBuiltinSkillToAgentErrors];
+export type DeleteAgentScopedSkillError =
+  DeleteAgentScopedSkillErrors[keyof DeleteAgentScopedSkillErrors];
 
-export type DuplicateBuiltinSkillToAgentResponses = {
-  /**
-   * duplicated
-   */
-  201: ComponentsDuplicateSkillResult;
-};
-
-export type DuplicateBuiltinSkillToAgentResponse =
-  DuplicateBuiltinSkillToAgentResponses[keyof DuplicateBuiltinSkillToAgentResponses];
-
-export type DeleteAgentSkillData = {
-  body?: never;
-  path: {
-    id: string;
-    skillId: string;
-  };
-  query?: never;
-  url: "/api/agents/{id}/skills/{skillId}";
-};
-
-export type DeleteAgentSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteAgentSkillError =
-  DeleteAgentSkillErrors[keyof DeleteAgentSkillErrors];
-
-export type DeleteAgentSkillResponses = {
+export type DeleteAgentScopedSkillResponses = {
   /**
    * deleted
    */
   200: ComponentsDeleteResult;
 };
 
-export type DeleteAgentSkillResponse =
-  DeleteAgentSkillResponses[keyof DeleteAgentSkillResponses];
+export type DeleteAgentScopedSkillResponse =
+  DeleteAgentScopedSkillResponses[keyof DeleteAgentScopedSkillResponses];
 
-export type GetAgentSkillData = {
+export type GetAgentScopedSkillData = {
   body?: never;
   path: {
     id: string;
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
-  url: "/api/agents/{id}/skills/{skillId}";
+  query?: {
+    session_id?: string;
+  };
+  url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
-export type GetAgentSkillErrors = {
+export type GetAgentScopedSkillErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -2290,29 +2301,33 @@ export type GetAgentSkillErrors = {
   };
 };
 
-export type GetAgentSkillError = GetAgentSkillErrors[keyof GetAgentSkillErrors];
+export type GetAgentScopedSkillError =
+  GetAgentScopedSkillErrors[keyof GetAgentScopedSkillErrors];
 
-export type GetAgentSkillResponses = {
+export type GetAgentScopedSkillResponses = {
   /**
    * ok
    */
   200: ComponentsSkill;
 };
 
-export type GetAgentSkillResponse =
-  GetAgentSkillResponses[keyof GetAgentSkillResponses];
+export type GetAgentScopedSkillResponse =
+  GetAgentScopedSkillResponses[keyof GetAgentScopedSkillResponses];
 
-export type UpdateAgentSkillData = {
+export type UpdateAgentScopedSkillData = {
   body: ComponentsUpdateSkillRequest;
   path: {
     id: string;
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
-  query?: never;
-  url: "/api/agents/{id}/skills/{skillId}";
+  query?: {
+    session_id?: string;
+  };
+  url: "/api/agents/{id}/skills/{scope}/{skillId}";
 };
 
-export type UpdateAgentSkillErrors = {
+export type UpdateAgentScopedSkillErrors = {
   /**
    * malformed request
    */
@@ -2339,32 +2354,40 @@ export type UpdateAgentSkillErrors = {
   };
 };
 
-export type UpdateAgentSkillError =
-  UpdateAgentSkillErrors[keyof UpdateAgentSkillErrors];
+export type UpdateAgentScopedSkillError =
+  UpdateAgentScopedSkillErrors[keyof UpdateAgentScopedSkillErrors];
 
-export type UpdateAgentSkillResponses = {
+export type UpdateAgentScopedSkillResponses = {
   /**
    * ok
    */
   200: ComponentsSkill;
 };
 
-export type UpdateAgentSkillResponse =
-  UpdateAgentSkillResponses[keyof UpdateAgentSkillResponses];
+export type UpdateAgentScopedSkillResponse =
+  UpdateAgentScopedSkillResponses[keyof UpdateAgentScopedSkillResponses];
 
-export type DeleteAgentSkillFileData = {
+export type DeleteAgentScopedSkillFileData = {
   body?: never;
   path: {
     id: string;
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
+    session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{skillId}/file";
+  url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
 };
 
-export type DeleteAgentSkillFileErrors = {
+export type DeleteAgentScopedSkillFileErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
   /**
    * missing or invalid bearer token
    */
@@ -2385,32 +2408,40 @@ export type DeleteAgentSkillFileErrors = {
   };
 };
 
-export type DeleteAgentSkillFileError =
-  DeleteAgentSkillFileErrors[keyof DeleteAgentSkillFileErrors];
+export type DeleteAgentScopedSkillFileError =
+  DeleteAgentScopedSkillFileErrors[keyof DeleteAgentScopedSkillFileErrors];
 
-export type DeleteAgentSkillFileResponses = {
+export type DeleteAgentScopedSkillFileResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  200: ComponentsDeleteFileResult;
 };
 
-export type DeleteAgentSkillFileResponse =
-  DeleteAgentSkillFileResponses[keyof DeleteAgentSkillFileResponses];
+export type DeleteAgentScopedSkillFileResponse =
+  DeleteAgentScopedSkillFileResponses[keyof DeleteAgentScopedSkillFileResponses];
 
-export type GetAgentSkillFileData = {
+export type GetAgentScopedSkillFileData = {
   body?: never;
   path: {
     id: string;
+    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
+    session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{skillId}/file";
+  url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
 };
 
-export type GetAgentSkillFileErrors = {
+export type GetAgentScopedSkillFileErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
   /**
    * missing or invalid bearer token
    */
@@ -2431,23 +2462,23 @@ export type GetAgentSkillFileErrors = {
   };
 };
 
-export type GetAgentSkillFileError =
-  GetAgentSkillFileErrors[keyof GetAgentSkillFileErrors];
+export type GetAgentScopedSkillFileError =
+  GetAgentScopedSkillFileErrors[keyof GetAgentScopedSkillFileErrors];
 
-export type GetAgentSkillFileResponses = {
+export type GetAgentScopedSkillFileResponses = {
   /**
    * ok
    */
-  200: Blob | File;
+  200: ComponentsSkillFileResponse;
 };
 
-export type GetAgentSkillFileResponse =
-  GetAgentSkillFileResponses[keyof GetAgentSkillFileResponses];
+export type GetAgentScopedSkillFileResponse =
+  GetAgentScopedSkillFileResponses[keyof GetAgentScopedSkillFileResponses];
 
 export type ListProjectsData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: {
     /**
@@ -2455,7 +2486,7 @@ export type ListProjectsData = {
      */
     include_archived?: boolean;
   };
-  url: "/api/agents/{agentId}/projects";
+  url: "/api/agents/{agentID}/projects";
 };
 
 export type ListProjectsErrors = {
@@ -2482,10 +2513,10 @@ export type ListProjectsResponse =
 export type CreateProjectData = {
   body: CreateProjectRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects";
+  url: "/api/agents/{agentID}/projects";
 };
 
 export type CreateProjectErrors = {
@@ -2518,11 +2549,11 @@ export type CreateProjectResponse =
 export type DeleteProjectData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type DeleteProjectErrors = {
@@ -2555,11 +2586,11 @@ export type DeleteProjectResponse =
 export type GetProjectData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type GetProjectErrors = {
@@ -2591,11 +2622,11 @@ export type GetProjectResponse = GetProjectResponses[keyof GetProjectResponses];
 export type UpdateProjectData = {
   body: UpdateProjectRequest;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type UpdateProjectErrors = {
@@ -2630,81 +2661,6 @@ export type UpdateProjectResponses = {
 
 export type UpdateProjectResponse =
   UpdateProjectResponses[keyof UpdateProjectResponses];
-
-export type ListSkillsData = {
-  body?: never;
-  path?: never;
-  query?: never;
-  url: "/api/skills";
-};
-
-export type ListSkillsErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type ListSkillsError = ListSkillsErrors[keyof ListSkillsErrors];
-
-export type ListSkillsResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillList;
-};
-
-export type ListSkillsResponse = ListSkillsResponses[keyof ListSkillsResponses];
-
-export type CreateSkillData = {
-  body: ComponentsCreateSkillRequest;
-  path?: never;
-  query?: never;
-  url: "/api/skills";
-};
-
-export type CreateSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type CreateSkillError = CreateSkillErrors[keyof CreateSkillErrors];
-
-export type CreateSkillResponses = {
-  /**
-   * created
-   */
-  201: {
-    id?: string;
-  };
-};
-
-export type CreateSkillResponse =
-  CreateSkillResponses[keyof CreateSkillResponses];
 
 export type SearchSkillsData = {
   body?: never;
@@ -2742,598 +2698,6 @@ export type SearchSkillsResponses = {
 
 export type SearchSkillsResponse =
   SearchSkillsResponses[keyof SearchSkillsResponses];
-
-export type InstallSkillData = {
-  body: ComponentsGlobalInstallSkillRequest;
-  path?: never;
-  query?: never;
-  url: "/api/skills/install";
-};
-
-export type InstallSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-};
-
-export type InstallSkillError = InstallSkillErrors[keyof InstallSkillErrors];
-
-export type InstallSkillResponses = {
-  /**
-   * installed
-   */
-  201: {
-    name?: string;
-  };
-};
-
-export type InstallSkillResponse =
-  InstallSkillResponses[keyof InstallSkillResponses];
-
-export type DeleteSkillData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type DeleteSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteSkillError = DeleteSkillErrors[keyof DeleteSkillErrors];
-
-export type DeleteSkillResponses = {
-  /**
-   * deleted
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type DeleteSkillResponse =
-  DeleteSkillResponses[keyof DeleteSkillResponses];
-
-export type GetSkillData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type GetSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetSkillError = GetSkillErrors[keyof GetSkillErrors];
-
-export type GetSkillResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkill;
-};
-
-export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
-
-export type UpdateSkillData = {
-  body: ComponentsUpdateSkillRequest;
-  path: {
-    id: string;
-  };
-  query?: never;
-  url: "/api/skills/{id}";
-};
-
-export type UpdateSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type UpdateSkillError = UpdateSkillErrors[keyof UpdateSkillErrors];
-
-export type UpdateSkillResponses = {
-  /**
-   * ok
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type UpdateSkillResponse =
-  UpdateSkillResponses[keyof UpdateSkillResponses];
-
-export type DeleteSkillFileData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/skills/{id}/file";
-};
-
-export type DeleteSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteSkillFileError =
-  DeleteSkillFileErrors[keyof DeleteSkillFileErrors];
-
-export type DeleteSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsDeleteFileResult;
-};
-
-export type DeleteSkillFileResponse =
-  DeleteSkillFileResponses[keyof DeleteSkillFileResponses];
-
-export type GetSkillFileData = {
-  body?: never;
-  path: {
-    id: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/skills/{id}/file";
-};
-
-export type GetSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * insufficient permissions
-   */
-  403: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetSkillFileError = GetSkillFileErrors[keyof GetSkillFileErrors];
-
-export type GetSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillFileResponse;
-};
-
-export type GetSkillFileResponse =
-  GetSkillFileResponses[keyof GetSkillFileResponses];
-
-export type ListProfileSkillsData = {
-  body?: never;
-  path?: never;
-  query?: never;
-  url: "/api/auth/profile/skills";
-};
-
-export type ListProfileSkillsErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-};
-
-export type ListProfileSkillsError =
-  ListProfileSkillsErrors[keyof ListProfileSkillsErrors];
-
-export type ListProfileSkillsResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillList;
-};
-
-export type ListProfileSkillsResponse =
-  ListProfileSkillsResponses[keyof ListProfileSkillsResponses];
-
-export type InstallProfileSkillData = {
-  body: ComponentsProfileInstallSkillRequest;
-  path?: never;
-  query?: never;
-  url: "/api/auth/profile/skills/install";
-};
-
-export type InstallProfileSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-};
-
-export type InstallProfileSkillError =
-  InstallProfileSkillErrors[keyof InstallProfileSkillErrors];
-
-export type InstallProfileSkillResponses = {
-  /**
-   * installed
-   */
-  201: {
-    name?: string;
-  };
-};
-
-export type InstallProfileSkillResponse =
-  InstallProfileSkillResponses[keyof InstallProfileSkillResponses];
-
-export type UploadProfileSkillData = {
-  body: {
-    file?: Blob | File;
-  };
-  path?: never;
-  query?: never;
-  url: "/api/auth/profile/skills/upload";
-};
-
-export type UploadProfileSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-};
-
-export type UploadProfileSkillError =
-  UploadProfileSkillErrors[keyof UploadProfileSkillErrors];
-
-export type UploadProfileSkillResponses = {
-  /**
-   * uploaded
-   */
-  201: ComponentsSkillUploadResult;
-};
-
-export type UploadProfileSkillResponse =
-  UploadProfileSkillResponses[keyof UploadProfileSkillResponses];
-
-export type DeleteProfileSkillData = {
-  body?: never;
-  path: {
-    skillId: string;
-  };
-  query?: never;
-  url: "/api/auth/profile/skills/{skillId}";
-};
-
-export type DeleteProfileSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteProfileSkillError =
-  DeleteProfileSkillErrors[keyof DeleteProfileSkillErrors];
-
-export type DeleteProfileSkillResponses = {
-  /**
-   * deleted
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type DeleteProfileSkillResponse =
-  DeleteProfileSkillResponses[keyof DeleteProfileSkillResponses];
-
-export type GetProfileSkillData = {
-  body?: never;
-  path: {
-    skillId: string;
-  };
-  query?: never;
-  url: "/api/auth/profile/skills/{skillId}";
-};
-
-export type GetProfileSkillErrors = {
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetProfileSkillError =
-  GetProfileSkillErrors[keyof GetProfileSkillErrors];
-
-export type GetProfileSkillResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkill;
-};
-
-export type GetProfileSkillResponse =
-  GetProfileSkillResponses[keyof GetProfileSkillResponses];
-
-export type UpdateProfileSkillData = {
-  body: ComponentsUpdateSkillRequest;
-  path: {
-    skillId: string;
-  };
-  query?: never;
-  url: "/api/auth/profile/skills/{skillId}";
-};
-
-export type UpdateProfileSkillErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type UpdateProfileSkillError =
-  UpdateProfileSkillErrors[keyof UpdateProfileSkillErrors];
-
-export type UpdateProfileSkillResponses = {
-  /**
-   * ok
-   */
-  200: {
-    id?: string;
-  };
-};
-
-export type UpdateProfileSkillResponse =
-  UpdateProfileSkillResponses[keyof UpdateProfileSkillResponses];
-
-export type DeleteProfileSkillFileData = {
-  body?: never;
-  path: {
-    skillId: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/auth/profile/skills/{skillId}/file";
-};
-
-export type DeleteProfileSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type DeleteProfileSkillFileError =
-  DeleteProfileSkillFileErrors[keyof DeleteProfileSkillFileErrors];
-
-export type DeleteProfileSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsDeleteFileResult;
-};
-
-export type DeleteProfileSkillFileResponse =
-  DeleteProfileSkillFileResponses[keyof DeleteProfileSkillFileResponses];
-
-export type GetProfileSkillFileData = {
-  body?: never;
-  path: {
-    skillId: string;
-  };
-  query: {
-    path: string;
-  };
-  url: "/api/auth/profile/skills/{skillId}/file";
-};
-
-export type GetProfileSkillFileErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
-};
-
-export type GetProfileSkillFileError =
-  GetProfileSkillFileErrors[keyof GetProfileSkillFileErrors];
-
-export type GetProfileSkillFileResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsSkillFileResponse;
-};
-
-export type GetProfileSkillFileResponse =
-  GetProfileSkillFileResponses[keyof GetProfileSkillFileResponses];
 
 export type ListArticlesData = {
   body?: never;
@@ -4736,7 +4100,9 @@ export type ListProviderTypesResponse =
 
 export type ListSessionsData = {
   body?: never;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: {
     /**
      * Maximum number of sessions to return
@@ -4751,15 +4117,11 @@ export type ListSessionsData = {
      */
     kind?: "main" | "chat" | "scheduler" | "task";
     /**
-     * Filter by agent ID
-     */
-    agent_id?: string;
-    /**
      * Filter by project ID
      */
     project_id?: string;
   };
-  url: "/api/sessions";
+  url: "/api/agents/{agentID}/sessions";
 };
 
 export type ListSessionsErrors = {
@@ -4785,9 +4147,11 @@ export type ListSessionsResponse =
 
 export type CreateSessionData = {
   body?: ComponentsCreateSessionRequest;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/sessions";
+  url: "/api/agents/{agentID}/sessions";
 };
 
 export type CreateSessionErrors = {
@@ -4820,10 +4184,11 @@ export type CreateSessionResponse =
 export type GetSessionData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}";
+  url: "/api/agents/{agentID}/sessions/{sessionID}";
 };
 
 export type GetSessionErrors = {
@@ -4861,6 +4226,7 @@ export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
 export type GetSessionMessagesData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: {
@@ -4881,7 +4247,7 @@ export type GetSessionMessagesData = {
      */
     before?: string;
   };
-  url: "/api/sessions/{sessionID}/messages";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/messages";
 };
 
 export type GetSessionMessagesErrors = {
@@ -4923,10 +4289,11 @@ export type GetSessionMessagesResponse =
 export type SendSessionMessageData = {
   body: ComponentsSendMessageRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/messages";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/messages";
 };
 
 export type SendSessionMessageErrors = {
@@ -4966,6 +4333,7 @@ export type SendSessionMessageResponse =
 export type GetSessionWorkspaceData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: {
@@ -4982,7 +4350,7 @@ export type GetSessionWorkspaceData = {
      */
     depth?: number;
   };
-  url: "/api/sessions/{sessionID}/workspace";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace";
 };
 
 export type GetSessionWorkspaceErrors = {
@@ -5022,10 +4390,11 @@ export type GetSessionWorkspaceResponse =
 export type DeleteWorkspaceFileData = {
   body: WorkspaceDeleteRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type DeleteWorkspaceFileErrors = {
@@ -5071,10 +4440,11 @@ export type DeleteWorkspaceFileResponse =
 export type MoveWorkspaceFileData = {
   body: WorkspaceMoveRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type MoveWorkspaceFileErrors = {
@@ -5120,10 +4490,11 @@ export type MoveWorkspaceFileResponse =
 export type CreateWorkspaceFileData = {
   body: WorkspaceCreateRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/files";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/files";
 };
 
 export type CreateWorkspaceFileErrors = {
@@ -5169,6 +4540,7 @@ export type CreateWorkspaceFileResponse =
 export type GetWorkspaceFileContentData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query: {
@@ -5181,7 +4553,7 @@ export type GetWorkspaceFileContentData = {
      */
     raw?: boolean;
   };
-  url: "/api/sessions/{sessionID}/workspace/file-content";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content";
 };
 
 export type GetWorkspaceFileContentErrors = {
@@ -5227,10 +4599,11 @@ export type GetWorkspaceFileContentResponse =
 export type UpdateWorkspaceFileContentData = {
   body: WorkspaceUpdateContentRequest;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/file-content";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content";
 };
 
 export type UpdateWorkspaceFileContentErrors = {
@@ -5281,10 +4654,11 @@ export type UploadWorkspaceFileData = {
     file: Blob | File;
   };
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/workspace/upload";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/workspace/upload";
 };
 
 export type UploadWorkspaceFileErrors = {
@@ -5330,10 +4704,11 @@ export type UploadWorkspaceFileResponse =
 export type GetSessionSystemPromptData = {
   body?: never;
   path: {
+    agentID: string;
     sessionID: string;
   };
   query?: never;
-  url: "/api/sessions/{sessionID}/system-prompt";
+  url: "/api/agents/{agentID}/sessions/{sessionID}/system-prompt";
 };
 
 export type GetSessionSystemPromptErrors = {
@@ -5643,10 +5018,10 @@ export type DeleteUserMemoryData = {
   body?: never;
   path: {
     id: string;
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/users/{id}/memories/{agentId}";
+  url: "/api/users/{id}/memories/{agentID}";
 };
 
 export type DeleteUserMemoryErrors = {
@@ -5681,10 +5056,10 @@ export type SetUserMemoryData = {
   body: ComponentsSetMemoryRequest;
   path: {
     id: string;
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/users/{id}/memories/{agentId}";
+  url: "/api/users/{id}/memories/{agentID}";
 };
 
 export type SetUserMemoryErrors = {
@@ -6196,10 +5571,10 @@ export type ListProfileMemoriesResponse =
 export type DeleteProfileMemoryData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/memories/{agentId}";
+  url: "/api/auth/profile/memories/{agentID}";
 };
 
 export type DeleteProfileMemoryErrors = {
@@ -6229,10 +5604,10 @@ export type DeleteProfileMemoryResponse =
 export type SetProfileMemoryData = {
   body: ComponentsSetMemoryRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/memories/{agentId}";
+  url: "/api/auth/profile/memories/{agentID}";
 };
 
 export type SetProfileMemoryErrors = {
@@ -6268,10 +5643,10 @@ export type SetProfileMemoryResponse =
 export type SetProfileSoulData = {
   body: ComponentsSetSoulRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/soul/{agentId}";
+  url: "/api/auth/profile/soul/{agentID}";
 };
 
 export type SetProfileSoulErrors = {
@@ -6755,9 +6130,11 @@ export type SetOAuthProviderConfigResponse =
 
 export type ListSchedulerJobsData = {
   body?: never;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/scheduler/jobs";
+  url: "/api/agents/{agentID}/scheduler/jobs";
 };
 
 export type ListSchedulerJobsErrors = {
@@ -6784,9 +6161,11 @@ export type ListSchedulerJobsResponse =
 
 export type CreateSchedulerJobData = {
   body: ComponentsJobInput;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/scheduler/jobs";
+  url: "/api/agents/{agentID}/scheduler/jobs";
 };
 
 export type CreateSchedulerJobErrors = {
@@ -6820,10 +6199,11 @@ export type CreateSchedulerJobResponse =
 export type DeleteSchedulerJobData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
 };
 
 export type DeleteSchedulerJobErrors = {
@@ -6860,13 +6240,58 @@ export type DeleteSchedulerJobResponses = {
 export type DeleteSchedulerJobResponse =
   DeleteSchedulerJobResponses[keyof DeleteSchedulerJobResponses];
 
+export type GetSchedulerJobData = {
+  body?: never;
+  path: {
+    agentID: string;
+    jobID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
+};
+
+export type GetSchedulerJobErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetSchedulerJobError =
+  GetSchedulerJobErrors[keyof GetSchedulerJobErrors];
+
+export type GetSchedulerJobResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsJob;
+};
+
+export type GetSchedulerJobResponse =
+  GetSchedulerJobResponses[keyof GetSchedulerJobResponses];
+
 export type UpdateSchedulerJobData = {
   body: ComponentsJobInput;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}";
 };
 
 export type UpdateSchedulerJobErrors = {
@@ -6912,10 +6337,11 @@ export type UpdateSchedulerJobResponse =
 export type TriggerSchedulerJobData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}/run";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/run";
 };
 
 export type TriggerSchedulerJobErrors = {
@@ -6961,10 +6387,11 @@ export type TriggerSchedulerJobResponse =
 export type ListSchedulerJobRunsData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    jobID: string;
   };
   query?: never;
-  url: "/api/scheduler/jobs/{id}/runs";
+  url: "/api/agents/{agentID}/scheduler/jobs/{jobID}/runs";
 };
 
 export type ListSchedulerJobRunsErrors = {
@@ -7003,12 +6430,13 @@ export type ListSchedulerJobRunsResponse =
 
 export type ListAgentTasksData = {
   body?: never;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: {
     status?: string;
-    agent_id?: string;
   };
-  url: "/api/tasks";
+  url: "/api/agents/{agentID}/tasks";
 };
 
 export type ListAgentTasksErrors = {
@@ -7035,9 +6463,11 @@ export type ListAgentTasksResponse =
 
 export type CreateAgentTaskData = {
   body: ComponentsAgentTaskInput;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/tasks";
+  url: "/api/agents/{agentID}/tasks";
 };
 
 export type CreateAgentTaskErrors = {
@@ -7070,9 +6500,11 @@ export type CreateAgentTaskResponse =
 
 export type BatchCreateAgentTasksData = {
   body: ComponentsAgentTaskBatchInput;
-  path?: never;
+  path: {
+    agentID: string;
+  };
   query?: never;
-  url: "/api/tasks/batch";
+  url: "/api/agents/{agentID}/tasks/batch";
 };
 
 export type BatchCreateAgentTasksErrors = {
@@ -7105,11 +6537,11 @@ export type BatchCreateAgentTasksResponse =
 
 export type ListUnblockedAgentTasksData = {
   body?: never;
-  path?: never;
-  query?: {
-    agent_id?: string;
+  path: {
+    agentID: string;
   };
-  url: "/api/tasks/unblocked";
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/unblocked";
 };
 
 export type ListUnblockedAgentTasksErrors = {
@@ -7137,10 +6569,11 @@ export type ListUnblockedAgentTasksResponse =
 export type DeleteAgentTaskData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type DeleteAgentTaskErrors = {
@@ -7174,10 +6607,11 @@ export type DeleteAgentTaskResponse =
 export type GetAgentTaskData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type GetAgentTaskErrors = {
@@ -7210,10 +6644,11 @@ export type GetAgentTaskResponse =
 export type UpdateAgentTaskData = {
   body: ComponentsAgentTaskUpdate;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}";
+  url: "/api/agents/{agentID}/tasks/{taskID}";
 };
 
 export type UpdateAgentTaskErrors = {
@@ -7253,10 +6688,11 @@ export type UpdateAgentTaskResponse =
 export type AgentTaskActionData = {
   body: ComponentsAgentTaskAction;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/action";
+  url: "/api/agents/{agentID}/tasks/{taskID}/action";
 };
 
 export type AgentTaskActionErrors = {
@@ -7296,10 +6732,11 @@ export type AgentTaskActionResponse =
 export type ListAgentTaskEventsData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/events";
+  url: "/api/agents/{agentID}/tasks/{taskID}/events";
 };
 
 export type ListAgentTaskEventsErrors = {
@@ -7333,10 +6770,11 @@ export type ListAgentTaskEventsResponse =
 export type GetAgentTaskDepsData = {
   body?: never;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/deps";
+  url: "/api/agents/{agentID}/tasks/{taskID}/deps";
 };
 
 export type GetAgentTaskDepsErrors = {
@@ -7370,10 +6808,11 @@ export type GetAgentTaskDepsResponse =
 export type AddAgentTaskDepData = {
   body: ComponentsAgentTaskDepsInput;
   path: {
-    id: string;
+    agentID: string;
+    taskID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/deps";
+  url: "/api/agents/{agentID}/tasks/{taskID}/deps";
 };
 
 export type AddAgentTaskDepErrors = {
@@ -7413,11 +6852,12 @@ export type AddAgentTaskDepResponse =
 export type RemoveAgentTaskDepData = {
   body?: never;
   path: {
-    id: string;
-    depId: string;
+    agentID: string;
+    taskID: string;
+    depID: string;
   };
   query?: never;
-  url: "/api/tasks/{id}/deps/{depId}";
+  url: "/api/agents/{agentID}/tasks/{taskID}/deps/{depID}";
 };
 
 export type RemoveAgentTaskDepErrors = {

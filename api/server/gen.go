@@ -392,40 +392,112 @@ type ListProjectsParams struct {
 	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
-// UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
-type UploadAgentSkillMultipartBody struct {
+// ListSessionsParams defines parameters for ListSessions.
+type ListSessionsParams struct {
+	// Limit Maximum number of sessions to return
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of sessions to skip
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Kind Filter by session kind
+	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// ProjectId Filter by project ID
+	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
+// ListSessionsParamsKind defines parameters for ListSessions.
+type ListSessionsParamsKind string
+
+// GetSessionMessagesParams defines parameters for GetSessionMessages.
+type GetSessionMessagesParams struct {
+	// Limit Maximum number of messages to return
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Skip Number of messages to skip from the end
+	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
+
+	// After Only return messages created at or after this timestamp
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only return messages created at or before this timestamp
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+}
+
+// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
+type GetSessionWorkspaceParams struct {
+	// ShowHidden Include dot-prefixed files and directories
+	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
+
+	// Path Directory path to list relative to the workspace root
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// Depth Maximum number of levels to return below path
+	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
+}
+
+// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
+type GetWorkspaceFileContentParams struct {
+	// Path Relative path of the file within the workspace
+	Path string `form:"path" json:"path"`
+
+	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
+}
+
+// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
+type UploadWorkspaceFileMultipartBody struct {
+	// File The file to upload
+	File openapi_types.File `json:"file"`
+}
+
+// ListAgentTasksParams defines parameters for ListAgentTasks.
+type ListAgentTasksParams struct {
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListAgentSkillsParams defines parameters for ListAgentSkills.
+type ListAgentSkillsParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UploadAgentScopedSkillMultipartBody defines parameters for UploadAgentScopedSkill.
+type UploadAgentScopedSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
-// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
-type DeleteAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// DeleteAgentScopedSkillParams defines parameters for DeleteAgentScopedSkill.
+type DeleteAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
-type GetAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// GetAgentScopedSkillParams defines parameters for GetAgentScopedSkill.
+type GetAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UpdateAgentScopedSkillParams defines parameters for UpdateAgentScopedSkill.
+type UpdateAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// DeleteAgentScopedSkillFileParams defines parameters for DeleteAgentScopedSkillFile.
+type DeleteAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// GetAgentScopedSkillFileParams defines parameters for GetAgentScopedSkillFile.
+type GetAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
 	State string `form:"state" json:"state"`
-}
-
-// UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
-type UploadProfileSkillMultipartBody struct {
-	File *openapi_types.File `json:"file,omitempty"`
-}
-
-// DeleteProfileSkillFileParams defines parameters for DeleteProfileSkillFile.
-type DeleteProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetProfileSkillFileParams defines parameters for GetProfileSkillFile.
-type GetProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
 }
 
 // PollWeixinQRStatusParams defines parameters for PollWeixinQRStatus.
@@ -482,94 +554,10 @@ type PollFeedParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ListSessionsParams defines parameters for ListSessions.
-type ListSessionsParams struct {
-	// Limit Maximum number of sessions to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Offset Number of sessions to skip
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-
-	// Kind Filter by session kind
-	Kind *ListSessionsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
-
-	// AgentId Filter by agent ID
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
-
-	// ProjectId Filter by project ID
-	ProjectId *string `form:"project_id,omitempty" json:"project_id,omitempty"`
-}
-
-// ListSessionsParamsKind defines parameters for ListSessions.
-type ListSessionsParamsKind string
-
-// GetSessionMessagesParams defines parameters for GetSessionMessages.
-type GetSessionMessagesParams struct {
-	// Limit Maximum number of messages to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Skip Number of messages to skip from the end
-	Skip *int `form:"skip,omitempty" json:"skip,omitempty"`
-
-	// After Only return messages created at or after this timestamp
-	After *string `form:"after,omitempty" json:"after,omitempty"`
-
-	// Before Only return messages created at or before this timestamp
-	Before *string `form:"before,omitempty" json:"before,omitempty"`
-}
-
-// GetSessionWorkspaceParams defines parameters for GetSessionWorkspace.
-type GetSessionWorkspaceParams struct {
-	// ShowHidden Include dot-prefixed files and directories
-	ShowHidden *bool `form:"show_hidden,omitempty" json:"show_hidden,omitempty"`
-
-	// Path Directory path to list relative to the workspace root
-	Path *string `form:"path,omitempty" json:"path,omitempty"`
-
-	// Depth Maximum number of levels to return below path
-	Depth *int `form:"depth,omitempty" json:"depth,omitempty"`
-}
-
-// GetWorkspaceFileContentParams defines parameters for GetWorkspaceFileContent.
-type GetWorkspaceFileContentParams struct {
-	// Path Relative path of the file within the workspace
-	Path string `form:"path" json:"path"`
-
-	// Raw When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
-	Raw *bool `form:"raw,omitempty" json:"raw,omitempty"`
-}
-
-// UploadWorkspaceFileMultipartBody defines parameters for UploadWorkspaceFile.
-type UploadWorkspaceFileMultipartBody struct {
-	// File The file to upload
-	File openapi_types.File `json:"file"`
-}
-
 // SearchSkillsParams defines parameters for SearchSkills.
 type SearchSkillsParams struct {
 	Q     string `form:"q" json:"q"`
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// DeleteSkillFileParams defines parameters for DeleteSkillFile.
-type DeleteSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetSkillFileParams defines parameters for GetSkillFile.
-type GetSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// ListAgentTasksParams defines parameters for ListAgentTasks.
-type ListAgentTasksParams struct {
-	Status  *string `form:"status,omitempty" json:"status,omitempty"`
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
-}
-
-// ListUnblockedAgentTasksParams defines parameters for ListUnblockedAgentTasks.
-type ListUnblockedAgentTasksParams struct {
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 }
 
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
@@ -584,17 +572,62 @@ type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 
+// CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
+type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
+
+// UpdateSchedulerJobJSONRequestBody defines body for UpdateSchedulerJob for application/json ContentType.
+type UpdateSchedulerJobJSONRequestBody = externalRef0.JobInput
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
+
+// SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
+type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
+
+// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
+type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
+
+// DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
+type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
+
+// MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
+type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
+
+// CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
+type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
+
+// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
+type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
+
+// CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
+type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
+
+// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
+type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
+
+// UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
+type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
+
+// AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
+type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
+
+// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
+type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
+
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
 
-// InstallAgentSkillJSONRequestBody defines body for InstallAgentSkill for application/json ContentType.
-type InstallAgentSkillJSONRequestBody = externalRef0.InstallSkillRequest
+// CreateAgentScopedSkillJSONRequestBody defines body for CreateAgentScopedSkill for application/json ContentType.
+type CreateAgentScopedSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
-// UploadAgentSkillMultipartRequestBody defines body for UploadAgentSkill for multipart/form-data ContentType.
-type UploadAgentSkillMultipartRequestBody UploadAgentSkillMultipartBody
+// InstallAgentScopedSkillJSONRequestBody defines body for InstallAgentScopedSkill for application/json ContentType.
+type InstallAgentScopedSkillJSONRequestBody = externalRef0.InstallSkillRequest
 
-// UpdateAgentSkillJSONRequestBody defines body for UpdateAgentSkill for application/json ContentType.
-type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+// UploadAgentScopedSkillMultipartRequestBody defines body for UploadAgentScopedSkill for multipart/form-data ContentType.
+type UploadAgentScopedSkillMultipartRequestBody UploadAgentScopedSkillMultipartBody
+
+// UpdateAgentScopedSkillJSONRequestBody defines body for UpdateAgentScopedSkill for application/json ContentType.
+type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
@@ -610,15 +643,6 @@ type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
-
-// InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
-type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
-
-// UploadProfileSkillMultipartRequestBody defines body for UploadProfileSkill for multipart/form-data ContentType.
-type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
-
-// UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
-type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
 type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
@@ -680,59 +704,8 @@ type UpdateFeedEntryJSONRequestBody = externalRef0.UpdateFeedEntryRequest
 // UpdateFeedJSONRequestBody defines body for UpdateFeed for application/json ContentType.
 type UpdateFeedJSONRequestBody = externalRef0.UpdateFeedRequest
 
-// CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
-type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
-
-// UpdateSchedulerJobJSONRequestBody defines body for UpdateSchedulerJob for application/json ContentType.
-type UpdateSchedulerJobJSONRequestBody = externalRef0.JobInput
-
-// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
-type CreateSessionJSONRequestBody = externalRef0.CreateSessionRequest
-
-// SendSessionMessageJSONRequestBody defines body for SendSessionMessage for application/json ContentType.
-type SendSessionMessageJSONRequestBody = externalRef0.SendMessageRequest
-
-// UpdateWorkspaceFileContentJSONRequestBody defines body for UpdateWorkspaceFileContent for application/json ContentType.
-type UpdateWorkspaceFileContentJSONRequestBody = externalRef0.WorkspaceUpdateContentRequest
-
-// DeleteWorkspaceFileJSONRequestBody defines body for DeleteWorkspaceFile for application/json ContentType.
-type DeleteWorkspaceFileJSONRequestBody = externalRef0.WorkspaceDeleteRequest
-
-// MoveWorkspaceFileJSONRequestBody defines body for MoveWorkspaceFile for application/json ContentType.
-type MoveWorkspaceFileJSONRequestBody = externalRef0.WorkspaceMoveRequest
-
-// CreateWorkspaceFileJSONRequestBody defines body for CreateWorkspaceFile for application/json ContentType.
-type CreateWorkspaceFileJSONRequestBody = externalRef0.WorkspaceCreateRequest
-
-// UploadWorkspaceFileMultipartRequestBody defines body for UploadWorkspaceFile for multipart/form-data ContentType.
-type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
-
 // CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
 type CreateShareJSONRequestBody = externalRef0.CreateShareRequest
-
-// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
-type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
-
-// InstallSkillJSONRequestBody defines body for InstallSkill for application/json ContentType.
-type InstallSkillJSONRequestBody = externalRef0.GlobalInstallSkillRequest
-
-// UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
-type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
-
-// CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
-type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
-
-// BatchCreateAgentTasksJSONRequestBody defines body for BatchCreateAgentTasks for application/json ContentType.
-type BatchCreateAgentTasksJSONRequestBody = externalRef0.AgentTaskBatchInput
-
-// UpdateAgentTaskJSONRequestBody defines body for UpdateAgentTask for application/json ContentType.
-type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
-
-// AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
-type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
-
-// AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
-type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
 
 // UpdateUserDefaultAgentJSONRequestBody defines body for UpdateUserDefaultAgent for application/json ContentType.
 type UpdateUserDefaultAgentJSONRequestBody = externalRef0.UpdateDefaultAgentRequest
@@ -761,20 +734,116 @@ type ServerInterface interface {
 	// (POST /api/agents)
 	CreateAgent(w http.ResponseWriter, r *http.Request)
 	// List projects for an agent
-	// (GET /api/agents/{agentId}/projects)
-	ListProjects(w http.ResponseWriter, r *http.Request, agentId string, params ListProjectsParams)
+	// (GET /api/agents/{agentID}/projects)
+	ListProjects(w http.ResponseWriter, r *http.Request, agentID string, params ListProjectsParams)
 	// Create a project
-	// (POST /api/agents/{agentId}/projects)
-	CreateProject(w http.ResponseWriter, r *http.Request, agentId string)
+	// (POST /api/agents/{agentID}/projects)
+	CreateProject(w http.ResponseWriter, r *http.Request, agentID string)
 	// Delete a project
-	// (DELETE /api/agents/{agentId}/projects/{projectId})
-	DeleteProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
+	// (DELETE /api/agents/{agentID}/projects/{projectId})
+	DeleteProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
 	// Get a project
-	// (GET /api/agents/{agentId}/projects/{projectId})
-	GetProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
+	// (GET /api/agents/{agentID}/projects/{projectId})
+	GetProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
 	// Update a project
-	// (PUT /api/agents/{agentId}/projects/{projectId})
-	UpdateProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
+	// (PUT /api/agents/{agentID}/projects/{projectId})
+	UpdateProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
+	// List scheduler jobs
+	// (GET /api/agents/{agentID}/scheduler/jobs)
+	ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string)
+	// Create a scheduler job
+	// (POST /api/agents/{agentID}/scheduler/jobs)
+	CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string)
+	// Delete a scheduler job
+	// (DELETE /api/agents/{agentID}/scheduler/jobs/{jobID})
+	DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// Get a scheduler job
+	// (GET /api/agents/{agentID}/scheduler/jobs/{jobID})
+	GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// Update a scheduler job (partial — missing fields are merged from existing)
+	// (PUT /api/agents/{agentID}/scheduler/jobs/{jobID})
+	UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// Trigger a scheduler job immediately
+	// (POST /api/agents/{agentID}/scheduler/jobs/{jobID}/run)
+	TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// List scheduler job runs
+	// (GET /api/agents/{agentID}/scheduler/jobs/{jobID}/runs)
+	ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
+	// List sessions (all users see their own; admins see all)
+	// (GET /api/agents/{agentID}/sessions)
+	ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params ListSessionsParams)
+	// Create a new session
+	// (POST /api/agents/{agentID}/sessions)
+	CreateSession(w http.ResponseWriter, r *http.Request, agentID string)
+	// Get session detail
+	// (GET /api/agents/{agentID}/sessions/{sessionID})
+	GetSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Get messages for a session
+	// (GET /api/agents/{agentID}/sessions/{sessionID}/messages)
+	GetSessionMessages(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params GetSessionMessagesParams)
+	// Send a message to a session (SSE streaming)
+	// (POST /api/agents/{agentID}/sessions/{sessionID}/messages)
+	SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Get the system prompt for a session
+	// (GET /api/agents/{agentID}/sessions/{sessionID}/system-prompt)
+	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// List workspace disk entries and usage
+	// (GET /api/agents/{agentID}/sessions/{sessionID}/workspace)
+	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params GetSessionWorkspaceParams)
+	// Get the content of a file in the session workspace
+	// (GET /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content)
+	GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params GetWorkspaceFileContentParams)
+	// Write content to a file in the session workspace
+	// (PUT /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content)
+	UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Delete a file or directory from the session workspace
+	// (DELETE /api/agents/{agentID}/sessions/{sessionID}/workspace/files)
+	DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Rename or move a file or directory in the session workspace
+	// (PATCH /api/agents/{agentID}/sessions/{sessionID}/workspace/files)
+	MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Create a file or directory in the session workspace
+	// (POST /api/agents/{agentID}/sessions/{sessionID}/workspace/files)
+	CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// Upload a file to the session workspace assets directory
+	// (POST /api/agents/{agentID}/sessions/{sessionID}/workspace/upload)
+	UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
+	// List agent tasks
+	// (GET /api/agents/{agentID}/tasks)
+	ListAgentTasks(w http.ResponseWriter, r *http.Request, agentID string, params ListAgentTasksParams)
+	// Create an agent task
+	// (POST /api/agents/{agentID}/tasks)
+	CreateAgentTask(w http.ResponseWriter, r *http.Request, agentID string)
+	// Batch create agent tasks with intra-batch dependencies
+	// (POST /api/agents/{agentID}/tasks/batch)
+	BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, agentID string)
+	// List unblocked agent tasks (all deps done)
+	// (GET /api/agents/{agentID}/tasks/unblocked)
+	ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, agentID string)
+	// Delete an agent task
+	// (DELETE /api/agents/{agentID}/tasks/{taskID})
+	DeleteAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Get an agent task
+	// (GET /api/agents/{agentID}/tasks/{taskID})
+	GetAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Update an agent task
+	// (PUT /api/agents/{agentID}/tasks/{taskID})
+	UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Take an action on an agent task
+	// (POST /api/agents/{agentID}/tasks/{taskID}/action)
+	AgentTaskAction(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Get task dependency info (upstream and downstream)
+	// (GET /api/agents/{agentID}/tasks/{taskID}/deps)
+	GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Add a dependency to a task
+	// (POST /api/agents/{agentID}/tasks/{taskID}/deps)
+	AddAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Remove a dependency from a task
+	// (DELETE /api/agents/{agentID}/tasks/{taskID}/deps/{depID})
+	RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID string, taskID string, depID string)
+	// List agent task events
+	// (GET /api/agents/{agentID}/tasks/{taskID}/events)
+	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
 	// Delete an agent
 	// (DELETE /api/agents/{id})
 	DeleteAgent(w http.ResponseWriter, r *http.Request, id string)
@@ -784,33 +853,33 @@ type ServerInterface interface {
 	// Update an agent
 	// (PUT /api/agents/{id})
 	UpdateAgent(w http.ResponseWriter, r *http.Request, id string)
-	// List skills for an agent (creator or admin)
+	// List skills visible to the current user in an agent context
 	// (GET /api/agents/{id}/skills)
-	ListAgentSkills(w http.ResponseWriter, r *http.Request, id string)
-	// Duplicate a builtin skill to an agent (admin only)
-	// (POST /api/agents/{id}/skills/from-builtin/{skillId})
-	DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Install a skill to an agent from a remote source (admin only)
-	// (POST /api/agents/{id}/skills/install)
-	InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Upload a skill zip to an agent (admin only)
-	// (POST /api/agents/{id}/skills/upload)
-	UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Delete an agent skill (creator or admin)
-	// (DELETE /api/agents/{id}/skills/{skillId})
-	DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Get an agent skill (creator or admin)
-	// (GET /api/agents/{id}/skills/{skillId})
-	GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Update an agent skill (creator or admin)
-	// (PUT /api/agents/{id}/skills/{skillId})
-	UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string)
-	// Delete a skill file (creator or admin)
-	// (DELETE /api/agents/{id}/skills/{skillId}/file)
-	DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillFileParams)
-	// Download a skill file (creator or admin)
-	// (GET /api/agents/{id}/skills/{skillId}/file)
-	GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillFileParams)
+	ListAgentSkills(w http.ResponseWriter, r *http.Request, id string, params ListAgentSkillsParams)
+	// Create a skill in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope})
+	CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Install a skill in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope}/install)
+	InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Upload a skill zip in an agent or current-user scope
+	// (POST /api/agents/{id}/skills/{scope}/upload)
+	UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
+	// Delete a skill in an agent or current-user scope
+	// (DELETE /api/agents/{id}/skills/{scope}/{skillId})
+	DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params DeleteAgentScopedSkillParams)
+	// Get a skill in an agent context
+	// (GET /api/agents/{id}/skills/{scope}/{skillId})
+	GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params GetAgentScopedSkillParams)
+	// Update a skill in an agent or current-user scope
+	// (PUT /api/agents/{id}/skills/{scope}/{skillId})
+	UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params UpdateAgentScopedSkillParams)
+	// Delete a skill file in an agent or current-user scope
+	// (DELETE /api/agents/{id}/skills/{scope}/{skillId}/file)
+	DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params DeleteAgentScopedSkillFileParams)
+	// Get a skill file in an agent context
+	// (GET /api/agents/{id}/skills/{scope}/{skillId}/file)
+	GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params GetAgentScopedSkillFileParams)
 	// List users assigned to an agent (admin only)
 	// (GET /api/agents/{id}/users)
 	ListAgentUsers(w http.ResponseWriter, r *http.Request, id string)
@@ -842,11 +911,11 @@ type ServerInterface interface {
 	// (GET /api/auth/profile/memories)
 	ListProfileMemories(w http.ResponseWriter, r *http.Request)
 	// Delete the memory for a specific agent
-	// (DELETE /api/auth/profile/memories/{agentId})
-	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// (DELETE /api/auth/profile/memories/{agentID})
+	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// Set the memory for a specific agent
-	// (PUT /api/auth/profile/memories/{agentId})
-	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// (PUT /api/auth/profile/memories/{agentID})
+	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// List OAuth provider statuses for the current user
 	// (GET /api/auth/profile/oauth/providers)
 	ListOAuthProviders(w http.ResponseWriter, r *http.Request)
@@ -868,33 +937,9 @@ type ServerInterface interface {
 	// Change the current user's password
 	// (PUT /api/auth/profile/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request)
-	// List profile skills (current user)
-	// (GET /api/auth/profile/skills)
-	ListProfileSkills(w http.ResponseWriter, r *http.Request)
-	// Install a skill to the current user's profile
-	// (POST /api/auth/profile/skills/install)
-	InstallProfileSkill(w http.ResponseWriter, r *http.Request)
-	// Upload a skill zip to the current user's profile
-	// (POST /api/auth/profile/skills/upload)
-	UploadProfileSkill(w http.ResponseWriter, r *http.Request)
-	// Delete a profile skill
-	// (DELETE /api/auth/profile/skills/{skillId})
-	DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Get a profile skill by ID
-	// (GET /api/auth/profile/skills/{skillId})
-	GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Update a profile skill
-	// (PUT /api/auth/profile/skills/{skillId})
-	UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string)
-	// Delete a profile skill file
-	// (DELETE /api/auth/profile/skills/{skillId}/file)
-	DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params DeleteProfileSkillFileParams)
-	// Get a profile skill file
-	// (GET /api/auth/profile/skills/{skillId}/file)
-	GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params GetProfileSkillFileParams)
 	// Set the soul for a specific agent
-	// (PUT /api/auth/profile/soul/{agentId})
-	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId string)
+	// (PUT /api/auth/profile/soul/{agentID})
+	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string)
 	// List vault entries for the current user
 	// (GET /api/auth/profile/vault)
 	ListVaultEntries(w http.ResponseWriter, r *http.Request)
@@ -1066,63 +1111,6 @@ type ServerInterface interface {
 	// Poll a feed (server fetches RSS, creates pending entries)
 	// (POST /api/recally/feeds/{id}/poll)
 	PollFeed(w http.ResponseWriter, r *http.Request, id string, params PollFeedParams)
-	// List scheduler jobs
-	// (GET /api/scheduler/jobs)
-	ListSchedulerJobs(w http.ResponseWriter, r *http.Request)
-	// Create a scheduler job
-	// (POST /api/scheduler/jobs)
-	CreateSchedulerJob(w http.ResponseWriter, r *http.Request)
-	// Delete a scheduler job
-	// (DELETE /api/scheduler/jobs/{id})
-	DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id string)
-	// Update a scheduler job (partial — missing fields are merged from existing)
-	// (PUT /api/scheduler/jobs/{id})
-	UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id string)
-	// Trigger a scheduler job immediately
-	// (POST /api/scheduler/jobs/{id}/run)
-	TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id string)
-	// List scheduler job runs
-	// (GET /api/scheduler/jobs/{id}/runs)
-	ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id string)
-	// List sessions (all users see their own; admins see all)
-	// (GET /api/sessions)
-	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
-	// Create a new session
-	// (POST /api/sessions)
-	CreateSession(w http.ResponseWriter, r *http.Request)
-	// Get session detail
-	// (GET /api/sessions/{sessionID})
-	GetSession(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Get messages for a session
-	// (GET /api/sessions/{sessionID}/messages)
-	GetSessionMessages(w http.ResponseWriter, r *http.Request, sessionID string, params GetSessionMessagesParams)
-	// Send a message to a session (SSE streaming)
-	// (POST /api/sessions/{sessionID}/messages)
-	SendSessionMessage(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Get the system prompt for a session
-	// (GET /api/sessions/{sessionID}/system-prompt)
-	GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string)
-	// List workspace disk entries and usage
-	// (GET /api/sessions/{sessionID}/workspace)
-	GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params GetSessionWorkspaceParams)
-	// Get the content of a file in the session workspace
-	// (GET /api/sessions/{sessionID}/workspace/file-content)
-	GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params GetWorkspaceFileContentParams)
-	// Write content to a file in the session workspace
-	// (PUT /api/sessions/{sessionID}/workspace/file-content)
-	UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Delete a file or directory from the session workspace
-	// (DELETE /api/sessions/{sessionID}/workspace/files)
-	DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Rename or move a file or directory in the session workspace
-	// (PATCH /api/sessions/{sessionID}/workspace/files)
-	MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Create a file or directory in the session workspace
-	// (POST /api/sessions/{sessionID}/workspace/files)
-	CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
-	// Upload a file to the session workspace assets directory
-	// (POST /api/sessions/{sessionID}/workspace/upload)
-	UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string)
 	// List shares for the current user
 	// (GET /api/shares)
 	ListShares(w http.ResponseWriter, r *http.Request)
@@ -1135,72 +1123,12 @@ type ServerInterface interface {
 	// Revoke a share
 	// (DELETE /api/shares/{id})
 	RevokeShare(w http.ResponseWriter, r *http.Request, id string)
-	// List all skills (admin only)
-	// (GET /api/skills)
-	ListSkills(w http.ResponseWriter, r *http.Request)
-	// Create a skill (admin only)
-	// (POST /api/skills)
-	CreateSkill(w http.ResponseWriter, r *http.Request)
-	// Install a skill from a remote source (admin only)
-	// (POST /api/skills/install)
-	InstallSkill(w http.ResponseWriter, r *http.Request)
 	// Search skills from mcphub (any authenticated user)
 	// (GET /api/skills/search)
 	SearchSkills(w http.ResponseWriter, r *http.Request, params SearchSkillsParams)
-	// Delete a skill (admin only)
-	// (DELETE /api/skills/{id})
-	DeleteSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Get a skill by ID (admin only)
-	// (GET /api/skills/{id})
-	GetSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Update a skill (admin only)
-	// (PUT /api/skills/{id})
-	UpdateSkill(w http.ResponseWriter, r *http.Request, id string)
-	// Delete a skill file (admin only)
-	// (DELETE /api/skills/{id}/file)
-	DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params DeleteSkillFileParams)
-	// Get a skill file (admin only)
-	// (GET /api/skills/{id}/file)
-	GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params GetSkillFileParams)
 	// Get runtime status and version metadata
 	// (GET /api/status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
-	// List agent tasks
-	// (GET /api/tasks)
-	ListAgentTasks(w http.ResponseWriter, r *http.Request, params ListAgentTasksParams)
-	// Create an agent task
-	// (POST /api/tasks)
-	CreateAgentTask(w http.ResponseWriter, r *http.Request)
-	// Batch create agent tasks with intra-batch dependencies
-	// (POST /api/tasks/batch)
-	BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request)
-	// List unblocked agent tasks (all deps done)
-	// (GET /api/tasks/unblocked)
-	ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request, params ListUnblockedAgentTasksParams)
-	// Delete an agent task
-	// (DELETE /api/tasks/{id})
-	DeleteAgentTask(w http.ResponseWriter, r *http.Request, id string)
-	// Get an agent task
-	// (GET /api/tasks/{id})
-	GetAgentTask(w http.ResponseWriter, r *http.Request, id string)
-	// Update an agent task
-	// (PUT /api/tasks/{id})
-	UpdateAgentTask(w http.ResponseWriter, r *http.Request, id string)
-	// Take an action on an agent task
-	// (POST /api/tasks/{id}/action)
-	AgentTaskAction(w http.ResponseWriter, r *http.Request, id string)
-	// Get task dependency info (upstream and downstream)
-	// (GET /api/tasks/{id}/deps)
-	GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, id string)
-	// Add a dependency to a task
-	// (POST /api/tasks/{id}/deps)
-	AddAgentTaskDep(w http.ResponseWriter, r *http.Request, id string)
-	// Remove a dependency from a task
-	// (DELETE /api/tasks/{id}/deps/{depId})
-	RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, id string, depId string)
-	// List agent task events
-	// (GET /api/tasks/{id}/events)
-	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, id string)
 	// List available agent tools
 	// (GET /api/tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
@@ -1211,11 +1139,11 @@ type ServerInterface interface {
 	// (GET /api/users/{id}/memories)
 	ListUserMemories(w http.ResponseWriter, r *http.Request, id string)
 	// Delete memory for a user and agent (admin only)
-	// (DELETE /api/users/{id}/memories/{agentId})
-	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
+	// (DELETE /api/users/{id}/memories/{agentID})
+	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Set memory for a user and agent (admin only)
-	// (PUT /api/users/{id}/memories/{agentId})
-	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
+	// (PUT /api/users/{id}/memories/{agentID})
+	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Update the notify identity for a user (admin only)
 	// (PUT /api/users/{id}/notify-identity)
 	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string)
@@ -1372,12 +1300,12 @@ func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.R
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -1404,7 +1332,7 @@ func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.R
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListProjects(w, r, agentId, params)
+		siw.Handler.ListProjects(w, r, agentID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1420,12 +1348,12 @@ func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -1436,7 +1364,7 @@ func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateProject(w, r, agentId)
+		siw.Handler.CreateProject(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1452,12 +1380,12 @@ func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -1477,7 +1405,7 @@ func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProject(w, r, agentId, projectId)
+		siw.Handler.DeleteProject(w, r, agentID, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1493,12 +1421,12 @@ func (siw *ServerInterfaceWrapper) GetProject(w http.ResponseWriter, r *http.Req
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -1518,7 +1446,7 @@ func (siw *ServerInterfaceWrapper) GetProject(w http.ResponseWriter, r *http.Req
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProject(w, r, agentId, projectId)
+		siw.Handler.GetProject(w, r, agentID, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1534,12 +1462,12 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -1559,7 +1487,1453 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateProject(w, r, agentId, projectId)
+		siw.Handler.UpdateProject(w, r, agentID, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSchedulerJobs operation middleware
+func (siw *ServerInterfaceWrapper) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSchedulerJobs(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSchedulerJob(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSchedulerJob(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) GetSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSchedulerJob(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSchedulerJob(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TriggerSchedulerJob operation middleware
+func (siw *ServerInterfaceWrapper) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TriggerSchedulerJob(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSchedulerJobRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobID" -------------
+	var jobID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobID", r.PathValue("jobID"), &jobID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSchedulerJobRuns(w, r, agentID, jobID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessions(w, r, agentID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSession(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSession operation middleware
+func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSession(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionMessages operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionMessagesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "skip" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "skip", r.URL.Query(), &params.Skip, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "skip"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skip", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionMessages(w, r, agentID, sessionID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendSessionMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendSessionMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendSessionMessage(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionSystemPrompt operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionSystemPrompt(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionWorkspaceParams
+
+	// ------------- Optional query parameter "show_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "show_hidden", r.URL.Query(), &params.ShowHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "show_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "show_hidden", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "depth" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "depth", r.URL.Query(), &params.Depth, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "depth"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depth", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionWorkspace(w, r, agentID, sessionID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspaceFileContent operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetWorkspaceFileContentParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "raw" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "raw", r.URL.Query(), &params.Raw, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "raw"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "raw", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceFileContent(w, r, agentID, sessionID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWorkspaceFileContent operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWorkspaceFileContent(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkspaceFile(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveWorkspaceFile(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspaceFile(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sessionID" -------------
+	var sessionID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadWorkspaceFile(w, r, agentID, sessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAgentTasksParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTasks(w, r, agentID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentTask(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BatchCreateAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BatchCreateAgentTasks(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUnblockedAgentTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUnblockedAgentTasks(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAgentTask(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentTask(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAgentTask(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AgentTaskAction operation middleware
+func (siw *ServerInterfaceWrapper) AgentTaskAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AgentTaskAction(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentTaskDeps operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentTaskDeps(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddAgentTaskDep operation middleware
+func (siw *ServerInterfaceWrapper) AddAgentTaskDep(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddAgentTaskDep(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveAgentTaskDep operation middleware
+func (siw *ServerInterfaceWrapper) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "depID" -------------
+	var depID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "depID", r.PathValue("depID"), &depID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveAgentTaskDep(w, r, agentID, taskID, depID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTaskEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTaskEvents(w, r, agentID, taskID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1686,8 +3060,24 @@ func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *htt
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAgentSkillsParams
+
+	// ------------- Optional query parameter "session_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAgentSkills(w, r, id)
+		siw.Handler.ListAgentSkills(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1697,8 +3087,8 @@ func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// DuplicateBuiltinSkillToAgent operation middleware
-func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseWriter, r *http.Request) {
+// CreateAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1712,12 +3102,12 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 		return
 	}
 
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
+	// ------------- Path parameter "scope" -------------
+	var scope string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1728,7 +3118,7 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DuplicateBuiltinSkillToAgent(w, r, id, skillId)
+		siw.Handler.CreateAgentScopedSkill(w, r, id, scope)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1738,8 +3128,8 @@ func (siw *ServerInterfaceWrapper) DuplicateBuiltinSkillToAgent(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
-// InstallAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *http.Request) {
+// InstallAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1750,6 +3140,15 @@ func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *h
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1760,7 +3159,7 @@ func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *h
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallAgentSkill(w, r, id)
+		siw.Handler.InstallAgentScopedSkill(w, r, id, scope)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1770,8 +3169,8 @@ func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// UploadAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *http.Request) {
+// UploadAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1782,6 +3181,15 @@ func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *ht
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1792,7 +3200,7 @@ func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadAgentSkill(w, r, id)
+		siw.Handler.UploadAgentScopedSkill(w, r, id, scope)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1802,8 +3210,8 @@ func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *http.Request) {
+// DeleteAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1817,126 +3225,12 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
+	// ------------- Path parameter "scope" -------------
+	var scope string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentSkill(w, r, id, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSkill(w, r, id, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateAgentSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateAgentSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAgentSkill(w, r, id, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAgentSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -1956,23 +3250,23 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteAgentSkillFileParams
+	var params DeleteAgentScopedSkillParams
 
-	// ------------- Required query parameter "path" -------------
+	// ------------- Optional query parameter "session_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
 		}
 		return
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentSkillFile(w, r, id, skillId, params)
+		siw.Handler.DeleteAgentScopedSkill(w, r, id, scope, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1982,8 +3276,8 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *http.Request) {
+// GetAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -1994,6 +3288,15 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -2013,7 +3316,139 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetAgentSkillFileParams
+	var params GetAgentScopedSkillParams
+
+	// ------------- Optional query parameter "session_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentScopedSkill(w, r, id, scope, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAgentScopedSkill operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateAgentScopedSkillParams
+
+	// ------------- Optional query parameter "session_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAgentScopedSkill(w, r, id, scope, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentScopedSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteAgentScopedSkillFileParams
 
 	// ------------- Required query parameter "path" -------------
 
@@ -2028,8 +3463,100 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "session_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSkillFile(w, r, id, skillId, params)
+		siw.Handler.DeleteAgentScopedSkillFile(w, r, id, scope, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentScopedSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scope" -------------
+	var scope string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "skillId" -------------
+	var skillId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAgentScopedSkillFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "session_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentScopedSkillFile(w, r, id, scope, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2296,12 +3823,12 @@ func (siw *ServerInterfaceWrapper) DeleteProfileMemory(w http.ResponseWriter, r 
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -2312,7 +3839,7 @@ func (siw *ServerInterfaceWrapper) DeleteProfileMemory(w http.ResponseWriter, r 
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileMemory(w, r, agentId)
+		siw.Handler.DeleteProfileMemory(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2328,12 +3855,12 @@ func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *ht
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -2344,7 +3871,7 @@ func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProfileMemory(w, r, agentId)
+		siw.Handler.SetProfileMemory(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2586,270 +4113,18 @@ func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
-// ListProfileSkills operation middleware
-func (siw *ServerInterfaceWrapper) ListProfileSkills(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListProfileSkills(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// InstallProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallProfileSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) UploadProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadProfileSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateProfileSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateProfileSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateProfileSkill(w, r, skillId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProfileSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteProfileSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileSkillFile(w, r, skillId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetProfileSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetProfileSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "skillId" -------------
-	var skillId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "skillId", r.PathValue("skillId"), &skillId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skillId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetProfileSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProfileSkillFile(w, r, skillId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // SetProfileSoul operation middleware
 func (siw *ServerInterfaceWrapper) SetProfileSoul(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -2860,7 +4135,7 @@ func (siw *ServerInterfaceWrapper) SetProfileSoul(w http.ResponseWriter, r *http
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProfileSoul(w, r, agentId)
+		siw.Handler.SetProfileSoul(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4699,763 +5974,6 @@ func (siw *ServerInterfaceWrapper) PollFeed(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
-// ListSchedulerJobs operation middleware
-func (siw *ServerInterfaceWrapper) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSchedulerJobs(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSchedulerJob operation middleware
-func (siw *ServerInterfaceWrapper) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSchedulerJob(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteSchedulerJob operation middleware
-func (siw *ServerInterfaceWrapper) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteSchedulerJob(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateSchedulerJob operation middleware
-func (siw *ServerInterfaceWrapper) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateSchedulerJob(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// TriggerSchedulerJob operation middleware
-func (siw *ServerInterfaceWrapper) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TriggerSchedulerJob(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListSchedulerJobRuns operation middleware
-func (siw *ServerInterfaceWrapper) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSchedulerJobRuns(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListSessions operation middleware
-func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListSessionsParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "offset" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "kind" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "agent_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "project_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSessions(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSession operation middleware
-func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSession(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSession operation middleware
-func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSession(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSessionMessages operation middleware
-func (siw *ServerInterfaceWrapper) GetSessionMessages(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetSessionMessagesParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "skip" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "skip", r.URL.Query(), &params.Skip, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "skip"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "skip", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "after" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "before" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSessionMessages(w, r, sessionID, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SendSessionMessage operation middleware
-func (siw *ServerInterfaceWrapper) SendSessionMessage(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SendSessionMessage(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSessionSystemPrompt operation middleware
-func (siw *ServerInterfaceWrapper) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSessionSystemPrompt(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSessionWorkspace operation middleware
-func (siw *ServerInterfaceWrapper) GetSessionWorkspace(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetSessionWorkspaceParams
-
-	// ------------- Optional query parameter "show_hidden" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "show_hidden", r.URL.Query(), &params.ShowHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "show_hidden"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "show_hidden", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "depth" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "depth", r.URL.Query(), &params.Depth, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "depth"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depth", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSessionWorkspace(w, r, sessionID, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetWorkspaceFileContent operation middleware
-func (siw *ServerInterfaceWrapper) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetWorkspaceFileContentParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "raw" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "raw", r.URL.Query(), &params.Raw, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "raw"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "raw", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetWorkspaceFileContent(w, r, sessionID, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateWorkspaceFileContent operation middleware
-func (siw *ServerInterfaceWrapper) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateWorkspaceFileContent(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteWorkspaceFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteWorkspaceFile(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// MoveWorkspaceFile operation middleware
-func (siw *ServerInterfaceWrapper) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MoveWorkspaceFile(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateWorkspaceFile operation middleware
-func (siw *ServerInterfaceWrapper) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateWorkspaceFile(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadWorkspaceFile operation middleware
-func (siw *ServerInterfaceWrapper) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionID" -------------
-	var sessionID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionID", r.PathValue("sessionID"), &sessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadWorkspaceFile(w, r, sessionID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListShares operation middleware
 func (siw *ServerInterfaceWrapper) ListShares(w http.ResponseWriter, r *http.Request) {
 
@@ -5554,66 +6072,6 @@ func (siw *ServerInterfaceWrapper) RevokeShare(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// ListSkills operation middleware
-func (siw *ServerInterfaceWrapper) ListSkills(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSkills(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSkill operation middleware
-func (siw *ServerInterfaceWrapper) CreateSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// InstallSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallSkill(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallSkill(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // SearchSkills operation middleware
 func (siw *ServerInterfaceWrapper) SearchSkills(w http.ResponseWriter, r *http.Request) {
 
@@ -5666,599 +6124,11 @@ func (siw *ServerInterfaceWrapper) SearchSkills(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteSkill(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSkill(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateSkill(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteSkillFile(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetSkillFile(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetSkillFileParams
-
-	// ------------- Required query parameter "path" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSkillFile(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetStatus(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListAgentTasks operation middleware
-func (siw *ServerInterfaceWrapper) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListAgentTasksParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "agent_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAgentTasks(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateAgentTask operation middleware
-func (siw *ServerInterfaceWrapper) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateAgentTask(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// BatchCreateAgentTasks operation middleware
-func (siw *ServerInterfaceWrapper) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.BatchCreateAgentTasks(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListUnblockedAgentTasks operation middleware
-func (siw *ServerInterfaceWrapper) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListUnblockedAgentTasksParams
-
-	// ------------- Optional query parameter "agent_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListUnblockedAgentTasks(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAgentTask operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentTask(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetAgentTask operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentTask(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateAgentTask operation middleware
-func (siw *ServerInterfaceWrapper) UpdateAgentTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAgentTask(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AgentTaskAction operation middleware
-func (siw *ServerInterfaceWrapper) AgentTaskAction(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AgentTaskAction(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetAgentTaskDeps operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentTaskDeps(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddAgentTaskDep operation middleware
-func (siw *ServerInterfaceWrapper) AddAgentTaskDep(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddAgentTaskDep(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RemoveAgentTaskDep operation middleware
-func (siw *ServerInterfaceWrapper) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "depId" -------------
-	var depId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "depId", r.PathValue("depId"), &depId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "depId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RemoveAgentTaskDep(w, r, id, depId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListAgentTaskEvents operation middleware
-func (siw *ServerInterfaceWrapper) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAgentTaskEvents(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6367,12 +6237,12 @@ func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -6383,7 +6253,7 @@ func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteUserMemory(w, r, id, agentId)
+		siw.Handler.DeleteUserMemory(w, r, id, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6408,12 +6278,12 @@ func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -6424,7 +6294,7 @@ func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetUserMemory(w, r, id, agentId)
+		siw.Handler.SetUserMemory(w, r, id, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6591,23 +6461,55 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.SetOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents", wrapper.CreateAgent)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentId}/projects", wrapper.ListProjects)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentId}/projects", wrapper.CreateProject)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.DeleteProject)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.GetProject)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.UpdateProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.ListProjects)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.CreateProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.DeleteProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.GetProject)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.UpdateProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.ListSchedulerJobs)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.CreateSchedulerJob)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.DeleteSchedulerJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.GetSchedulerJob)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.UpdateSchedulerJob)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/run", wrapper.TriggerSchedulerJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/runs", wrapper.ListSchedulerJobRuns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions", wrapper.ListSessions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/sessions", wrapper.CreateSession)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}", wrapper.GetSession)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/messages", wrapper.GetSessionMessages)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/messages", wrapper.SendSessionMessage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/system-prompt", wrapper.GetSessionSystemPrompt)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace", wrapper.GetSessionWorkspace)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content", wrapper.GetWorkspaceFileContent)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content", wrapper.UpdateWorkspaceFileContent)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.DeleteWorkspaceFile)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks", wrapper.ListAgentTasks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks", wrapper.CreateAgentTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/batch", wrapper.BatchCreateAgentTasks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/unblocked", wrapper.ListUnblockedAgentTasks)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.DeleteAgentTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.GetAgentTask)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.UpdateAgentTask)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/action", wrapper.AgentTaskAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.GetAgentTaskDeps)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.AddAgentTaskDep)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps/{depID}", wrapper.RemoveAgentTaskDep)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/events", wrapper.ListAgentTaskEvents)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}", wrapper.DeleteAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}", wrapper.GetAgent)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills", wrapper.ListAgentSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/from-builtin/{skillId}", wrapper.DuplicateBuiltinSkillToAgent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/install", wrapper.InstallAgentSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/upload", wrapper.UploadAgentSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.DeleteAgentSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.GetAgentSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.UpdateAgentSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.DeleteAgentSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.GetAgentSkillFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}", wrapper.CreateAgentScopedSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/install", wrapper.InstallAgentScopedSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/upload", wrapper.UploadAgentScopedSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.DeleteAgentScopedSkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.GetAgentScopedSkill)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.UpdateAgentScopedSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.DeleteAgentScopedSkillFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.GetAgentScopedSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
@@ -6618,8 +6520,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/memories", wrapper.ListProfileMemories)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.DeleteProfileMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.SetProfileMemory)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.DeleteProfileMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.SetProfileMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/providers", wrapper.ListOAuthProviders)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}", wrapper.DisconnectOAuth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/callback", wrapper.OauthCallback)
@@ -6627,15 +6529,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/start", wrapper.StartOAuthFlow)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/status/{flowID}", wrapper.PollOAuthFlow)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills", wrapper.ListProfileSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/install", wrapper.InstallProfileSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/skills/upload", wrapper.UploadProfileSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.DeleteProfileSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.GetProfileSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}", wrapper.UpdateProfileSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.DeleteProfileSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/skills/{skillId}/file", wrapper.GetProfileSkillFile)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentId}", wrapper.SetProfileSoul)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentID}", wrapper.SetProfileSoul)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
@@ -6693,56 +6587,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.GetFeed)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.UpdateFeed)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/feeds/{id}/poll", wrapper.PollFeed)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/scheduler/jobs", wrapper.ListSchedulerJobs)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/scheduler/jobs", wrapper.CreateSchedulerJob)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/scheduler/jobs/{id}", wrapper.DeleteSchedulerJob)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/scheduler/jobs/{id}", wrapper.UpdateSchedulerJob)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/scheduler/jobs/{id}/run", wrapper.TriggerSchedulerJob)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/scheduler/jobs/{id}/runs", wrapper.ListSchedulerJobRuns)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions", wrapper.ListSessions)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions", wrapper.CreateSession)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}", wrapper.GetSession)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.GetSessionMessages)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/messages", wrapper.SendSessionMessage)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/system-prompt", wrapper.GetSessionSystemPrompt)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace", wrapper.GetSessionWorkspace)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/file-content", wrapper.GetWorkspaceFileContent)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/file-content", wrapper.UpdateWorkspaceFileContent)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.DeleteWorkspaceFile)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/sessions/{sessionID}/workspace/upload", wrapper.UploadWorkspaceFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares", wrapper.ListShares)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shares", wrapper.CreateShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares/public/{token}", wrapper.GetShareContent)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shares/{id}", wrapper.RevokeShare)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills", wrapper.ListSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills", wrapper.CreateSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/skills/install", wrapper.InstallSkill)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/search", wrapper.SearchSkills)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/skills/{id}", wrapper.DeleteSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/{id}", wrapper.GetSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/skills/{id}", wrapper.UpdateSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.DeleteSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/{id}/file", wrapper.GetSkillFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/status", wrapper.GetStatus)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.ListAgentTasks)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.CreateAgentTask)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/batch", wrapper.BatchCreateAgentTasks)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/unblocked", wrapper.ListUnblockedAgentTasks)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{id}", wrapper.DeleteAgentTask)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}", wrapper.GetAgentTask)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/tasks/{id}", wrapper.UpdateAgentTask)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{id}/action", wrapper.AgentTaskAction)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}/deps", wrapper.GetAgentTaskDeps)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{id}/deps", wrapper.AddAgentTaskDep)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/tasks/{id}/deps/{depId}", wrapper.RemoveAgentTaskDep)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks/{id}/events", wrapper.ListAgentTaskEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.DeleteUserMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.SetUserMemory)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.DeleteUserMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.SetUserMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/notify-identity", wrapper.UpdateUserNotifyIdentity)
 
 	return m

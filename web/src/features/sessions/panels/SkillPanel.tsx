@@ -35,17 +35,11 @@ function emptyForm(): Form {
 }
 
 function skillUrl(scope: string | undefined, agentId: string, skillId: string) {
-  if (scope === "system") return `/api/builtin/skill/${encodeURIComponent(skillId)}`;
-  if (scope === "user") return `/api/auth/profile/skills/${encodeURIComponent(skillId)}`;
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`;
+  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}`;
 }
 
 function skillFileUrl(scope: string | undefined, agentId: string, skillId: string) {
-  if (scope === "system")
-    return `/api/builtin/skill/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
-  if (scope === "user")
-    return `/api/auth/profile/skills/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
+  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
 }
 
 function scopeLabel(scope: string) {
@@ -69,7 +63,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(isNew);
 
-  const isReadOnly = !isNew && skill !== null && skill.scope !== "user";
+  const isReadOnly = !isNew && skill !== null && skill.scope === "system";
 
   const patchForm = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -78,18 +72,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     setLoading(true);
     try {
       const sk = await api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId));
-      let content = "";
-      if (scope === "system") {
-        // system builtin embeds content directly in the item response
-        content = sk.content ?? "";
-      } else {
-        // user/agent skills: file endpoint returns { content?: string }
-        const res = await api<{ content?: string }>(
-          "GET",
-          skillFileUrl(scope, agentId, skillId),
-        ).catch(() => null);
-        content = res?.content ?? "";
-      }
+      const res = await api<{ content?: string }>(
+        "GET",
+        skillFileUrl(scope, agentId, skillId),
+      ).catch(() => null);
+      const content = res?.content ?? "";
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
@@ -123,11 +110,12 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     setSaving(true);
     try {
       if (isNew) {
-        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/skills`, {
+        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/skills/user`, {
           name: form.name,
           description: form.description,
           status: form.status,
           disable_model_invocation: form.disable_model_invocation,
+          files: { "SKILL.md": form.content },
         });
       } else if (skillId) {
         await api("PUT", skillUrl(scope, agentId, skillId), {

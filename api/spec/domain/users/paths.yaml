@@ -99,7 +99,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/users/{id}/memories/{agentId}:
+  /api/users/{id}/memories/{agentID}:
     parameters:
       - {
           name: id,
@@ -107,7 +107,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     put:
       tags: [users]
       summary: Set memory for a user and agent (admin only)

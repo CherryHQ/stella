@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-05-22
+
+### 🐛 Bug Fixes
+
+- **Sessions**: Enforce `user_id` and `agent_id` on all session queries ([#215](https://github.com/CherryHQ/stella/pull/215))
+
+**Full Changelog**: [v0.36.0...v0.36.1](https://github.com/CherryHQ/stella/compare/v0.36.0...v0.36.1)
+
+## [0.36.0] - 2026-05-22
+
+### ⚠️ Breaking Changes
+
+- **API**: Sessions, scheduler jobs, and tasks are now scoped under the agent context. All endpoints have moved:
+  - `GET /api/sessions` → `GET /api/agents/{agentID}/sessions`
+  - `POST /api/sessions` → `POST /api/agents/{agentID}/sessions`
+  - `GET/DELETE /api/sessions/{id}` → `GET /api/agents/{agentID}/sessions/{sessionID}`
+  - `GET /api/scheduler/jobs` → `GET /api/agents/{agentID}/scheduler/jobs`
+  - `POST /api/scheduler/jobs` → `POST /api/agents/{agentID}/scheduler/jobs`
+  - `PUT/DELETE /api/scheduler/jobs/{id}` → `PUT/DELETE /api/agents/{agentID}/scheduler/jobs/{jobID}`
+  - `GET /api/tasks` → `GET /api/agents/{agentID}/tasks`
+  - `POST /api/tasks` → `POST /api/agents/{agentID}/tasks`
+
+  The old flat endpoints have been removed. Update any external integrations or scripts that target these paths.
+
+### ✨ Features
+
+- **Skills**: Scope skills to agent context ([#211](https://github.com/CherryHQ/stella/pull/211))
+- **Tasks**: Require explicit `agent_id` on task list and create operations; add agent access check ([#212](https://github.com/CherryHQ/stella/pull/212))
+
+### ♻️ Refactoring
+
+- **Automation APIs**: Scope sessions, scheduler jobs, and tasks under the agent context; standardize `{agentId}` → `{agentID}`; replace Go-side filtering with targeted DB query ([#214](https://github.com/CherryHQ/stella/pull/214))
+
+### 🔒 Security
+
+- **Scheduler**: Harden auth guards against nil user context; deny-by-default for all list/modify/trigger operations ([#213](https://github.com/CherryHQ/stella/pull/213))
+- **Scheduler**: Disallow manual triggering of system and plugin jobs ([#213](https://github.com/CherryHQ/stella/pull/213))
+
+**Full Changelog**: [v0.35.3...v0.36.0](https://github.com/CherryHQ/stella/compare/v0.35.3...v0.36.0)
+
 ## [0.35.3] - 2026-05-21
 
 ### 🐛 Bug Fixes
