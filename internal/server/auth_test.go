@@ -228,7 +228,7 @@ func newAdminTokenVault() *adminTokenVault {
 	return &adminTokenVault{env: make(map[string]map[string]string)}
 }
 
-func (v *adminTokenVault) Set(_ context.Context, userID string, name string, plaintext string) error {
+func (v *adminTokenVault) SetReserved(_ context.Context, userID string, name string, plaintext string) error {
 	if v.env[userID] == nil {
 		v.env[userID] = make(map[string]string)
 	}

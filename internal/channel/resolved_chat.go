@@ -7,6 +7,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 type ResolvedChat struct {
@@ -23,19 +24,24 @@ func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, 
 	return rc.Pool.ResolveSession(ctx, rc.SessionKey, rc.User.ID)
 }
 
-func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
-	return rc.Pool.RotateSession(rc.SessionKey, rc.User.ID)
-}
-
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolve session: %w", err)
 	}
+	ctx = memory.WithUserID(ctx, rc.User.ID)
 	return rc.Pool.CompactSession(ctx, info.ID)
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {
+	if rc.User.ID == "" {
+		return nil, "", fmt.Errorf("missing user context")
+	}
+	if rc.AgentID == "" {
+		return nil, "", fmt.Errorf("missing agent context")
+	}
+	ctx = memory.WithUserID(ctx, rc.User.ID)
+	ctx = memory.WithAgentID(ctx, rc.AgentID)
 	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)

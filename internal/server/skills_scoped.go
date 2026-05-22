@@ -220,7 +220,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	for _, sk := range dbSkills {
 		out = append(out, skillToView(sk, nil))
 	}
-	projectRoot, err := s.projectRootForSession(memoryUserContext(r), agentID, params.SessionId)
+	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, params.SessionId)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -359,7 +359,7 @@ func (s *Server) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillParams) {
 	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -403,7 +403,7 @@ func (s *Server) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id 
 
 func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillFileParams) {
 	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -443,7 +443,7 @@ func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.UpdateAgentScopedSkillParams) {
 	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -494,7 +494,7 @@ func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillParams) {
 	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -529,7 +529,7 @@ func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillFileParams) {
 	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

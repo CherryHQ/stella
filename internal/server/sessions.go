@@ -97,7 +97,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	ctx := memoryUserContext(r)
+	ctx := memoryContext(r, agentID)
 	si, err := sm.LoadInfo(ctx, sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -107,10 +107,6 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	// Ownership is strict: only the session owner may send messages.
 	if authInfo.UserID != si.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
-		return
-	}
-	if agentID != "" && si.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -425,6 +421,14 @@ func memoryUserContext(r *http.Request) context.Context {
 	return ctx
 }
 
+func memoryContext(r *http.Request, agentID string) context.Context {
+	ctx := memoryUserContext(r)
+	if agentID != "" {
+		ctx = memory.WithAgentID(ctx, agentID)
+	}
+	return ctx
+}
+
 func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListSessionsParams) {
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
@@ -457,7 +461,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	if params.ProjectId != nil {
 		opts.ProjectID = *params.ProjectId
 	}
-	sessions, err := sm.ListInfo(memoryUserContext(r), opts)
+	sessions, err := sm.ListInfo(memoryContext(r, agentID), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -482,7 +486,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 
 	authInfo := UserFromContext(r.Context())
-	si, err := sm.LoadInfo(memoryUserContext(r), sessionID)
+	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -548,7 +552,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	if info := UserFromContext(r.Context()); info != nil {
 		userID = info.UserID
 	}
-	conv, err := s.q.GetConversationBySessionID(memoryUserContext(r), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}})
+	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}, AgentID: sql.NullString{String: agentID, Valid: agentID != ""}})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
@@ -603,7 +607,7 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 	if info == nil || !ok {
 		return nil
 	}
-	si, err := sm.LoadInfo(memoryUserContext(r), sessionID)
+	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return err
@@ -632,7 +636,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return
 	}
-	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
+	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -750,7 +754,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return "", fmt.Errorf("unsupported")
 	}
-	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
+	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return "", err
@@ -1084,7 +1088,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	info, err := sm.LoadInfo(memoryUserContext(r), sessionID)
+	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return

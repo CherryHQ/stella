@@ -44,6 +44,35 @@ func newTestSession() memory.Session {
 	}
 }
 
+func TestSimpleProviderRequiresSessionScope(t *testing.T) {
+	p, cleanup := newTestDB(t)
+	defer cleanup()
+
+	sess := memory.Session{ID: "test:cli:missing-scope", UserID: "1", Channel: "cli"}
+	if err := p.Bootstrap(context.Background(), sess); err == nil {
+		t.Fatal("expected missing agent context error")
+	}
+}
+
+func TestSimpleProviderUsesContextSessionScope(t *testing.T) {
+	p, cleanup := newTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
+	sess := memory.Session{ID: "test:cli:context-scope", Channel: "cli"}
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	info, err := p.LoadInfo(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if info.UserID != "1" || info.AgentID != "test" {
+		t.Fatalf("scope = user %q agent %q, want user 1 agent test", info.UserID, info.AgentID)
+	}
+}
+
 func TestSimpleProvider_AppendAssistantMessage(t *testing.T) {
 	p, cleanup := newTestDB(t)
 	defer cleanup()

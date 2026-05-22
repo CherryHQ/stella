@@ -28,7 +28,11 @@ func newRetrievalEngine(q *sqlc.Queries) *retrievalEngine {
 
 // Search implements memory.Searcher.
 func (p *Provider) Search(ctx context.Context, session memory.Session, query memory.SearchQuery) ([]memory.SearchResult, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
@@ -97,18 +101,36 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 	return results, nil
 }
 
-// Describe implements memory.Explorer.
-func (p *Provider) Describe(ctx context.Context, summaryID string) (*memory.DescribeResult, error) {
-	return p.retrieval.describe(ctx, summaryID)
+func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc.CtxSummary, error) {
+	userID, agentID, err := requireSessionScope(ctx, "", "")
+	if err != nil {
+		return sqlc.CtxSummary{}, err
+	}
+	sum, err := p.q.GetSummary(ctx, summaryID)
+	if err != nil {
+		return sqlc.CtxSummary{}, fmt.Errorf("get summary: %w", err)
+	}
+	if _, err := p.q.GetConversation(ctx, sqlc.GetConversationParams{
+		ID:      sum.ConversationID,
+		UserID:  sql.NullString{String: userID, Valid: true},
+		AgentID: nullAgent(agentID),
+	}); err != nil {
+		return sqlc.CtxSummary{}, fmt.Errorf("get summary conversation: %w", err)
+	}
+	return sum, nil
 }
 
-func (r *retrievalEngine) describe(ctx context.Context, summaryID string) (*memory.DescribeResult, error) {
-	sum, err := r.q.GetSummary(ctx, summaryID)
+// Describe implements memory.Explorer.
+func (p *Provider) Describe(ctx context.Context, summaryID string) (*memory.DescribeResult, error) {
+	sum, err := p.getScopedSummary(ctx, summaryID)
 	if err != nil {
-		return nil, fmt.Errorf("get summary: %w", err)
+		return nil, err
 	}
+	return p.retrieval.describe(ctx, sum)
+}
 
-	parents, err := r.q.GetSummaryParents(ctx, summaryID)
+func (r *retrievalEngine) describe(ctx context.Context, sum sqlc.CtxSummary) (*memory.DescribeResult, error) {
+	parents, err := r.q.GetSummaryParents(ctx, sum.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get parents: %w", err)
 	}
@@ -117,7 +139,7 @@ func (r *retrievalEngine) describe(ctx context.Context, summaryID string) (*memo
 		parentIDs[i] = p.ID
 	}
 
-	children, err := r.q.GetSummaryChildren(ctx, summaryID)
+	children, err := r.q.GetSummaryChildren(ctx, sum.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get children: %w", err)
 	}
@@ -141,24 +163,23 @@ func (r *retrievalEngine) describe(ctx context.Context, summaryID string) (*memo
 
 // Expand implements memory.Explorer.
 func (p *Provider) Expand(ctx context.Context, summaryID string, tokenCap int) (*memory.ExpandResult, error) {
-	return p.retrieval.expand(ctx, summaryID, tokenCap)
+	sum, err := p.getScopedSummary(ctx, summaryID)
+	if err != nil {
+		return nil, err
+	}
+	return p.retrieval.expand(ctx, sum, tokenCap)
 }
 
-func (r *retrievalEngine) expand(ctx context.Context, summaryID string, tokenCap int) (*memory.ExpandResult, error) {
+func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, tokenCap int) (*memory.ExpandResult, error) {
 	if tokenCap <= 0 {
 		tokenCap = defaultExpandTokens
 	}
 
-	sum, err := r.q.GetSummary(ctx, summaryID)
-	if err != nil {
-		return nil, fmt.Errorf("get summary: %w", err)
-	}
-
-	result := &memory.ExpandResult{SummaryID: summaryID}
+	result := &memory.ExpandResult{SummaryID: sum.ID}
 	tokensUsed := 0
 
 	if sum.Kind == kindLeaf {
-		msgs, err := r.q.GetSummaryMessages(ctx, summaryID)
+		msgs, err := r.q.GetSummaryMessages(ctx, sum.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get summary messages: %w", err)
 		}
@@ -176,7 +197,7 @@ func (r *retrievalEngine) expand(ctx context.Context, summaryID string, tokenCap
 			tokensUsed += tokens
 		}
 	} else {
-		children, err := r.q.GetSummaryChildren(ctx, summaryID)
+		children, err := r.q.GetSummaryChildren(ctx, sum.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get children: %w", err)
 		}

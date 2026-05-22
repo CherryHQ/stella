@@ -258,7 +258,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
-	pool := agent.NewPool(initialFactory, commandTestMemory{}, agent.WithDefaultModel(snap.Model))
+	pool := agent.NewPool(initialFactory, commandTestMemory{}, agent.WithAgentID(snap.AgentID), agent.WithDefaultModel(snap.Model))
 
 	promptToolsCalls := 0
 	promptSectionsCalls := 0

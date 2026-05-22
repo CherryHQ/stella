@@ -65,7 +65,7 @@ const getConversation = `-- name: GetConversation :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
 WHERE id = ?1
   AND user_id = ?2
-  AND agent_id = ?3
+  AND agent_id IS ?3
 `
 
 type GetConversationParams struct {
@@ -99,15 +99,17 @@ const getConversationBySessionID = `-- name: GetConversationBySessionID :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
 WHERE session_id = ?1
   AND user_id = ?2
+  AND agent_id IS ?3
 `
 
 type GetConversationBySessionIDParams struct {
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConversationBySessionIDParams) (CtxConversation, error) {
-	row := q.db.QueryRowContext(ctx, getConversationBySessionID, arg.SessionID, arg.UserID)
+	row := q.db.QueryRowContext(ctx, getConversationBySessionID, arg.SessionID, arg.UserID, arg.AgentID)
 	var i CtxConversation
 	err := row.Scan(
 		&i.ID,
@@ -131,7 +133,7 @@ const getMainConversationByProject = `-- name: GetMainConversationByProject :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
 WHERE project_id = ?1
   AND user_id = ?2
-  AND agent_id = ?3
+  AND agent_id IS ?3
   AND kind = 'main' AND archived = 0 LIMIT 1
 `
 
@@ -310,38 +312,45 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec
 UPDATE ctx_conversations SET archived = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND user_id = ?3
+WHERE session_id = ?2 AND user_id = ?3 AND agent_id IS ?4
 `
 
 type UpdateConversationArchivedParams struct {
 	Archived  int64          `json:"archived"`
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConversationArchivedParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationArchived, arg.Archived, arg.SessionID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateConversationArchived,
+		arg.Archived,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	return err
 }
 
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
 UPDATE ctx_conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now')
-WHERE id = ?1 AND user_id = ?2
+WHERE id = ?1 AND user_id = ?2 AND agent_id IS ?3
 `
 
 type UpdateConversationBootstrappedParams struct {
-	ID     string         `json:"id"`
-	UserID sql.NullString `json:"user_id"`
+	ID      string         `json:"id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg UpdateConversationBootstrappedParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, arg.ID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, arg.ID, arg.UserID, arg.AgentID)
 	return err
 }
 
 const updateConversationKindProject = `-- name: UpdateConversationKindProject :exec
 UPDATE ctx_conversations SET kind = ?1, project_id = ?2, updated_at = datetime('now')
-WHERE session_id = ?3 AND user_id = ?4
+WHERE session_id = ?3 AND user_id = ?4 AND agent_id IS ?5
 `
 
 type UpdateConversationKindProjectParams struct {
@@ -349,6 +358,7 @@ type UpdateConversationKindProjectParams struct {
 	ProjectID sql.NullString `json:"project_id"`
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateConversationKindProjectParams) error {
@@ -357,53 +367,67 @@ func (q *Queries) UpdateConversationKindProject(ctx context.Context, arg UpdateC
 		arg.ProjectID,
 		arg.SessionID,
 		arg.UserID,
+		arg.AgentID,
 	)
 	return err
 }
 
 const updateConversationLastActive = `-- name: UpdateConversationLastActive :exec
 UPDATE ctx_conversations SET last_active = datetime('now'), updated_at = datetime('now')
-WHERE session_id = ?1 AND user_id = ?2
+WHERE session_id = ?1 AND user_id = ?2 AND agent_id IS ?3
 `
 
 type UpdateConversationLastActiveParams struct {
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationLastActive(ctx context.Context, arg UpdateConversationLastActiveParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationLastActive, arg.SessionID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateConversationLastActive, arg.SessionID, arg.UserID, arg.AgentID)
 	return err
 }
 
 const updateConversationTitle = `-- name: UpdateConversationTitle :exec
 UPDATE ctx_conversations SET title = ?1, updated_at = datetime('now')
-WHERE id = ?2 AND user_id = ?3
+WHERE id = ?2 AND user_id = ?3 AND agent_id IS ?4
 `
 
 type UpdateConversationTitleParams struct {
-	Title  sql.NullString `json:"title"`
-	ID     string         `json:"id"`
-	UserID sql.NullString `json:"user_id"`
+	Title   sql.NullString `json:"title"`
+	ID      string         `json:"id"`
+	UserID  sql.NullString `json:"user_id"`
+	AgentID sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConversationTitleParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationTitle, arg.Title, arg.ID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateConversationTitle,
+		arg.Title,
+		arg.ID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	return err
 }
 
 const updateConversationTitleBySessionID = `-- name: UpdateConversationTitleBySessionID :exec
 UPDATE ctx_conversations SET title = ?1, updated_at = datetime('now')
-WHERE session_id = ?2 AND user_id = ?3
+WHERE session_id = ?2 AND user_id = ?3 AND agent_id IS ?4
 `
 
 type UpdateConversationTitleBySessionIDParams struct {
 	Title     sql.NullString `json:"title"`
 	SessionID string         `json:"session_id"`
 	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
 }
 
 func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg UpdateConversationTitleBySessionIDParams) error {
-	_, err := q.db.ExecContext(ctx, updateConversationTitleBySessionID, arg.Title, arg.SessionID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateConversationTitleBySessionID,
+		arg.Title,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	return err
 }
