@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { queryClient } from "@/lib/queryClient";
+import { login as loginRequest, register as registerRequest } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 
@@ -28,16 +29,7 @@ export function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const json = await res.json();
-      if (json.error) {
-        setError(json.error);
-        return;
-      }
+      await loginRequest({ body: { username, password }, throwOnError: true });
       await queryClient.invalidateQueries(meQueryOptions);
       void navigate({ to: "/sessions" as any });
     } catch (e) {
@@ -60,16 +52,7 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const json = await res.json();
-      if (json.error) {
-        setError(json.error);
-        return;
-      }
+      await registerRequest({ body: { username, password }, throwOnError: true });
       await queryClient.invalidateQueries(meQueryOptions);
       void navigate({ to: "/sessions" as any });
     } catch (e) {
