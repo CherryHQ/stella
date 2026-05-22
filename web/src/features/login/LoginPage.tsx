@@ -33,7 +33,7 @@ export function LoginPage() {
       await queryClient.invalidateQueries(meQueryOptions);
       void navigate({ to: "/sessions" as any });
     } catch (e) {
-      setError((e as Error).message || t("login.loginFailed"));
+      setError(apiErrorMessage(e, t("login.loginFailed")));
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ export function LoginPage() {
       await queryClient.invalidateQueries(meQueryOptions);
       void navigate({ to: "/sessions" as any });
     } catch (e) {
-      setError((e as Error).message || t("login.registrationFailed"));
+      setError(apiErrorMessage(e, t("login.registrationFailed")));
     } finally {
       setLoading(false);
     }
@@ -164,4 +164,13 @@ export function LoginPage() {
       </div>
     </div>
   );
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === "object" && "error" in error) {
+    const message = (error as { error?: unknown }).error;
+    if (typeof message === "string" && message) return message;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }

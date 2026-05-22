@@ -10,6 +10,7 @@ import {
   togglePlugin as togglePluginRequest,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
+import type { SaveManifestPluginsData } from "@/lib/api-client/types.gen";
 import type {
   ManifestOAuthProvider,
   ManifestPlugin,
@@ -53,6 +54,10 @@ import {
 } from "@/features/settings/SettingsListPanel";
 
 type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
+
+function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
+  return { plugins: plugins.map((plugin) => ({ ...plugin })) };
+}
 
 export function PluginsPage() {
   const { t } = useI18n();
@@ -295,7 +300,7 @@ export function PluginsPage() {
     try {
       const updated = manifestPlugins.map((p) => (p.id === id ? { ...p, enabled } : p));
       setManifestPlugins(updated);
-      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
+      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
       await syncManifest(true);
       await loadManifestPlugins();
       await loadPlugins();
@@ -399,7 +404,7 @@ export function PluginsPage() {
       } else {
         updated = [...manifestPlugins, next];
       }
-      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
+      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
       await loadManifestPlugins();
       await loadPlugins();
       await syncManifest(true);
@@ -478,7 +483,7 @@ export function PluginsPage() {
         binaries: [binary as unknown as import("@/lib/types").ManifestBinary],
       };
       const updated = [...manifestPlugins, newPlugin];
-      await saveManifestPlugins({ body: { plugins: updated as any }, throwOnError: true });
+      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
       await loadManifestPlugins();
       await loadPlugins();
       await syncManifest(true);

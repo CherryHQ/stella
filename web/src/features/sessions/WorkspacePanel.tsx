@@ -121,9 +121,6 @@ export function WorkspacePanel({
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const enc = encodeURIComponent(sessionID);
-  const agentEnc = encodeURIComponent(agentID);
-
   const reload = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
   }, [sessionID, onReload, projectDir]);
@@ -139,7 +136,7 @@ export function WorkspacePanel({
       }
       try {
         const { data } = await getWorkspaceFileContent({
-          path: { agentID: agentEnc, sessionID: enc },
+          path: { agentID, sessionID },
           query: { path },
           throwOnError: true,
         });
@@ -154,7 +151,7 @@ export function WorkspacePanel({
         setMode("tree");
       }
     },
-    [enc],
+    [agentID, sessionID],
   );
 
   const saveFile = useCallback(
@@ -163,7 +160,7 @@ export function WorkspacePanel({
       setViewer((v) => (v ? { ...v, saving: true } : null));
       try {
         await updateWorkspaceFileContent({
-          path: { agentID: agentEnc, sessionID: enc },
+          path: { agentID, sessionID },
           body: { path: viewer.path, content },
           throwOnError: true,
         });
@@ -173,7 +170,7 @@ export function WorkspacePanel({
         setViewer((v) => (v ? { ...v, saving: false } : null));
       }
     },
-    [viewer, enc],
+    [viewer, agentID, sessionID],
   );
 
   const createItem = useCallback(async () => {
@@ -181,20 +178,20 @@ export function WorkspacePanel({
     if (!name) return;
     const fullPath = projectDir ? `${projectDir}/${name}` : name;
     await createWorkspaceFile({
-      path: { agentID: agentEnc, sessionID: enc },
+      path: { agentID, sessionID },
       body: { path: fullPath, is_dir: newItemType === "dir" },
       throwOnError: true,
     });
     reload();
     setNewItemType(null);
     setNewItemName("");
-  }, [enc, newItemName, newItemType, reload, projectDir]);
+  }, [agentID, sessionID, newItemName, newItemType, reload, projectDir]);
 
   const deleteItem = useCallback(
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
       await deleteWorkspaceFile({
-        path: { agentID: agentEnc, sessionID: enc },
+        path: { agentID, sessionID },
         body: { path },
         throwOnError: true,
       });
@@ -205,7 +202,7 @@ export function WorkspacePanel({
         setMode("tree");
       }
     },
-    [enc, selectedPath, reload, viewer],
+    [agentID, sessionID, selectedPath, reload, viewer],
   );
 
   const goBack = useCallback(() => {
@@ -624,7 +621,7 @@ function TreeWithSearch({
       onRename: async ({ sourcePath, destinationPath }) => {
         try {
           await moveWorkspaceFile({
-            path: { agentID: agentEnc, sessionID: enc },
+            path: { agentID, sessionID },
             body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
             throwOnError: true,
           });
@@ -644,7 +641,7 @@ function TreeWithSearch({
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
             await moveWorkspaceFile({
-              path: { agentID: agentEnc, sessionID: enc },
+              path: { agentID, sessionID },
               body: { path: toApi(src), new_path: toApi(newPath) },
               throwOnError: true,
             });
@@ -674,7 +671,7 @@ function TreeWithSearch({
       try {
         const apiDir = toApi(dir);
         const { data } = await getSessionWorkspace({
-          path: { agentID: agentEnc, sessionID: enc },
+          path: { agentID, sessionID },
           query: { show_hidden: true, depth: 2, path: apiDir },
           throwOnError: true,
         });

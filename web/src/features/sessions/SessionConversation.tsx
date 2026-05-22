@@ -44,9 +44,6 @@ export function SessionConversation({
   const [mobileOpen, setMobileOpen] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
-  const enc = encodeURIComponent(sessionId);
-
-  const agentEnc = encodeURIComponent(agentId);
   const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
 
   const {
@@ -67,7 +64,7 @@ export function SessionConversation({
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
-        path: { agentID: agentEnc, sessionID: enc },
+        path: { agentID: agentId, sessionID: sessionId },
         query: {
           limit: 20,
           skip: pageParam,

@@ -225,9 +225,8 @@ function FolderTree({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const enc = encodeURIComponent(sessionId);
     getSessionWorkspace({
-      path: { agentID: agentId, sessionID: enc },
+      path: { agentID: agentId, sessionID: sessionId },
       query: { depth: 4 },
       throwOnError: true,
     }).then(

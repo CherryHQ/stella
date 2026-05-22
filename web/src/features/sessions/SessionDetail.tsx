@@ -58,8 +58,8 @@ export function SessionDetail({
   const initialScrollSessionRef = useRef<string | null>(null);
   const autoSentRef = useRef(false);
 
-  const enc = session ? encodeURIComponent(session.id) : "";
-  const agentEnc = session ? encodeURIComponent(session.agent_id) : "";
+  const sessionId = session?.id ?? "";
+  const agentId = session?.agent_id ?? "";
 
   const transport = useMemo(
     () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
@@ -85,7 +85,7 @@ export function SessionDetail({
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
-        path: { agentID: agentEnc, sessionID: enc },
+        path: { agentID: agentId, sessionID: sessionId },
         query: { limit: 20, skip: pageParam },
         throwOnError: true,
       });
@@ -126,10 +126,9 @@ export function SessionDetail({
     setSkills([]);
 
     const load = async () => {
-      const e = encodeURIComponent(session.id);
       try {
         const { data: pr } = await getSessionSystemPrompt({
-          path: { agentID: session.agent_id, sessionID: e },
+          path: { agentID: session.agent_id, sessionID: session.id },
           throwOnError: true,
         });
         if (sessionIDRef.current !== session.id) return;
@@ -228,10 +227,8 @@ export function SessionDetail({
         const placeholder = { name: file.name, path: "", uploading: true };
         setAttachments((prev) => [...prev, placeholder]);
         try {
-          const form = new FormData();
-          form.append("file", file);
           const { data: res } = await uploadWorkspaceFile({
-            path: { agentID: agentEnc, sessionID: enc },
+            path: { agentID: agentId, sessionID: sessionId },
             body: { file },
             throwOnError: true,
           });
@@ -244,7 +241,7 @@ export function SessionDetail({
         }
       }
     },
-    [session, agentEnc, enc],
+    [session, agentId, sessionId],
   );
 
   const removeAttachment = useCallback((idx: number) => {

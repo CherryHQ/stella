@@ -28,6 +28,12 @@ import {
   uploadAgentScopedSkill,
 } from "@/lib/api-client/sdk.gen";
 import type {
+  CreateAgentData,
+  InstallAgentScopedSkillData,
+  UpdateAgentData,
+  UpdateAgentScopedSkillData,
+} from "@/lib/api-client/types.gen";
+import type {
   AgentDetail,
   AgentSandbox,
   BuiltinItem,
@@ -106,6 +112,22 @@ function emptyForm(): Omit<AgentDetail, "id"> {
     creator_id: 0,
     sandbox: { network: { mode: "disabled", allowlist: [] } },
     template_id: "",
+  };
+}
+
+function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData["body"] {
+  return {
+    name: form.name,
+    model: form.model,
+    model_strong: form.model_strong,
+    model_fast: form.model_fast,
+    system_prompt: form.system_prompt,
+    soul: form.soul,
+    scope: form.scope,
+    enabled: form.enabled,
+    creator_id: String(form.creator_id),
+    sandbox: form.sandbox,
+    template_id: form.template_id,
   };
 }
 
@@ -525,13 +547,13 @@ export function AgentsPage() {
         if (currentState.editingId) {
           await updateAgent({
             path: { id: currentState.editingId },
-            body: payload as unknown as any,
+            body: agentRequestBody(payload) as UpdateAgentData["body"],
             throwOnError: true,
           });
           await saveChannelBindings(currentState.editingId, currentState);
         } else {
           const { data: created } = await createAgent({
-            body: payload as unknown as any,
+            body: agentRequestBody(payload),
             throwOnError: true,
           });
           const newId = (created as unknown as AgentDetail).id;
@@ -621,7 +643,7 @@ export function AgentsPage() {
       try {
         await assignAgentUser({
           path: { id: currentState.editingId },
-          body: { user_id: Number(currentState.addUserId) } as unknown as any,
+          body: { user_id: currentState.addUserId },
           throwOnError: true,
         });
         setState((prev) => ({ ...prev, addUserId: "" }));
@@ -784,7 +806,7 @@ export function AgentsPage() {
             status: selectedSkill.status,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             files: { [selectedSkillActiveFile]: selectedSkillFileContent },
-          } as unknown as any,
+          } as UpdateAgentScopedSkillData["body"],
           throwOnError: true,
         });
         setState((prev) => ({
@@ -859,7 +881,7 @@ export function AgentsPage() {
       try {
         const { data: res } = await installAgentScopedSkill({
           path: { id: currentState.editingId, scope },
-          body: { source } as unknown as any,
+          body: { source } as InstallAgentScopedSkillData["body"],
           throwOnError: true,
         });
         showToast("Installed: " + ((res as unknown as { name?: string })?.name ?? "skill"));
