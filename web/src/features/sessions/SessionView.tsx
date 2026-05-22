@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { getSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
 import type { Session, Workspace } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
@@ -45,11 +45,11 @@ export function SessionView() {
     let cancelled = false;
     const load = async () => {
       try {
-        const detail = await api<Session>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`,
-        );
-        if (!cancelled) setSessionDetail(detail);
+        const { data: detail } = await getSession({
+          path: { agentID: agentId, sessionID: sessionId },
+          throwOnError: true,
+        });
+        if (!cancelled) setSessionDetail(detail as unknown as Session);
       } catch (e) {
         console.error(e);
       }
@@ -64,12 +64,11 @@ export function SessionView() {
     async (sid: string, scopePath?: string) => {
       setWorkspaceLoading(true);
       try {
-        const params = new URLSearchParams({ show_hidden: "true", depth: "2" });
-        if (scopePath) params.set("path", scopePath);
-        const data = await api<Workspace>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sid)}/workspace?${params}`,
-        );
+        const { data } = await getSessionWorkspace({
+          path: { agentID: agentId, sessionID: sid },
+          query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
+          throwOnError: true,
+        });
         setWorkspace(data);
         if (
           !scopePath &&

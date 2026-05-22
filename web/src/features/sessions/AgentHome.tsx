@@ -1,8 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Session } from "@/lib/types";
+import { createSession } from "@/lib/api-client/sdk.gen";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { useI18n } from "@/lib/i18n";
 
@@ -93,13 +92,11 @@ export function AgentHome() {
     async (message?: string) => {
       let sid = mainSession?.id;
       if (!sid) {
-        const sess = await api<Session>(
-          "POST",
-          `/api/agents/${encodeURIComponent(agentId)}/sessions`,
-          {
-            kind: "main",
-          },
-        );
+        const { data: sess } = await createSession({
+          path: { agentID: agentId },
+          body: { kind: "main" },
+          throwOnError: true,
+        });
         await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         sid = sess.id;
       }

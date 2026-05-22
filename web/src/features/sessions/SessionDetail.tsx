@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { useI18n } from "@/lib/i18n";
-import { api } from "@/lib/api";
+import {
+  getSessionMessages,
+  getSessionSystemPrompt,
+  listAgentSkills,
+  listTools,
+  uploadWorkspaceFile,
+} from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
 import type { Message, Session, Skill, Tool } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -77,11 +83,14 @@ export function SessionDetail({
     queryKey: ["session-messages", session?.id],
     enabled: !!session,
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api<Message[]>(
-        "GET",
-        `/api/agents/${agentEnc}/sessions/${enc}/messages?limit=20&skip=${pageParam}`,
-      ),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await getSessionMessages({
+        path: { agentID: agentEnc, sessionID: enc },
+        query: { limit: 20, skip: pageParam },
+        throwOnError: true,
+      });
+      return data as unknown as Message[];
+    },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
@@ -118,12 +127,16 @@ export function SessionDetail({
 
     const load = async () => {
       const e = encodeURIComponent(session.id);
-      const pr = await api<{ system_prompt: string }>(
-        "GET",
-        `/api/agents/${encodeURIComponent(session.agent_id)}/sessions/${e}/system-prompt`,
-      ).catch(() => null);
-      if (sessionIDRef.current !== session.id) return;
-      if (pr?.system_prompt) setSystemPrompt(pr.system_prompt);
+      try {
+        const { data: pr } = await getSessionSystemPrompt({
+          path: { agentID: session.agent_id, sessionID: e },
+          throwOnError: true,
+        });
+        if (sessionIDRef.current !== session.id) return;
+        if (pr.system_prompt) setSystemPrompt(pr.system_prompt);
+      } catch {
+        // ignore like original .catch(() => null)
+      }
     };
     load().catch(console.error);
   }, [session?.id]);
@@ -162,7 +175,8 @@ export function SessionDetail({
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
     try {
-      setTools((await api<Tool[]>("GET", "/api/tools")) ?? []);
+      const { data } = await listTools({ throwOnError: true });
+      setTools((data as Tool[]) ?? []);
     } finally {
       setToolsLoading(false);
     }
@@ -172,13 +186,12 @@ export function SessionDetail({
     if (!session) return;
     setSkillsLoading(true);
     try {
-      const query = new URLSearchParams({ session_id: session.id });
-      setSkills(
-        (await api<Skill[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(session.agent_id)}/skills?${query.toString()}`,
-        )) ?? [],
-      );
+      const { data } = await listAgentSkills({
+        path: { id: session.agent_id },
+        query: { session_id: session.id },
+        throwOnError: true,
+      });
+      setSkills((data.items as Skill[]) ?? []);
     } finally {
       setSkillsLoading(false);
     }
@@ -217,11 +230,11 @@ export function SessionDetail({
         try {
           const form = new FormData();
           form.append("file", file);
-          const res = await api<{ path: string }>(
-            "POST",
-            `/api/agents/${agentEnc}/sessions/${enc}/workspace/upload`,
-            form,
-          );
+          const { data: res } = await uploadWorkspaceFile({
+            path: { agentID: agentEnc, sessionID: enc },
+            body: { file },
+            throwOnError: true,
+          });
           setAttachments((prev) =>
             prev.map((a) => (a === placeholder ? { ...a, path: res.path, uploading: false } : a)),
           );

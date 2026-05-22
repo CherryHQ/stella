@@ -2,8 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent, Session, Project } from "@/lib/types";
-import { api } from "@/lib/api";
-import type { AgentTaskList } from "@/lib/api-client/types.gen";
+import {
+  createProject,
+  createSession as sdkCreateSession,
+  deleteProject as sdkDeleteProject,
+  getSessionWorkspace,
+  listAgentTasks,
+} from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
@@ -221,11 +226,12 @@ function FolderTree({
 
   useEffect(() => {
     const enc = encodeURIComponent(sessionId);
-    api<{ root: string; paths: string[] }>(
-      "GET",
-      `/api/agents/${encodeURIComponent(agentId)}/sessions/${enc}/workspace?depth=4`,
-    ).then(
-      (ws) => {
+    getSessionWorkspace({
+      path: { agentID: agentId, sessionID: enc },
+      query: { depth: 4 },
+      throwOnError: true,
+    }).then(
+      ({ data: ws }) => {
         setDirs(parseDirs(ws.paths));
         if (ws.root) onRootResolved?.(ws.root);
         setLoading(false);
@@ -338,9 +344,10 @@ function CreateProjectDialog({
     setError("");
     try {
       const baseDir = `${userRoot}/${selectedDir}`;
-      await api("POST", `/api/agents/${agentId}/projects`, {
-        name: effectiveName,
-        base_dir: baseDir,
+      await createProject({
+        path: { agentID: agentId },
+        body: { name: effectiveName, base_dir: baseDir },
+        throwOnError: true,
       });
       onCreated();
     } catch (e) {
@@ -463,7 +470,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
-    queryFn: () => api<AgentTaskList>("GET", `/api/agents/${encodeURIComponent(agentId)}/tasks`),
+    queryFn: async () => {
+      const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
+      return data;
+    },
   });
   const taskCount = taskList?.items?.length ?? 0;
 
@@ -486,11 +496,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
-    const sess = await api<Session>(
-      "POST",
-      `/api/agents/${encodeURIComponent(agentId)}/sessions`,
-      {},
-    );
+    const { data: sess } = await sdkCreateSession({
+      path: { agentID: agentId },
+      throwOnError: true,
+    });
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     closeMobile();
     void navigate({
@@ -521,7 +530,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const deleteProject = useCallback(
     async (projectId: string) => {
       if (!window.confirm("Delete this project? Sessions will be kept.")) return;
-      await api("DELETE", `/api/agents/${agentId}/projects/${projectId}`);
+      await sdkDeleteProject({
+        path: { agentID: agentId, projectId },
+        throwOnError: true,
+      });
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
     },
     [agentId, queryClient],

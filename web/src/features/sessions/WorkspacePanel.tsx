@@ -7,7 +7,16 @@ import {
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
 import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy } from "lucide-react";
-import { api } from "@/lib/api";
+import {
+  createShare as sdkCreateShare,
+  createWorkspaceFile,
+  deleteWorkspaceFile,
+  getSessionWorkspace,
+  getWorkspaceFileContent,
+  moveWorkspaceFile,
+  revokeShare as sdkRevokeShare,
+  updateWorkspaceFileContent,
+} from "@/lib/api-client/sdk.gen";
 import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -129,10 +138,11 @@ export function WorkspacePanel({
         return;
       }
       try {
-        const data = await api<{ content: string; language: string }>(
-          "GET",
-          `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
-        );
+        const { data } = await getWorkspaceFileContent({
+          path: { agentID: agentEnc, sessionID: enc },
+          query: { path },
+          throwOnError: true,
+        });
         setViewer((v) =>
           v && v.path === path
             ? { ...v, content: data.content ?? "", language: data.language ?? "", loading: false }
@@ -152,9 +162,10 @@ export function WorkspacePanel({
       if (!viewer) return;
       setViewer((v) => (v ? { ...v, saving: true } : null));
       try {
-        await api("PUT", `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content`, {
-          path: viewer.path,
-          content,
+        await updateWorkspaceFileContent({
+          path: { agentID: agentEnc, sessionID: enc },
+          body: { path: viewer.path, content },
+          throwOnError: true,
         });
         setViewer((v) => (v ? { ...v, content, saving: false } : null));
       } catch (e) {
@@ -169,9 +180,10 @@ export function WorkspacePanel({
     const name = newItemName.trim();
     if (!name) return;
     const fullPath = projectDir ? `${projectDir}/${name}` : name;
-    await api("POST", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
-      path: fullPath,
-      is_dir: newItemType === "dir",
+    await createWorkspaceFile({
+      path: { agentID: agentEnc, sessionID: enc },
+      body: { path: fullPath, is_dir: newItemType === "dir" },
+      throwOnError: true,
     });
     reload();
     setNewItemType(null);
@@ -181,7 +193,11 @@ export function WorkspacePanel({
   const deleteItem = useCallback(
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
-      await api("DELETE", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, { path });
+      await deleteWorkspaceFile({
+        path: { agentID: agentEnc, sessionID: enc },
+        body: { path },
+        throwOnError: true,
+      });
       reload();
       if (selectedPath === path) setSelectedPath(null);
       if (viewer?.path === path) {
@@ -424,11 +440,14 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     setCreating(true);
     setError(null);
     try {
-      const result = await api<{ id: string; url: string }>("POST", "/api/shares", {
-        source: "artifact",
-        session_id: sessionID,
-        path,
-        expires_in: expiresIn,
+      const { data: result } = await sdkCreateShare({
+        body: {
+          source: "artifact",
+          session_id: sessionID,
+          path,
+          expires_in: expiresIn as "1h" | "1d" | "7d" | "never",
+        },
+        throwOnError: true,
       });
       setShare({ id: result.id, url: result.url });
       await navigator.clipboard?.writeText(result.url).catch(() => undefined);
@@ -444,7 +463,7 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     setRevoking(true);
     setError(null);
     try {
-      await api("DELETE", `/api/shares/${encodeURIComponent(share.id)}`);
+      await sdkRevokeShare({ path: { id: share.id }, throwOnError: true });
       setShare(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke share");
@@ -604,9 +623,10 @@ function TreeWithSearch({
     renaming: {
       onRename: async ({ sourcePath, destinationPath }) => {
         try {
-          await api<Workspace>("PATCH", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
-            path: toApi(sourcePath),
-            new_path: toApi(destinationPath),
+          await moveWorkspaceFile({
+            path: { agentID: agentEnc, sessionID: enc },
+            body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
+            throwOnError: true,
           });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Rename failed";
@@ -623,14 +643,11 @@ function TreeWithSearch({
             const filename = basename(src);
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
-            await api<Workspace>(
-              "PATCH",
-              `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`,
-              {
-                path: toApi(src),
-                new_path: toApi(newPath),
-              },
-            );
+            await moveWorkspaceFile({
+              path: { agentID: agentEnc, sessionID: enc },
+              body: { path: toApi(src), new_path: toApi(newPath) },
+              throwOnError: true,
+            });
           }
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Move failed";
@@ -656,10 +673,11 @@ function TreeWithSearch({
       loadingDirSet.current.add(dir);
       try {
         const apiDir = toApi(dir);
-        const data = await api<Workspace>(
-          "GET",
-          `/api/agents/${agentEnc}/sessions/${enc}/workspace?show_hidden=true&depth=2&path=${encodeURIComponent(apiDir)}`,
-        );
+        const { data } = await getSessionWorkspace({
+          path: { agentID: agentEnc, sessionID: enc },
+          query: { show_hidden: true, depth: 2, path: apiDir },
+          throwOnError: true,
+        });
         const added: string[] = [];
         for (const rawPath of data.paths ?? []) {
           const displayPath = toDisplay(rawPath);

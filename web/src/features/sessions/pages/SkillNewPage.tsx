@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/lib/api";
+import {
+  installAgentScopedSkill,
+  searchSkills as sdkSearchSkills,
+  uploadAgentScopedSkill,
+} from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { SkillSearchResult } from "@/lib/types";
 
@@ -50,11 +54,8 @@ export function SkillNewPage() {
     }
     setSearching(true);
     try {
-      const results = await api<SkillSearchResult[]>(
-        "GET",
-        `/api/skills/search?q=${encodeURIComponent(q)}&limit=20`,
-      );
-      setSearchResults(results ?? []);
+      const { data } = await sdkSearchSkills({ query: { q, limit: 20 }, throwOnError: true });
+      setSearchResults((data as SkillSearchResult[]) ?? []);
       setInstallError("");
     } catch (e) {
       setInstallError((e as Error).message);
@@ -72,11 +73,11 @@ export function SkillNewPage() {
     setInstallTarget(trimmedSource);
     setInstallError("");
     try {
-      const res = await api<{ id?: string; name?: string }>(
-        "POST",
-        `/api/agents/${encodeURIComponent(agentId)}/skills/${installScope}/install`,
-        { source: trimmedSource },
-      );
+      const { data: res } = await installAgentScopedSkill({
+        path: { id: agentId, scope: installScope },
+        body: { source: trimmedSource },
+        throwOnError: true,
+      });
       await openInstalledSkill(res, installScope);
     } catch (e) {
       setInstallError((e as Error).message);
@@ -92,13 +93,11 @@ export function SkillNewPage() {
     setUploading(true);
     setUploadError("");
     try {
-      const form = new FormData();
-      form.append("file", uploadFile);
-      const res = await api<{ id?: string; name?: string }>(
-        "POST",
-        `/api/agents/${encodeURIComponent(agentId)}/skills/${uploadScope}/upload`,
-        form,
-      );
+      const { data: res } = await uploadAgentScopedSkill({
+        path: { id: agentId, scope: uploadScope },
+        body: { file: uploadFile },
+        throwOnError: true,
+      });
       await openInstalledSkill(res, uploadScope);
     } catch (e) {
       setUploadError((e as Error).message);
