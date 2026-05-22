@@ -1,13 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAgent, updateAgent } from "@/lib/api-client";
+import { unwrapApiData } from "@/lib/api-data";
 import type { AgentDetail } from "@/lib/types";
-import type { ComponentsAgent } from "@/lib/api-client/types.gen";
+import type { UpdateAgentData } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   agentId: string;
+}
+
+function agentUpdateBody(agent: AgentDetail, soul: string): UpdateAgentData["body"] {
+  return {
+    name: agent.name,
+    model: agent.model,
+    model_strong: agent.model_strong,
+    model_fast: agent.model_fast,
+    system_prompt: agent.system_prompt,
+    soul,
+    scope: agent.scope,
+    enabled: agent.enabled,
+    creator_id: agent.creator_id,
+    sandbox: agent.sandbox,
+  };
 }
 
 export function SoulPanel({ agentId }: Props) {
@@ -27,7 +43,7 @@ export function SoulPanel({ agentId }: Props) {
         path: { id: agentId },
         throwOnError: true,
       });
-      const a = data as AgentDetail;
+      const a = unwrapApiData(data) as AgentDetail;
       setAgent(a);
       setSoul(a.soul ?? "");
       setEditing(false);
@@ -57,7 +73,7 @@ export function SoulPanel({ agentId }: Props) {
     try {
       await updateAgent({
         path: { id: agentId },
-        body: { ...agent, soul: draft } as ComponentsAgent,
+        body: agentUpdateBody(agent, draft),
         throwOnError: true,
       });
       setSoul(draft);

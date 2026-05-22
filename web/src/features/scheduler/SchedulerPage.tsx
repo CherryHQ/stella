@@ -10,6 +10,7 @@ import {
   triggerSchedulerJob,
   updateSchedulerJob,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { meQueryOptions } from "@/lib/queries/me";
 import { formatTime } from "@/lib/time";
 import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
@@ -95,14 +96,19 @@ export function SchedulerPage() {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
         const { data } = await listAgents({ throwOnError: true });
-        agentList = (data?.items ?? []) as Agent[];
+        agentList = unwrapApiItems<Agent>(data);
         agentsRef.current = agentList;
         setAgents(agentList);
       }
       const lists = await Promise.all(
         agentList.map((agent) =>
           listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
-            .then(({ data }) => ({ items: (data?.items ?? []) as SchedulerJob[] }))
+            .then(({ data }) => ({
+              items: unwrapApiItems<SchedulerJob>(data).map((job) => ({
+                ...job,
+                agent_id: job.agent_id || agent.id,
+              })),
+            }))
             .catch(() => ({ items: [] as SchedulerJob[] })),
         ),
       );
@@ -115,7 +121,7 @@ export function SchedulerPage() {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ throwOnError: true });
-      const list = (data.items ?? []) as Agent[];
+      const list = unwrapApiItems<Agent>(data);
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -136,7 +142,7 @@ export function SchedulerPage() {
           path: { agentID: job.agent_id, jobID: jobId },
           throwOnError: true,
         });
-        setRunHistories((prev) => ({ ...prev, [jobId]: (data || []) as SchedulerJobRun[] }));
+        setRunHistories((prev) => ({ ...prev, [jobId]: unwrapApiList<SchedulerJobRun>(data) }));
       } catch (e) {
         console.error(e);
       }
@@ -287,7 +293,7 @@ export function SchedulerPage() {
         <div className="flex-1 overflow-y-auto">
           {jobs.map((j) => (
             <div
-              key={j.id}
+              key={`${j.agent_id ?? ""}:${j.id}`}
               onClick={() => selectJob(j)}
               className={`px-4 py-3 border-b border-border/50 cursor-pointer transition-colors border-l-2 ${
                 selectedJobId === j.id

@@ -13,6 +13,7 @@ import {
   setVaultEntry,
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import { formatTime } from "@/lib/time";
 import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -87,7 +88,7 @@ export function CredentialsPage() {
     setVaultLoading(true);
     try {
       const { data } = await listVaultEntries({ throwOnError: true });
-      const entries = (data ?? []) as VaultEntry[];
+      const entries = unwrapApiList<VaultEntry>(data);
       setVaultEntries(entries);
     } catch {
       setVaultEntries([]);
@@ -99,7 +100,7 @@ export function CredentialsPage() {
   const loadOAuthProviders = useCallback(async () => {
     try {
       const { data } = await listOAuthProviders({ throwOnError: true });
-      const providers = (data ?? []) as OAuthProvider[];
+      const providers = unwrapApiList<OAuthProvider>(data);
       setOauthProviders(providers);
       setOauthStatus((prev) => {
         const next = { ...prev };

@@ -15,6 +15,7 @@ import type {
   ComponentsSkill,
   ComponentsSkillSearchResult,
   ComponentsTool,
+  ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
   Project as SdkProject,
@@ -134,11 +135,11 @@ export interface AgentSandbox {
   };
 }
 
-export interface UserMemory {
+export type UserMemory = ComponentsUserMemory & {
   agent_id: string;
   content: string;
   updated_at: string;
-}
+};
 
 export interface Personalisation {
   soul: string;

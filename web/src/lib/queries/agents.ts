@@ -5,13 +5,14 @@ import {
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type { Agent, SchedulerJob, Skill, UserMemory } from "@/lib/types";
 
 export const agentsQueryOptions = queryOptions({
   queryKey: ["agents"],
   queryFn: async () => {
     const { data } = await listAgents({ throwOnError: true });
-    return (data.items ?? []) as Agent[];
+    return unwrapApiItems<Agent>(data);
   },
 });
 
@@ -20,7 +21,7 @@ export function agentSchedulerJobsOptions(agentId: string) {
     queryKey: ["agent-scheduler-jobs", agentId],
     queryFn: async () => {
       const { data } = await listSchedulerJobs({ path: { agentID: agentId }, throwOnError: true });
-      return (data.items ?? []) as SchedulerJob[];
+      return unwrapApiItems<SchedulerJob>(data);
     },
     enabled: !!agentId,
   });
@@ -32,7 +33,7 @@ export function agentSkillsOptions(agentId: string) {
     queryFn: async () => {
       const combined =
         (await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-          .then(({ data }) => data.items as Skill[])
+          .then(({ data }) => unwrapApiItems<Skill>(data))
           .catch(() => [])) ?? [];
       const scopeOrder: Record<string, number> = { system: 0, agent: 1, user: 2 };
       combined.sort((a, b) => {
@@ -50,7 +51,7 @@ export function agentMemoriesOptions(agentId: string) {
     queryKey: ["agent-memories", agentId],
     queryFn: async () => {
       const { data } = await listProfileMemories({ throwOnError: true });
-      return ((data ?? []) as unknown as UserMemory[]).filter((m) => m.agent_id === agentId);
+      return unwrapApiList<UserMemory>(data).filter((m) => m.agent_id === agentId);
     },
     enabled: !!agentId,
   });

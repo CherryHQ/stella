@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listProfileMemories, setProfileMemory } from "@/lib/api-client";
+import { unwrapApiList } from "@/lib/api-data";
+import type { UserMemory } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -7,12 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   agentId: string;
-}
-
-interface Memory {
-  agent_id: string;
-  content: string;
-  updated_at: string;
 }
 
 export function MemoryPanel({ agentId }: Props) {
@@ -29,7 +25,7 @@ export function MemoryPanel({ agentId }: Props) {
     setLoading(true);
     try {
       const { data } = await listProfileMemories({ throwOnError: true });
-      const memories = (data ?? []) as unknown as Memory[];
+      const memories = unwrapApiList<UserMemory>(data);
       const mem = memories.find((m) => m.agent_id === agentId);
       setContent(mem?.content ?? "");
       setUpdatedAt(mem?.updated_at ?? "");

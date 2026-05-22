@@ -10,7 +10,8 @@ import {
   togglePlugin as togglePluginRequest,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
-import type { SaveManifestPluginsData } from "@/lib/api-client/types.gen";
+import { unwrapApiData, unwrapApiList } from "@/lib/api-data";
+import type { ManifestPluginsResponse, SaveManifestPluginsData } from "@/lib/api-client/types.gen";
 import type {
   ManifestBinary,
   ManifestOAuthProvider,
@@ -134,7 +135,7 @@ export function PluginsPage() {
   const loadPlugins = useCallback(async () => {
     try {
       const { data } = await listPlugins({ throwOnError: true });
-      const raw = (data ?? []) as Plugin[];
+      const raw = unwrapApiList<Plugin>(data);
       const pluginList = raw.map((p) => ({
         ...p,
         capabilities: Array.isArray(p.capabilities) ? p.capabilities : [],
@@ -194,8 +195,9 @@ export function PluginsPage() {
   const loadManifestPlugins = useCallback(async () => {
     try {
       const { data } = await listManifestPlugins({ throwOnError: true });
-      setManifestPlugins((data.plugins ?? []) as unknown as ManifestPlugin[]);
-      setOAuthProviders((data.oauth_providers ?? []) as unknown as ManifestOAuthProvider[]);
+      const manifest = unwrapApiData<ManifestPluginsResponse>(data);
+      setManifestPlugins(unwrapApiList<ManifestPlugin>(manifest.plugins));
+      setOAuthProviders(unwrapApiList<ManifestOAuthProvider>(manifest.oauth_providers));
     } catch (e) {
       showToast((e as Error).message, "error");
     }

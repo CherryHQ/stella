@@ -53,7 +53,7 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
                 <Button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onConfirmDelete(`Delete ${a.name}?`, () => onDeleteAgent(a.id!));
+                    onConfirmDelete(`Delete ${a.name}?`, () => onDeleteAgent(a.id));
                   }}
                   variant="ghost"
                   size="icon-xs"

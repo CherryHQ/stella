@@ -1,5 +1,6 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
 import { listSessions } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import type { Session } from "@/lib/types";
 
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
@@ -12,7 +13,7 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["ki
         query: { limit: 20, offset: pageParam as number, kind },
         throwOnError: true,
       });
-      return data as Session[];
+      return unwrapApiList<Session>(data);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, p) => sum + p.length, 0) : undefined,

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { listProjects } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import type { Project } from "@/lib/types";
 
 export function agentProjectsOptions(agentId: string) {
@@ -7,7 +8,7 @@ export function agentProjectsOptions(agentId: string) {
     queryKey: ["projects", agentId],
     queryFn: async () => {
       const { data } = await listProjects({ path: { agentID: agentId }, throwOnError: true });
-      return data as Project[];
+      return unwrapApiList<Project>(data);
     },
     enabled: !!agentId,
   });

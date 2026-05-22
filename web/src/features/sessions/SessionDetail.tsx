@@ -9,6 +9,7 @@ import {
   listTools,
   uploadWorkspaceFile,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { formatTime } from "@/lib/time";
 import type {
   Message,
@@ -95,7 +96,7 @@ export function SessionDetail({
         query: { limit: 20, skip: pageParam },
         throwOnError: true,
       });
-      return data as unknown as Message[];
+      return unwrapApiList<Message>(data);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
@@ -128,7 +129,6 @@ export function SessionDetail({
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
-    setChatMessages([]);
     setSkills([]);
 
     const load = async () => {
@@ -181,7 +181,7 @@ export function SessionDetail({
     setToolsLoading(true);
     try {
       const { data } = await listTools({ throwOnError: true });
-      setTools((data as Tool[]) ?? []);
+      setTools(unwrapApiList<Tool>(data));
     } finally {
       setToolsLoading(false);
     }
@@ -196,7 +196,7 @@ export function SessionDetail({
         query: { session_id: session.id },
         throwOnError: true,
       });
-      setSkills((data.items as Skill[]) ?? []);
+      setSkills(unwrapApiItems<Skill>(data));
     } finally {
       setSkillsLoading(false);
     }

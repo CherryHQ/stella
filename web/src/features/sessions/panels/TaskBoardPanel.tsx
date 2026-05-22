@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import { listAgentTasks } from "@/lib/api-client";
+import { unwrapApiItems } from "@/lib/api-data";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -61,7 +62,7 @@ export function TaskBoardPanel({
         path: { agentID: agentId },
         throwOnError: true,
       });
-      setTasks(data?.items ?? []);
+      setTasks(unwrapApiItems<ComponentsAgentTask>(data));
     } catch (e) {
       console.error(e);
     } finally {

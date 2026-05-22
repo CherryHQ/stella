@@ -10,6 +10,8 @@ import {
   listAgentTasks,
 } from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
+import { unwrapApiData } from "@/lib/api-data";
+import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
@@ -471,7 +473,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     queryKey: ["tasks", agentId],
     queryFn: async () => {
       const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
-      return data;
+      return unwrapApiData<AgentTaskList>(data);
     },
   });
   const taskCount = taskList?.items?.length ?? 0;
@@ -495,10 +497,11 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
-    const { data: sess } = await sdkCreateSession({
+    const { data } = await sdkCreateSession({
       path: { agentID: agentId },
       throwOnError: true,
     });
+    const sess = unwrapApiData<ComponentsSession>(data);
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     closeMobile();
     void navigate({

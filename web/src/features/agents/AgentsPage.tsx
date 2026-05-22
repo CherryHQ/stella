@@ -27,8 +27,10 @@ import {
   updateChannel,
   uploadAgentScopedSkill,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type {
   CreateAgentData,
+  ComponentsCachedModel,
   InstallAgentScopedSkillData,
   UpdateAgentData,
   UpdateAgentScopedSkillData,
@@ -54,6 +56,12 @@ import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
 type SkillScope = "system" | "agent" | "user" | "project";
 
 type Toast = { message: string; type: "success" | "error" } | null;
+
+type ProfileMemory = { agent_id: string; soul?: string; content?: string };
+
+function profileMemories(value: unknown) {
+  return unwrapApiList<ProfileMemory>(value);
+}
 
 function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
@@ -151,20 +159,20 @@ export interface AgentsSettingsLoaderData {
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
     listAgents({ throwOnError: true })
-      .then(({ data }) => (data?.items ?? []) as AgentDetail[])
+      .then(({ data }) => unwrapApiItems<AgentDetail>(data))
       .catch(() => []),
     listModels({ throwOnError: true })
-      .then(({ data }) => data ?? [])
+      .then(({ data }) => unwrapApiList<ComponentsCachedModel>(data))
       .catch(() => []),
     getMe({ throwOnError: true })
       .then(({ data }) => data)
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => (data ?? []) as BuiltinItem[])
+        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
         .catch(() => []),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => (data ?? []) as BuiltinItem[])
+        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
         .catch(() => []),
     ]),
   ]);
@@ -178,18 +186,18 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const channels = isAdmin
     ? (
         (await listChannels({ throwOnError: true })
-          .then(({ data }) => (data?.items ?? []) as Channel[])
+          .then(({ data }) => unwrapApiItems<Channel>(data))
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
   const allUsers = isAdmin
     ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => (data ?? []) as User[])
+        .then(({ data }) => unwrapApiList<User>(data))
         .catch(() => [])) ?? [])
     : [];
   const agentSkills = agentId
     ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-        .then(({ data }) => (data?.items ?? []) as Skill[])
+        .then(({ data }) => unwrapApiItems<Skill>(data))
         .catch(() => [])) ?? [])
     : [];
   let personalisation: Personalisation = {
@@ -203,11 +211,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     const { data: memsData } = await listProfileMemories({ throwOnError: true }).catch(() => ({
       data: undefined,
     }));
-    const mems = (memsData ?? []) as Array<{
-      agent_id: string;
-      soul?: string;
-      content?: string;
-    }>;
+    const mems = profileMemories(memsData);
     const mem = mems.find((m) => m.agent_id === agentId);
     const soul = mem?.soul ?? "";
     const profile = mem?.content ?? "";
@@ -353,7 +357,7 @@ export function AgentsPage() {
     async (currentState?: AgentsPageState) => {
       try {
         const { data } = await listAgents({ throwOnError: true });
-        const agents = ((data?.items ?? []) as AgentDetail[]).map((a) => ({
+        const agents = unwrapApiItems<AgentDetail>(data).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
@@ -374,7 +378,7 @@ export function AgentsPage() {
   const loadChannels = useCallback(async () => {
     try {
       const { data } = await listChannels({ throwOnError: true });
-      const channels = ((data?.items ?? []) as Channel[]).map(normalizeChannel);
+      const channels = unwrapApiItems<Channel>(data).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -391,7 +395,7 @@ export function AgentsPage() {
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
       const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
-      const agentSkills = (data?.items ?? []) as Skill[];
+      const agentSkills = unwrapApiItems<Skill>(data);
       setState((prev) => ({ ...prev, agentSkills, agentSkillsLoading: false }));
       return agentSkills;
     } catch {
@@ -408,11 +412,7 @@ export function AgentsPage() {
     }));
     try {
       const { data } = await listProfileMemories({ throwOnError: true });
-      const mems = (data ?? []) as Array<{
-        agent_id: string;
-        soul?: string;
-        content?: string;
-      }>;
+      const mems = profileMemories(data);
       const mem = mems.find((m) => m.agent_id === agentId);
       const soul = mem?.soul ?? "";
       const profile = mem?.content ?? "";
@@ -431,7 +431,7 @@ export function AgentsPage() {
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
       const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
-      const assignedUsers = (data?.items ?? []) as User[];
+      const assignedUsers = unwrapApiItems<User>(data);
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));

@@ -8,6 +8,7 @@ import {
   listProviderTypes,
   updateProvider,
 } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import type {
   CustomModelForm,
   ModelConfig,
@@ -840,7 +841,7 @@ export function ProvidersPage() {
   const loadProviderTypes = useCallback(async () => {
     try {
       const { data } = await listProviderTypes({ throwOnError: true });
-      const types = (data || []) as ProviderType[];
+      const types = unwrapApiList<ProviderType>(data);
       const defaults: Record<string, { base_url: string; name: string }> = {};
       for (const t of types) {
         defaults[t.id] = { base_url: t.default_url, name: t.name };
@@ -859,7 +860,7 @@ export function ProvidersPage() {
   const loadProviderModels = useCallback(async (providerID: string) => {
     try {
       const { data } = await listProviderModels({ path: { id: providerID }, throwOnError: true });
-      const models = (data || []) as ProviderModel[];
+      const models = unwrapApiList<ProviderModel>(data);
       setProviderModels((prev) => ({ ...prev, [providerID]: models }));
     } catch {
       setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
@@ -869,7 +870,7 @@ export function ProvidersPage() {
   const loadProviders = useCallback(async () => {
     try {
       const { data } = await listProviders({ throwOnError: true });
-      const list = (data || []) as Provider[];
+      const list = unwrapApiList<Provider>(data);
       setProviders(
         list.map((p) => ({
           ...p,
@@ -963,7 +964,7 @@ export function ProvidersPage() {
         body: { api_key: p.api_key, base_url: p.base_url },
         throwOnError: true,
       });
-      const list = (data || []) as ProviderModel[];
+      const list = unwrapApiList<ProviderModel>(data);
       setProviderModels((prev) => ({ ...prev, [p.id]: list }));
       showToast(`${list.length} models available`);
     } catch (e) {

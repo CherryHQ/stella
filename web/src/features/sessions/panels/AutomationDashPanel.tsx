@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
 import { listSchedulerJobRuns } from "@/lib/api-client";
+import { unwrapApiList } from "@/lib/api-data";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -91,7 +92,7 @@ export function AutomationDashPanel({
               path: { agentID: job.agent_id || agentId, jobID: job.id },
               throwOnError: true,
             });
-            for (const r of (data ?? []) as SchedulerJobRun[]) {
+            for (const r of unwrapApiList<SchedulerJobRun>(data)) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -124,7 +125,7 @@ export function AutomationDashPanel({
           path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
           throwOnError: true,
         });
-        setJobRuns((data ?? []) as SchedulerJobRun[]);
+        setJobRuns(unwrapApiList<SchedulerJobRun>(data));
       } catch {
         setJobRuns([]);
       } finally {
