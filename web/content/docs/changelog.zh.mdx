@@ -11,6 +11,8 @@ icon: History
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-05-22
+
 ### ⚠️ 破坏性变更
 
 - **API**：会话、定时任务和用户任务接口已移至 Agent 上下文下。所有端点路径变更如下：
@@ -24,6 +26,22 @@ icon: History
   - `POST /api/tasks` → `POST /api/agents/{agentID}/tasks`
 
   旧的扁平路径端点已移除，无兼容过渡层。请更新所有依赖这些路径的外部集成或脚本。
+
+### ✨ 功能
+
+- **技能**：将技能接口纳入 Agent 上下文 ([#211](https://github.com/CherryHQ/stella/pull/211))
+- **任务**：任务列表和创建操作现在需要显式指定 `agent_id`；新增 Agent 访问权限校验 ([#212](https://github.com/CherryHQ/stella/pull/212))
+
+### ♻️ 重构
+
+- **自动化 API**：将会话、定时任务和用户任务接口移至 Agent 上下文下；统一 `{agentId}` → `{agentID}` 命名规范；用针对性数据库查询替代 Go 层过滤逻辑 ([#214](https://github.com/CherryHQ/stella/pull/214))
+
+### 🔒 安全
+
+- **定时任务**：加固调度器认证防护，所有列表/修改/触发操作默认拒绝未认证请求 ([#213](https://github.com/CherryHQ/stella/pull/213))
+- **定时任务**：禁止手动触发系统和插件任务 ([#213](https://github.com/CherryHQ/stella/pull/213))
+
+**完整变更日志**：[v0.35.3...v0.36.0](https://github.com/CherryHQ/stella/compare/v0.35.3...v0.36.0)
 
 ## [0.35.3] - 2026-05-21
 
