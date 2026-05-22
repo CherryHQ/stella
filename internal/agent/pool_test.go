@@ -1111,7 +1111,7 @@ func TestNeedsCompactionDisabled(t *testing.T) {
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem, WithCompaction(CompactionConfig{MaxTokens: 0}))
 
-	if pool.NeedsCompaction("any-session") {
+	if pool.NeedsCompaction(context.Background(), "any-session") {
 		t.Error("NeedsCompaction should return false when MaxTokens <= 0")
 	}
 }
@@ -1128,7 +1128,7 @@ func TestNeedsCompactionUnderThreshold(t *testing.T) {
 	}
 
 	// Small conversation should not need compaction.
-	if pool.NeedsCompaction(info.ID) {
+	if pool.NeedsCompaction(context.Background(), info.ID) {
 		t.Error("small session should not need compaction")
 	}
 }

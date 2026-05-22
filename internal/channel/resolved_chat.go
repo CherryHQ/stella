@@ -7,6 +7,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 type ResolvedChat struct {
@@ -32,6 +33,7 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve session: %w", err)
 	}
+	ctx = memory.WithUserID(ctx, rc.User.ID)
 	return rc.Pool.CompactSession(ctx, info.ID)
 }
 
