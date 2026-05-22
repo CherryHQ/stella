@@ -681,6 +681,7 @@ type CreateSessionRequestKind string
 
 // CreateShareRequest defines model for CreateShareRequest.
 type CreateShareRequest struct {
+	AgentId   *string                      `json:"agent_id,omitempty"`
 	ArticleId *string                      `json:"article_id,omitempty"`
 	ExpiresIn *CreateShareRequestExpiresIn `json:"expires_in,omitempty"`
 	Path      *string                      `json:"path,omitempty"`

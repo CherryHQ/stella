@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  createAgentScopedSkill,
+  deleteAgentScopedSkill,
+  getAgentScopedSkill,
+  getAgentScopedSkillFile,
+  updateAgentScopedSkill,
+} from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import type { Skill } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -34,14 +40,6 @@ function emptyForm(): Form {
   };
 }
 
-function skillUrl(scope: string | undefined, agentId: string, skillId: string) {
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}`;
-}
-
-function skillFileUrl(scope: string | undefined, agentId: string, skillId: string) {
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
-}
-
 function scopeLabel(scope: string) {
   return { system: "Built-in", agent: "Agent", user: "User" }[scope] ?? scope;
 }
@@ -71,16 +69,29 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const sk = await api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId));
-      const res = await api<{ content?: string }>(
-        "GET",
-        skillFileUrl(scope, agentId, skillId),
-      ).catch(() => null);
-      const content = res?.content ?? "";
+      const { data: skRaw } = await getAgentScopedSkill({
+        path: {
+          id: agentId,
+          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
+          skillId,
+        },
+        throwOnError: true,
+      });
+      const sk = skRaw as Skill;
+      const res = await getAgentScopedSkillFile({
+        path: {
+          id: agentId,
+          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
+          skillId,
+        },
+        query: { path: "SKILL.md" },
+        throwOnError: true,
+      }).catch(() => null);
+      const content = res?.data?.content ?? "";
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
-        status: sk.status ?? "active",
+        status: (sk.status as Form["status"]) ?? "active",
         disable_model_invocation: sk.disable_model_invocation ?? false,
         content,
       };
@@ -110,19 +121,31 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     setSaving(true);
     try {
       if (isNew) {
-        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/skills/user`, {
-          name: form.name,
-          description: form.description,
-          status: form.status,
-          disable_model_invocation: form.disable_model_invocation,
-          files: { "SKILL.md": form.content },
+        await createAgentScopedSkill({
+          path: { id: agentId, scope: "user" },
+          body: {
+            name: form.name,
+            description: form.description,
+            status: form.status,
+            disable_model_invocation: form.disable_model_invocation,
+            files: { "SKILL.md": form.content },
+          },
+          throwOnError: true,
         });
       } else if (skillId) {
-        await api("PUT", skillUrl(scope, agentId, skillId), {
-          description: form.description,
-          status: form.status,
-          disable_model_invocation: form.disable_model_invocation,
-          files: { "SKILL.md": form.content },
+        await updateAgentScopedSkill({
+          path: {
+            id: agentId,
+            scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
+            skillId,
+          },
+          body: {
+            description: form.description,
+            status: form.status,
+            disable_model_invocation: form.disable_model_invocation,
+            files: { "SKILL.md": form.content },
+          },
+          throwOnError: true,
         });
       }
       setSavedForm(form);
@@ -139,7 +162,14 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId) return;
     setDeleting(true);
     try {
-      await api("DELETE", skillUrl(scope, agentId, skillId));
+      await deleteAgentScopedSkill({
+        path: {
+          id: agentId,
+          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
+          skillId,
+        },
+        throwOnError: true,
+      });
       onDeleted();
     } catch (e) {
       console.error(e);

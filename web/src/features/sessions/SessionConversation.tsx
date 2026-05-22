@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import { api } from "@/lib/api";
+import { getSessionMessages } from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import type { Message } from "@/lib/types";
 import {
   createSessionTransport,
@@ -44,9 +45,6 @@ export function SessionConversation({
   const [mobileOpen, setMobileOpen] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
-  const enc = encodeURIComponent(sessionId);
-
-  const agentEnc = encodeURIComponent(agentId);
   const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
 
   const {
@@ -65,11 +63,18 @@ export function SessionConversation({
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", agentId, sessionId, after, before],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20", skip: String(pageParam) });
-      if (after) params.set("after", after);
-      if (before) params.set("before", before);
-      return api<Message[]>("GET", `/api/agents/${agentEnc}/sessions/${enc}/messages?${params}`);
+    queryFn: async ({ pageParam }) => {
+      const { data } = await getSessionMessages({
+        path: { agentID: agentId, sessionID: sessionId },
+        query: {
+          limit: 20,
+          skip: pageParam,
+          ...(after ? { after } : {}),
+          ...(before ? { before } : {}),
+        },
+        throwOnError: true,
+      });
+      return unwrapApiList<Message>(data);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,

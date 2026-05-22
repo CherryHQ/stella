@@ -86,7 +86,7 @@ stella oauth providers          # List OAuth providers and connection status
 stella oauth connect <provider> # Start OAuth flow
 stella oauth status <provider>  # Check connection status
 stella oauth disconnect <p>     # Disconnect a provider
-stella share artifact <path>    # Create a public share link for an artifact
+stella share artifact <path>    # Create a public share link for an artifact (uses STELLA_AGENT_ID/STELLA_SESSION_ID by default)
 stella share article <id>      # Create a public share link for a Recally article
 stella scheduler add ...        # Create a scheduled job
 stella scheduler list           # List scheduled jobs

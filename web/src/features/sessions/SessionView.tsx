@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { getSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
+import { unwrapApiData } from "@/lib/api-data";
 import type { Session, Workspace } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
@@ -23,7 +24,7 @@ export function SessionView() {
   const { draft } = useSearch({ strict: false }) as { draft?: string };
   const navigate = useNavigate();
   const { data: me } = useQuery(meQueryOptions);
-  const currentUserID = (me as { id?: number } | undefined)?.id ?? 0;
+  const currentUserID = me?.id ?? "";
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const project = useMemo(
     () => (projectId ? projects.find((p) => p.id === projectId) : undefined),
@@ -45,11 +46,11 @@ export function SessionView() {
     let cancelled = false;
     const load = async () => {
       try {
-        const detail = await api<Session>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`,
-        );
-        if (!cancelled) setSessionDetail(detail);
+        const { data: detail } = await getSession({
+          path: { agentID: agentId, sessionID: sessionId },
+          throwOnError: true,
+        });
+        if (!cancelled) setSessionDetail(unwrapApiData<Session>(detail));
       } catch (e) {
         console.error(e);
       }
@@ -64,20 +65,20 @@ export function SessionView() {
     async (sid: string, scopePath?: string) => {
       setWorkspaceLoading(true);
       try {
-        const params = new URLSearchParams({ show_hidden: "true", depth: "2" });
-        if (scopePath) params.set("path", scopePath);
-        const data = await api<Workspace>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sid)}/workspace?${params}`,
-        );
-        setWorkspace(data);
+        const { data } = await getSessionWorkspace({
+          path: { agentID: agentId, sessionID: sid },
+          query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
+          throwOnError: true,
+        });
+        const workspace = unwrapApiData<Workspace>(data);
+        setWorkspace(workspace);
         if (
           !scopePath &&
           project?.base_dir &&
-          data.root &&
-          project.base_dir.startsWith(data.root + "/")
+          workspace.root &&
+          project.base_dir.startsWith(workspace.root + "/")
         ) {
-          const rel = project.base_dir.slice(data.root.length + 1);
+          const rel = project.base_dir.slice(workspace.root.length + 1);
           if (rel) setProjectDir(rel);
         }
       } catch {

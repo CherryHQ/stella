@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { searchSkills } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { SkillSearchResult } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
@@ -45,11 +45,8 @@ export function SkillInstallModal({
     }
     setSearching(true);
     try {
-      const results = await api<SkillSearchResult[]>(
-        "GET",
-        `/api/skills/search?q=${encodeURIComponent(q)}&limit=20`,
-      );
-      setSearchResults(results ?? []);
+      const { data } = await searchSkills({ query: { q, limit: 20 }, throwOnError: true });
+      setSearchResults((data as SkillSearchResult[]) ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
       setSearchResults([]);

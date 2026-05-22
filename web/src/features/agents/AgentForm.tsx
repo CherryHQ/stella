@@ -18,7 +18,7 @@ interface Props {
   onCancel: () => void;
   onLoadAssignedUsers: (agentId: string) => void;
   onAddUser: () => void;
-  onRemoveUser: (userId: number) => void;
+  onRemoveUser: (userId: string) => void;
   onApplySoul: (soulID: string) => void;
   onSelectSkill: (sk: Skill) => void;
   onToggleSkillStatus: (sk: Skill) => void;
@@ -54,8 +54,7 @@ export function AgentForm({
   const { t } = useI18n();
   const { editingId, activeTab, isAdmin, form, currentUserId } = state;
 
-  const canEdit =
-    isAdmin || !editingId || (form.creator_id !== 0 && form.creator_id === currentUserId);
+  const canEdit = isAdmin || !editingId || (form.creator_id && form.creator_id === currentUserId);
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),

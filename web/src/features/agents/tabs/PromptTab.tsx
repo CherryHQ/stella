@@ -15,7 +15,8 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
-  const canEdit = !editingId || isAdmin || form.creator_id === state.currentUserId;
+  const canEdit =
+    !editingId || isAdmin || (form.creator_id && form.creator_id === state.currentUserId);
 
   return (
     <div className="space-y-4">

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { TFunction } from "../constants";
 import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
-import { api } from "@/lib/api";
+import { createShare } from "@/lib/api-client/sdk.gen";
 import { formatSavedAt, SOURCE_LABEL_KEYS } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 
@@ -52,13 +52,12 @@ export function RecallyReader({
     setSharing(true);
     setShareError(null);
     try {
-      const result = await api<{ id: string; url: string }>("POST", "/api/shares", {
-        source: "article",
-        article_id: articleId,
-        expires_in: "7d",
+      const { data } = await createShare({
+        body: { source: "article", article_id: articleId, expires_in: "7d" },
+        throwOnError: true,
       });
-      setShareUrl(result.url);
-      await navigator.clipboard?.writeText(result.url);
+      setShareUrl(data.url);
+      await navigator.clipboard?.writeText(data.url);
     } catch (e) {
       setShareError(e instanceof Error ? e.message : "Failed to share");
     } finally {

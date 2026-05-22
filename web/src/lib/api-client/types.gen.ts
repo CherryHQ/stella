@@ -511,6 +511,7 @@ export type ComponentsCreateSessionRequest = {
 
 export type CreateShareRequest = {
   source: "artifact" | "article";
+  agent_id?: string;
   session_id?: string;
   path?: string;
   article_id?: string;

@@ -2,9 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { useI18n } from "@/lib/i18n";
-import { api } from "@/lib/api";
+import {
+  getSessionMessages,
+  getSessionSystemPrompt,
+  listAgentSkills,
+  listTools,
+  uploadWorkspaceFile,
+} from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { formatTime } from "@/lib/time";
-import type { Message, Session, Skill, Tool } from "@/lib/types";
+import type {
+  Message,
+  Session,
+  SessionDetail as SessionDetailType,
+  Skill,
+  Tool,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +30,7 @@ import { Transcript } from "./Transcript";
 
 interface Props {
   session: Session | null;
-  currentUserID: number;
+  currentUserID: string;
   initialDraft?: string;
   onBack: () => void;
   onSessionUpdate: (s: Session) => void;
@@ -52,8 +65,8 @@ export function SessionDetail({
   const initialScrollSessionRef = useRef<string | null>(null);
   const autoSentRef = useRef(false);
 
-  const enc = session ? encodeURIComponent(session.id) : "";
-  const agentEnc = session ? encodeURIComponent(session.agent_id) : "";
+  const sessionId = session?.id ?? "";
+  const agentId = session?.agent_id ?? "";
 
   const transport = useMemo(
     () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
@@ -77,11 +90,14 @@ export function SessionDetail({
     queryKey: ["session-messages", session?.id],
     enabled: !!session,
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api<Message[]>(
-        "GET",
-        `/api/agents/${agentEnc}/sessions/${enc}/messages?limit=20&skip=${pageParam}`,
-      ),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await getSessionMessages({
+        path: { agentID: agentId, sessionID: sessionId },
+        query: { limit: 20, skip: pageParam },
+        throwOnError: true,
+      });
+      return unwrapApiList<Message>(data);
+    },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
@@ -113,17 +129,19 @@ export function SessionDetail({
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
-    setChatMessages([]);
     setSkills([]);
 
     const load = async () => {
-      const e = encodeURIComponent(session.id);
-      const pr = await api<{ system_prompt: string }>(
-        "GET",
-        `/api/agents/${encodeURIComponent(session.agent_id)}/sessions/${e}/system-prompt`,
-      ).catch(() => null);
-      if (sessionIDRef.current !== session.id) return;
-      if (pr?.system_prompt) setSystemPrompt(pr.system_prompt);
+      try {
+        const { data: pr } = await getSessionSystemPrompt({
+          path: { agentID: session.agent_id, sessionID: session.id },
+          throwOnError: true,
+        });
+        if (sessionIDRef.current !== session.id) return;
+        if (pr.system_prompt) setSystemPrompt(pr.system_prompt);
+      } catch {
+        // ignore like original .catch(() => null)
+      }
     };
     load().catch(console.error);
   }, [session?.id]);
@@ -162,7 +180,8 @@ export function SessionDetail({
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
     try {
-      setTools((await api<Tool[]>("GET", "/api/tools")) ?? []);
+      const { data } = await listTools({ throwOnError: true });
+      setTools(unwrapApiList<Tool>(data));
     } finally {
       setToolsLoading(false);
     }
@@ -172,13 +191,12 @@ export function SessionDetail({
     if (!session) return;
     setSkillsLoading(true);
     try {
-      const query = new URLSearchParams({ session_id: session.id });
-      setSkills(
-        (await api<Skill[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(session.agent_id)}/skills?${query.toString()}`,
-        )) ?? [],
-      );
+      const { data } = await listAgentSkills({
+        path: { id: session.agent_id },
+        query: { session_id: session.id },
+        throwOnError: true,
+      });
+      setSkills(unwrapApiItems<Skill>(data));
     } finally {
       setSkillsLoading(false);
     }
@@ -215,13 +233,11 @@ export function SessionDetail({
         const placeholder = { name: file.name, path: "", uploading: true };
         setAttachments((prev) => [...prev, placeholder]);
         try {
-          const form = new FormData();
-          form.append("file", file);
-          const res = await api<{ path: string }>(
-            "POST",
-            `/api/agents/${agentEnc}/sessions/${enc}/workspace/upload`,
-            form,
-          );
+          const { data: res } = await uploadWorkspaceFile({
+            path: { agentID: agentId, sessionID: sessionId },
+            body: { file },
+            throwOnError: true,
+          });
           setAttachments((prev) =>
             prev.map((a) => (a === placeholder ? { ...a, path: res.path, uploading: false } : a)),
           );
@@ -231,7 +247,7 @@ export function SessionDetail({
         }
       }
     },
-    [session, agentEnc, enc],
+    [session, agentId, sessionId],
   );
 
   const removeAttachment = useCallback((idx: number) => {
@@ -616,7 +632,9 @@ function InspectPanel({
             <dt className="font-mono text-muted-foreground/40">Channel</dt>
             <dd className="truncate">{channelLabel(session.channel) || "unknown"}</dd>
             <dt className="font-mono text-muted-foreground/40">Agent</dt>
-            <dd className="truncate">{session.agent_name || session.agent_id || "unknown"}</dd>
+            <dd className="truncate">
+              {(session as SessionDetailType).agent_name || session.agent_id || "unknown"}
+            </dd>
             <dt className="font-mono text-muted-foreground/40">Active</dt>
             <dd>{formatTime(session.last_active)}</dd>
             <dt className="font-mono text-muted-foreground/40">Messages</dt>

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { api } from "@/lib/api";
+import { changePassword as changePasswordRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,9 +51,9 @@ export function AccountPage() {
 
     setChangingPassword(true);
     try {
-      await api("PUT", "/api/auth/profile/password", {
-        current_password: currentPassword,
-        new_password: newPassword,
+      await changePasswordRequest({
+        body: { current_password: currentPassword, new_password: newPassword },
+        throwOnError: true,
       });
       showToast("Password changed successfully");
       setCurrentPassword("");

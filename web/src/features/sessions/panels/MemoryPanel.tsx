@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { listProfileMemories, setProfileMemory } from "@/lib/api-client";
+import { unwrapApiList } from "@/lib/api-data";
+import type { UserMemory } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -7,12 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   agentId: string;
-}
-
-interface Memory {
-  agent_id: string;
-  content: string;
-  updated_at: string;
 }
 
 export function MemoryPanel({ agentId }: Props) {
@@ -28,8 +24,9 @@ export function MemoryPanel({ agentId }: Props) {
     if (!agentId) return;
     setLoading(true);
     try {
-      const memories = await api<Memory[]>("GET", "/api/auth/profile/memories");
-      const mem = (memories ?? []).find((m) => m.agent_id === agentId);
+      const { data } = await listProfileMemories({ throwOnError: true });
+      const memories = unwrapApiList<UserMemory>(data);
+      const mem = memories.find((m) => m.agent_id === agentId);
       setContent(mem?.content ?? "");
       setUpdatedAt(mem?.updated_at ?? "");
       setEditing(false);
@@ -56,8 +53,10 @@ export function MemoryPanel({ agentId }: Props) {
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      await api("PUT", `/api/auth/profile/memories/${encodeURIComponent(agentId)}`, {
-        content: draft,
+      await setProfileMemory({
+        path: { agentID: agentId },
+        body: { content: draft },
+        throwOnError: true,
       });
       setContent(draft);
       setUpdatedAt(new Date().toISOString());

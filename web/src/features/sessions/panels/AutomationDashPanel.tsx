@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
-import { api } from "@/lib/api";
+import { listSchedulerJobRuns } from "@/lib/api-client";
+import { unwrapApiList } from "@/lib/api-data";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -71,13 +72,13 @@ export function AutomationDashPanel({
   const selectedRun: RunWithMeta | null =
     selectedRunFromRuns ??
     (selectedRunFromJobRuns
-      ? {
+      ? ({
           ...selectedRunFromJobRuns,
           job_name: selectedJob?.name,
           job_id: selectedJobId,
           job_agent_id: selectedJob?.agent_id,
           job_session_mode: selectedJob?.session_mode,
-        }
+        } as RunWithMeta)
       : null);
 
   const loadRuns = useCallback(async () => {
@@ -87,11 +88,11 @@ export function AutomationDashPanel({
       await Promise.all(
         schedulerJobs.slice(0, 10).map(async (job) => {
           try {
-            const res = await api<SchedulerJobRun[]>(
-              "GET",
-              `/api/agents/${encodeURIComponent(job.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(job.id)}/runs`,
-            );
-            for (const r of res ?? []) {
+            const { data } = await listSchedulerJobRuns({
+              path: { agentID: job.agent_id || agentId, jobID: job.id },
+              throwOnError: true,
+            });
+            for (const r of unwrapApiList<SchedulerJobRun>(data)) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -120,11 +121,11 @@ export function AutomationDashPanel({
     async (jobId: string) => {
       setJobRunsLoading(true);
       try {
-        const res = await api<SchedulerJobRun[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(selectedJob?.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-        );
-        setJobRuns(res ?? []);
+        const { data } = await listSchedulerJobRuns({
+          path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
+          throwOnError: true,
+        });
+        setJobRuns(unwrapApiList<SchedulerJobRun>(data));
       } catch {
         setJobRuns([]);
       } finally {

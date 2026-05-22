@@ -2,7 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
-import { api } from "@/lib/api";
+import {
+  createChannel as createChannelRequest,
+  deleteChannel,
+  generateLinkCode,
+  listChannels,
+  listPlugins,
+  listProfileIdentities,
+  listPublicChannels,
+  pollWeixinQrStatus,
+  startWeixinQr,
+  unlinkProfileIdentity,
+  updateChannel,
+} from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
+import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Channel, Identity, Plugin } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,9 +121,9 @@ function hasConfig(type: string, data: Record<string, unknown>): boolean {
 interface NormalizedChannel extends Record<string, unknown> {
   id: string;
   type: string;
-  label: string;
+  label?: string;
   agent_id: string;
-  agent_name: string;
+  agent_name?: string;
   enabled: boolean;
 }
 
@@ -268,7 +282,7 @@ interface ChannelDetailProps {
   onDelete: (id: string) => void;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
-  onUnlink: (id: number | undefined) => void;
+  onUnlink: (id: string | undefined) => void;
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
@@ -549,7 +563,7 @@ function NewChannelForm({
 // ─── PublicChannelDetail ──────────────────────────────────────────────────────
 
 interface PublicChannelDetailProps {
-  channel: Channel;
+  channel: ComponentsPublicChannel;
   identity: Identity | null;
   linked: boolean;
   generating: boolean;
@@ -560,7 +574,7 @@ interface PublicChannelDetailProps {
   wxQrPolling: boolean;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
-  onUnlink: (id: number | undefined) => void;
+  onUnlink: (id: string | undefined) => void;
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
@@ -682,7 +696,7 @@ export function ChannelsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const [publicChannels, setPublicChannels] = useState<Channel[]>([]);
+  const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [enabledChannelTypeIDs, setEnabledChannelTypeIDs] = useState<string[]>(
@@ -728,8 +742,8 @@ export function ChannelsPage() {
 
   const loadIdentities = useCallback(async () => {
     try {
-      const data = await api<Identity[]>("GET", "/api/auth/profile/identities");
-      setLinkedIdentities(data || []);
+      const { data } = await listProfileIdentities({ throwOnError: true });
+      setLinkedIdentities(unwrapApiList<Identity>(data));
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -738,8 +752,8 @@ export function ChannelsPage() {
   const loadPublicChannels = useCallback(async () => {
     setLoadingPlatforms(true);
     try {
-      const data = await api<Channel[]>("GET", "/api/channels/public");
-      setPublicChannels(data || []);
+      const { data } = await listPublicChannels({ throwOnError: true });
+      setPublicChannels(unwrapApiItems<ComponentsPublicChannel>(data));
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
@@ -749,7 +763,8 @@ export function ChannelsPage() {
 
   const loadChannelPlugins = useCallback(async () => {
     try {
-      const plugins = await api<Plugin[]>("GET", "/api/plugins");
+      const { data } = await listPlugins({ throwOnError: true });
+      const plugins = unwrapApiList<Plugin>(data);
       const enabled = (plugins || [])
         .filter((p) => p.kind === "channel" && p.enabled)
         .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
@@ -763,7 +778,8 @@ export function ChannelsPage() {
     async (currentEnabledIDs: string[]) => {
       setLoadingInstances(true);
       try {
-        const channels = await api<Channel[]>("GET", "/api/channels");
+        const { data } = await listChannels({ throwOnError: true });
+        const channels = unwrapApiItems<Channel>(data);
         const normalized = (channels || [])
           .map(normalizeChannel)
           .filter((ch) => currentEnabledIDs.includes(ch.type))
@@ -796,7 +812,8 @@ export function ChannelsPage() {
           (async () => {
             // loadChannelPlugins sets state async; we need the IDs for loadInstances
             try {
-              const pluginList = await api<Plugin[]>("GET", "/api/plugins");
+              const { data } = await listPlugins({ throwOnError: true });
+              const pluginList = unwrapApiList<Plugin>(data);
               const enabled = (pluginList || [])
                 .filter((p) => p.kind === "channel" && p.enabled)
                 .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
@@ -837,8 +854,9 @@ export function ChannelsPage() {
     setWxQrStatus("");
     wxQrCodeRef.current = "";
     try {
-      const result = await api<{ code: string }>("POST", "/api/auth/profile/link-code", {
-        platform,
+      const { data: result } = await generateLinkCode({
+        body: { platform },
+        throwOnError: true,
       });
       setLinkCode(result.code);
     } catch (e) {
@@ -866,10 +884,10 @@ export function ChannelsPage() {
   const pollWeixinQRStatus = async (qrCode: string) => {
     if (!qrCode) return;
     try {
-      const result = await api<{ status: string }>(
-        "GET",
-        "/api/channels/weixin/qr/status?qrcode=" + encodeURIComponent(qrCode),
-      );
+      const { data: result } = await pollWeixinQrStatus({
+        query: { qrcode: qrCode },
+        throwOnError: true,
+      });
       if (result.status) setWxQrStatus(result.status);
       if (result.status === "confirmed") {
         stopWeixinQRPolling();
@@ -895,10 +913,7 @@ export function ChannelsPage() {
       wxQrIntervalRef.current = null;
     }
     try {
-      const result = await api<{ qrcode: string; qrcode_img_content: string }>(
-        "POST",
-        "/api/channels/weixin/qr",
-      );
+      const { data: result } = await startWeixinQr({ throwOnError: true });
       const qrCode = result.qrcode || "";
       wxQrCodeRef.current = qrCode;
       const imgContent = result.qrcode_img_content || "";
@@ -916,10 +931,10 @@ export function ChannelsPage() {
 
   // ── identity management ──
 
-  const unlinkIdentity = async (id: number | undefined) => {
+  const unlinkIdentity = async (id: string | undefined) => {
     if (!id || !confirm("Unlink this identity?")) return;
     try {
-      await api("DELETE", "/api/auth/profile/identities/" + id);
+      await unlinkProfileIdentity({ path: { id: String(id) }, throwOnError: true });
       showToast("Identity unlinked");
       await loadIdentities();
     } catch (e) {
@@ -935,12 +950,12 @@ export function ChannelsPage() {
 
   const saveInstance = async (ch: NormalizedChannel) => {
     try {
-      const saved = await api<Channel>("PUT", "/api/channels/" + encodeURIComponent(ch.id), {
-        type: ch.type,
-        agent_id: ch.agent_id || "",
-        config: channelConfig(ch),
+      const { data: saved } = await updateChannel({
+        path: { id: ch.id },
+        body: { type: ch.type, agent_id: ch.agent_id || "", config: channelConfig(ch) },
+        throwOnError: true,
       });
-      const normalized = normalizeChannel(saved);
+      const normalized = normalizeChannel(saved as Channel);
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
     } catch (e) {
@@ -955,7 +970,7 @@ export function ChannelsPage() {
       return;
     }
     try {
-      await api("DELETE", "/api/channels/" + encodeURIComponent(id));
+      await deleteChannel({ path: { id: String(id) }, throwOnError: true });
       setSelectedId(null);
       await loadInstances(enabledChannelTypeIDs);
       showToast(id + " deleted");
@@ -976,11 +991,9 @@ export function ChannelsPage() {
     }
     setCreatingInstance(true);
     try {
-      const saved = await api<Channel>("POST", "/api/channels", {
-        id,
-        type: draft.type,
-        agent_id: "",
-        config: channelConfig(draft),
+      const { data: saved } = await createChannelRequest({
+        body: { id, type: draft.type as string, agent_id: "", config: channelConfig(draft) },
+        throwOnError: true,
       });
       setCreatingNew(false);
       await loadInstances(enabledChannelTypeIDs);

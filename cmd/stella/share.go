@@ -30,6 +30,7 @@ func shareArtifactCommand() *ucli.Command {
 		Usage:     "Create a public share link for a workspace artifact",
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Stella agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "session-id", Usage: "Stella session ID (defaults to STELLA_SESSION_ID)"},
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
 		},
@@ -37,6 +38,13 @@ func shareArtifactCommand() *ucli.Command {
 			path := c.Args().First()
 			if path == "" {
 				return fmt.Errorf("path is required")
+			}
+			agentID := c.String("agent-id")
+			if agentID == "" {
+				agentID = os.Getenv("STELLA_AGENT_ID")
+			}
+			if agentID == "" {
+				return fmt.Errorf("agent ID is required (pass --agent-id or run inside an agent session with STELLA_AGENT_ID)")
 			}
 			sessionID := c.String("session-id")
 			if sessionID == "" {
@@ -49,6 +57,7 @@ func shareArtifactCommand() *ucli.Command {
 			source := apitypes.CreateShareRequestSourceArtifact
 			share, err := createShare(c.Context, apiclient.CreateShareJSONRequestBody{
 				Source:    source,
+				AgentId:   &agentID,
 				SessionId: &sessionID,
 				Path:      &path,
 				ExpiresIn: &expiresIn,

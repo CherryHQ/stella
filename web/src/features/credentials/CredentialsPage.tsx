@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import {
+  deleteOAuthProviderConfig,
+  deleteVaultEntry as deleteVaultEntryRequest,
+  disconnectOAuth as disconnectOAuthRequest,
+  getOAuthConnected,
+  getOAuthProviderConfig,
+  listOAuthProviders,
+  listVaultEntries,
+  pollOAuthFlow,
+  setOAuthProviderConfig,
+  setVaultEntry,
+  startOAuthFlow,
+} from "@/lib/api-client/sdk.gen";
+import { unwrapApiList } from "@/lib/api-data";
 import { formatTime } from "@/lib/time";
-import type { OAuthFlow, OAuthProvider, OAuthProviderConfig, VaultEntry } from "@/lib/types";
+import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,7 +87,8 @@ export function CredentialsPage() {
   const loadVaultEntries = useCallback(async () => {
     setVaultLoading(true);
     try {
-      const entries = (await api<VaultEntry[]>("GET", "/api/auth/profile/vault")) ?? [];
+      const { data } = await listVaultEntries({ throwOnError: true });
+      const entries = unwrapApiList<VaultEntry>(data);
       setVaultEntries(entries);
     } catch {
       setVaultEntries([]);
@@ -85,8 +99,8 @@ export function CredentialsPage() {
 
   const loadOAuthProviders = useCallback(async () => {
     try {
-      const providers =
-        (await api<OAuthProvider[]>("GET", "/api/auth/profile/oauth/providers")) ?? [];
+      const { data } = await listOAuthProviders({ throwOnError: true });
+      const providers = unwrapApiList<OAuthProvider>(data);
       setOauthProviders(providers);
       setOauthStatus((prev) => {
         const next = { ...prev };
@@ -120,10 +134,10 @@ export function CredentialsPage() {
 
   const loadProviderConfig = useCallback(async (provider: string) => {
     try {
-      const cfg = await api<OAuthProviderConfig>(
-        "GET",
-        `/api/admin/oauth-providers/${provider}/config`,
-      );
+      const { data: cfg } = await getOAuthProviderConfig({
+        path: { id: provider },
+        throwOnError: true,
+      });
       if (cfg) {
         setConfigValues((prev) => ({
           ...prev,
@@ -146,10 +160,7 @@ export function CredentialsPage() {
   const checkOAuthConnected = useCallback(async (provider: string) => {
     setOauthStatus((prev) => ({ ...prev, [provider]: "checking" }));
     try {
-      const data = await api<{ connected: boolean }>(
-        "GET",
-        `/api/auth/profile/oauth/${provider}/connected`,
-      );
+      const { data } = await getOAuthConnected({ path: { provider }, throwOnError: true });
       setOauthStatus((prev) => ({
         ...prev,
         [provider]: data?.connected ? "connected" : "disconnected",
@@ -187,8 +198,10 @@ export function CredentialsPage() {
     }
     setVaultSaving(true);
     try {
-      await api("PUT", `/api/auth/profile/vault/${encodeURIComponent(newSecretName)}`, {
-        value: newSecretValue,
+      await setVaultEntry({
+        path: { name: newSecretName },
+        body: { value: newSecretValue },
+        throwOnError: true,
       });
       showToast("Secret saved");
       setNewSecretName("");
@@ -205,7 +218,7 @@ export function CredentialsPage() {
     async (name: string) => {
       if (!window.confirm(`Delete secret "${name}"?`)) return;
       try {
-        await api("DELETE", `/api/auth/profile/vault/${encodeURIComponent(name)}`);
+        await deleteVaultEntryRequest({ path: { name }, throwOnError: true });
         showToast("Secret deleted");
         await loadVaultEntries();
       } catch (e) {
@@ -223,10 +236,11 @@ export function CredentialsPage() {
         if (pollAbortRef.current[provider]) break;
         let status: { state: string } | null = null;
         try {
-          status = await api<{ state: string }>(
-            "GET",
-            `/api/auth/profile/oauth/${provider}/status/${flowID}`,
-          );
+          const { data } = await pollOAuthFlow({
+            path: { provider, flowID },
+            throwOnError: true,
+          });
+          status = data as { state: string };
         } catch {
           break;
         }
@@ -245,7 +259,8 @@ export function CredentialsPage() {
       setOauthFlowActive((prev) => ({ ...prev, [provider]: true }));
       setOauthFlow((prev) => ({ ...prev, [provider]: null }));
       try {
-        const flow = await api<OAuthFlow>("POST", `/api/auth/profile/oauth/${provider}/start`);
+        const { data } = await startOAuthFlow({ path: { provider }, throwOnError: true });
+        const flow = data as OAuthFlow;
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
       } catch (e) {
@@ -263,7 +278,7 @@ export function CredentialsPage() {
     async (provider: string) => {
       if (!window.confirm(`Disconnect ${provider} credentials?`)) return;
       try {
-        await api("DELETE", `/api/auth/profile/oauth/${provider}`);
+        await disconnectOAuthRequest({ path: { provider }, throwOnError: true });
         showToast(`${provider} disconnected`);
         await checkOAuthConnected(provider);
       } catch (e) {
@@ -282,10 +297,14 @@ export function CredentialsPage() {
       }
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
       try {
-        await api("PUT", `/api/admin/oauth-providers/${provider}/config`, {
-          client_id: vals.clientId,
-          client_secret: vals.clientSecret,
-          redirect_url: vals.redirectUrl || undefined,
+        await setOAuthProviderConfig({
+          path: { id: provider },
+          body: {
+            client_id: vals.clientId,
+            client_secret: vals.clientSecret,
+            redirect_url: vals.redirectUrl || undefined,
+          },
+          throwOnError: true,
         });
         showToast(`${provider} credentials saved`);
         await loadOAuthProviders();
@@ -304,7 +323,7 @@ export function CredentialsPage() {
     async (provider: string) => {
       if (!window.confirm(`Reset ${provider} credentials to defaults?`)) return;
       try {
-        await api("DELETE", `/api/admin/oauth-providers/${provider}/config`);
+        await deleteOAuthProviderConfig({ path: { id: provider }, throwOnError: true });
         showToast(`${provider} credentials reset to defaults`);
         await loadOAuthProviders();
         await loadProviderConfig(provider);

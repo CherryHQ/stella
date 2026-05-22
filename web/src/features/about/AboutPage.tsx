@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { getStatus } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 
@@ -37,7 +37,10 @@ export function AboutPage() {
   const { t } = useI18n();
   const { data: status, isLoading } = useQuery({
     queryKey: ["status"],
-    queryFn: () => api<StatusResponse>("GET", "/api/status"),
+    queryFn: async () => {
+      const { data } = await getStatus({ throwOnError: true });
+      return data as StatusResponse;
+    },
     retry: false,
   });
 

@@ -1,6 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLoaderData, useNavigate, useParams } from "@tanstack/react-router";
-import { api } from "@/lib/api";
+import {
+  assignAgentUser,
+  createAgent,
+  deleteAgent,
+  deleteAgentScopedSkill,
+  deleteAgentScopedSkillFile,
+  getAgentScopedSkill,
+  getAgentScopedSkillFile,
+  getBuiltinResource,
+  getMe,
+  installAgentScopedSkill,
+  listAgents,
+  listAgentSkills,
+  listAgentUsers,
+  listAuthUsers,
+  listBuiltinResources,
+  listChannels,
+  listModels,
+  listProfileMemories,
+  removeAgentUser,
+  setProfileMemory,
+  setProfileSoul,
+  updateAgent,
+  updateAgentScopedSkill,
+  updateChannel,
+  uploadAgentScopedSkill,
+} from "@/lib/api-client/sdk.gen";
+import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
+import type {
+  CreateAgentData,
+  ComponentsCachedModel,
+  InstallAgentScopedSkillData,
+  UpdateAgentData,
+  UpdateAgentScopedSkillData,
+} from "@/lib/api-client/types.gen";
 import type {
   AgentDetail,
   AgentSandbox,
@@ -19,7 +53,15 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
 
+type SkillScope = "system" | "agent" | "user" | "project";
+
 type Toast = { message: string; type: "success" | "error" } | null;
+
+type ProfileMemory = { agent_id: string; soul?: string; content?: string };
+
+function profileMemories(value: unknown) {
+  return unwrapApiList<ProfileMemory>(value);
+}
 
 function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
@@ -77,9 +119,25 @@ function emptyForm(): Omit<AgentDetail, "id"> {
     soul: "",
     scope: "restricted",
     enabled: true,
-    creator_id: 0,
+    creator_id: "",
     sandbox: { network: { mode: "disabled", allowlist: [] } },
     template_id: "",
+  };
+}
+
+function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData["body"] {
+  return {
+    name: form.name,
+    model: form.model,
+    model_strong: form.model_strong,
+    model_fast: form.model_fast,
+    system_prompt: form.system_prompt,
+    soul: form.soul,
+    scope: form.scope,
+    enabled: form.enabled,
+    creator_id: form.creator_id,
+    sandbox: form.sandbox,
+    template_id: form.template_id,
   };
 }
 
@@ -88,7 +146,7 @@ export interface AgentsSettingsLoaderData {
   channels: Channel[];
   cachedModels: string[];
   isAdmin: boolean;
-  currentUserId: number;
+  currentUserId: string;
   allUsers: User[];
   builtinTemplates: BuiltinItem[];
   builtinSouls: BuiltinItem[];
@@ -100,12 +158,22 @@ export interface AgentsSettingsLoaderData {
 
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
-    api<AgentDetail[]>("GET", "/api/agents").catch(() => []),
-    api<Array<{ provider: string; model: string }>>("GET", "/api/models").catch(() => []),
-    api<{ is_admin?: boolean; user_id?: number }>("GET", "/api/auth/me").catch(() => null),
+    listAgents({ throwOnError: true })
+      .then(({ data }) => unwrapApiItems<AgentDetail>(data))
+      .catch(() => []),
+    listModels({ throwOnError: true })
+      .then(({ data }) => unwrapApiList<ComponentsCachedModel>(data))
+      .catch(() => []),
+    getMe({ throwOnError: true })
+      .then(({ data }) => data)
+      .catch(() => null),
     Promise.all([
-      api<BuiltinItem[]>("GET", "/api/builtin/template").catch(() => []),
-      api<BuiltinItem[]>("GET", "/api/builtin/soul").catch(() => []),
+      listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
+        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
+        .catch(() => []),
+      listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
+        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
+        .catch(() => []),
     ]),
   ]);
   const isAdmin = me?.is_admin ?? false;
@@ -116,13 +184,21 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   }));
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
   const channels = isAdmin
-    ? ((await api<Channel[]>("GET", "/api/channels").catch(() => [])) ?? []).map(normalizeChannel)
+    ? (
+        (await listChannels({ throwOnError: true })
+          .then(({ data }) => unwrapApiItems<Channel>(data))
+          .catch(() => [])) ?? []
+      ).map(normalizeChannel)
     : [];
   const allUsers = isAdmin
-    ? ((await api<User[]>("GET", "/api/auth/users").catch(() => [])) ?? [])
+    ? ((await listAuthUsers({ throwOnError: true })
+        .then(({ data }) => unwrapApiList<User>(data))
+        .catch(() => [])) ?? [])
     : [];
   const agentSkills = agentId
-    ? ((await api<Skill[]>("GET", `/api/agents/${agentId}/skills`).catch(() => [])) ?? [])
+    ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
+        .then(({ data }) => unwrapApiItems<Skill>(data))
+        .catch(() => [])) ?? [])
     : [];
   let personalisation: Personalisation = {
     soul: "",
@@ -132,11 +208,10 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     loaded: !!agentId,
   };
   if (agentId) {
-    const mems =
-      (await api<Array<{ agent_id: string; soul?: string; content?: string }>>(
-        "GET",
-        "/api/auth/profile/memories",
-      ).catch(() => [])) ?? [];
+    const { data: memsData } = await listProfileMemories({ throwOnError: true }).catch(() => ({
+      data: undefined,
+    }));
+    const mems = profileMemories(memsData);
     const mem = mems.find((m) => m.agent_id === agentId);
     const soul = mem?.soul ?? "";
     const profile = mem?.content ?? "";
@@ -148,7 +223,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     channels,
     cachedModels: (modelsRaw ?? []).map((m) => `${m.provider}/${m.model}`),
     isAdmin,
-    currentUserId: me?.user_id ?? 0,
+    currentUserId: me?.id ?? "",
     allUsers,
     builtinTemplates: builtinTemplates ?? [],
     builtinSouls: builtinSouls ?? [],
@@ -166,7 +241,7 @@ export interface AgentsPageState {
   channels: Channel[];
   cachedModels: string[];
   isAdmin: boolean;
-  currentUserId: number;
+  currentUserId: string;
   allUsers: User[];
   showForm: boolean;
   editingId: string | null;
@@ -218,7 +293,7 @@ export function AgentsPage() {
     channels: loaderData?.channels ?? [],
     cachedModels: loaderData?.cachedModels ?? [],
     isAdmin: loaderData?.isAdmin ?? false,
-    currentUserId: loaderData?.currentUserId ?? 0,
+    currentUserId: loaderData?.currentUserId ?? "",
     allUsers: loaderData?.allUsers ?? [],
     showForm: !!selectedAgent,
     editingId: selectedAgent?.id ?? null,
@@ -281,7 +356,8 @@ export function AgentsPage() {
   const loadAgents = useCallback(
     async (currentState?: AgentsPageState) => {
       try {
-        const agents = ((await api<AgentDetail[]>("GET", "/api/agents")) ?? []).map((a) => ({
+        const { data } = await listAgents({ throwOnError: true });
+        const agents = unwrapApiItems<AgentDetail>(data).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
@@ -301,7 +377,8 @@ export function AgentsPage() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const channels = ((await api<Channel[]>("GET", "/api/channels")) ?? []).map(normalizeChannel);
+      const { data } = await listChannels({ throwOnError: true });
+      const channels = unwrapApiItems<Channel>(data).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -317,7 +394,8 @@ export function AgentsPage() {
     }
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
-      const agentSkills = (await api<Skill[]>("GET", `/api/agents/${agentId}/skills`)) ?? [];
+      const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
+      const agentSkills = unwrapApiItems<Skill>(data);
       setState((prev) => ({ ...prev, agentSkills, agentSkillsLoading: false }));
       return agentSkills;
     } catch {
@@ -333,11 +411,8 @@ export function AgentsPage() {
       personalisation: { soul: "", soulDraft: "", profile: "", profileDraft: "", loaded: false },
     }));
     try {
-      const mems =
-        (await api<Array<{ agent_id: string; soul?: string; content?: string }>>(
-          "GET",
-          "/api/auth/profile/memories",
-        )) ?? [];
+      const { data } = await listProfileMemories({ throwOnError: true });
+      const mems = profileMemories(data);
       const mem = mems.find((m) => m.agent_id === agentId);
       const soul = mem?.soul ?? "";
       const profile = mem?.content ?? "";
@@ -355,7 +430,8 @@ export function AgentsPage() {
 
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
-      const assignedUsers = (await api<User[]>("GET", `/api/agents/${agentId}/users`)) ?? [];
+      const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
+      const assignedUsers = unwrapApiItems<User>(data);
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));
@@ -471,11 +547,18 @@ export function AgentsPage() {
         }
 
         if (currentState.editingId) {
-          await api("PUT", `/api/agents/${currentState.editingId}`, payload);
+          await updateAgent({
+            path: { id: currentState.editingId },
+            body: agentRequestBody(payload) as UpdateAgentData["body"],
+            throwOnError: true,
+          });
           await saveChannelBindings(currentState.editingId, currentState);
         } else {
-          const created = await api<AgentDetail>("POST", "/api/agents", payload);
-          const newId = created.id;
+          const { data: created } = await createAgent({
+            body: agentRequestBody(payload),
+            throwOnError: true,
+          });
+          const newId = created!.id!;
           setState((prev) => ({ ...prev, editingId: newId }));
           await Promise.all([
             saveChannelBindings(newId, { ...currentState, editingId: newId }),
@@ -513,10 +596,14 @@ export function AgentsPage() {
         const wantsAgent = selected.has(ch.id);
         const nextAgentID = wantsAgent ? agentID : "";
         if ((ch.agent_id || "") === nextAgentID) continue;
-        await api("PUT", `/api/channels/${encodeURIComponent(ch.id)}`, {
-          type: ch.type,
-          agent_id: nextAgentID,
-          config: JSON.stringify(ch._config || {}),
+        await updateChannel({
+          path: { id: ch.id },
+          body: {
+            type: ch.type,
+            agent_id: nextAgentID,
+            config: JSON.stringify(ch._config || {}),
+          },
+          throwOnError: true,
         });
       }
       await loadChannels();
@@ -527,7 +614,7 @@ export function AgentsPage() {
   const doDeleteAgent = useCallback(
     async (id: string) => {
       try {
-        await api("DELETE", `/api/agents/${id}`);
+        await deleteAgent({ path: { id }, throwOnError: true });
         setState((prev) => {
           if (prev.editingId === id) {
             return {
@@ -556,8 +643,10 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       if (!currentState.addUserId || !currentState.editingId) return;
       try {
-        await api("POST", `/api/agents/${currentState.editingId}/users`, {
-          user_id: Number(currentState.addUserId),
+        await assignAgentUser({
+          path: { id: currentState.editingId },
+          body: { user_id: currentState.addUserId },
+          throwOnError: true,
         });
         setState((prev) => ({ ...prev, addUserId: "" }));
         await loadAssignedUsers(currentState.editingId);
@@ -570,9 +659,12 @@ export function AgentsPage() {
   );
 
   const removeUser = useCallback(
-    async (userId: number, editingId: string) => {
+    async (userId: string, editingId: string) => {
       try {
-        await api("DELETE", `/api/agents/${editingId}/users/${userId}`);
+        await removeAgentUser({
+          path: { id: editingId, userId },
+          throwOnError: true,
+        });
         await loadAssignedUsers(editingId);
         showToast("User removed");
       } catch (e) {
@@ -583,17 +675,6 @@ export function AgentsPage() {
   );
 
   const skillKey = (sk: { scope: string; id: string }) => `${sk.scope}:${sk.id}`;
-
-  const skillItemURL = useCallback((scope: string, id: string, editingId: string | null) => {
-    return `/api/agents/${encodeURIComponent(editingId ?? "")}/skills/${encodeURIComponent(scope)}/${encodeURIComponent(id)}`;
-  }, []);
-
-  const skillFileURL = useCallback(
-    (scope: string, id: string, path: string, editingId: string | null) => {
-      return `/api/agents/${encodeURIComponent(editingId ?? "")}/skills/${encodeURIComponent(scope)}/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`;
-    },
-    [],
-  );
 
   const selectSkillFile = useCallback(
     async (
@@ -617,10 +698,11 @@ export function AgentsPage() {
       }
       setState((prev) => ({ ...prev, selectedSkillFileLoading: true }));
       try {
-        const res = await api<{ content?: string }>(
-          "GET",
-          skillFileURL(skill.scope, skill.id, path, editingId),
-        );
+        const { data: res } = await getAgentScopedSkillFile({
+          path: { id: editingId ?? "", scope: skill.scope as SkillScope, skillId: skill.id },
+          query: { path },
+          throwOnError: true,
+        });
         const content = res?.content ?? "";
         setState((prev) => ({
           ...prev,
@@ -634,7 +716,7 @@ export function AgentsPage() {
         setState((prev) => ({ ...prev, selectedSkillFileLoading: false }));
       }
     },
-    [skillFileURL, showToast],
+    [showToast],
   );
 
   const selectSkill = useCallback(
@@ -655,12 +737,15 @@ export function AgentsPage() {
         selectedSkillNewFileName: "",
       }));
       try {
-        const full = await api<Skill & { content?: string }>(
-          "GET",
-          skillItemURL(sk.scope, sk.id, currentState.editingId),
-        );
-        const skill: Skill = { ...full, scope: sk.scope };
-        const files = full.files ?? ["SKILL.md"];
+        const { data: full } = await getAgentScopedSkill({
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+          throwOnError: true,
+        });
+        const skill: Skill = {
+          ...(full as Skill),
+          scope: sk.scope,
+        };
+        const files = (full as Skill).files ?? ["SKILL.md"];
         const initialFile = files.includes("SKILL.md") ? "SKILL.md" : files[0];
         setState((prev) => ({
           ...prev,
@@ -673,7 +758,7 @@ export function AgentsPage() {
         setState((prev) => ({ ...prev, selectedSkillLoading: false }));
       }
     },
-    [skillItemURL, selectSkillFile, showToast],
+    [selectSkillFile, showToast],
   );
 
   const toggleSkillStatus = useCallback(
@@ -681,7 +766,11 @@ export function AgentsPage() {
       if (sk.scope === "system") return;
       const next = sk.status === "active" ? "draft" : "active";
       try {
-        await api("PUT", skillItemURL(sk.scope, sk.id, currentState.editingId), { status: next });
+        await updateAgentScopedSkill({
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+          body: { status: next },
+          throwOnError: true,
+        });
         setState((prev) => ({
           ...prev,
           agentSkills: prev.agentSkills.map((s) =>
@@ -699,7 +788,7 @@ export function AgentsPage() {
         showToast((e as Error).message, "error");
       }
     },
-    [skillItemURL, showToast],
+    [showToast],
   );
 
   const saveSelectedSkill = useCallback(
@@ -708,16 +797,20 @@ export function AgentsPage() {
       if (!selectedSkill || selectedSkill.scope === "system") return;
       setState((prev) => ({ ...prev, selectedSkillSaving: true }));
       try {
-        await api(
-          "PUT",
-          skillItemURL(selectedSkill.scope, selectedSkill.id, currentState.editingId),
-          {
+        await updateAgentScopedSkill({
+          path: {
+            id: currentState.editingId ?? "",
+            scope: selectedSkill.scope as SkillScope,
+            skillId: selectedSkill.id,
+          },
+          body: {
             description: selectedSkill.description,
             status: selectedSkill.status,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             files: { [selectedSkillActiveFile]: selectedSkillFileContent },
-          },
-        );
+          } as UpdateAgentScopedSkillData["body"],
+          throwOnError: true,
+        });
         setState((prev) => ({
           ...prev,
           selectedSkillDirty: false,
@@ -726,13 +819,17 @@ export function AgentsPage() {
             [selectedSkillActiveFile]: selectedSkillFileContent,
           },
         }));
-        const full = await api<Skill>(
-          "GET",
-          skillItemURL(selectedSkill.scope, selectedSkill.id, currentState.editingId),
-        );
+        const { data: full } = await getAgentScopedSkill({
+          path: {
+            id: currentState.editingId ?? "",
+            scope: selectedSkill.scope as SkillScope,
+            skillId: selectedSkill.id,
+          },
+          throwOnError: true,
+        });
         setState((prev) => ({
           ...prev,
-          selectedSkill: { ...full, scope: selectedSkill.scope },
+          selectedSkill: { ...(full as Skill), scope: selectedSkill.scope },
           selectedSkillSaving: false,
         }));
         await loadAgentSkills(currentState.editingId);
@@ -742,7 +839,7 @@ export function AgentsPage() {
         setState((prev) => ({ ...prev, selectedSkillSaving: false }));
       }
     },
-    [skillItemURL, loadAgentSkills, showToast],
+    [loadAgentSkills, showToast],
   );
 
   const deleteSkill = useCallback(
@@ -750,7 +847,10 @@ export function AgentsPage() {
       if (sk.scope === "system") return;
       if (!confirm(`Delete skill "${sk.name}"? This cannot be undone.`)) return;
       try {
-        await api("DELETE", skillItemURL(sk.scope, sk.id, currentState.editingId));
+        await deleteAgentScopedSkill({
+          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+          throwOnError: true,
+        });
         setState((prev) => {
           const wasSelected = prev.selectedSkillKey === skillKey(sk);
           return {
@@ -766,7 +866,7 @@ export function AgentsPage() {
         showToast((e as Error).message, "error");
       }
     },
-    [skillItemURL, loadAgentSkills, showToast],
+    [loadAgentSkills, showToast],
   );
 
   const doSkillInstall = useCallback(
@@ -781,8 +881,11 @@ export function AgentsPage() {
           ({ ...prev, skillInstalling: true }) as AgentsPageState & { skillInstalling: boolean },
       );
       try {
-        const url = `/api/agents/${currentState.editingId}/skills/${scope}/install`;
-        const res = await api<{ name?: string; id?: string }>("POST", url, { source });
+        const { data: res } = await installAgentScopedSkill({
+          path: { id: currentState.editingId, scope },
+          body: { source } as InstallAgentScopedSkillData["body"],
+          throwOnError: true,
+        });
         showToast("Installed: " + (res?.name ?? "skill"));
         setState((prev) => ({ ...prev, skillInstallModalOpen: false }));
         const updated = await loadAgentSkills(currentState.editingId);
@@ -811,10 +914,11 @@ export function AgentsPage() {
       }
       if (!currentState.editingId) return;
       try {
-        const url = `/api/agents/${currentState.editingId}/skills/${scope}/upload`;
-        const form = new FormData();
-        form.append("file", file);
-        const res = await api<{ name?: string; id?: string }>("POST", url, form);
+        const { data: res } = await uploadAgentScopedSkill({
+          path: { id: currentState.editingId, scope },
+          body: { file },
+          throwOnError: true,
+        });
         showToast("Uploaded: " + (res?.name ?? "skill"));
         setState((prev) => ({ ...prev, skillInstallModalOpen: false }));
         const updated = await loadAgentSkills(currentState.editingId);
@@ -834,15 +938,16 @@ export function AgentsPage() {
       const { selectedSkill, selectedSkillActiveFile, editingId } = currentState;
       if (!selectedSkill || selectedSkill.scope === "system") return;
       if (!confirm(`Delete file "${selectedSkillActiveFile}"?`)) return;
-      const url = skillFileURL(
-        selectedSkill.scope,
-        selectedSkill.id,
-        selectedSkillActiveFile,
-        editingId,
-      );
-      if (!url) return;
       try {
-        await api("DELETE", url);
+        await deleteAgentScopedSkillFile({
+          path: {
+            id: editingId ?? "",
+            scope: selectedSkill.scope as SkillScope,
+            skillId: selectedSkill.id,
+          },
+          query: { path: selectedSkillActiveFile },
+          throwOnError: true,
+        });
         const newFiles = (selectedSkill.files ?? ["SKILL.md"]).filter(
           (f) => f !== selectedSkillActiveFile,
         );
@@ -868,14 +973,16 @@ export function AgentsPage() {
         showToast((e as Error).message, "error");
       }
     },
-    [skillFileURL, selectSkillFile, showToast],
+    [selectSkillFile, showToast],
   );
 
   const savePersonalisationSoul = useCallback(
     async (currentState: AgentsPageState) => {
       try {
-        await api("PUT", `/api/auth/profile/soul/${currentState.editingId}`, {
-          soul: currentState.personalisation.soulDraft,
+        await setProfileSoul({
+          path: { agentID: currentState.editingId ?? "" },
+          body: { soul: currentState.personalisation.soulDraft },
+          throwOnError: true,
         });
         setState((prev) => ({
           ...prev,
@@ -892,8 +999,10 @@ export function AgentsPage() {
   const savePersonalisationProfile = useCallback(
     async (currentState: AgentsPageState) => {
       try {
-        await api("PUT", `/api/auth/profile/memories/${currentState.editingId}`, {
-          content: currentState.personalisation.profileDraft,
+        await setProfileMemory({
+          path: { agentID: currentState.editingId ?? "" },
+          body: { content: currentState.personalisation.profileDraft },
+          throwOnError: true,
         });
         setState((prev) => ({
           ...prev,
@@ -911,8 +1020,14 @@ export function AgentsPage() {
     async (soulID: string) => {
       if (!soulID) return;
       try {
-        const full = await api<BuiltinItem>("GET", `/api/builtin/soul/${soulID}`);
-        setState((prev) => ({ ...prev, form: { ...prev.form, soul: full.content ?? "" } }));
+        const { data: full } = await getBuiltinResource({
+          path: { kind: "soul", id: soulID },
+          throwOnError: true,
+        });
+        setState((prev) => ({
+          ...prev,
+          form: { ...prev.form, soul: full?.content ?? "" },
+        }));
       } catch (e) {
         setState((prev) => ({ ...prev, selectedSoulID: "" }));
         showToast((e as Error).message, "error");
@@ -924,13 +1039,19 @@ export function AgentsPage() {
   const pickTemplate = useCallback(
     async (tmpl: BuiltinItem) => {
       try {
-        const full = await api<BuiltinItem>("GET", `/api/builtin/template/${tmpl.id}`);
-        const meta = (full.metadata ?? {}) as Record<string, string>;
+        const { data: full } = await getBuiltinResource({
+          path: { kind: "template", id: tmpl.id },
+          throwOnError: true,
+        });
+        const meta = (full?.metadata ?? {}) as Record<string, string>;
         let soulContent = "";
         if (meta.soul_id) {
           try {
-            const soul = await api<BuiltinItem>("GET", `/api/builtin/soul/${meta.soul_id}`);
-            soulContent = soul.content ?? "";
+            const { data: soul } = await getBuiltinResource({
+              path: { kind: "soul", id: meta.soul_id },
+              throwOnError: true,
+            });
+            soulContent = soul?.content ?? "";
           } catch {}
         }
         setState((prev) => ({
@@ -939,7 +1060,7 @@ export function AgentsPage() {
             ...prev.form,
             name: prev.form.name || tmpl.name || "",
             model: meta.model || prev.form.model || "",
-            system_prompt: full.content ?? "",
+            system_prompt: full?.content ?? "",
             soul: soulContent,
             template_id: tmpl.id,
           },

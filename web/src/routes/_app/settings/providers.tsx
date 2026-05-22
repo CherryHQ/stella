@@ -3,7 +3,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 
 export const Route = createFileRoute("/_app/settings/providers")({
   beforeLoad: async ({ context: { queryClient } }) => {
-    const me = queryClient.getQueryData(meQueryOptions.queryKey);
+    const me = await queryClient.ensureQueryData(meQueryOptions);
     if (!me?.is_admin) throw redirect({ to: "/settings/agents" });
   },
 });
