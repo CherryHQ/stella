@@ -557,15 +557,15 @@ func TestPoolActiveSession(t *testing.T) {
 	defer func() { _ = pool.Close() }()
 
 	// No sessions yet.
-	_, ok := pool.ActiveSession("cli")
+	_, ok := pool.ActiveSession("cli", "")
 	if ok {
 		t.Error("expected no active session")
 	}
 
 	// Create a session in "cli" channel.
-	info, _ := pool.CreateSession("cli")
+	info, _ := pool.CreateSession("cli", "")
 
-	got, ok := pool.ActiveSession("cli")
+	got, ok := pool.ActiveSession("cli", "")
 	if !ok {
 		t.Fatal("expected active session")
 	}
@@ -577,7 +577,7 @@ func TestPoolActiveSession(t *testing.T) {
 	}
 
 	// Different channel should not find it.
-	_, ok = pool.ActiveSession("tg123")
+	_, ok = pool.ActiveSession("tg123", "")
 	if ok {
 		t.Error("expected no active session for tg123")
 	}
@@ -829,7 +829,7 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 	pool.mu.Unlock()
 
 	// ActiveSession for "cli" should not match the legacy session.
-	_, ok := pool.ActiveSession("cli")
+	_, ok := pool.ActiveSession("cli", "")
 	if ok {
 		t.Error("legacy session with empty Channel should not match 'cli'")
 	}
@@ -884,7 +884,7 @@ func TestPoolGetSession(t *testing.T) {
 
 	info, _ := pool.CreateSession("test", "test-user")
 
-	got, err := pool.GetSession(info.ID)
+	got, err := pool.GetSession(info.ID, "test-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -897,7 +897,7 @@ func TestPoolGetSessionNotFound(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
 
-	_, err := pool.GetSession("nonexistent")
+	_, err := pool.GetSession("nonexistent", "")
 	if err == nil {
 		t.Error("expected error for nonexistent session")
 	}

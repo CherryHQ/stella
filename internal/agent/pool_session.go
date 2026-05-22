@@ -13,17 +13,17 @@ import (
 )
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
-func (p *Pool) CreateSession(channel string, userID ...string) (SessionInfo, error) {
-	return p.CreateSessionWithKind(channel, "chat", "", userID...)
+func (p *Pool) CreateSession(channel, userID string) (SessionInfo, error) {
+	return p.CreateSessionWithKind(channel, "chat", "", userID)
 }
 
 // CreateSessionWithKind creates a new session with explicit kind and projectID.
-func (p *Pool) CreateSessionWithKind(channel, kind, projectID string, userID ...string) (SessionInfo, error) {
+func (p *Pool) CreateSessionWithKind(channel, kind, projectID, userID string) (SessionInfo, error) {
 	if kind == "" {
 		kind = "chat"
 	}
 	p.mu.Lock()
-	info := p.createSessionLocked(channel, userID...)
+	info := p.createSessionLocked(channel, userID)
 	info.Kind = kind
 	info.ProjectID = projectID
 	if sess, ok := p.sessions[info.ID]; ok {
@@ -36,7 +36,7 @@ func (p *Pool) CreateSessionWithKind(channel, kind, projectID string, userID ...
 
 // createSessionLocked creates a new session and adds it to the in-memory map.
 // Caller must hold p.mu.
-func (p *Pool) createSessionLocked(channel string, userID ...string) SessionInfo {
+func (p *Pool) createSessionLocked(channel, userID string) SessionInfo {
 	now := time.Now()
 	info := SessionInfo{
 		ID:         uuid.New().String(),
@@ -44,9 +44,7 @@ func (p *Pool) createSessionLocked(channel string, userID ...string) SessionInfo
 		CreatedAt:  now,
 		LastActive: now,
 		AgentID:    p.agentID,
-	}
-	if len(userID) > 0 && userID[0] != "" {
-		info.UserID = userID[0]
+		UserID:     userID,
 	}
 	p.sessions[info.ID] = &Session{Info: info}
 	return info
@@ -75,13 +73,6 @@ func (p *Pool) sessionContext(ctx context.Context, userID string) context.Contex
 		ctx = memory.WithAgentID(ctx, p.agentID)
 	}
 	return ctx
-}
-
-func resolveUserID(userID []string) string {
-	if len(userID) == 0 {
-		return ""
-	}
-	return userID[0]
 }
 
 func isPrivateMainChannel(channel string, userID string) bool {
@@ -198,29 +189,28 @@ func (p *Pool) latestSessionLocked(ctx context.Context, userID string) (SessionI
 }
 
 // ActiveSession returns the most recent non-archived session for a channel.
-func (p *Pool) ActiveSession(channel string, userID ...string) (SessionInfo, bool) {
+func (p *Pool) ActiveSession(channel, userID string) (SessionInfo, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.activeSessionLocked(context.Background(), channel, resolveUserID(userID))
+	return p.activeSessionLocked(context.Background(), channel, userID)
 }
 
 // ResolveSession returns the session for a channel, creating or promoting one if needed.
 // Private user channels resolve to a per-agent/user main session. Group and other
 // shared channels resolve by exact channel and remain chat sessions.
-func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...string) (SessionInfo, error) {
-	uid := resolveUserID(userID)
-	ctx = p.sessionContext(ctx, uid)
-	privateMain := isPrivateMainChannel(channel, uid)
+func (p *Pool) ResolveSession(ctx context.Context, channel, userID string) (SessionInfo, error) {
+	ctx = p.sessionContext(ctx, userID)
+	privateMain := isPrivateMainChannel(channel, userID)
 
 	p.mu.Lock()
 
 	if privateMain {
-		if info, ok := p.mainSessionLocked(ctx, uid); ok {
+		if info, ok := p.mainSessionLocked(ctx, userID); ok {
 			p.mu.Unlock()
 			return info, nil
 		}
 
-		if info, ok := p.latestSessionLocked(ctx, uid); ok {
+		if info, ok := p.latestSessionLocked(ctx, userID); ok {
 			info.Kind = "main"
 			if sess, exists := p.sessions[info.ID]; exists {
 				sess.Info.Kind = "main"
@@ -234,12 +224,12 @@ func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...str
 			}
 			return p.persistNewSession(ctx, info)
 		}
-	} else if info, ok := p.activeSessionLocked(ctx, channel, uid); ok {
+	} else if info, ok := p.activeSessionLocked(ctx, channel, userID); ok {
 		p.mu.Unlock()
 		return info, nil
 	}
 
-	info := p.createSessionLocked(channel, userID...)
+	info := p.createSessionLocked(channel, userID)
 	if privateMain {
 		info.Kind = "main"
 	} else {
@@ -261,18 +251,17 @@ func (p *Pool) ResolveSession(ctx context.Context, channel string, userID ...str
 }
 
 // RotateSession archives the active session for a channel (if any) and creates a new one.
-func (p *Pool) RotateSession(channel string, userID ...string) (SessionInfo, error) {
-	uid := resolveUserID(userID)
-	if old, ok := p.ActiveSession(channel, uid); ok {
+func (p *Pool) RotateSession(channel, userID string) (SessionInfo, error) {
+	if old, ok := p.ActiveSession(channel, userID); ok {
 		if err := p.ArchiveSession(old.ID); err != nil {
 			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)
 		}
 	}
-	return p.CreateSession(channel, userID...)
+	return p.CreateSession(channel, userID)
 }
 
 // GetSession returns metadata for a session.
-func (p *Pool) GetSession(sessionID string, userID ...string) (SessionInfo, error) {
+func (p *Pool) GetSession(sessionID, userID string) (SessionInfo, error) {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
 	p.mu.Unlock()
@@ -281,7 +270,7 @@ func (p *Pool) GetSession(sessionID string, userID ...string) (SessionInfo, erro
 	}
 
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		si, err := sm.LoadInfo(p.sessionContext(context.Background(), resolveUserID(userID)), sessionID)
+		si, err := sm.LoadInfo(p.sessionContext(context.Background(), userID), sessionID)
 		if err == nil {
 			return si, nil
 		}
@@ -290,12 +279,12 @@ func (p *Pool) GetSession(sessionID string, userID ...string) (SessionInfo, erro
 }
 
 // ListSessions returns metadata for all sessions.
-func (p *Pool) ListSessions(includeArchived bool, userID ...string) ([]SessionInfo, error) {
+func (p *Pool) ListSessions(includeArchived bool, userID string) ([]SessionInfo, error) {
 	sm, ok := p.mem.(memory.SessionManager)
 	if !ok {
 		return nil, nil
 	}
-	items, err := sm.ListInfo(context.Background(), memory.ListOptions{UserID: resolveUserID(userID), AgentID: p.agentID, IncludeArchived: includeArchived})
+	items, err := sm.ListInfo(context.Background(), memory.ListOptions{UserID: userID, AgentID: p.agentID, IncludeArchived: includeArchived})
 	if err != nil {
 		return nil, err
 	}
