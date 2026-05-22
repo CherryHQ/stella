@@ -382,40 +382,47 @@ type ListProjectsParams struct {
 	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
-// UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
-type UploadAgentSkillMultipartBody struct {
+// ListAgentSkillsParams defines parameters for ListAgentSkills.
+type ListAgentSkillsParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UploadAgentScopedSkillMultipartBody defines parameters for UploadAgentScopedSkill.
+type UploadAgentScopedSkillMultipartBody struct {
 	File *openapi_types.File `json:"file,omitempty"`
 }
 
-// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
-type DeleteAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// DeleteAgentScopedSkillParams defines parameters for DeleteAgentScopedSkill.
+type DeleteAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
-type GetAgentSkillFileParams struct {
-	Path string `form:"path" json:"path"`
+// GetAgentScopedSkillParams defines parameters for GetAgentScopedSkill.
+type GetAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// UpdateAgentScopedSkillParams defines parameters for UpdateAgentScopedSkill.
+type UpdateAgentScopedSkillParams struct {
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// DeleteAgentScopedSkillFileParams defines parameters for DeleteAgentScopedSkillFile.
+type DeleteAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+}
+
+// GetAgentScopedSkillFileParams defines parameters for GetAgentScopedSkillFile.
+type GetAgentScopedSkillFileParams struct {
+	Path      string  `form:"path" json:"path"`
+	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
 	Code  string `form:"code" json:"code"`
 	State string `form:"state" json:"state"`
-}
-
-// UploadProfileSkillMultipartBody defines parameters for UploadProfileSkill.
-type UploadProfileSkillMultipartBody struct {
-	File *openapi_types.File `json:"file,omitempty"`
-}
-
-// DeleteProfileSkillFileParams defines parameters for DeleteProfileSkillFile.
-type DeleteProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetProfileSkillFileParams defines parameters for GetProfileSkillFile.
-type GetProfileSkillFileParams struct {
-	Path string `form:"path" json:"path"`
 }
 
 // PollWeixinQRStatusParams defines parameters for PollWeixinQRStatus.
@@ -541,16 +548,6 @@ type SearchSkillsParams struct {
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// DeleteSkillFileParams defines parameters for DeleteSkillFile.
-type DeleteSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
-// GetSkillFileParams defines parameters for GetSkillFile.
-type GetSkillFileParams struct {
-	Path string `form:"path" json:"path"`
-}
-
 // ListAgentTasksParams defines parameters for ListAgentTasks.
 type ListAgentTasksParams struct {
 	Status  *string `form:"status,omitempty" json:"status,omitempty"`
@@ -572,14 +569,17 @@ type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
 
-// InstallAgentSkillJSONRequestBody defines body for InstallAgentSkill for application/json ContentType.
-type InstallAgentSkillJSONRequestBody = externalRef0.InstallSkillRequest
+// CreateAgentScopedSkillJSONRequestBody defines body for CreateAgentScopedSkill for application/json ContentType.
+type CreateAgentScopedSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
-// UploadAgentSkillMultipartRequestBody defines body for UploadAgentSkill for multipart/form-data ContentType.
-type UploadAgentSkillMultipartRequestBody UploadAgentSkillMultipartBody
+// InstallAgentScopedSkillJSONRequestBody defines body for InstallAgentScopedSkill for application/json ContentType.
+type InstallAgentScopedSkillJSONRequestBody = externalRef0.InstallSkillRequest
 
-// UpdateAgentSkillJSONRequestBody defines body for UpdateAgentSkill for application/json ContentType.
-type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+// UploadAgentScopedSkillMultipartRequestBody defines body for UploadAgentScopedSkill for multipart/form-data ContentType.
+type UploadAgentScopedSkillMultipartRequestBody UploadAgentScopedSkillMultipartBody
+
+// UpdateAgentScopedSkillJSONRequestBody defines body for UpdateAgentScopedSkill for application/json ContentType.
+type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
@@ -595,15 +595,6 @@ type SetProfileMemoryJSONRequestBody = externalRef0.SetMemoryRequest
 
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = externalRef0.ChangePasswordRequest
-
-// InstallProfileSkillJSONRequestBody defines body for InstallProfileSkill for application/json ContentType.
-type InstallProfileSkillJSONRequestBody = externalRef0.ProfileInstallSkillRequest
-
-// UploadProfileSkillMultipartRequestBody defines body for UploadProfileSkill for multipart/form-data ContentType.
-type UploadProfileSkillMultipartRequestBody UploadProfileSkillMultipartBody
-
-// UpdateProfileSkillJSONRequestBody defines body for UpdateProfileSkill for application/json ContentType.
-type UpdateProfileSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // SetProfileSoulJSONRequestBody defines body for SetProfileSoul for application/json ContentType.
 type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
@@ -694,15 +685,6 @@ type UploadWorkspaceFileMultipartRequestBody UploadWorkspaceFileMultipartBody
 
 // CreateShareJSONRequestBody defines body for CreateShare for application/json ContentType.
 type CreateShareJSONRequestBody = externalRef0.CreateShareRequest
-
-// CreateSkillJSONRequestBody defines body for CreateSkill for application/json ContentType.
-type CreateSkillJSONRequestBody = externalRef0.CreateSkillRequest
-
-// InstallSkillJSONRequestBody defines body for InstallSkill for application/json ContentType.
-type InstallSkillJSONRequestBody = externalRef0.GlobalInstallSkillRequest
-
-// UpdateSkillJSONRequestBody defines body for UpdateSkill for application/json ContentType.
-type UpdateSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
 // CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
 type CreateAgentTaskJSONRequestBody = externalRef0.AgentTaskInput
@@ -845,35 +827,37 @@ type ClientInterface interface {
 	UpdateAgent(ctx context.Context, id string, body UpdateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentSkills request
-	ListAgentSkills(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListAgentSkills(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DuplicateBuiltinSkillToAgent request
-	DuplicateBuiltinSkillToAgent(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// CreateAgentScopedSkillWithBody request with any body
+	CreateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// InstallAgentSkillWithBody request with any body
-	InstallAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CreateAgentScopedSkill(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	InstallAgentSkill(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// InstallAgentScopedSkillWithBody request with any body
+	InstallAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UploadAgentSkillWithBody request with any body
-	UploadAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	InstallAgentScopedSkill(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteAgentSkill request
-	DeleteAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// UploadAgentScopedSkillWithBody request with any body
+	UploadAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetAgentSkill request
-	GetAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteAgentScopedSkill request
+	DeleteAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateAgentSkillWithBody request with any body
-	UpdateAgentSkillWithBody(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetAgentScopedSkill request
+	GetAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateAgentSkill(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// UpdateAgentScopedSkillWithBody request with any body
+	UpdateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteAgentSkillFile request
-	DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetAgentSkillFile request
-	GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteAgentScopedSkillFile request
+	DeleteAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAgentScopedSkillFile request
+	GetAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAgentUsers request
 	ListAgentUsers(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -941,34 +925,6 @@ type ClientInterface interface {
 	ChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListProfileSkills request
-	ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// InstallProfileSkillWithBody request with any body
-	InstallProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	InstallProfileSkill(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UploadProfileSkillWithBody request with any body
-	UploadProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteProfileSkill request
-	DeleteProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetProfileSkill request
-	GetProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateProfileSkillWithBody request with any body
-	UpdateProfileSkillWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateProfileSkill(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteProfileSkillFile request
-	DeleteProfileSkillFile(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetProfileSkillFile request
-	GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetProfileSoulWithBody request with any body
 	SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1271,38 +1227,8 @@ type ClientInterface interface {
 	// RevokeShare request
 	RevokeShare(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListSkills request
-	ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateSkillWithBody request with any body
-	CreateSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateSkill(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// InstallSkillWithBody request with any body
-	InstallSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	InstallSkill(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// SearchSkills request
 	SearchSkills(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteSkill request
-	DeleteSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSkill request
-	GetSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateSkillWithBody request with any body
-	UpdateSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateSkill(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteSkillFile request
-	DeleteSkillFile(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetSkillFile request
-	GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetStatus request
 	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1575,8 +1501,8 @@ func (c *Client) UpdateAgent(ctx context.Context, id string, body UpdateAgentJSO
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListAgentSkills(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListAgentSkillsRequest(c.Server, id)
+func (c *Client) ListAgentSkills(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentSkillsRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1587,8 +1513,8 @@ func (c *Client) ListAgentSkills(ctx context.Context, id string, reqEditors ...R
 	return c.Client.Do(req)
 }
 
-func (c *Client) DuplicateBuiltinSkillToAgent(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDuplicateBuiltinSkillToAgentRequest(c.Server, id, skillId)
+func (c *Client) CreateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1599,8 +1525,8 @@ func (c *Client) DuplicateBuiltinSkillToAgent(ctx context.Context, id string, sk
 	return c.Client.Do(req)
 }
 
-func (c *Client) InstallAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallAgentSkillRequestWithBody(c.Server, id, contentType, body)
+func (c *Client) CreateAgentScopedSkill(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentScopedSkillRequest(c.Server, id, scope, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,8 +1537,8 @@ func (c *Client) InstallAgentSkillWithBody(ctx context.Context, id string, conte
 	return c.Client.Do(req)
 }
 
-func (c *Client) InstallAgentSkill(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallAgentSkillRequest(c.Server, id, body)
+func (c *Client) InstallAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInstallAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1623,8 +1549,8 @@ func (c *Client) InstallAgentSkill(ctx context.Context, id string, body InstallA
 	return c.Client.Do(req)
 }
 
-func (c *Client) UploadAgentSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUploadAgentSkillRequestWithBody(c.Server, id, contentType, body)
+func (c *Client) InstallAgentScopedSkill(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInstallAgentScopedSkillRequest(c.Server, id, scope, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1635,8 +1561,8 @@ func (c *Client) UploadAgentSkillWithBody(ctx context.Context, id string, conten
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentSkillRequest(c.Server, id, skillId)
+func (c *Client) UploadAgentScopedSkillWithBody(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadAgentScopedSkillRequestWithBody(c.Server, id, scope, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1647,8 +1573,8 @@ func (c *Client) DeleteAgentSkill(ctx context.Context, id string, skillId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAgentSkill(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentSkillRequest(c.Server, id, skillId)
+func (c *Client) DeleteAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentScopedSkillRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1659,8 +1585,8 @@ func (c *Client) GetAgentSkill(ctx context.Context, id string, skillId string, r
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAgentSkillWithBody(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentSkillRequestWithBody(c.Server, id, skillId, contentType, body)
+func (c *Client) GetAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentScopedSkillRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1671,8 +1597,8 @@ func (c *Client) UpdateAgentSkillWithBody(ctx context.Context, id string, skillI
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateAgentSkill(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateAgentSkillRequest(c.Server, id, skillId, body)
+func (c *Client) UpdateAgentScopedSkillWithBody(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentScopedSkillRequestWithBody(c.Server, id, scope, skillId, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1683,8 +1609,8 @@ func (c *Client) UpdateAgentSkill(ctx context.Context, id string, skillId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteAgentSkillFileRequest(c.Server, id, skillId, params)
+func (c *Client) UpdateAgentScopedSkill(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateAgentScopedSkillRequest(c.Server, id, scope, skillId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1695,8 +1621,20 @@ func (c *Client) DeleteAgentSkillFile(ctx context.Context, id string, skillId st
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetAgentSkillFile(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetAgentSkillFileRequest(c.Server, id, skillId, params)
+func (c *Client) DeleteAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAgentScopedSkillFileRequest(c.Server, id, scope, skillId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAgentScopedSkillFile(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentScopedSkillFileRequest(c.Server, id, scope, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1985,126 +1923,6 @@ func (c *Client) ChangePasswordWithBody(ctx context.Context, contentType string,
 
 func (c *Client) ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewChangePasswordRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListProfileSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListProfileSkillsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallProfileSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallProfileSkill(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallProfileSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UploadProfileSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUploadProfileSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileSkillRequest(c.Server, skillId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetProfileSkill(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProfileSkillRequest(c.Server, skillId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProfileSkillWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProfileSkillRequestWithBody(c.Server, skillId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProfileSkill(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProfileSkillRequest(c.Server, skillId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteProfileSkillFile(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileSkillFileRequest(c.Server, skillId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetProfileSkillFile(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProfileSkillFileRequest(c.Server, skillId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3435,140 +3253,8 @@ func (c *Client) RevokeShare(ctx context.Context, id string, reqEditors ...Reque
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListSkills(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSkillsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateSkill(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallSkillWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallSkillRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) InstallSkill(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewInstallSkillRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) SearchSkills(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSearchSkillsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteSkillRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSkill(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSkillRequest(c.Server, id)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSkillWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSkillRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateSkill(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateSkillRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteSkillFile(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteSkillFileRequest(c.Server, id, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetSkillFile(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSkillFileRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4361,7 +4047,7 @@ func NewUpdateAgentRequestWithBody(server string, id string, contentType string,
 }
 
 // NewListAgentSkillsRequest generates requests for ListAgentSkills
-func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) {
+func NewListAgentSkillsRequest(server string, id string, params *ListAgentSkillsParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4386,6 +4072,33 @@ func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) 
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -4394,8 +4107,19 @@ func NewListAgentSkillsRequest(server string, id string) (*http.Request, error) 
 	return req, nil
 }
 
-// NewDuplicateBuiltinSkillToAgentRequest generates requests for DuplicateBuiltinSkillToAgent
-func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId string) (*http.Request, error) {
+// NewCreateAgentScopedSkillRequest calls the generic CreateAgentScopedSkill builder with application/json body
+func NewCreateAgentScopedSkillRequest(server string, id string, scope string, body CreateAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateAgentScopedSkillRequestWithBody(server, id, scope, "application/json", bodyReader)
+}
+
+// NewCreateAgentScopedSkillRequestWithBody generates requests for CreateAgentScopedSkill with any type of body
+func NewCreateAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4407,7 +4131,7 @@ func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId st
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4417,52 +4141,7 @@ func NewDuplicateBuiltinSkillToAgentRequest(server string, id string, skillId st
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/from-builtin/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewInstallAgentSkillRequest calls the generic InstallAgentSkill builder with application/json body
-func NewInstallAgentSkillRequest(server string, id string, body InstallAgentSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallAgentSkillRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewInstallAgentSkillRequestWithBody generates requests for InstallAgentSkill with any type of body
-func NewInstallAgentSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/install", pathParam0)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4482,8 +4161,19 @@ func NewInstallAgentSkillRequestWithBody(server string, id string, contentType s
 	return req, nil
 }
 
-// NewUploadAgentSkillRequestWithBody generates requests for UploadAgentSkill with any type of body
-func NewUploadAgentSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+// NewInstallAgentScopedSkillRequest calls the generic InstallAgentScopedSkill builder with application/json body
+func NewInstallAgentScopedSkillRequest(server string, id string, scope string, body InstallAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewInstallAgentScopedSkillRequestWithBody(server, id, scope, "application/json", bodyReader)
+}
+
+// NewInstallAgentScopedSkillRequestWithBody generates requests for InstallAgentScopedSkill with any type of body
+func NewInstallAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4493,12 +4183,19 @@ func NewUploadAgentSkillRequestWithBody(server string, id string, contentType st
 		return nil, err
 	}
 
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/upload", pathParam0)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/install", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4518,8 +4215,8 @@ func NewUploadAgentSkillRequestWithBody(server string, id string, contentType st
 	return req, nil
 }
 
-// NewDeleteAgentSkillRequest generates requests for DeleteAgentSkill
-func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http.Request, error) {
+// NewUploadAgentScopedSkillRequestWithBody generates requests for UploadAgentScopedSkill with any type of body
+func NewUploadAgentScopedSkillRequestWithBody(server string, id string, scope string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4531,7 +4228,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4541,7 +4238,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/upload", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4551,100 +4248,7 @@ func NewDeleteAgentSkillRequest(server string, id string, skillId string) (*http
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetAgentSkillRequest generates requests for GetAgentSkill
-func NewGetAgentSkillRequest(server string, id string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateAgentSkillRequest calls the generic UpdateAgentSkill builder with application/json body
-func NewUpdateAgentSkillRequest(server string, id string, skillId string, body UpdateAgentSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateAgentSkillRequestWithBody(server, id, skillId, "application/json", bodyReader)
-}
-
-// NewUpdateAgentSkillRequestWithBody generates requests for UpdateAgentSkill with any type of body
-func NewUpdateAgentSkillRequestWithBody(server string, id string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -4654,8 +4258,8 @@ func NewUpdateAgentSkillRequestWithBody(server string, id string, skillId string
 	return req, nil
 }
 
-// NewDeleteAgentSkillFileRequest generates requests for DeleteAgentSkillFile
-func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, params *DeleteAgentSkillFileParams) (*http.Request, error) {
+// NewDeleteAgentScopedSkillRequest generates requests for DeleteAgentScopedSkill
+func NewDeleteAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4667,7 +4271,14 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4677,7 +4288,7 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/file", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4696,12 +4307,16 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 		// per the OpenAPI spec (e.g. "color=blue,black,brown").
 		var rawQueryFragments []string
 
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
 			}
+
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -4718,8 +4333,8 @@ func NewDeleteAgentSkillFileRequest(server string, id string, skillId string, pa
 	return req, nil
 }
 
-// NewGetAgentSkillFileRequest generates requests for GetAgentSkillFile
-func NewGetAgentSkillFileRequest(server string, id string, skillId string, params *GetAgentSkillFileParams) (*http.Request, error) {
+// NewGetAgentScopedSkillRequest generates requests for GetAgentScopedSkill
+func NewGetAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *GetAgentScopedSkillParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4731,7 +4346,14 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -4741,7 +4363,170 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/file", pathParam0, pathParam1)
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateAgentScopedSkillRequest calls the generic UpdateAgentScopedSkill builder with application/json body
+func NewUpdateAgentScopedSkillRequest(server string, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateAgentScopedSkillRequestWithBody(server, id, scope, skillId, params, "application/json", bodyReader)
+}
+
+// NewUpdateAgentScopedSkillRequestWithBody generates requests for UpdateAgentScopedSkill with any type of body
+func NewUpdateAgentScopedSkillRequestWithBody(server string, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteAgentScopedSkillFileRequest generates requests for DeleteAgentScopedSkillFile
+func NewDeleteAgentScopedSkillFileRequest(server string, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s/file", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4766,6 +4551,101 @@ func NewGetAgentSkillFileRequest(server string, id string, skillId string, param
 			for _, qp := range strings.Split(queryFrag, "&") {
 				rawQueryFragments = append(rawQueryFragments, qp)
 			}
+		}
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAgentScopedSkillFileRequest generates requests for GetAgentScopedSkillFile
+func NewGetAgentScopedSkillFileRequest(server string, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "scope", scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/skills/%s/%s/file", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.SessionId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "session_id", *params.SessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -5478,331 +5358,6 @@ func NewChangePasswordRequestWithBody(server string, contentType string, body io
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewListProfileSkillsRequest generates requests for ListProfileSkills
-func NewListProfileSkillsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewInstallProfileSkillRequest calls the generic InstallProfileSkill builder with application/json body
-func NewInstallProfileSkillRequest(server string, body InstallProfileSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallProfileSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewInstallProfileSkillRequestWithBody generates requests for InstallProfileSkill with any type of body
-func NewInstallProfileSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/install")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewUploadProfileSkillRequestWithBody generates requests for UploadProfileSkill with any type of body
-func NewUploadProfileSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/upload")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteProfileSkillRequest generates requests for DeleteProfileSkill
-func NewDeleteProfileSkillRequest(server string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetProfileSkillRequest generates requests for GetProfileSkill
-func NewGetProfileSkillRequest(server string, skillId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateProfileSkillRequest calls the generic UpdateProfileSkill builder with application/json body
-func NewUpdateProfileSkillRequest(server string, skillId string, body UpdateProfileSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateProfileSkillRequestWithBody(server, skillId, "application/json", bodyReader)
-}
-
-// NewUpdateProfileSkillRequestWithBody generates requests for UpdateProfileSkill with any type of body
-func NewUpdateProfileSkillRequestWithBody(server string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteProfileSkillFileRequest generates requests for DeleteProfileSkillFile
-func NewDeleteProfileSkillFileRequest(server string, skillId string, params *DeleteProfileSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetProfileSkillFileRequest generates requests for GetProfileSkillFile
-func NewGetProfileSkillFileRequest(server string, skillId string, params *GetProfileSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "skillId", skillId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/profile/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -9286,113 +8841,6 @@ func NewRevokeShareRequest(server string, id string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewListSkillsRequest generates requests for ListSkills
-func NewListSkillsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateSkillRequest calls the generic CreateSkill builder with application/json body
-func NewCreateSkillRequest(server string, body CreateSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateSkillRequestWithBody generates requests for CreateSkill with any type of body
-func NewCreateSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewInstallSkillRequest calls the generic InstallSkill builder with application/json body
-func NewInstallSkillRequest(server string, body InstallSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewInstallSkillRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewInstallSkillRequestWithBody generates requests for InstallSkill with any type of body
-func NewInstallSkillRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/install")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewSearchSkillsRequest generates requests for SearchSkills
 func NewSearchSkillsRequest(server string, params *SearchSkillsParams) (*http.Request, error) {
 	var err error
@@ -9439,235 +8887,6 @@ func NewSearchSkillsRequest(server string, params *SearchSkillsParams) (*http.Re
 				}
 			}
 
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewDeleteSkillRequest generates requests for DeleteSkill
-func NewDeleteSkillRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSkillRequest generates requests for GetSkill
-func NewGetSkillRequest(server string, id string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateSkillRequest calls the generic UpdateSkill builder with application/json body
-func NewUpdateSkillRequest(server string, id string, body UpdateSkillJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateSkillRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewUpdateSkillRequestWithBody generates requests for UpdateSkill with any type of body
-func NewUpdateSkillRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteSkillFileRequest generates requests for DeleteSkillFile
-func NewDeleteSkillFileRequest(server string, id string, params *DeleteSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetSkillFileRequest generates requests for GetSkillFile
-func NewGetSkillFileRequest(server string, id string, params *GetSkillFileParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/skills/%s/file", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
-			}
 		}
 
 		if encoded := queryValues.Encode(); encoded != "" {
@@ -10356,35 +9575,37 @@ type ClientWithResponsesInterface interface {
 	UpdateAgentWithResponse(ctx context.Context, id string, body UpdateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentResponse, error)
 
 	// ListAgentSkillsWithResponse request
-	ListAgentSkillsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error)
+	ListAgentSkillsWithResponse(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error)
 
-	// DuplicateBuiltinSkillToAgentWithResponse request
-	DuplicateBuiltinSkillToAgentWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DuplicateBuiltinSkillToAgentResponse, error)
+	// CreateAgentScopedSkillWithBodyWithResponse request with any body
+	CreateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error)
 
-	// InstallAgentSkillWithBodyWithResponse request with any body
-	InstallAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error)
+	CreateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error)
 
-	InstallAgentSkillWithResponse(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error)
+	// InstallAgentScopedSkillWithBodyWithResponse request with any body
+	InstallAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error)
 
-	// UploadAgentSkillWithBodyWithResponse request with any body
-	UploadAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentSkillResponse, error)
+	InstallAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error)
 
-	// DeleteAgentSkillWithResponse request
-	DeleteAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillResponse, error)
+	// UploadAgentScopedSkillWithBodyWithResponse request with any body
+	UploadAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentScopedSkillResponse, error)
 
-	// GetAgentSkillWithResponse request
-	GetAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillResponse, error)
+	// DeleteAgentScopedSkillWithResponse request
+	DeleteAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillResponse, error)
 
-	// UpdateAgentSkillWithBodyWithResponse request with any body
-	UpdateAgentSkillWithBodyWithResponse(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error)
+	// GetAgentScopedSkillWithResponse request
+	GetAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillResponse, error)
 
-	UpdateAgentSkillWithResponse(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error)
+	// UpdateAgentScopedSkillWithBodyWithResponse request with any body
+	UpdateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error)
 
-	// DeleteAgentSkillFileWithResponse request
-	DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error)
+	UpdateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error)
 
-	// GetAgentSkillFileWithResponse request
-	GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error)
+	// DeleteAgentScopedSkillFileWithResponse request
+	DeleteAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillFileResponse, error)
+
+	// GetAgentScopedSkillFileWithResponse request
+	GetAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillFileResponse, error)
 
 	// ListAgentUsersWithResponse request
 	ListAgentUsersWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentUsersResponse, error)
@@ -10452,34 +9673,6 @@ type ClientWithResponsesInterface interface {
 	ChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
 
 	ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
-
-	// ListProfileSkillsWithResponse request
-	ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error)
-
-	// InstallProfileSkillWithBodyWithResponse request with any body
-	InstallProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error)
-
-	InstallProfileSkillWithResponse(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error)
-
-	// UploadProfileSkillWithBodyWithResponse request with any body
-	UploadProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadProfileSkillResponse, error)
-
-	// DeleteProfileSkillWithResponse request
-	DeleteProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*DeleteProfileSkillResponse, error)
-
-	// GetProfileSkillWithResponse request
-	GetProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetProfileSkillResponse, error)
-
-	// UpdateProfileSkillWithBodyWithResponse request with any body
-	UpdateProfileSkillWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error)
-
-	UpdateProfileSkillWithResponse(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error)
-
-	// DeleteProfileSkillFileWithResponse request
-	DeleteProfileSkillFileWithResponse(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteProfileSkillFileResponse, error)
-
-	// GetProfileSkillFileWithResponse request
-	GetProfileSkillFileWithResponse(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*GetProfileSkillFileResponse, error)
 
 	// SetProfileSoulWithBodyWithResponse request with any body
 	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
@@ -10782,38 +9975,8 @@ type ClientWithResponsesInterface interface {
 	// RevokeShareWithResponse request
 	RevokeShareWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RevokeShareResponse, error)
 
-	// ListSkillsWithResponse request
-	ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error)
-
-	// CreateSkillWithBodyWithResponse request with any body
-	CreateSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error)
-
-	CreateSkillWithResponse(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error)
-
-	// InstallSkillWithBodyWithResponse request with any body
-	InstallSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error)
-
-	InstallSkillWithResponse(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error)
-
 	// SearchSkillsWithResponse request
 	SearchSkillsWithResponse(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*SearchSkillsResponse, error)
-
-	// DeleteSkillWithResponse request
-	DeleteSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSkillResponse, error)
-
-	// GetSkillWithResponse request
-	GetSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSkillResponse, error)
-
-	// UpdateSkillWithBodyWithResponse request with any body
-	UpdateSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error)
-
-	UpdateSkillWithResponse(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error)
-
-	// DeleteSkillFileWithResponse request
-	DeleteSkillFileWithResponse(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteSkillFileResponse, error)
-
-	// GetSkillFileWithResponse request
-	GetSkillFileWithResponse(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*GetSkillFileResponse, error)
 
 	// GetStatusWithResponse request
 	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
@@ -11319,17 +10482,18 @@ func (r ListAgentSkillsResponse) ContentType() string {
 	return ""
 }
 
-type DuplicateBuiltinSkillToAgentResponse struct {
+type CreateAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *externalRef0.DuplicateSkillResult
+	JSON201      *externalRef0.SkillUploadResult
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r DuplicateBuiltinSkillToAgentResponse) Status() string {
+func (r CreateAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11337,7 +10501,7 @@ func (r DuplicateBuiltinSkillToAgentResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DuplicateBuiltinSkillToAgentResponse) StatusCode() int {
+func (r CreateAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11345,24 +10509,25 @@ func (r DuplicateBuiltinSkillToAgentResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DuplicateBuiltinSkillToAgentResponse) ContentType() string {
+func (r CreateAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type InstallAgentSkillResponse struct {
+type InstallAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *externalRef0.SkillUploadResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r InstallAgentSkillResponse) Status() string {
+func (r InstallAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11370,7 +10535,7 @@ func (r InstallAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r InstallAgentSkillResponse) StatusCode() int {
+func (r InstallAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11378,24 +10543,25 @@ func (r InstallAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallAgentSkillResponse) ContentType() string {
+func (r InstallAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type UploadAgentSkillResponse struct {
+type UploadAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *externalRef0.SkillUploadResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r UploadAgentSkillResponse) Status() string {
+func (r UploadAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11403,7 +10569,7 @@ func (r UploadAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r UploadAgentSkillResponse) StatusCode() int {
+func (r UploadAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11411,14 +10577,14 @@ func (r UploadAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UploadAgentSkillResponse) ContentType() string {
+func (r UploadAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type DeleteAgentSkillResponse struct {
+type DeleteAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.DeleteResult
@@ -11428,7 +10594,7 @@ type DeleteAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteAgentSkillResponse) Status() string {
+func (r DeleteAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11436,7 +10602,7 @@ func (r DeleteAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteAgentSkillResponse) StatusCode() int {
+func (r DeleteAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11444,14 +10610,14 @@ func (r DeleteAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteAgentSkillResponse) ContentType() string {
+func (r DeleteAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type GetAgentSkillResponse struct {
+type GetAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.Skill
@@ -11461,7 +10627,7 @@ type GetAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r GetAgentSkillResponse) Status() string {
+func (r GetAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11469,7 +10635,7 @@ func (r GetAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentSkillResponse) StatusCode() int {
+func (r GetAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11477,14 +10643,14 @@ func (r GetAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentSkillResponse) ContentType() string {
+func (r GetAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type UpdateAgentSkillResponse struct {
+type UpdateAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.Skill
@@ -11495,7 +10661,7 @@ type UpdateAgentSkillResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r UpdateAgentSkillResponse) Status() string {
+func (r UpdateAgentScopedSkillResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11503,7 +10669,7 @@ func (r UpdateAgentSkillResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r UpdateAgentSkillResponse) StatusCode() int {
+func (r UpdateAgentScopedSkillResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11511,24 +10677,25 @@ func (r UpdateAgentSkillResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateAgentSkillResponse) ContentType() string {
+func (r UpdateAgentScopedSkillResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type DeleteAgentSkillFileResponse struct {
+type DeleteAgentScopedSkillFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
+	JSON200      *externalRef0.DeleteFileResult
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteAgentSkillFileResponse) Status() string {
+func (r DeleteAgentScopedSkillFileResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11536,7 +10703,7 @@ func (r DeleteAgentSkillFileResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteAgentSkillFileResponse) StatusCode() int {
+func (r DeleteAgentScopedSkillFileResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11544,23 +10711,25 @@ func (r DeleteAgentSkillFileResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteAgentSkillFileResponse) ContentType() string {
+func (r DeleteAgentScopedSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type GetAgentSkillFileResponse struct {
+type GetAgentScopedSkillFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON200      *externalRef0.SkillFileResponse
+	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 }
 
 // Status returns HTTPResponse.Status
-func (r GetAgentSkillFileResponse) Status() string {
+func (r GetAgentScopedSkillFileResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -11568,7 +10737,7 @@ func (r GetAgentSkillFileResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetAgentSkillFileResponse) StatusCode() int {
+func (r GetAgentScopedSkillFileResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -11576,7 +10745,7 @@ func (r GetAgentSkillFileResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetAgentSkillFileResponse) ContentType() string {
+func (r GetAgentScopedSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12181,270 +11350,6 @@ func (r ChangePasswordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ChangePasswordResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListProfileSkillsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillList
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListProfileSkillsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListProfileSkillsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListProfileSkillsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type InstallProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Name *string `json:"name,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r InstallProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r InstallProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UploadProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.SkillUploadResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r UploadProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UploadProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UploadProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Skill
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateProfileSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateProfileSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateProfileSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateProfileSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteProfileSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteFileResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteProfileSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteProfileSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteProfileSkillFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetProfileSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillFileResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetProfileSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetProfileSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetProfileSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15077,108 +13982,6 @@ func (r RevokeShareResponse) ContentType() string {
 	return ""
 }
 
-type ListSkillsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillList
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSkillsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSkillsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSkillsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type InstallSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *struct {
-		Name *string `json:"name,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r InstallSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r InstallSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r InstallSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type SearchSkillsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -15205,178 +14008,6 @@ func (r SearchSkillsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SearchSkillsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Skill
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateSkillResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *struct {
-		Id *string `json:"id,omitempty"`
-	}
-	JSON400 *externalRef0.BadRequest
-	JSON401 *externalRef0.Unauthorized
-	JSON403 *externalRef0.Forbidden
-	JSON404 *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateSkillResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateSkillResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateSkillResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteFileResult
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteSkillFileResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetSkillFileResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.SkillFileResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON403      *externalRef0.Forbidden
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetSkillFileResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetSkillFileResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetSkillFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15991,100 +14622,108 @@ func (c *ClientWithResponses) UpdateAgentWithResponse(ctx context.Context, id st
 }
 
 // ListAgentSkillsWithResponse request returning *ListAgentSkillsResponse
-func (c *ClientWithResponses) ListAgentSkillsWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error) {
-	rsp, err := c.ListAgentSkills(ctx, id, reqEditors...)
+func (c *ClientWithResponses) ListAgentSkillsWithResponse(ctx context.Context, id string, params *ListAgentSkillsParams, reqEditors ...RequestEditorFn) (*ListAgentSkillsResponse, error) {
+	rsp, err := c.ListAgentSkills(ctx, id, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseListAgentSkillsResponse(rsp)
 }
 
-// DuplicateBuiltinSkillToAgentWithResponse request returning *DuplicateBuiltinSkillToAgentResponse
-func (c *ClientWithResponses) DuplicateBuiltinSkillToAgentWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DuplicateBuiltinSkillToAgentResponse, error) {
-	rsp, err := c.DuplicateBuiltinSkillToAgent(ctx, id, skillId, reqEditors...)
+// CreateAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *CreateAgentScopedSkillResponse
+func (c *ClientWithResponses) CreateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error) {
+	rsp, err := c.CreateAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDuplicateBuiltinSkillToAgentResponse(rsp)
+	return ParseCreateAgentScopedSkillResponse(rsp)
 }
 
-// InstallAgentSkillWithBodyWithResponse request with arbitrary body returning *InstallAgentSkillResponse
-func (c *ClientWithResponses) InstallAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error) {
-	rsp, err := c.InstallAgentSkillWithBody(ctx, id, contentType, body, reqEditors...)
+func (c *ClientWithResponses) CreateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body CreateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentScopedSkillResponse, error) {
+	rsp, err := c.CreateAgentScopedSkill(ctx, id, scope, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseInstallAgentSkillResponse(rsp)
+	return ParseCreateAgentScopedSkillResponse(rsp)
 }
 
-func (c *ClientWithResponses) InstallAgentSkillWithResponse(ctx context.Context, id string, body InstallAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentSkillResponse, error) {
-	rsp, err := c.InstallAgentSkill(ctx, id, body, reqEditors...)
+// InstallAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *InstallAgentScopedSkillResponse
+func (c *ClientWithResponses) InstallAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error) {
+	rsp, err := c.InstallAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseInstallAgentSkillResponse(rsp)
+	return ParseInstallAgentScopedSkillResponse(rsp)
 }
 
-// UploadAgentSkillWithBodyWithResponse request with arbitrary body returning *UploadAgentSkillResponse
-func (c *ClientWithResponses) UploadAgentSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentSkillResponse, error) {
-	rsp, err := c.UploadAgentSkillWithBody(ctx, id, contentType, body, reqEditors...)
+func (c *ClientWithResponses) InstallAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, body InstallAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallAgentScopedSkillResponse, error) {
+	rsp, err := c.InstallAgentScopedSkill(ctx, id, scope, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUploadAgentSkillResponse(rsp)
+	return ParseInstallAgentScopedSkillResponse(rsp)
 }
 
-// DeleteAgentSkillWithResponse request returning *DeleteAgentSkillResponse
-func (c *ClientWithResponses) DeleteAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*DeleteAgentSkillResponse, error) {
-	rsp, err := c.DeleteAgentSkill(ctx, id, skillId, reqEditors...)
+// UploadAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *UploadAgentScopedSkillResponse
+func (c *ClientWithResponses) UploadAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadAgentScopedSkillResponse, error) {
+	rsp, err := c.UploadAgentScopedSkillWithBody(ctx, id, scope, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteAgentSkillResponse(rsp)
+	return ParseUploadAgentScopedSkillResponse(rsp)
 }
 
-// GetAgentSkillWithResponse request returning *GetAgentSkillResponse
-func (c *ClientWithResponses) GetAgentSkillWithResponse(ctx context.Context, id string, skillId string, reqEditors ...RequestEditorFn) (*GetAgentSkillResponse, error) {
-	rsp, err := c.GetAgentSkill(ctx, id, skillId, reqEditors...)
+// DeleteAgentScopedSkillWithResponse request returning *DeleteAgentScopedSkillResponse
+func (c *ClientWithResponses) DeleteAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillResponse, error) {
+	rsp, err := c.DeleteAgentScopedSkill(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetAgentSkillResponse(rsp)
+	return ParseDeleteAgentScopedSkillResponse(rsp)
 }
 
-// UpdateAgentSkillWithBodyWithResponse request with arbitrary body returning *UpdateAgentSkillResponse
-func (c *ClientWithResponses) UpdateAgentSkillWithBodyWithResponse(ctx context.Context, id string, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error) {
-	rsp, err := c.UpdateAgentSkillWithBody(ctx, id, skillId, contentType, body, reqEditors...)
+// GetAgentScopedSkillWithResponse request returning *GetAgentScopedSkillResponse
+func (c *ClientWithResponses) GetAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillResponse, error) {
+	rsp, err := c.GetAgentScopedSkill(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUpdateAgentSkillResponse(rsp)
+	return ParseGetAgentScopedSkillResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateAgentSkillWithResponse(ctx context.Context, id string, skillId string, body UpdateAgentSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentSkillResponse, error) {
-	rsp, err := c.UpdateAgentSkill(ctx, id, skillId, body, reqEditors...)
+// UpdateAgentScopedSkillWithBodyWithResponse request with arbitrary body returning *UpdateAgentScopedSkillResponse
+func (c *ClientWithResponses) UpdateAgentScopedSkillWithBodyWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error) {
+	rsp, err := c.UpdateAgentScopedSkillWithBody(ctx, id, scope, skillId, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseUpdateAgentSkillResponse(rsp)
+	return ParseUpdateAgentScopedSkillResponse(rsp)
 }
 
-// DeleteAgentSkillFileWithResponse request returning *DeleteAgentSkillFileResponse
-func (c *ClientWithResponses) DeleteAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *DeleteAgentSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentSkillFileResponse, error) {
-	rsp, err := c.DeleteAgentSkillFile(ctx, id, skillId, params, reqEditors...)
+func (c *ClientWithResponses) UpdateAgentScopedSkillWithResponse(ctx context.Context, id string, scope string, skillId string, params *UpdateAgentScopedSkillParams, body UpdateAgentScopedSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAgentScopedSkillResponse, error) {
+	rsp, err := c.UpdateAgentScopedSkill(ctx, id, scope, skillId, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteAgentSkillFileResponse(rsp)
+	return ParseUpdateAgentScopedSkillResponse(rsp)
 }
 
-// GetAgentSkillFileWithResponse request returning *GetAgentSkillFileResponse
-func (c *ClientWithResponses) GetAgentSkillFileWithResponse(ctx context.Context, id string, skillId string, params *GetAgentSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentSkillFileResponse, error) {
-	rsp, err := c.GetAgentSkillFile(ctx, id, skillId, params, reqEditors...)
+// DeleteAgentScopedSkillFileWithResponse request returning *DeleteAgentScopedSkillFileResponse
+func (c *ClientWithResponses) DeleteAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *DeleteAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteAgentScopedSkillFileResponse, error) {
+	rsp, err := c.DeleteAgentScopedSkillFile(ctx, id, scope, skillId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetAgentSkillFileResponse(rsp)
+	return ParseDeleteAgentScopedSkillFileResponse(rsp)
+}
+
+// GetAgentScopedSkillFileWithResponse request returning *GetAgentScopedSkillFileResponse
+func (c *ClientWithResponses) GetAgentScopedSkillFileWithResponse(ctx context.Context, id string, scope string, skillId string, params *GetAgentScopedSkillFileParams, reqEditors ...RequestEditorFn) (*GetAgentScopedSkillFileResponse, error) {
+	rsp, err := c.GetAgentScopedSkillFile(ctx, id, scope, skillId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentScopedSkillFileResponse(rsp)
 }
 
 // ListAgentUsersWithResponse request returning *ListAgentUsersResponse
@@ -16296,94 +14935,6 @@ func (c *ClientWithResponses) ChangePasswordWithResponse(ctx context.Context, bo
 		return nil, err
 	}
 	return ParseChangePasswordResponse(rsp)
-}
-
-// ListProfileSkillsWithResponse request returning *ListProfileSkillsResponse
-func (c *ClientWithResponses) ListProfileSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileSkillsResponse, error) {
-	rsp, err := c.ListProfileSkills(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListProfileSkillsResponse(rsp)
-}
-
-// InstallProfileSkillWithBodyWithResponse request with arbitrary body returning *InstallProfileSkillResponse
-func (c *ClientWithResponses) InstallProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error) {
-	rsp, err := c.InstallProfileSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallProfileSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) InstallProfileSkillWithResponse(ctx context.Context, body InstallProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallProfileSkillResponse, error) {
-	rsp, err := c.InstallProfileSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallProfileSkillResponse(rsp)
-}
-
-// UploadProfileSkillWithBodyWithResponse request with arbitrary body returning *UploadProfileSkillResponse
-func (c *ClientWithResponses) UploadProfileSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadProfileSkillResponse, error) {
-	rsp, err := c.UploadProfileSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUploadProfileSkillResponse(rsp)
-}
-
-// DeleteProfileSkillWithResponse request returning *DeleteProfileSkillResponse
-func (c *ClientWithResponses) DeleteProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*DeleteProfileSkillResponse, error) {
-	rsp, err := c.DeleteProfileSkill(ctx, skillId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteProfileSkillResponse(rsp)
-}
-
-// GetProfileSkillWithResponse request returning *GetProfileSkillResponse
-func (c *ClientWithResponses) GetProfileSkillWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetProfileSkillResponse, error) {
-	rsp, err := c.GetProfileSkill(ctx, skillId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetProfileSkillResponse(rsp)
-}
-
-// UpdateProfileSkillWithBodyWithResponse request with arbitrary body returning *UpdateProfileSkillResponse
-func (c *ClientWithResponses) UpdateProfileSkillWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error) {
-	rsp, err := c.UpdateProfileSkillWithBody(ctx, skillId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProfileSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateProfileSkillWithResponse(ctx context.Context, skillId string, body UpdateProfileSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileSkillResponse, error) {
-	rsp, err := c.UpdateProfileSkill(ctx, skillId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProfileSkillResponse(rsp)
-}
-
-// DeleteProfileSkillFileWithResponse request returning *DeleteProfileSkillFileResponse
-func (c *ClientWithResponses) DeleteProfileSkillFileWithResponse(ctx context.Context, skillId string, params *DeleteProfileSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteProfileSkillFileResponse, error) {
-	rsp, err := c.DeleteProfileSkillFile(ctx, skillId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteProfileSkillFileResponse(rsp)
-}
-
-// GetProfileSkillFileWithResponse request returning *GetProfileSkillFileResponse
-func (c *ClientWithResponses) GetProfileSkillFileWithResponse(ctx context.Context, skillId string, params *GetProfileSkillFileParams, reqEditors ...RequestEditorFn) (*GetProfileSkillFileResponse, error) {
-	rsp, err := c.GetProfileSkillFile(ctx, skillId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetProfileSkillFileResponse(rsp)
 }
 
 // SetProfileSoulWithBodyWithResponse request with arbitrary body returning *SetProfileSoulResponse
@@ -17347,49 +15898,6 @@ func (c *ClientWithResponses) RevokeShareWithResponse(ctx context.Context, id st
 	return ParseRevokeShareResponse(rsp)
 }
 
-// ListSkillsWithResponse request returning *ListSkillsResponse
-func (c *ClientWithResponses) ListSkillsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSkillsResponse, error) {
-	rsp, err := c.ListSkills(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSkillsResponse(rsp)
-}
-
-// CreateSkillWithBodyWithResponse request with arbitrary body returning *CreateSkillResponse
-func (c *ClientWithResponses) CreateSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error) {
-	rsp, err := c.CreateSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateSkillWithResponse(ctx context.Context, body CreateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSkillResponse, error) {
-	rsp, err := c.CreateSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateSkillResponse(rsp)
-}
-
-// InstallSkillWithBodyWithResponse request with arbitrary body returning *InstallSkillResponse
-func (c *ClientWithResponses) InstallSkillWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error) {
-	rsp, err := c.InstallSkillWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) InstallSkillWithResponse(ctx context.Context, body InstallSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*InstallSkillResponse, error) {
-	rsp, err := c.InstallSkill(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseInstallSkillResponse(rsp)
-}
-
 // SearchSkillsWithResponse request returning *SearchSkillsResponse
 func (c *ClientWithResponses) SearchSkillsWithResponse(ctx context.Context, params *SearchSkillsParams, reqEditors ...RequestEditorFn) (*SearchSkillsResponse, error) {
 	rsp, err := c.SearchSkills(ctx, params, reqEditors...)
@@ -17397,59 +15905,6 @@ func (c *ClientWithResponses) SearchSkillsWithResponse(ctx context.Context, para
 		return nil, err
 	}
 	return ParseSearchSkillsResponse(rsp)
-}
-
-// DeleteSkillWithResponse request returning *DeleteSkillResponse
-func (c *ClientWithResponses) DeleteSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteSkillResponse, error) {
-	rsp, err := c.DeleteSkill(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteSkillResponse(rsp)
-}
-
-// GetSkillWithResponse request returning *GetSkillResponse
-func (c *ClientWithResponses) GetSkillWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetSkillResponse, error) {
-	rsp, err := c.GetSkill(ctx, id, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSkillResponse(rsp)
-}
-
-// UpdateSkillWithBodyWithResponse request with arbitrary body returning *UpdateSkillResponse
-func (c *ClientWithResponses) UpdateSkillWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error) {
-	rsp, err := c.UpdateSkillWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSkillResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateSkillWithResponse(ctx context.Context, id string, body UpdateSkillJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSkillResponse, error) {
-	rsp, err := c.UpdateSkill(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateSkillResponse(rsp)
-}
-
-// DeleteSkillFileWithResponse request returning *DeleteSkillFileResponse
-func (c *ClientWithResponses) DeleteSkillFileWithResponse(ctx context.Context, id string, params *DeleteSkillFileParams, reqEditors ...RequestEditorFn) (*DeleteSkillFileResponse, error) {
-	rsp, err := c.DeleteSkillFile(ctx, id, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteSkillFileResponse(rsp)
-}
-
-// GetSkillFileWithResponse request returning *GetSkillFileResponse
-func (c *ClientWithResponses) GetSkillFileWithResponse(ctx context.Context, id string, params *GetSkillFileParams, reqEditors ...RequestEditorFn) (*GetSkillFileResponse, error) {
-	rsp, err := c.GetSkillFile(ctx, id, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetSkillFileResponse(rsp)
 }
 
 // GetStatusWithResponse request returning *GetStatusResponse
@@ -18193,26 +16648,33 @@ func ParseListAgentSkillsResponse(rsp *http.Response) (*ListAgentSkillsResponse,
 	return response, nil
 }
 
-// ParseDuplicateBuiltinSkillToAgentResponse parses an HTTP response from a DuplicateBuiltinSkillToAgentWithResponse call
-func ParseDuplicateBuiltinSkillToAgentResponse(rsp *http.Response) (*DuplicateBuiltinSkillToAgentResponse, error) {
+// ParseCreateAgentScopedSkillResponse parses an HTTP response from a CreateAgentScopedSkillWithResponse call
+func ParseCreateAgentScopedSkillResponse(rsp *http.Response) (*CreateAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DuplicateBuiltinSkillToAgentResponse{
+	response := &CreateAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.DuplicateSkillResult
+		var dest externalRef0.SkillUploadResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
@@ -18240,15 +16702,15 @@ func ParseDuplicateBuiltinSkillToAgentResponse(rsp *http.Response) (*DuplicateBu
 	return response, nil
 }
 
-// ParseInstallAgentSkillResponse parses an HTTP response from a InstallAgentSkillWithResponse call
-func ParseInstallAgentSkillResponse(rsp *http.Response) (*InstallAgentSkillResponse, error) {
+// ParseInstallAgentScopedSkillResponse parses an HTTP response from a InstallAgentScopedSkillWithResponse call
+func ParseInstallAgentScopedSkillResponse(rsp *http.Response) (*InstallAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &InstallAgentSkillResponse{
+	response := &InstallAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18282,20 +16744,27 @@ func ParseInstallAgentSkillResponse(rsp *http.Response) (*InstallAgentSkillRespo
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseUploadAgentSkillResponse parses an HTTP response from a UploadAgentSkillWithResponse call
-func ParseUploadAgentSkillResponse(rsp *http.Response) (*UploadAgentSkillResponse, error) {
+// ParseUploadAgentScopedSkillResponse parses an HTTP response from a UploadAgentScopedSkillWithResponse call
+func ParseUploadAgentScopedSkillResponse(rsp *http.Response) (*UploadAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &UploadAgentSkillResponse{
+	response := &UploadAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18329,20 +16798,27 @@ func ParseUploadAgentSkillResponse(rsp *http.Response) (*UploadAgentSkillRespons
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	}
 
 	return response, nil
 }
 
-// ParseDeleteAgentSkillResponse parses an HTTP response from a DeleteAgentSkillWithResponse call
-func ParseDeleteAgentSkillResponse(rsp *http.Response) (*DeleteAgentSkillResponse, error) {
+// ParseDeleteAgentScopedSkillResponse parses an HTTP response from a DeleteAgentScopedSkillWithResponse call
+func ParseDeleteAgentScopedSkillResponse(rsp *http.Response) (*DeleteAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteAgentSkillResponse{
+	response := &DeleteAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18381,15 +16857,15 @@ func ParseDeleteAgentSkillResponse(rsp *http.Response) (*DeleteAgentSkillRespons
 	return response, nil
 }
 
-// ParseGetAgentSkillResponse parses an HTTP response from a GetAgentSkillWithResponse call
-func ParseGetAgentSkillResponse(rsp *http.Response) (*GetAgentSkillResponse, error) {
+// ParseGetAgentScopedSkillResponse parses an HTTP response from a GetAgentScopedSkillWithResponse call
+func ParseGetAgentScopedSkillResponse(rsp *http.Response) (*GetAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetAgentSkillResponse{
+	response := &GetAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18428,15 +16904,15 @@ func ParseGetAgentSkillResponse(rsp *http.Response) (*GetAgentSkillResponse, err
 	return response, nil
 }
 
-// ParseUpdateAgentSkillResponse parses an HTTP response from a UpdateAgentSkillWithResponse call
-func ParseUpdateAgentSkillResponse(rsp *http.Response) (*UpdateAgentSkillResponse, error) {
+// ParseUpdateAgentScopedSkillResponse parses an HTTP response from a UpdateAgentScopedSkillWithResponse call
+func ParseUpdateAgentScopedSkillResponse(rsp *http.Response) (*UpdateAgentScopedSkillResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &UpdateAgentSkillResponse{
+	response := &UpdateAgentScopedSkillResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -18482,26 +16958,33 @@ func ParseUpdateAgentSkillResponse(rsp *http.Response) (*UpdateAgentSkillRespons
 	return response, nil
 }
 
-// ParseDeleteAgentSkillFileResponse parses an HTTP response from a DeleteAgentSkillFileWithResponse call
-func ParseDeleteAgentSkillFileResponse(rsp *http.Response) (*DeleteAgentSkillFileResponse, error) {
+// ParseDeleteAgentScopedSkillFileResponse parses an HTTP response from a DeleteAgentScopedSkillFileWithResponse call
+func ParseDeleteAgentScopedSkillFileResponse(rsp *http.Response) (*DeleteAgentScopedSkillFileResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteAgentSkillFileResponse{
+	response := &DeleteAgentScopedSkillFileResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
+		var dest externalRef0.DeleteFileResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
@@ -18529,20 +17012,34 @@ func ParseDeleteAgentSkillFileResponse(rsp *http.Response) (*DeleteAgentSkillFil
 	return response, nil
 }
 
-// ParseGetAgentSkillFileResponse parses an HTTP response from a GetAgentSkillFileWithResponse call
-func ParseGetAgentSkillFileResponse(rsp *http.Response) (*GetAgentSkillFileResponse, error) {
+// ParseGetAgentScopedSkillFileResponse parses an HTTP response from a GetAgentScopedSkillFileWithResponse call
+func ParseGetAgentScopedSkillFileResponse(rsp *http.Response) (*GetAgentScopedSkillFileResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetAgentSkillFileResponse{
+	response := &GetAgentScopedSkillFileResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.SkillFileResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19280,346 +17777,6 @@ func ParseChangePasswordResponse(rsp *http.Response) (*ChangePasswordResponse, e
 			return nil, err
 		}
 		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListProfileSkillsResponse parses an HTTP response from a ListProfileSkillsWithResponse call
-func ParseListProfileSkillsResponse(rsp *http.Response) (*ListProfileSkillsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListProfileSkillsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseInstallProfileSkillResponse parses an HTTP response from a InstallProfileSkillWithResponse call
-func ParseInstallProfileSkillResponse(rsp *http.Response) (*InstallProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &InstallProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Name *string `json:"name,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUploadProfileSkillResponse parses an HTTP response from a UploadProfileSkillWithResponse call
-func ParseUploadProfileSkillResponse(rsp *http.Response) (*UploadProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UploadProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.SkillUploadResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteProfileSkillResponse parses an HTTP response from a DeleteProfileSkillWithResponse call
-func ParseDeleteProfileSkillResponse(rsp *http.Response) (*DeleteProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetProfileSkillResponse parses an HTTP response from a GetProfileSkillWithResponse call
-func ParseGetProfileSkillResponse(rsp *http.Response) (*GetProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Skill
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateProfileSkillResponse parses an HTTP response from a UpdateProfileSkillWithResponse call
-func ParseUpdateProfileSkillResponse(rsp *http.Response) (*UpdateProfileSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateProfileSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteProfileSkillFileResponse parses an HTTP response from a DeleteProfileSkillFileWithResponse call
-func ParseDeleteProfileSkillFileResponse(rsp *http.Response) (*DeleteProfileSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteProfileSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteFileResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetProfileSkillFileResponse parses an HTTP response from a GetProfileSkillFileWithResponse call
-func ParseGetProfileSkillFileResponse(rsp *http.Response) (*GetProfileSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetProfileSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillFileResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	}
 
@@ -23107,144 +21264,6 @@ func ParseRevokeShareResponse(rsp *http.Response) (*RevokeShareResponse, error) 
 	return response, nil
 }
 
-// ParseListSkillsResponse parses an HTTP response from a ListSkillsWithResponse call
-func ParseListSkillsResponse(rsp *http.Response) (*ListSkillsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSkillsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateSkillResponse parses an HTTP response from a CreateSkillWithResponse call
-func ParseCreateSkillResponse(rsp *http.Response) (*CreateSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseInstallSkillResponse parses an HTTP response from a InstallSkillWithResponse call
-func ParseInstallSkillResponse(rsp *http.Response) (*InstallSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &InstallSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest struct {
-			Name *string `json:"name,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseSearchSkillsResponse parses an HTTP response from a SearchSkillsWithResponse call
 func ParseSearchSkillsResponse(rsp *http.Response) (*SearchSkillsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23279,266 +21298,6 @@ func ParseSearchSkillsResponse(rsp *http.Response) (*SearchSkillsResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteSkillResponse parses an HTTP response from a DeleteSkillWithResponse call
-func ParseDeleteSkillResponse(rsp *http.Response) (*DeleteSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSkillResponse parses an HTTP response from a GetSkillWithResponse call
-func ParseGetSkillResponse(rsp *http.Response) (*GetSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Skill
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateSkillResponse parses an HTTP response from a UpdateSkillWithResponse call
-func ParseUpdateSkillResponse(rsp *http.Response) (*UpdateSkillResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateSkillResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Id *string `json:"id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteSkillFileResponse parses an HTTP response from a DeleteSkillFileWithResponse call
-func ParseDeleteSkillFileResponse(rsp *http.Response) (*DeleteSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteFileResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetSkillFileResponse parses an HTTP response from a GetSkillFileWithResponse call
-func ParseGetSkillFileResponse(rsp *http.Response) (*GetSkillFileResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetSkillFileResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SkillFileResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	}
 

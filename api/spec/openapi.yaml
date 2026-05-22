@@ -77,42 +77,24 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
   /api/agents/{id}/skills:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills"
-  /api/agents/{id}/skills/install:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1install"
-  /api/agents/{id}/skills/upload:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload"
-  /api/agents/{id}/skills/from-builtin/{skillId}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1from-builtin~1{skillId}"
-  /api/agents/{id}/skills/{skillId}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
-  /api/agents/{id}/skills/{skillId}/file:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  /api/agents/{id}/skills/{scope}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}"
+  /api/agents/{id}/skills/{scope}/install:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1install"
+  /api/agents/{id}/skills/{scope}/upload:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1upload"
+  /api/agents/{id}/skills/{scope}/{skillId}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}"
+  /api/agents/{id}/skills/{scope}/{skillId}/file:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}~1file"
   # ── Projects ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/projects:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects"
   /api/agents/{agentId}/projects/{projectId}:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects~1{projectId}"
   # ── Skills ─────────────────────────────────────────────────────────────────
-  /api/skills:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
   /api/skills/search:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
-  /api/skills/install:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
-  /api/skills/{id}:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
-  /api/skills/{id}/file:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
-  /api/auth/profile/skills:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills"
-  /api/auth/profile/skills/install:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1install"
-  /api/auth/profile/skills/upload:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1upload"
-  /api/auth/profile/skills/{skillId}:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}"
-  /api/auth/profile/skills/{skillId}/file:
-    $ref: "./domain/skills/paths.yaml#/paths/~1api~1auth~1profile~1skills~1{skillId}~1file"
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles"

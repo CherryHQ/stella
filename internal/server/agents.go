@@ -181,13 +181,13 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	// Check access: creator only.
+	// Check access: admin or creator.
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if info != nil && existing.CreatorID != info.UserID {
+	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
 		writeError(w, http.StatusForbidden, "only the creator can edit this agent")
 		return
 	}

@@ -6,13 +6,18 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -31,9 +36,7 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 	return nil, sql.ErrNoRows
 }
 
-// requireAgentManage verifies the caller is the agent creator.
-// Returns (agent, 0, "") on success, (_, status, msg) on failure.
-func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
+func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
@@ -45,7 +48,24 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 		}
 		return config.Agent{}, http.StatusInternalServerError, err.Error()
 	}
-	if a.CreatorID != info.UserID {
+	if !info.IsAdmin && !s.canAccessAgent(ctx, info, a) {
+		return config.Agent{}, http.StatusForbidden, "forbidden"
+	}
+	return a, 0, ""
+}
+
+// requireAgentManage verifies the caller is an admin or the agent creator.
+// Returns (agent, 0, "") on success, (_, status, msg) on failure.
+func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
+	info := UserFromContext(ctx)
+	if info == nil {
+		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
+	}
+	a, code, msg := s.requireAgentAccess(ctx, agentID)
+	if code != 0 {
+		return config.Agent{}, code, msg
+	}
+	if !info.IsAdmin && a.CreatorID != info.UserID {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
 	}
 	return a, 0, ""
@@ -70,9 +90,11 @@ func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID
 			return nil, http.StatusNotFound, "skill not found"
 		}
 	case "user":
-		if sk.UserID != userID {
+		if sk.UserID != userID || (agentID != "" && sk.AgentID != agentID) {
 			return nil, http.StatusNotFound, "skill not found"
 		}
+	case "system":
+		// no owner check
 	}
 	return sk, 0, ""
 }
@@ -127,24 +149,453 @@ func builtinSkillFiles(id string) (map[string]string, error) {
 
 // ---- Agent-scoped skills: /api/agents/{id}/skills* ----
 
-func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) projectRootForSession(ctx context.Context, agentID string, sessionID *string) (string, error) {
+	if sessionID == nil || *sessionID == "" {
+		return "", nil
+	}
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		return "", nil
+	}
+	si, err := sm.LoadInfo(ctx, *sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if si.AgentID != agentID || si.ProjectID == "" {
+		return "", nil
+	}
+	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: si.ProjectID, UserID: si.UserID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return p.BaseDir, nil
+}
+
+func listProjectSkillViews(root string) ([]skillView, error) {
+	projectSkills, _, err := skillstool.ListProjectSkills(root)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]skillView, 0, len(projectSkills))
+	for _, sk := range projectSkills {
+		if sk.Status == "deprecated" || sk.DisableModelInvocation {
+			continue
+		}
+		out = append(out, skillView{
+			ID:                     sk.Name,
+			Scope:                  "project",
+			Name:                   sk.Name,
+			Description:            sk.Description,
+			Status:                 sk.Status,
+			DisableModelInvocation: sk.DisableModelInvocation,
+			Files:                  []string{},
+		})
+	}
+	return out, nil
+}
+
+func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id string, params apiserver.ListAgentSkillsParams) {
 	agentID := id
-	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	all, err := s.skillStore().ListAll(r.Context())
+	dbSkills, err := s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]skillView, 0)
-	for _, sk := range all {
-		if sk.Scope == "agent" && sk.AgentID == agentID {
-			out = append(out, skillToView(sk, nil))
-		}
+	out := make([]skillView, 0, len(dbSkills))
+	for _, sk := range dbSkills {
+		out = append(out, skillToView(sk, nil))
 	}
+	projectRoot, err := s.projectRootForSession(memoryUserContext(r), agentID, params.SessionId)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	projectViews, err := listProjectSkillViews(projectRoot)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out = append(out, projectViews...)
 	writeData(w, http.StatusOK, out)
+}
+
+func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope string) (string, skills.ViewContext, int, string) {
+	info := UserFromContext(ctx)
+	if info == nil {
+		return "", skills.ViewContext{}, http.StatusUnauthorized, "unauthorized"
+	}
+	switch scope {
+	case "agent":
+		if _, code, msg := s.requireAgentManage(ctx, agentID); code != 0 {
+			return "", skills.ViewContext{}, code, msg
+		}
+		return info.UserID, skills.ViewContext{AgentID: agentID}, 0, ""
+	case "user":
+		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
+			return "", skills.ViewContext{}, code, msg
+		}
+		return info.UserID, skills.ViewContext{UserID: info.UserID, AgentID: agentID}, 0, ""
+	case "system":
+		return "", skills.ViewContext{}, http.StatusForbidden, "system skills are read-only"
+	default:
+		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: system, agent, user"
+	}
+}
+
+func (s *Server) requireAgentSkillRead(ctx context.Context, agentID, scope, skillID string) (*skills.Skill, int, string) {
+	info := UserFromContext(ctx)
+	if info == nil {
+		return nil, http.StatusUnauthorized, "unauthorized"
+	}
+	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
+		return nil, code, msg
+	}
+	userID := ""
+	if scope == "user" {
+		userID = info.UserID
+	}
+	return s.requireSkillScope(ctx, skillID, scope, userID, agentID)
+}
+
+func projectSkillDir(root, skillID string) (string, error) {
+	if root == "" || skillID == "" || strings.ContainsAny(skillID, `/\\`) || skillID == "." || skillID == ".." {
+		return "", fs.ErrNotExist
+	}
+	_, dirs, err := skillstool.ListProjectSkills(root)
+	if err != nil {
+		return "", err
+	}
+	dir, ok := dirs[skillID]
+	if !ok {
+		return "", fs.ErrNotExist
+	}
+	return dir, nil
+}
+
+func projectSkillFilePath(skillDir, filePath string) (string, error) {
+	clean := filepath.Clean(filePath)
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return "", fs.ErrPermission
+	}
+	return filepath.Join(skillDir, clean), nil
+}
+
+func listProjectSkillFiles(skillDir string) ([]string, error) {
+	files := []string{}
+	err := filepath.WalkDir(skillDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(skillDir, p)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	return files, err
+}
+
+func (s *Server) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string) {
+	agentID := id
+	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	var req createSkillRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	files := req.Files
+	if files == nil {
+		files = map[string]string{skills.MainFile: "---\nname: " + req.Name + "\ndescription: " + req.Description + "\n---\n"}
+	}
+	if files[skills.MainFile] == "" {
+		writeError(w, http.StatusBadRequest, "files must include SKILL.md")
+		return
+	}
+	sk := skills.Skill{
+		Scope:                  scope,
+		AgentID:                agentID,
+		Name:                   req.Name,
+		Description:            req.Description,
+		Status:                 req.Status,
+		DisableModelInvocation: req.DisableModelInvocation,
+	}
+	if scope == "user" {
+		sk.UserID = userID
+	}
+	createdID, err := s.skillStore().Create(r.Context(), sk, files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]string{"id": createdID, "name": req.Name})
+}
+
+func (s *Server) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillParams) {
+	if scope == "project" {
+		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		dir, err := projectSkillDir(projectRoot, skillId)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "skill not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		views, err := listProjectSkillViews(projectRoot)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, view := range views {
+			if view.ID == skillId {
+				view.Files, _ = listProjectSkillFiles(dir)
+				writeData(w, http.StatusOK, view)
+				return
+			}
+		}
+		writeError(w, http.StatusNotFound, "skill not found")
+		return
+	}
+	sk, code, msg := s.requireAgentSkillRead(r.Context(), id, scope, skillId)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	paths, err := s.skillStore().ListFiles(r.Context(), sk.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, skillToView(*sk, paths))
+}
+
+func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillFileParams) {
+	if scope == "project" {
+		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		dir, err := projectSkillDir(projectRoot, skillId)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "skill not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		file, err := projectSkillFilePath(dir, params.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid path")
+			return
+		}
+		data, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeData(w, http.StatusOK, map[string]string{"path": params.Path, "content": string(data)})
+		return
+	}
+	if _, code, msg := s.requireAgentSkillRead(r.Context(), id, scope, skillId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	s.serveSkillFile(w, r, skillId, params.Path)
+}
+
+func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.UpdateAgentScopedSkillParams) {
+	if scope == "project" {
+		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		dir, err := projectSkillDir(projectRoot, skillId)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "skill not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var req updateSkillRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		for p, content := range req.Files {
+			file, err := projectSkillFilePath(dir, p)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid path")
+				return
+			}
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		writeData(w, http.StatusOK, map[string]string{"id": skillId})
+		return
+	}
+	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	if _, code, msg := s.requireSkillScope(r.Context(), skillId, scope, vc.UserID, id); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	s.applySkillUpdate(w, r, skillId, vc)
+}
+
+func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillParams) {
+	if scope == "project" {
+		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		dir, err := projectSkillDir(projectRoot, skillId)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "skill not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeData(w, http.StatusOK, map[string]string{"id": skillId})
+		return
+	}
+	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	if _, code, msg := s.requireSkillScope(r.Context(), skillId, scope, vc.UserID, id); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	s.doDeleteSkill(w, r, skillId, vc)
+}
+
+func (s *Server) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillFileParams) {
+	if scope == "project" {
+		projectRoot, err := s.projectRootForSession(memoryUserContext(r), id, params.SessionId)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		dir, err := projectSkillDir(projectRoot, skillId)
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "skill not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if params.Path == skills.MainFile {
+			writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
+			return
+		}
+		file, err := projectSkillFilePath(dir, params.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid path")
+			return
+		}
+		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeData(w, http.StatusOK, map[string]string{"path": params.Path})
+		return
+	}
+	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	if _, code, msg := s.requireSkillScope(r.Context(), skillId, scope, vc.UserID, id); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	s.doDeleteSkillFile(w, r, skillId, params.Path)
+}
+
+func (s *Server) InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string) {
+	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), id, scope)
+	if code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	var req installSkillRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Source == "" {
+		writeError(w, http.StatusBadRequest, "source is required")
+		return
+	}
+	storeUserID := ""
+	if scope == "user" {
+		storeUserID = userID
+	}
+	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]string{"name": name})
 }
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
@@ -165,20 +616,6 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	writeData(w, http.StatusOK, skillToView(*sk, paths))
-}
-
-func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
-	agentID := id
-	skillID := skillId
-	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.serveSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
@@ -207,20 +644,6 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	s.doDeleteSkill(w, r, skillID, skills.ViewContext{AgentID: agentID})
-}
-
-func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
-	agentID := id
-	skillID := skillId
-	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "agent", "", agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -355,20 +778,6 @@ func (s *Server) GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId
 	writeData(w, http.StatusOK, skillToView(*sk, paths))
 }
 
-func (s *Server) GetProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.GetProfileSkillFileParams) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	skillID := skillId
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.serveSkillFile(w, r, skillID, params.Path)
-}
-
 func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -395,20 +804,6 @@ func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skil
 		return
 	}
 	s.doDeleteSkill(w, r, skillID, skills.ViewContext{UserID: info.UserID})
-}
-
-func (s *Server) DeleteProfileSkillFile(w http.ResponseWriter, r *http.Request, skillId string, params apiserver.DeleteProfileSkillFileParams) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	skillID := skillId
-	if _, code, msg := s.requireSkillScope(r.Context(), skillID, "user", info.UserID, ""); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.doDeleteSkillFile(w, r, skillID, params.Path)
 }
 
 func (s *Server) InstallProfileSkill(w http.ResponseWriter, r *http.Request) {

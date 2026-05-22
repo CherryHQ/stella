@@ -15,7 +15,6 @@ interface Props {
   onToggleSkillStatus: (sk: Skill) => void;
   onSaveSelectedSkill: () => void;
   onDeleteSkill: (sk: Skill) => void;
-  onDuplicateBuiltinToAgent: () => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onOpenSkillInstallModal: (scope?: "user" | "agent") => void;
@@ -60,7 +59,6 @@ export function SkillsTab({
   onToggleSkillStatus,
   onSaveSelectedSkill,
   onDeleteSkill,
-  onDuplicateBuiltinToAgent,
   onSelectSkillFile,
   onDeleteSkillFile,
   onOpenSkillInstallModal,
@@ -68,8 +66,6 @@ export function SkillsTab({
   const {
     agentSkills,
     agentSkillsLoading,
-    userSkills,
-    builtinSkills,
     skillViewFilter,
     skillScopeFilter,
     skillListQuery,
@@ -91,22 +87,13 @@ export function SkillsTab({
 
   const { t } = useI18n();
   const canInstallAgentSkills = isAdmin && !!editingId;
+  void canInstallAgentSkills;
   const canEdit = !!selectedSkill && selectedSkill.scope !== "system";
   const canDelete = !!selectedSkill && selectedSkill.scope !== "system";
 
   const allSkills = (): Skill[] => {
-    const system = builtinSkills.map((sk) => ({
-      id: sk.id,
-      scope: "system" as const,
-      name: sk.name,
-      description: sk.description ?? "",
-      status: "active" as const,
-      disable_model_invocation: false,
-    }));
-    const user = userSkills.map((sk) => ({ ...sk, scope: "user" as const }));
-    const agent = agentSkills.map((sk) => ({ ...sk, scope: "agent" as const }));
-    const ordered: Record<string, number> = { system: 0, user: 1, agent: 2 };
-    return [...system, ...user, ...agent].sort((a, b) => {
+    const ordered: Record<string, number> = { system: 0, agent: 1, user: 2 };
+    return [...agentSkills].sort((a, b) => {
       const diff = (ordered[a.scope] ?? 99) - (ordered[b.scope] ?? 99);
       if (diff !== 0) return diff;
       return (a.name ?? "").localeCompare(b.name ?? "");
@@ -297,18 +284,13 @@ export function SkillsTab({
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   {selectedSkill.scope === "system"
-                    ? "Built-in skill. Read-only here; duplicate it to this agent if you want to customize behavior."
+                    ? "System skill. Read-only here."
                     : selectedSkill.scope === "user"
-                      ? "Installed on your profile and available across agents."
-                      : "Installed only on this agent."}
+                      ? "Installed for you in this agent."
+                      : "Installed for this agent."}
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {selectedSkill.scope === "system" && canInstallAgentSkills && (
-                  <Button onClick={onDuplicateBuiltinToAgent} size="xs">
-                    Duplicate to agent
-                  </Button>
-                )}
                 {canEdit && !selectedSkillEditMode && (
                   <Button
                     onClick={() => onSetState({ selectedSkillEditMode: true })}

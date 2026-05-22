@@ -15,7 +15,7 @@ CREATE TABLE skills (
     CHECK (
         (scope='system'  AND user_id IS NULL     AND agent_id IS NULL) OR
         (scope='agent'   AND user_id IS NULL     AND agent_id IS NOT NULL) OR
-        (scope='user'    AND user_id IS NOT NULL AND agent_id IS NULL)
+        (scope='user'    AND user_id IS NOT NULL)
     )
 );
 

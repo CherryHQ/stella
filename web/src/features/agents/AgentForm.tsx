@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import type { Skill, User } from "@/lib/types";
 import type { AgentsPageState } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,6 @@ interface Props {
   onToggleSkillStatus: (sk: Skill) => void;
   onSaveSelectedSkill: () => void;
   onDeleteSkill: (sk: Skill) => void;
-  onDuplicateBuiltinToAgent: () => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onSavePersonalisationSoul: () => void;
@@ -44,13 +44,13 @@ export function AgentForm({
   onToggleSkillStatus,
   onSaveSelectedSkill,
   onDeleteSkill,
-  onDuplicateBuiltinToAgent,
   onSelectSkillFile,
   onDeleteSkillFile,
   onSavePersonalisationSoul,
   onSavePersonalisationProfile,
   onOpenSkillInstallModal,
 }: Props) {
+  const navigate = useNavigate();
   const { t } = useI18n();
   const { editingId, activeTab, isAdmin, form, currentUserId } = state;
 
@@ -73,6 +73,12 @@ export function AgentForm({
           value={activeTab}
           onValueChange={(tab) => {
             onSetState({ activeTab: tab as string });
+            if (editingId) {
+              void navigate({
+                to: "/settings/agents/$agentId/$tab",
+                params: { agentId: editingId, tab: tab as string },
+              });
+            }
             if (tab === "users" && editingId) onLoadAssignedUsers(editingId);
           }}
         >
@@ -102,7 +108,6 @@ export function AgentForm({
                 onToggleSkillStatus={onToggleSkillStatus}
                 onSaveSelectedSkill={onSaveSelectedSkill}
                 onDeleteSkill={onDeleteSkill}
-                onDuplicateBuiltinToAgent={onDuplicateBuiltinToAgent}
                 onSelectSkillFile={onSelectSkillFile}
                 onDeleteSkillFile={onDeleteSkillFile}
                 onOpenSkillInstallModal={onOpenSkillInstallModal}

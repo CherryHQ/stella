@@ -142,7 +142,7 @@ func TestResolvePrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
-	userSkID, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "foo", Description: "user"}, mainFile)
+	userSkID, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, AgentID: agentID, Name: "foo", Description: "user"}, mainFile)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 
 	t.Run("agent wins after user deleted", func(t *testing.T) {
-		if err := store.Delete(ctx, userSkID, ViewContext{UserID: userID}); err != nil {
+		if err := store.Delete(ctx, userSkID, ViewContext{UserID: userID, AgentID: agentID}); err != nil {
 			t.Fatalf("Delete user: %v", err)
 		}
 		sk, err := store.Resolve(ctx, "foo", vc)

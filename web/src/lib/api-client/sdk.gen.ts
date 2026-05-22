@@ -20,6 +20,9 @@ import type {
   CreateAgentData,
   CreateAgentErrors,
   CreateAgentResponses,
+  CreateAgentScopedSkillData,
+  CreateAgentScopedSkillErrors,
+  CreateAgentScopedSkillResponses,
   CreateAgentTaskData,
   CreateAgentTaskErrors,
   CreateAgentTaskResponses,
@@ -44,21 +47,18 @@ import type {
   CreateShareData,
   CreateShareErrors,
   CreateShareResponses,
-  CreateSkillData,
-  CreateSkillErrors,
-  CreateSkillResponses,
   CreateWorkspaceFileData,
   CreateWorkspaceFileErrors,
   CreateWorkspaceFileResponses,
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
-  DeleteAgentSkillData,
-  DeleteAgentSkillErrors,
-  DeleteAgentSkillFileData,
-  DeleteAgentSkillFileErrors,
-  DeleteAgentSkillFileResponses,
-  DeleteAgentSkillResponses,
+  DeleteAgentScopedSkillData,
+  DeleteAgentScopedSkillErrors,
+  DeleteAgentScopedSkillFileData,
+  DeleteAgentScopedSkillFileErrors,
+  DeleteAgentScopedSkillFileResponses,
+  DeleteAgentScopedSkillResponses,
   DeleteAgentTaskData,
   DeleteAgentTaskErrors,
   DeleteAgentTaskResponses,
@@ -80,12 +80,6 @@ import type {
   DeleteProfileMemoryData,
   DeleteProfileMemoryErrors,
   DeleteProfileMemoryResponses,
-  DeleteProfileSkillData,
-  DeleteProfileSkillErrors,
-  DeleteProfileSkillFileData,
-  DeleteProfileSkillFileErrors,
-  DeleteProfileSkillFileResponses,
-  DeleteProfileSkillResponses,
   DeleteProjectData,
   DeleteProjectErrors,
   DeleteProjectResponses,
@@ -95,12 +89,6 @@ import type {
   DeleteSchedulerJobData,
   DeleteSchedulerJobErrors,
   DeleteSchedulerJobResponses,
-  DeleteSkillData,
-  DeleteSkillErrors,
-  DeleteSkillFileData,
-  DeleteSkillFileErrors,
-  DeleteSkillFileResponses,
-  DeleteSkillResponses,
   DeleteUserMemoryData,
   DeleteUserMemoryErrors,
   DeleteUserMemoryResponses,
@@ -113,9 +101,6 @@ import type {
   DisconnectOAuthData,
   DisconnectOAuthErrors,
   DisconnectOAuthResponses,
-  DuplicateBuiltinSkillToAgentData,
-  DuplicateBuiltinSkillToAgentErrors,
-  DuplicateBuiltinSkillToAgentResponses,
   FetchProviderModelsData,
   FetchProviderModelsErrors,
   FetchProviderModelsResponses,
@@ -125,12 +110,12 @@ import type {
   GetAgentData,
   GetAgentErrors,
   GetAgentResponses,
-  GetAgentSkillData,
-  GetAgentSkillErrors,
-  GetAgentSkillFileData,
-  GetAgentSkillFileErrors,
-  GetAgentSkillFileResponses,
-  GetAgentSkillResponses,
+  GetAgentScopedSkillData,
+  GetAgentScopedSkillErrors,
+  GetAgentScopedSkillFileData,
+  GetAgentScopedSkillFileErrors,
+  GetAgentScopedSkillFileResponses,
+  GetAgentScopedSkillResponses,
   GetAgentTaskData,
   GetAgentTaskErrors,
   GetAgentTaskResponses,
@@ -170,12 +155,6 @@ import type {
   GetPluginStatusData,
   GetPluginStatusErrors,
   GetPluginStatusResponses,
-  GetProfileSkillData,
-  GetProfileSkillErrors,
-  GetProfileSkillFileData,
-  GetProfileSkillFileErrors,
-  GetProfileSkillFileResponses,
-  GetProfileSkillResponses,
   GetProjectData,
   GetProjectErrors,
   GetProjectResponses,
@@ -197,12 +176,6 @@ import type {
   GetShareContentData,
   GetShareContentErrors,
   GetShareContentResponses,
-  GetSkillData,
-  GetSkillErrors,
-  GetSkillFileData,
-  GetSkillFileErrors,
-  GetSkillFileResponses,
-  GetSkillResponses,
   GetStatusData,
   GetStatusResponses,
   GetStoredDigestData,
@@ -214,15 +187,9 @@ import type {
   GetWorkspaceFileContentData,
   GetWorkspaceFileContentErrors,
   GetWorkspaceFileContentResponses,
-  InstallAgentSkillData,
-  InstallAgentSkillErrors,
-  InstallAgentSkillResponses,
-  InstallProfileSkillData,
-  InstallProfileSkillErrors,
-  InstallProfileSkillResponses,
-  InstallSkillData,
-  InstallSkillErrors,
-  InstallSkillResponses,
+  InstallAgentScopedSkillData,
+  InstallAgentScopedSkillErrors,
+  InstallAgentScopedSkillResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillsData,
@@ -277,9 +244,6 @@ import type {
   ListProfileMemoriesData,
   ListProfileMemoriesErrors,
   ListProfileMemoriesResponses,
-  ListProfileSkillsData,
-  ListProfileSkillsErrors,
-  ListProfileSkillsResponses,
   ListProjectsData,
   ListProjectsErrors,
   ListProjectsResponses,
@@ -307,9 +271,6 @@ import type {
   ListSharesData,
   ListSharesErrors,
   ListSharesResponses,
-  ListSkillsData,
-  ListSkillsErrors,
-  ListSkillsResponses,
   ListStoredDigestsData,
   ListStoredDigestsErrors,
   ListStoredDigestsResponses,
@@ -403,9 +364,9 @@ import type {
   UpdateAgentData,
   UpdateAgentErrors,
   UpdateAgentResponses,
-  UpdateAgentSkillData,
-  UpdateAgentSkillErrors,
-  UpdateAgentSkillResponses,
+  UpdateAgentScopedSkillData,
+  UpdateAgentScopedSkillErrors,
+  UpdateAgentScopedSkillResponses,
   UpdateAgentTaskData,
   UpdateAgentTaskErrors,
   UpdateAgentTaskResponses,
@@ -433,9 +394,6 @@ import type {
   UpdatePluginConfigData,
   UpdatePluginConfigErrors,
   UpdatePluginConfigResponses,
-  UpdateProfileSkillData,
-  UpdateProfileSkillErrors,
-  UpdateProfileSkillResponses,
   UpdateProjectData,
   UpdateProjectErrors,
   UpdateProjectResponses,
@@ -445,9 +403,6 @@ import type {
   UpdateSchedulerJobData,
   UpdateSchedulerJobErrors,
   UpdateSchedulerJobResponses,
-  UpdateSkillData,
-  UpdateSkillErrors,
-  UpdateSkillResponses,
   UpdateUserDefaultAgentData,
   UpdateUserDefaultAgentErrors,
   UpdateUserDefaultAgentResponses,
@@ -457,12 +412,9 @@ import type {
   UpdateWorkspaceFileContentData,
   UpdateWorkspaceFileContentErrors,
   UpdateWorkspaceFileContentResponses,
-  UploadAgentSkillData,
-  UploadAgentSkillErrors,
-  UploadAgentSkillResponses,
-  UploadProfileSkillData,
-  UploadProfileSkillErrors,
-  UploadProfileSkillResponses,
+  UploadAgentScopedSkillData,
+  UploadAgentScopedSkillErrors,
+  UploadAgentScopedSkillResponses,
   UploadWorkspaceFileData,
   UploadWorkspaceFileErrors,
   UploadWorkspaceFileResponses,
@@ -698,7 +650,7 @@ export const removeAgentUser = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List skills for an agent (creator or admin)
+ * List skills visible to the current user in an agent context
  */
 export const listAgentSkills = <ThrowOnError extends boolean = false>(
   options: Options<ListAgentSkillsData, ThrowOnError>,
@@ -714,18 +666,18 @@ export const listAgentSkills = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Install a skill to an agent from a remote source (admin only)
+ * Create a skill in an agent or current-user scope
  */
-export const installAgentSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallAgentSkillData, ThrowOnError>,
+export const createAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<CreateAgentScopedSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    InstallAgentSkillResponses,
-    InstallAgentSkillErrors,
+    CreateAgentScopedSkillResponses,
+    CreateAgentScopedSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/install",
+    url: "/api/agents/{id}/skills/{scope}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -734,19 +686,39 @@ export const installAgentSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Upload a skill zip to an agent (admin only)
+ * Install a skill in an agent or current-user scope
  */
-export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UploadAgentSkillData, ThrowOnError>,
+export const installAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<InstallAgentScopedSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    UploadAgentSkillResponses,
-    UploadAgentSkillErrors,
+    InstallAgentScopedSkillResponses,
+    InstallAgentScopedSkillErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{id}/skills/{scope}/install",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Upload a skill zip in an agent or current-user scope
+ */
+export const uploadAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UploadAgentScopedSkillData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    UploadAgentScopedSkillResponses,
+    UploadAgentScopedSkillErrors,
     ThrowOnError
   >({
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/upload",
+    url: "/api/agents/{id}/skills/{scope}/upload",
     ...options,
     headers: {
       "Content-Type": null,
@@ -755,68 +727,50 @@ export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Duplicate a builtin skill to an agent (admin only)
+ * Delete a skill in an agent or current-user scope
  */
-export const duplicateBuiltinSkillToAgent = <
-  ThrowOnError extends boolean = false,
->(
-  options: Options<DuplicateBuiltinSkillToAgentData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    DuplicateBuiltinSkillToAgentResponses,
-    DuplicateBuiltinSkillToAgentErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/from-builtin/{skillId}",
-    ...options,
-  });
-
-/**
- * Delete an agent skill (creator or admin)
- */
-export const deleteAgentSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentSkillData, ThrowOnError>,
+export const deleteAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentScopedSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentSkillResponses,
-    DeleteAgentSkillErrors,
+    DeleteAgentScopedSkillResponses,
+    DeleteAgentScopedSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}",
+    url: "/api/agents/{id}/skills/{scope}/{skillId}",
     ...options,
   });
 
 /**
- * Get an agent skill (creator or admin)
+ * Get a skill in an agent context
  */
-export const getAgentSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentSkillData, ThrowOnError>,
+export const getAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentScopedSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentSkillResponses,
-    GetAgentSkillErrors,
+    GetAgentScopedSkillResponses,
+    GetAgentScopedSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}",
+    url: "/api/agents/{id}/skills/{scope}/{skillId}",
     ...options,
   });
 
 /**
- * Update an agent skill (creator or admin)
+ * Update a skill in an agent or current-user scope
  */
-export const updateAgentSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateAgentSkillData, ThrowOnError>,
+export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentScopedSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).put<
-    UpdateAgentSkillResponses,
-    UpdateAgentSkillErrors,
+    UpdateAgentScopedSkillResponses,
+    UpdateAgentScopedSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}",
+    url: "/api/agents/{id}/skills/{scope}/{skillId}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -825,34 +779,36 @@ export const updateAgentSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Delete a skill file (creator or admin)
+ * Delete a skill file in an agent or current-user scope
  */
-export const deleteAgentSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentSkillFileData, ThrowOnError>,
+export const deleteAgentScopedSkillFile = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<DeleteAgentScopedSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentSkillFileResponses,
-    DeleteAgentSkillFileErrors,
+    DeleteAgentScopedSkillFileResponses,
+    DeleteAgentScopedSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}/file",
+    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
     ...options,
   });
 
 /**
- * Download a skill file (creator or admin)
+ * Get a skill file in an agent context
  */
-export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentSkillFileData, ThrowOnError>,
+export const getAgentScopedSkillFile = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentScopedSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentSkillFileResponses,
-    GetAgentSkillFileErrors,
+    GetAgentScopedSkillFileResponses,
+    GetAgentScopedSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{skillId}/file",
+    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
     ...options,
   });
 
@@ -945,42 +901,6 @@ export const updateProject = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List all skills (admin only)
- */
-export const listSkills = <ThrowOnError extends boolean = false>(
-  options?: Options<ListSkillsData, ThrowOnError>,
-) =>
-  (options?.client ?? client).get<
-    ListSkillsResponses,
-    ListSkillsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills",
-    ...options,
-  });
-
-/**
- * Create a skill (admin only)
- */
-export const createSkill = <ThrowOnError extends boolean = false>(
-  options: Options<CreateSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    CreateSkillResponses,
-    CreateSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
  * Search skills from mcphub (any authenticated user)
  */
 export const searchSkills = <ThrowOnError extends boolean = false>(
@@ -993,251 +913,6 @@ export const searchSkills = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/skills/search",
-    ...options,
-  });
-
-/**
- * Install a skill from a remote source (admin only)
- */
-export const installSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    InstallSkillResponses,
-    InstallSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/install",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a skill (admin only)
- */
-export const deleteSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteSkillResponses,
-    DeleteSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-  });
-
-/**
- * Get a skill by ID (admin only)
- */
-export const getSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetSkillResponses,
-    GetSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-  });
-
-/**
- * Update a skill (admin only)
- */
-export const updateSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).put<
-    UpdateSkillResponses,
-    UpdateSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a skill file (admin only)
- */
-export const deleteSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteSkillFileResponses,
-    DeleteSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}/file",
-    ...options,
-  });
-
-/**
- * Get a skill file (admin only)
- */
-export const getSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetSkillFileResponses,
-    GetSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/skills/{id}/file",
-    ...options,
-  });
-
-/**
- * List profile skills (current user)
- */
-export const listProfileSkills = <ThrowOnError extends boolean = false>(
-  options?: Options<ListProfileSkillsData, ThrowOnError>,
-) =>
-  (options?.client ?? client).get<
-    ListProfileSkillsResponses,
-    ListProfileSkillsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills",
-    ...options,
-  });
-
-/**
- * Install a skill to the current user's profile
- */
-export const installProfileSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallProfileSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    InstallProfileSkillResponses,
-    InstallProfileSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/install",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Upload a skill zip to the current user's profile
- */
-export const uploadProfileSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UploadProfileSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    UploadProfileSkillResponses,
-    UploadProfileSkillErrors,
-    ThrowOnError
-  >({
-    ...formDataBodySerializer,
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/upload",
-    ...options,
-    headers: {
-      "Content-Type": null,
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a profile skill
- */
-export const deleteProfileSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteProfileSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteProfileSkillResponses,
-    DeleteProfileSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/{skillId}",
-    ...options,
-  });
-
-/**
- * Get a profile skill by ID
- */
-export const getProfileSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetProfileSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetProfileSkillResponses,
-    GetProfileSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/{skillId}",
-    ...options,
-  });
-
-/**
- * Update a profile skill
- */
-export const updateProfileSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateProfileSkillData, ThrowOnError>,
-) =>
-  (options.client ?? client).put<
-    UpdateProfileSkillResponses,
-    UpdateProfileSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/{skillId}",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Delete a profile skill file
- */
-export const deleteProfileSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteProfileSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).delete<
-    DeleteProfileSkillFileResponses,
-    DeleteProfileSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/{skillId}/file",
-    ...options,
-  });
-
-/**
- * Get a profile skill file
- */
-export const getProfileSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetProfileSkillFileData, ThrowOnError>,
-) =>
-  (options.client ?? client).get<
-    GetProfileSkillFileResponses,
-    GetProfileSkillFileErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/skills/{skillId}/file",
     ...options,
   });
 

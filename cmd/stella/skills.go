@@ -11,7 +11,6 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 )
 
 func skillsCommand() *ucli.Command {
@@ -29,8 +28,35 @@ skills, and manage the ones already installed.`,
 			skillsListCommand(),
 			skillsRemoveCommand(),
 		},
+		Flags:  skillAgentFlags(),
 		Action: skillsListAction,
 	}
+}
+
+func skillAgentFlags() []ucli.Flag {
+	return []ucli.Flag{
+		&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		&ucli.StringFlag{Name: "session-id", Usage: "Session ID for project skills (defaults to STELLA_SESSION_ID)"},
+	}
+}
+
+func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParams, error) {
+	agentID := c.String("agent-id")
+	if agentID == "" {
+		agentID = os.Getenv("STELLA_AGENT_ID")
+	}
+	if agentID == "" {
+		return "", nil, fmt.Errorf("agent ID is required (pass --agent-id or run inside an agent session with STELLA_AGENT_ID)")
+	}
+	sessionID := c.String("session-id")
+	if sessionID == "" {
+		sessionID = os.Getenv("STELLA_SESSION_ID")
+	}
+	params := &apiclient.ListAgentSkillsParams{}
+	if sessionID != "" {
+		params.SessionId = &sessionID
+	}
+	return agentID, params, nil
 }
 
 func skillsSearchCommand() *ucli.Command {
@@ -85,18 +111,22 @@ func skillsInstallCommand() *ucli.Command {
 		Aliases:   []string{"add"},
 		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
+		Flags:     skillAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			source := c.Args().First()
 			if source == "" {
 				return fmt.Errorf("usage: stella skills install <owner/repo@skill-name>")
 			}
 
+			agentID, _, err := skillAgentContext(c)
+			if err != nil {
+				return err
+			}
+
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
-				return api.InstallProfileSkill(c.Context, apiclient.InstallProfileSkillJSONRequestBody{
-					Source: source,
-				})
+				return api.InstallAgentScopedSkill(c.Context, agentID, "user", apiclient.InstallAgentScopedSkillJSONRequestBody{Source: source})
 			})
 			if err != nil {
 				return err
@@ -112,12 +142,12 @@ func skillsListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
 		Usage: "List installed skills",
-		Flags: []ucli.Flag{
+		Flags: append([]ucli.Flag{
 			&ucli.BoolFlag{
 				Name:  "json",
 				Usage: "Output as JSON",
 			},
-		},
+		}, skillAgentFlags()...),
 		Action: func(c *ucli.Context) error {
 			if c.Bool("json") {
 				return skillsListJSON(c)
@@ -128,8 +158,12 @@ func skillsListCommand() *ucli.Command {
 }
 
 func skillsListAction(c *ucli.Context) error {
+	agentID, params, err := skillAgentContext(c)
+	if err != nil {
+		return err
+	}
 	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
-		return api.ListSkills(c.Context)
+		return api.ListAgentSkills(c.Context, agentID, params)
 	})
 	if err != nil {
 		return err
@@ -167,8 +201,12 @@ func skillsListAction(c *ucli.Context) error {
 }
 
 func skillsListJSON(c *ucli.Context) error {
+	agentID, params, err := skillAgentContext(c)
+	if err != nil {
+		return err
+	}
 	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
-		return api.ListSkills(c.Context)
+		return api.ListAgentSkills(c.Context, agentID, params)
 	})
 	if err != nil {
 		return err
@@ -202,23 +240,19 @@ func skillsRemoveCommand() *ucli.Command {
 		Aliases:   []string{"rm"},
 		Usage:     "Remove an installed skill (e.g. stella skills remove my-skill)",
 		ArgsUsage: "<name>",
+		Flags:     skillAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
 				return fmt.Errorf("usage: stella skills remove <name>")
 			}
 
-			// Check if it's a project skill first — those are read-only.
-			cwd, _ := os.Getwd()
-			projSkills, _, _ := skillstool.ListProjectSkills(cwd)
-			for _, s := range projSkills {
-				if s.Name == name {
-					return fmt.Errorf("skill %q is a project skill — edit the files directly in git at %s/.agents/skills/%s", name, cwd, name)
-				}
+			agentID, params, err := skillAgentContext(c)
+			if err != nil {
+				return err
 			}
-
 			skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListProfileSkills(c.Context)
+				return api.ListAgentSkills(c.Context, agentID, params)
 			})
 			if err != nil {
 				return err
@@ -226,7 +260,7 @@ func skillsRemoveCommand() *ucli.Command {
 
 			var skill *apitypes.Skill
 			for i := range skills {
-				if derefStr(skills[i].Name) == name {
+				if derefStr(skills[i].Scope) == "user" && derefStr(skills[i].Name) == name {
 					skill = &skills[i]
 					break
 				}
@@ -236,7 +270,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteProfileSkill(c.Context, derefStr(skill.Id))
+				return api.DeleteAgentScopedSkill(c.Context, agentID, "user", derefStr(skill.Id), &apiclient.DeleteAgentScopedSkillParams{SessionId: params.SessionId})
 			}); err != nil {
 				return err
 			}
