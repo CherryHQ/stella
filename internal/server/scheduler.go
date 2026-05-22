@@ -153,6 +153,10 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	info := UserFromContext(r.Context())
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
@@ -267,6 +271,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	info := UserFromContext(r.Context())
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)

@@ -110,8 +110,12 @@ func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, agentID st
 		return
 	}
 	info := UserFromContext(r.Context())
+	var userID string
+	if info != nil {
+		userID = info.UserID
+	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), taskID, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -268,8 +272,12 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	info := UserFromContext(r.Context())
+	var userID string
+	if info != nil {
+		userID = info.UserID
+	}
 
-	task, err := s.tasksSvc.GetTask(r.Context(), taskID, info.UserID)
+	task, err := s.tasksSvc.GetTask(r.Context(), taskID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return

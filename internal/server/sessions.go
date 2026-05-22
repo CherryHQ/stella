@@ -34,6 +34,11 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
 	var body apiserver.CreateSessionJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil && err.Error() != "EOF" {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -421,6 +426,10 @@ func memoryUserContext(r *http.Request) context.Context {
 }
 
 func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListSessionsParams) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
 		writeData(w, http.StatusOK, []any{})
