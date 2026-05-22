@@ -30,7 +30,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
 		isGlobal := row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem
-		if !isGlobal && info != nil && row.UserID.Valid && row.UserID.String != info.UserID {
+		if !isGlobal && (info == nil || !row.UserID.Valid || row.UserID.String != info.UserID) {
 			continue
 		}
 		jobs = append(jobs, dbRowToAPIJob(row))
@@ -156,7 +156,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -189,12 +189,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		sessionMode = *body.SessionMode
 	}
 
-	var userID string
-	if info != nil {
-		userID = info.UserID
-	} else if existing.UserID.Valid {
-		userID = existing.UserID.String
-	}
+	userID := info.UserID
 
 	agentID := ""
 	if body.AgentId != nil {
@@ -278,7 +273,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -314,7 +309,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && info != nil && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -341,7 +336,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 
 	info := UserFromContext(r.Context())
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
-	if info != nil && !isGlobal && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -358,7 +353,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 	sm, _ := s.mem.(memory.SessionManager)
 	result := make(apitypes.JobRunList, 0, len(rows))
 	for _, row := range rows {
-		if info != nil && row.UserID.Valid && row.UserID.String != info.UserID {
+		if info == nil || (row.UserID.Valid && row.UserID.String != info.UserID) {
 			continue
 		}
 		j := dbRowToAPIJobRun(row)
