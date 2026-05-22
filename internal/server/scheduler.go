@@ -337,6 +337,10 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
@@ -376,6 +380,11 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
