@@ -341,26 +341,11 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 
 // History returns the message history for a session, loading from the memory provider.
 // Returns nil if the session has no history or the provider does not support it.
-func (p *Pool) History(sessionID string) []ai.Message {
+func (p *Pool) History(ctx context.Context, sessionID string) []ai.Message {
 	sm, ok := p.mem.(memory.SessionManager)
 	if !ok {
 		return nil
 	}
-
-	ctx := context.Background()
-	p.mu.Lock()
-	if sess, ok := p.sessions[sessionID]; ok {
-		if sess.Info.UserID != "" {
-			ctx = memory.WithUserID(ctx, sess.Info.UserID)
-		}
-		if sess.Info.AgentID != "" {
-			ctx = memory.WithAgentID(ctx, sess.Info.AgentID)
-		} else if p.agentID != "" {
-			ctx = memory.WithAgentID(ctx, p.agentID)
-		}
-	}
-	p.mu.Unlock()
-
 	msgs, err := sm.LoadHistory(ctx, sessionID)
 	if err == nil && len(msgs) > 0 {
 		return msgs

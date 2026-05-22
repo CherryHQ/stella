@@ -44,7 +44,6 @@ type Provider struct {
 	q         *sqlc.Queries
 	log       *slog.Logger
 	sessionMu map[string]*sync.Mutex
-	convCache map[string]string
 	globalMu  sync.Mutex
 }
 
@@ -55,7 +54,6 @@ func New(db *sql.DB) *Provider {
 		q:         sqlc.New(db),
 		log:       slog.Default(),
 		sessionMu: make(map[string]*sync.Mutex),
-		convCache: make(map[string]string),
 	}
 }
 
@@ -646,16 +644,9 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
 	sessionID := session.ID
-	p.globalMu.Lock()
-	if id, ok := p.convCache[sessionID]; ok {
-		p.globalMu.Unlock()
-		return id, nil
-	}
-	p.globalMu.Unlock()
 
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
 	if err == nil {
-		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -674,14 +665,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	if err != nil {
 		return "", fmt.Errorf("create conversation: %w", err)
 	}
-	p.cacheConvID(sessionID, conv.ID)
 	return conv.ID, nil
-}
-
-func (p *Provider) cacheConvID(sessionID string, convID string) {
-	p.globalMu.Lock()
-	p.convCache[sessionID] = convID
-	p.globalMu.Unlock()
 }
 
 func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {

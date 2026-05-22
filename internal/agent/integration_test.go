@@ -55,10 +55,10 @@ func TestIntegrationPoolWithRunner(t *testing.T) {
 		})
 	}
 
-	pool := NewPool(factory, testMemoryProvider(t))
+	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
 	defer func() { _ = pool.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(testSessionContext(), 60*time.Second)
 	defer cancel()
 
 	sessionID := "integration-test"
@@ -77,7 +77,7 @@ func TestIntegrationPoolWithRunner(t *testing.T) {
 	}
 
 	// Verify history accumulated via pool.History().
-	history := pool.History(sessionID)
+	history := pool.History(ctx, sessionID)
 	// At minimum: 1 user_message + 1 assistant_message.
 	if len(history) < 2 {
 		t.Errorf("history length = %d, want >= 2", len(history))
