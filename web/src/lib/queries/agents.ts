@@ -1,21 +1,26 @@
 import { queryOptions } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Agent, SchedulerJobList, Skill, UserMemory } from "@/lib/types";
+import {
+  listAgents,
+  listAgentSkills,
+  listProfileMemories,
+  listSchedulerJobs,
+} from "@/lib/api-client/sdk.gen";
+import type { Agent, SchedulerJob, Skill, UserMemory } from "@/lib/types";
 
 export const agentsQueryOptions = queryOptions({
   queryKey: ["agents"],
-  queryFn: () => api<Agent[]>("GET", "/api/agents"),
+  queryFn: async () => {
+    const { data } = await listAgents({ throwOnError: true });
+    return data.items as unknown as Agent[];
+  },
 });
 
 export function agentSchedulerJobsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["agent-scheduler-jobs", agentId],
     queryFn: async () => {
-      const res = await api<SchedulerJobList>(
-        "GET",
-        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs`,
-      );
-      return res.items ?? [];
+      const { data } = await listSchedulerJobs({ path: { agentID: agentId }, throwOnError: true });
+      return (data.items ?? []) as unknown as SchedulerJob[];
     },
     enabled: !!agentId,
   });
@@ -26,9 +31,9 @@ export function agentSkillsOptions(agentId: string) {
     queryKey: ["agent-skills", agentId],
     queryFn: async () => {
       const combined =
-        (await api<Skill[]>("GET", `/api/agents/${encodeURIComponent(agentId)}/skills`).catch(
-          () => [],
-        )) ?? [];
+        (await listAgentSkills({ path: { id: agentId }, throwOnError: true })
+          .then(({ data }) => data.items as Skill[])
+          .catch(() => [])) ?? [];
       const scopeOrder: Record<string, number> = { system: 0, agent: 1, user: 2 };
       combined.sort((a, b) => {
         const diff = (scopeOrder[a.scope] ?? 9) - (scopeOrder[b.scope] ?? 9);
@@ -44,8 +49,8 @@ export function agentMemoriesOptions(agentId: string) {
   return queryOptions({
     queryKey: ["agent-memories", agentId],
     queryFn: async () => {
-      const all = await api<UserMemory[]>("GET", "/api/auth/profile/memories");
-      return (all ?? []).filter((m) => m.agent_id === agentId);
+      const { data } = await listProfileMemories({ throwOnError: true });
+      return ((data as unknown as UserMemory[]) ?? []).filter((m) => m.agent_id === agentId);
     },
     enabled: !!agentId,
   });
