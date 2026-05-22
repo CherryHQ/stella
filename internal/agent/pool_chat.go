@@ -121,7 +121,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 
 	// Persist updated session info (LastActive, Title).
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		if err := sm.SaveInfo(context.Background(), infoSnapshot); err != nil {
+		if err := sm.SaveInfo(ctx, infoSnapshot); err != nil {
 			p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
 		}
 	}

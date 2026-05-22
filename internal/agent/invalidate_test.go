@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // TestResetRunnersForUser verifies that ResetRunnersForUser closes runners
@@ -11,7 +13,7 @@ func TestResetRunnersForUser(t *testing.T) {
 	const user1 = "1"
 	const user2 = "2"
 
-	ctx := context.Background()
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), user1), "test-agent")
 	factory, runners := mockRunnerFactory(nil)
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
@@ -21,6 +23,7 @@ func TestResetRunnersForUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getOrCreateRunner user1: %v", err)
 	}
+	ctx = memory.WithAgentID(memory.WithUserID(context.Background(), user2), "test-agent")
 	_, _, err = pool.getOrCreateRunner(ctx, "sess-u2", "")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner user2: %v", err)
@@ -65,7 +68,7 @@ func TestResetRunnersForUser(t *testing.T) {
 func TestInvalidateUserAcrossPools(t *testing.T) {
 	const userID = "7"
 
-	ctx := context.Background()
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), userID), "test-agent")
 	factory1, runners1 := mockRunnerFactory(nil)
 	factory2, runners2 := mockRunnerFactory(nil)
 

@@ -272,7 +272,7 @@ func (p *Pool) RotateSession(channel string, userID ...string) (SessionInfo, err
 }
 
 // GetSession returns metadata for a session.
-func (p *Pool) GetSession(sessionID string) (SessionInfo, error) {
+func (p *Pool) GetSession(sessionID string, userID ...string) (SessionInfo, error) {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
 	p.mu.Unlock()
@@ -281,7 +281,7 @@ func (p *Pool) GetSession(sessionID string) (SessionInfo, error) {
 	}
 
 	if sm, ok := p.mem.(memory.SessionManager); ok {
-		si, err := sm.LoadInfo(context.Background(), sessionID)
+		si, err := sm.LoadInfo(p.sessionContext(context.Background(), resolveUserID(userID)), sessionID)
 		if err == nil {
 			return si, nil
 		}
@@ -290,12 +290,12 @@ func (p *Pool) GetSession(sessionID string) (SessionInfo, error) {
 }
 
 // ListSessions returns metadata for all sessions.
-func (p *Pool) ListSessions(includeArchived bool) ([]SessionInfo, error) {
+func (p *Pool) ListSessions(includeArchived bool, userID ...string) ([]SessionInfo, error) {
 	sm, ok := p.mem.(memory.SessionManager)
 	if !ok {
 		return nil, nil
 	}
-	items, err := sm.ListInfo(context.Background(), memory.ListOptions{IncludeArchived: includeArchived})
+	items, err := sm.ListInfo(context.Background(), memory.ListOptions{UserID: resolveUserID(userID), AgentID: p.agentID, IncludeArchived: includeArchived})
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +346,22 @@ func (p *Pool) History(sessionID string) []ai.Message {
 	if !ok {
 		return nil
 	}
-	msgs, err := sm.LoadHistory(context.Background(), sessionID)
+
+	ctx := context.Background()
+	p.mu.Lock()
+	if sess, ok := p.sessions[sessionID]; ok {
+		if sess.Info.UserID != "" {
+			ctx = memory.WithUserID(ctx, sess.Info.UserID)
+		}
+		if sess.Info.AgentID != "" {
+			ctx = memory.WithAgentID(ctx, sess.Info.AgentID)
+		} else if p.agentID != "" {
+			ctx = memory.WithAgentID(ctx, p.agentID)
+		}
+	}
+	p.mu.Unlock()
+
+	msgs, err := sm.LoadHistory(ctx, sessionID)
 	if err == nil && len(msgs) > 0 {
 		return msgs
 	}

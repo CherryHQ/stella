@@ -19,8 +19,31 @@ func nullAgent(agentID string) sql.NullString {
 	return sql.NullString{String: agentID, Valid: agentID != ""}
 }
 
+func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
+	if userID == "" {
+		userID = memory.UserIDFromContext(ctx)
+	}
+	if agentID == "" {
+		agentID = memory.AgentIDFromContext(ctx)
+	}
+	if userID == "" {
+		return "", "", fmt.Errorf("missing user context")
+	}
+	if agentID == "" {
+		return "", "", fmt.Errorf("missing agent context")
+	}
+	return userID, agentID, nil
+}
+
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
+	userID, agentIDValue, err := requireSessionScope(ctx, info.UserID, info.AgentID)
+	if err != nil {
+		return err
+	}
+	info.UserID = userID
+	info.AgentID = agentIDValue
+
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
 	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
@@ -103,10 +126,14 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 
 // LoadInfo implements memory.SessionManager.
 func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
+	userID, agentID, err := requireSessionScope(ctx, "", "")
+	if err != nil {
+		return memory.SessionInfo{}, err
+	}
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: memory.UserIDFromContext(ctx), Valid: true},
-		AgentID:   nullAgent(memory.AgentIDFromContext(ctx)),
+		UserID:    sql.NullString{String: userID, Valid: true},
+		AgentID:   nullAgent(agentID),
 	})
 	if err != nil {
 		return memory.SessionInfo{}, fmt.Errorf("get conversation: %w", err)
@@ -118,11 +145,11 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	var convs []sqlc.CtxConversation
 	var err error
-	userID := opts.UserID
-	if userID == "" {
-		userID = memory.UserIDFromContext(ctx)
+	userID, agentIDValue, err := requireSessionScope(ctx, opts.UserID, opts.AgentID)
+	if err != nil {
+		return nil, err
 	}
-	agentID := sql.NullString{String: opts.AgentID, Valid: opts.AgentID != ""}
+	agentID := sql.NullString{String: agentIDValue, Valid: true}
 	if opts.IncludeArchived {
 		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: true}, AgentID: agentID})
 	} else {
@@ -163,10 +190,14 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
+	userID, agentID, err := requireSessionScope(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
 	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
 		SessionID: sessionID,
-		UserID:    sql.NullString{String: memory.UserIDFromContext(ctx), Valid: true},
-		AgentID:   nullAgent(memory.AgentIDFromContext(ctx)),
+		UserID:    sql.NullString{String: userID, Valid: true},
+		AgentID:   nullAgent(agentID),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
