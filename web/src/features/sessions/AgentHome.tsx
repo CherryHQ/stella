@@ -93,10 +93,13 @@ export function AgentHome() {
     async (message?: string) => {
       let sid = mainSession?.id;
       if (!sid) {
-        const sess = await api<Session>("POST", "/api/sessions", {
-          agent_id: agentId,
-          kind: "main",
-        });
+        const sess = await api<Session>(
+          "POST",
+          `/api/agents/${encodeURIComponent(agentId)}/sessions`,
+          {
+            kind: "main",
+          },
+        );
         await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         sid = sess.id;
       }

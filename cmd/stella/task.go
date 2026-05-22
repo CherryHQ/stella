@@ -57,12 +57,12 @@ func taskListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			params := &apiclient.ListAgentTasksParams{AgentId: agentID}
+			params := &apiclient.ListAgentTasksParams{}
 			if s := c.String("status"); s != "" {
 				params.Status = &s
 			}
 			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListAgentTasks(c.Context, params)
+				return api.ListAgentTasks(c.Context, agentID, params)
 			})
 			if err != nil {
 				return err
@@ -93,13 +93,20 @@ func taskGetCommand() *ucli.Command {
 		Name:      "get",
 		Usage:     "Get task details",
 		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("usage: stella task get <task-id>")
 			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.GetAgentTask(c.Context, id)
+				return api.GetAgentTask(c.Context, agentID, id)
 			})
 			if err != nil {
 				return err
@@ -140,7 +147,7 @@ func taskCreateCommand() *ucli.Command {
 				body.Deps = &deps
 			}
 			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CreateAgentTask(c.Context, body)
+				return api.CreateAgentTask(c.Context, agentID, body)
 			})
 			if err != nil {
 				return err
@@ -156,6 +163,7 @@ func taskUpdateCommand() *ucli.Command {
 		Usage:     "Update a task",
 		ArgsUsage: "<task-id>",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "title", Usage: "New title"},
 			&ucli.StringFlag{Name: "description", Usage: "New description"},
 			&ucli.StringFlag{Name: "priority", Usage: "New priority: low, medium, high"},
@@ -164,6 +172,10 @@ func taskUpdateCommand() *ucli.Command {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("usage: stella task update <task-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
 			}
 			body := apiclient.UpdateAgentTaskJSONRequestBody{}
 			if t := c.String("title"); t != "" {
@@ -177,7 +189,7 @@ func taskUpdateCommand() *ucli.Command {
 				body.Priority = &prio
 			}
 			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.UpdateAgentTask(c.Context, id, body)
+				return api.UpdateAgentTask(c.Context, agentID, id, body)
 			})
 			if err != nil {
 				return err
@@ -192,13 +204,20 @@ func taskDeleteCommand() *ucli.Command {
 		Name:      "delete",
 		Usage:     "Delete a task",
 		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("usage: stella task delete <task-id>")
 			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteAgentTask(c.Context, id)
+				return api.DeleteAgentTask(c.Context, agentID, id)
 			}); err != nil {
 				return err
 			}
@@ -214,6 +233,7 @@ func taskActionCommand() *ucli.Command {
 		Usage:     "Take an action on a task (approve, reject, respond, cancel)",
 		ArgsUsage: "<task-id>",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "type", Usage: "Action type: approve, reject, respond, cancel (required)", Required: true},
 			&ucli.StringFlag{Name: "message", Usage: "Message for respond/reject actions"},
 		},
@@ -221,6 +241,10 @@ func taskActionCommand() *ucli.Command {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("usage: stella task action <task-id> --type <type>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
 			}
 			actionType := c.String("type")
 			valid := map[string]bool{"approve": true, "reject": true, "respond": true, "cancel": true}
@@ -234,7 +258,7 @@ func taskActionCommand() *ucli.Command {
 				body.Message = &m
 			}
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.AgentTaskAction(c.Context, id, body)
+				return api.AgentTaskAction(c.Context, agentID, id, body)
 			}); err != nil {
 				return err
 			}
@@ -250,6 +274,7 @@ func taskEventsCommand() *ucli.Command {
 		Usage:     "List events for a task",
 		ArgsUsage: "<task-id>",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
@@ -257,8 +282,12 @@ func taskEventsCommand() *ucli.Command {
 			if id == "" {
 				return fmt.Errorf("usage: stella task events <task-id>")
 			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			list, err := apiclient.Call[apiclient.AgentTaskEventList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListAgentTaskEvents(c.Context, id)
+				return api.ListAgentTaskEvents(c.Context, agentID, id)
 			})
 			if err != nil {
 				return err

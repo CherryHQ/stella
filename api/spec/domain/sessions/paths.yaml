@@ -1,5 +1,7 @@
 paths:
-  /api/sessions:
+  /api/agents/{agentID}/sessions:
+    parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: List sessions (all users see their own; admins see all)
@@ -17,10 +19,6 @@ paths:
           in: query
           schema: { type: string, enum: [main, chat, scheduler, task] }
           description: Filter by session kind
-        - name: agent_id
-          in: query
-          schema: { type: string }
-          description: Filter by agent ID
         - name: project_id
           in: query
           schema: { type: string }
@@ -64,8 +62,9 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/sessions/{sessionID}:
+  /api/agents/{agentID}/sessions/{sessionID}:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
@@ -85,8 +84,9 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/sessions/{sessionID}/messages:
+  /api/agents/{agentID}/sessions/{sessionID}/messages:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
@@ -149,8 +149,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/sessions/{sessionID}/workspace:
+  /api/agents/{agentID}/sessions/{sessionID}/workspace:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
@@ -183,8 +184,9 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/sessions/{sessionID}/workspace/files:
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/files:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     post:
       tags: [sessions]
@@ -268,8 +270,9 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/sessions/{sessionID}/workspace/file-content:
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
@@ -332,8 +335,9 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/sessions/{sessionID}/workspace/upload:
+  /api/agents/{agentID}/sessions/{sessionID}/workspace/upload:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     post:
       tags: [sessions]
@@ -368,8 +372,9 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/sessions/{sessionID}/system-prompt:
+  /api/agents/{agentID}/sessions/{sessionID}/system-prompt:
     parameters:
+      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: sessionID, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]

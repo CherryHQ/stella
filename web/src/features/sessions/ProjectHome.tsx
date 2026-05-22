@@ -32,8 +32,7 @@ export function ProjectHome() {
     }
     if (creating.current) return;
     creating.current = true;
-    api<Session>("POST", "/api/sessions", {
-      agent_id: agentId,
+    api<Session>("POST", `/api/agents/${encodeURIComponent(agentId)}/sessions`, {
       project_id: projectId,
     })
       .then(async (sess) => {

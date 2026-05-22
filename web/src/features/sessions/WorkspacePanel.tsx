@@ -55,6 +55,7 @@ function buildTheme(): TreeThemeInput {
 }
 
 interface Props {
+  agentID: string;
   sessionID: string;
   workspace: Workspace | null;
   workspaceLoading: boolean;
@@ -98,6 +99,7 @@ interface ViewerState {
 }
 
 export function WorkspacePanel({
+  agentID,
   sessionID,
   workspace,
   workspaceLoading,
@@ -111,6 +113,7 @@ export function WorkspacePanel({
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const enc = encodeURIComponent(sessionID);
+  const agentEnc = encodeURIComponent(agentID);
 
   const reload = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
@@ -128,7 +131,7 @@ export function WorkspacePanel({
       try {
         const data = await api<{ content: string; language: string }>(
           "GET",
-          `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
+          `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
         );
         setViewer((v) =>
           v && v.path === path
@@ -149,7 +152,7 @@ export function WorkspacePanel({
       if (!viewer) return;
       setViewer((v) => (v ? { ...v, saving: true } : null));
       try {
-        await api("PUT", `/api/sessions/${enc}/workspace/file-content`, {
+        await api("PUT", `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content`, {
           path: viewer.path,
           content,
         });
@@ -166,7 +169,7 @@ export function WorkspacePanel({
     const name = newItemName.trim();
     if (!name) return;
     const fullPath = projectDir ? `${projectDir}/${name}` : name;
-    await api("POST", `/api/sessions/${enc}/workspace/files`, {
+    await api("POST", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
       path: fullPath,
       is_dir: newItemType === "dir",
     });
@@ -178,7 +181,7 @@ export function WorkspacePanel({
   const deleteItem = useCallback(
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
-      await api("DELETE", `/api/sessions/${enc}/workspace/files`, { path });
+      await api("DELETE", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, { path });
       reload();
       if (selectedPath === path) setSelectedPath(null);
       if (viewer?.path === path) {
@@ -231,6 +234,7 @@ export function WorkspacePanel({
         language={viewer.language}
         loading={viewer.loading}
         saving={viewer.saving}
+        agentID={agentID}
         sessionID={sessionID}
         onBack={goBack}
         onSave={saveFile}
@@ -363,6 +367,7 @@ export function WorkspacePanel({
       {!workspaceLoading && workspace && entryCount > 0 && (
         <div className="flex-1 overflow-hidden">
           <TreeWithSearch
+            agentID={agentID}
             sessionID={sessionID}
             workspace={workspace}
             onReload={reload}
@@ -521,6 +526,7 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
 }
 
 interface TreeWithSearchProps {
+  agentID: string;
   sessionID: string;
   workspace: Workspace;
   onReload: () => void;
@@ -549,6 +555,7 @@ const ctxItemStyle: React.CSSProperties = {
 };
 
 function TreeWithSearch({
+  agentID,
   sessionID,
   workspace,
   onReload,
@@ -561,6 +568,7 @@ function TreeWithSearch({
 }: TreeWithSearchProps) {
   const { t } = useI18n();
   const enc = encodeURIComponent(sessionID);
+  const agentEnc = encodeURIComponent(agentID);
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
   const [sharePath, setSharePath] = useState<string | null>(null);
@@ -596,7 +604,7 @@ function TreeWithSearch({
     renaming: {
       onRename: async ({ sourcePath, destinationPath }) => {
         try {
-          await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
+          await api<Workspace>("PATCH", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
             path: toApi(sourcePath),
             new_path: toApi(destinationPath),
           });
@@ -615,10 +623,14 @@ function TreeWithSearch({
             const filename = basename(src);
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
-            await api<Workspace>("PATCH", `/api/sessions/${enc}/workspace/files`, {
-              path: toApi(src),
-              new_path: toApi(newPath),
-            });
+            await api<Workspace>(
+              "PATCH",
+              `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`,
+              {
+                path: toApi(src),
+                new_path: toApi(newPath),
+              },
+            );
           }
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Move failed";
@@ -646,7 +658,7 @@ function TreeWithSearch({
         const apiDir = toApi(dir);
         const data = await api<Workspace>(
           "GET",
-          `/api/sessions/${enc}/workspace?show_hidden=true&depth=2&path=${encodeURIComponent(apiDir)}`,
+          `/api/agents/${agentEnc}/sessions/${enc}/workspace?show_hidden=true&depth=2&path=${encodeURIComponent(apiDir)}`,
         );
         const added: string[] = [];
         for (const rawPath of data.paths ?? []) {
@@ -745,7 +757,7 @@ function TreeWithSearch({
                   onClick={() => {
                     context.close({ restoreFocus: false });
                     if (isDir) return;
-                    const url = `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`;
+                    const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`;
                     fetchBlobUrl(url, mimeTypeForPath(apiPath))
                       .then((blobUrl) => {
                         window.open(blobUrl, "_blank");
@@ -760,7 +772,7 @@ function TreeWithSearch({
                   href={
                     isDir
                       ? undefined
-                      : `/api/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`
+                      : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true`
                   }
                   download={basename(item.path)}
                   style={ctxItemStyle}

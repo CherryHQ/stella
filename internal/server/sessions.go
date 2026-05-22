@@ -27,10 +27,15 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID string) {
 	authInfo := UserFromContext(r.Context())
 	if authInfo == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -40,12 +45,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var pool *agent.Pool
-	if body.AgentId != nil && *body.AgentId != "" {
-		pool = s.poolManager.Get(*body.AgentId)
-	} else {
-		pool = s.poolManager.DefaultPool()
-	}
+	pool := s.poolManager.Get(agentID)
 	if pool == nil {
 		writeError(w, http.StatusBadRequest, "no pool available for the given agent_id")
 		return
@@ -69,7 +69,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, toSessionResponse(info))
 }
 
-func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -107,6 +107,10 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 	// Ownership is strict: only the session owner may send messages.
 	if authInfo.UserID != si.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	if agentID != "" && si.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -308,8 +312,8 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, sess
 			if evt.File != nil {
 				closeText()
 				closeReasoning()
-				fileURL := fmt.Sprintf("/api/sessions/%s/workspace/file-content?path=%s&raw=true",
-					sessionID, evt.File.Path)
+				fileURL := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/file-content?path=%s&raw=true",
+					agentID, sessionID, evt.File.Path)
 				mediaType := detectMIME(evt.File.Name)
 				writeData(map[string]string{
 					"type":      "file",
@@ -421,7 +425,11 @@ func memoryUserContext(r *http.Request) context.Context {
 	return ctx
 }
 
-func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params apiserver.ListSessionsParams) {
+func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListSessionsParams) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
 		writeData(w, http.StatusOK, []any{})
@@ -445,9 +453,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	if params.Kind != nil {
 		opts.Kind = string(*params.Kind)
 	}
-	if params.AgentId != nil {
-		opts.AgentID = *params.AgentId
-	}
+	opts.AgentID = agentID
 	if params.ProjectId != nil {
 		opts.ProjectID = *params.ProjectId
 	}
@@ -464,7 +470,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, params api
 	writeData(w, http.StatusOK, resp)
 }
 
-func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -484,6 +490,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID st
 
 	if authInfo != nil && si.UserID != authInfo.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	if agentID != "" && si.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -511,14 +521,14 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionID st
 	writeData(w, http.StatusOK, resp)
 }
 
-func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetSessionMessagesParams) {
+func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetSessionMessagesParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
 	}
 
 	// Ownership check for non-admin users.
-	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
 
@@ -587,7 +597,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, sess
 
 // checkSessionAccess verifies the current user has access to the session.
 // Returns a non-nil error (and writes the HTTP response) if access is denied.
-func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) error {
+func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) error {
 	info := UserFromContext(r.Context())
 	sm, ok := s.mem.(memory.SessionManager)
 	if info == nil || !ok {
@@ -602,15 +612,19 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sess
 		writeError(w, http.StatusForbidden, "access denied")
 		return fmt.Errorf("access denied")
 	}
+	if agentID != "" && si.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "session not found")
+		return fmt.Errorf("session not found")
+	}
 	return nil
 }
 
-func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetSessionWorkspaceParams) {
+func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetSessionWorkspaceParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
 	}
-	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
 	sm, ok := s.mem.(memory.SessionManager)
@@ -723,12 +737,12 @@ func collectWorkspaceDiskInfo(root string, showHidden bool, listPath string, dep
 
 // sessionWorkspaceRoot resolves the workspace root for a session, checking
 // access and returning (root, nil) or writing an error and returning ("", err).
-func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, sessionID string) (string, error) {
+func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) (string, error) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return "", fmt.Errorf("missing session ID")
 	}
-	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return "", err
 	}
 	sm, ok := s.mem.(memory.SessionManager)
@@ -764,8 +778,8 @@ func safePath(root, rel string) (string, error) {
 	return abs, nil
 }
 
-func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -810,8 +824,8 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 	writeData(w, http.StatusCreated, diskInfo)
 }
 
-func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -841,8 +855,8 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, ses
 	writeData(w, http.StatusOK, diskInfo)
 }
 
-func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -881,8 +895,8 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, sessi
 	writeData(w, http.StatusOK, diskInfo)
 }
 
-func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string, params apiserver.GetWorkspaceFileContentParams) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetWorkspaceFileContentParams) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -931,8 +945,8 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -966,8 +980,8 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, sessionID string) {
-	root, err := s.sessionWorkspaceRoot(w, r, sessionID)
+func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
 	}
@@ -1054,7 +1068,7 @@ func detectLanguage(path string) string {
 	}
 }
 
-func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -1066,7 +1080,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Ownership check for non-admin users.
-	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
 		return
 	}
 

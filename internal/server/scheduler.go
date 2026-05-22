@@ -18,10 +18,17 @@ import (
 
 const adminDBTimeLayout = "2006-01-02 15:04:05"
 
-func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	info := UserFromContext(r.Context())
 
-	rows, err := s.q.ListSchedulerJobs(r.Context())
+	rows, err := s.q.ListSchedulerJobsByAgent(r.Context(), sqlc.ListSchedulerJobsByAgentParams{
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:  sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -29,17 +36,17 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		isGlobal := row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem
-		if !isGlobal && (info == nil || !row.UserID.Valid || row.UserID.String != info.UserID) {
-			continue
-		}
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
 	writeJSON(w, http.StatusOK, apiserver.JobList{Items: jobs})
 }
 
-func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -64,8 +71,6 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := info.UserID
-
-	agentID := derefStr(body.AgentId)
 
 	if s.schedulerSvc != nil {
 		sched := scheduler.Schedule{
@@ -143,10 +148,40 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	info := UserFromContext(r.Context())
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
+	if !isGlobal && (!existing.AgentID.Valid || existing.AgentID.String != agentID) {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dbRowToAPIJob(existing))
+}
+
+func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -154,6 +189,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	if existing.OwnerKind == scheduler.JobOwnerPlugin {
 		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
+		return
+	}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 
@@ -192,13 +231,6 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	userID := info.UserID
 
-	agentID := ""
-	if body.AgentId != nil {
-		agentID = *body.AgentId
-	} else if existing.AgentID.Valid {
-		agentID = existing.AgentID.String
-	}
-
 	var enabled int64
 	if body.Enabled != nil {
 		if *body.Enabled {
@@ -210,7 +242,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	now := time.Now().UTC().Format(adminDBTimeLayout)
 	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
-		ID:            id,
+		ID:            jobID,
 		OwnerKind:     existing.OwnerKind,
 		ExecScope:     existing.ExecScope,
 		PluginID:      existing.PluginID,
@@ -237,7 +269,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	resp := apiserver.Job{
-		Id:          id,
+		Id:          jobID,
 		OwnerKind:   ptrStr(existing.OwnerKind),
 		PluginId:    ptrStr(existing.PluginID),
 		JobKey:      ptrStr(existing.JobKey),
@@ -260,10 +292,14 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	info := UserFromContext(r.Context())
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -271,6 +307,10 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	if existing.OwnerKind == scheduler.JobOwnerPlugin {
 		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
+		return
+	}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 
@@ -281,9 +321,9 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 
 	var deleteErr error
 	if s.schedulerSvc != nil {
-		deleteErr = s.schedulerSvc.RemoveJob(id)
+		deleteErr = s.schedulerSvc.RemoveJob(jobID)
 	} else {
-		deleteErr = s.q.DeleteSchedulerJob(r.Context(), id)
+		deleteErr = s.q.DeleteSchedulerJob(r.Context(), jobID)
 	}
 	if deleteErr != nil {
 		writeError(w, http.StatusInternalServerError, deleteErr.Error())
@@ -292,13 +332,17 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, id s
 	writeJSON(w, http.StatusOK, apiserver.DeleteResult{Status: "deleted"})
 }
 
-func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
 	if s.schedulerSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -313,12 +357,16 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusForbidden, "cannot manually trigger system or plugin jobs")
 		return
 	}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
 	if !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 
-	runID, err := s.schedulerSvc.RunJobNow(r.Context(), id)
+	runID, err := s.schedulerSvc.RunJobNow(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -331,8 +379,13 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 	writeJSON(w, http.StatusAccepted, resp)
 }
 
-func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id string) {
-	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -340,13 +393,17 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, id
 
 	info := UserFromContext(r.Context())
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
+	if !isGlobal && (!existing.AgentID.Valid || existing.AgentID.String != agentID) {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
 	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
-		JobID: id,
+		JobID: jobID,
 		Limit: 20,
 	})
 	if err != nil {

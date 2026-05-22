@@ -37,7 +37,7 @@ func schedulerAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "every", Usage: "Go duration, e.g. '30m' or '2h' (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "at", Usage: "RFC3339 timestamp for a one-time job (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "session-mode", Usage: "Session behavior: reuse (default) or new", Value: "reuse"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID to run the job (defaults to default agent)"},
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 		},
 		Action: func(c *ucli.Context) error {
 			cron := c.String("cron")
@@ -63,7 +63,10 @@ func schedulerAddCommand() *ucli.Command {
 			name := c.String("name")
 			msg := c.String("message")
 			mode := c.String("session-mode")
-			agentID := c.String("agent-id")
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			enabled := true
 			body := apiclient.CreateSchedulerJobJSONRequestBody{
 				Name:        &name,
@@ -80,12 +83,9 @@ func schedulerAddCommand() *ucli.Command {
 			if at != "" {
 				body.At = &at
 			}
-			if agentID != "" {
-				body.AgentId = &agentID
-			}
 
 			job, err := apiclient.CallJSON[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CreateSchedulerJob(c.Context, body)
+				return api.CreateSchedulerJob(c.Context, agentID, body)
 			})
 			if err != nil {
 				return err
@@ -100,11 +100,16 @@ func schedulerListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List scheduled jobs",
 		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			list, err := apiclient.CallJSON[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListSchedulerJobs(c.Context)
+				return api.ListSchedulerJobs(c.Context, agentID)
 			})
 			if err != nil {
 				return err
@@ -142,13 +147,20 @@ func schedulerRemoveCommand() *ucli.Command {
 		Name:      "remove",
 		Usage:     "Remove a scheduled job",
 		ArgsUsage: "<job-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("usage: stella scheduler remove <job-id>")
 			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
 			if err := apiclient.DoJSON(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteSchedulerJob(c.Context, id)
+				return api.DeleteSchedulerJob(c.Context, agentID, id)
 			}); err != nil {
 				return err
 			}

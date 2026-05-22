@@ -59,7 +59,7 @@ export function TaskBoardPanel({
     try {
       const res = await api<{ items: ComponentsAgentTask[] }>(
         "GET",
-        `/api/tasks?agent_id=${encodeURIComponent(agentId)}`,
+        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
       );
       setTasks(res.items ?? []);
     } catch (e) {
@@ -197,6 +197,7 @@ export function TaskBoardPanel({
           </div>
         ) : selectedTask ? (
           <TaskDetail
+            agentId={agentId}
             task={selectedTask}
             onBack={() => onSelectTask?.(null)}
             onOpenSession={() => {
@@ -214,10 +215,12 @@ export function TaskBoardPanel({
 }
 
 function TaskDetail({
+  agentId,
   task,
   onBack,
   onOpenSession,
 }: {
+  agentId: string;
   task: ComponentsAgentTask;
   onBack: () => void;
   onOpenSession: () => void;
@@ -288,6 +291,7 @@ function TaskDetail({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {task.session_id ? (
           <SessionConversation
+            agentId={agentId}
             sessionId={task.session_id}
             placeholder="Ask about this task..."
             className="h-full"

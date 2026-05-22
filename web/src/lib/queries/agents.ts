@@ -11,8 +11,11 @@ export function agentSchedulerJobsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["agent-scheduler-jobs", agentId],
     queryFn: async () => {
-      const res = await api<SchedulerJobList>("GET", "/api/scheduler/jobs");
-      return (res.items ?? []).filter((j) => j.owner_kind === "system" || j.agent_id === agentId);
+      const res = await api<SchedulerJobList>(
+        "GET",
+        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs`,
+      );
+      return res.items ?? [];
     },
     enabled: !!agentId,
   });
