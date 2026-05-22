@@ -549,7 +549,7 @@ type SearchSkillsParams struct {
 // ListAgentTasksParams defines parameters for ListAgentTasks.
 type ListAgentTasksParams struct {
 	Status  *string `form:"status,omitempty" json:"status,omitempty"`
-	AgentId *string `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+	AgentId string  `form:"agent_id" json:"agent_id"`
 }
 
 // SetOAuthProviderConfigJSONRequestBody defines body for SetOAuthProviderConfig for application/json ContentType.
@@ -5445,9 +5445,9 @@ func (siw *ServerInterfaceWrapper) ListAgentTasks(w http.ResponseWriter, r *http
 		return
 	}
 
-	// ------------- Optional query parameter "agent_id" -------------
+	// ------------- Required query parameter "agent_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {

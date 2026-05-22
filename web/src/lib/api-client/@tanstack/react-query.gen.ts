@@ -3977,13 +3977,13 @@ export const listSchedulerJobRunsOptions = (
     queryKey: listSchedulerJobRunsQueryKey(options),
   });
 
-export const listAgentTasksQueryKey = (options?: Options<ListAgentTasksData>) =>
+export const listAgentTasksQueryKey = (options: Options<ListAgentTasksData>) =>
   createQueryKey("listAgentTasks", options);
 
 /**
  * List agent tasks
  */
-export const listAgentTasksOptions = (options?: Options<ListAgentTasksData>) =>
+export const listAgentTasksOptions = (options: Options<ListAgentTasksData>) =>
   queryOptions<
     ListAgentTasksResponse,
     ListAgentTasksError,

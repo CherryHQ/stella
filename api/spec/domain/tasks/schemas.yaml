@@ -57,7 +57,7 @@ components:
 
     AgentTaskInput:
       type: object
-      required: [title]
+      required: [title, agent_id]
       description: "Fields for creating an agent task"
       properties:
         title: { type: string }

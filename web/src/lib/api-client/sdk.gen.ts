@@ -2536,9 +2536,9 @@ export const listSchedulerJobRuns = <ThrowOnError extends boolean = false>(
  * List agent tasks
  */
 export const listAgentTasks = <ThrowOnError extends boolean = false>(
-  options?: Options<ListAgentTasksData, ThrowOnError>,
+  options: Options<ListAgentTasksData, ThrowOnError>,
 ) =>
-  (options?.client ?? client).get<
+  (options.client ?? client).get<
     ListAgentTasksResponses,
     ListAgentTasksErrors,
     ThrowOnError

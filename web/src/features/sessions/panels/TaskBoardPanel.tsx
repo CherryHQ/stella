@@ -57,8 +57,10 @@ export function TaskBoardPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-      const res = await api<{ items: ComponentsAgentTask[] }>("GET", `/api/tasks${params}`);
+      const res = await api<{ items: ComponentsAgentTask[] }>(
+        "GET",
+        `/api/tasks?agent_id=${encodeURIComponent(agentId)}`,
+      );
       setTasks(res.items ?? []);
     } catch (e) {
       console.error(e);

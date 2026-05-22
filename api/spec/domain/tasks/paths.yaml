@@ -11,7 +11,7 @@ paths:
           schema: { type: string }
         - name: agent_id
           in: query
-          required: false
+          required: true
           schema: { type: string }
       responses:
         "200":
