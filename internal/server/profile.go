@@ -177,8 +177,8 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, memories)
 }
 
-// SetProfileMemory handles PUT /api/auth/profile/memories/{agentId}.
-func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentId string) {
+// SetProfileMemory handles PUT /api/auth/profile/memories/{agentID}.
+func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -193,15 +193,15 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, info.UserID, agentId, body.Content); err != nil {
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, info.UserID, agentID, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
-// SetProfileSoul handles PUT /api/auth/profile/soul/{agentId}.
-func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId string) {
+// SetProfileSoul handles PUT /api/auth/profile/soul/{agentID}.
+func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -216,15 +216,15 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId 
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.SetAgentSoul(ctx, s.db, s.q, info.UserID, agentId, body.Soul); err != nil {
+	if err := memorywrite.SetAgentSoul(ctx, s.db, s.q, info.UserID, agentID, body.Soul); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
-// DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentId}.
-func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentId string) {
+// DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
+func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -232,7 +232,7 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 	}
 
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, info.UserID, agentId); err != nil {
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, info.UserID, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -11,6 +11,12 @@ RETURNING *;
 -- name: ListSchedulerJobs :many
 SELECT * FROM sched_jobs ORDER BY created_at;
 
+-- name: ListSchedulerJobsByAgent :many
+SELECT * FROM sched_jobs
+WHERE owner_kind IN ('plugin', 'system')
+   OR (agent_id = ? AND user_id = ?)
+ORDER BY created_at;
+
 -- name: GetSchedulerJob :one
 SELECT * FROM sched_jobs WHERE id = ?;
 

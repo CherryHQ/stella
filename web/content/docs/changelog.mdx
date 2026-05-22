@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Breaking Changes
+
+- **API**: Sessions, scheduler jobs, and tasks are now scoped under the agent context. All endpoints have moved:
+  - `GET /api/sessions` → `GET /api/agents/{agentID}/sessions`
+  - `POST /api/sessions` → `POST /api/agents/{agentID}/sessions`
+  - `GET/DELETE /api/sessions/{id}` → `GET /api/agents/{agentID}/sessions/{sessionID}`
+  - `GET /api/scheduler/jobs` → `GET /api/agents/{agentID}/scheduler/jobs`
+  - `POST /api/scheduler/jobs` → `POST /api/agents/{agentID}/scheduler/jobs`
+  - `PUT/DELETE /api/scheduler/jobs/{id}` → `PUT/DELETE /api/agents/{agentID}/scheduler/jobs/{jobID}`
+  - `GET /api/tasks` → `GET /api/agents/{agentID}/tasks`
+  - `POST /api/tasks` → `POST /api/agents/{agentID}/tasks`
+
+  The old flat endpoints have been removed. Update any external integrations or scripts that target these paths.
+
 ## [0.35.3] - 2026-05-21
 
 ### 🐛 Bug Fixes

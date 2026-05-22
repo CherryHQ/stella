@@ -19,13 +19,16 @@ import (
 const adminDBTimeLayout = "2006-01-02 15:04:05"
 
 func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
 	}
+	info := UserFromContext(r.Context())
 
-	rows, err := s.q.ListSchedulerJobs(r.Context())
+	rows, err := s.q.ListSchedulerJobsByAgent(r.Context(), sqlc.ListSchedulerJobsByAgentParams{
+		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UserID:  sql.NullString{String: info.UserID, Valid: info.UserID != ""},
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -33,13 +36,6 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		isGlobal := row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem
-		if !isGlobal && (!row.AgentID.Valid || row.AgentID.String != agentID) {
-			continue
-		}
-		if !isGlobal && (info == nil || !row.UserID.Valid || row.UserID.String != info.UserID) {
-			continue
-		}
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
 	writeJSON(w, http.StatusOK, apiserver.JobList{Items: jobs})

@@ -88,10 +88,10 @@ paths:
   /api/agents/{id}/skills/{scope}/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}~1file"
   # ── Projects ───────────────────────────────────────────────────────────────
-  /api/agents/{agentId}/projects:
-    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects"
-  /api/agents/{agentId}/projects/{projectId}:
-    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects~1{projectId}"
+  /api/agents/{agentID}/projects:
+    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentID}~1projects"
+  /api/agents/{agentID}/projects/{projectId}:
+    $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentID}~1projects~1{projectId}"
   # ── Skills ─────────────────────────────────────────────────────────────────
   /api/skills/search:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
@@ -178,8 +178,8 @@ paths:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1notify-identity"
   /api/users/{id}/memories:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories"
-  /api/users/{id}/memories/{agentId}:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentId}"
+  /api/users/{id}/memories/{agentID}:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentID}"
   # ── Auth Users ─────────────────────────────────────────────────────────────
   /api/auth/users:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users"
@@ -204,10 +204,10 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1link-code"
   /api/auth/profile/memories:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories"
-  /api/auth/profile/memories/{agentId}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentId}"
-  /api/auth/profile/soul/{agentId}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentId}"
+  /api/auth/profile/memories/{agentID}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentID}"
+  /api/auth/profile/soul/{agentID}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentID}"
   /api/auth/profile/vault:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault"
   /api/auth/profile/vault/{name}:

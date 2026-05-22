@@ -2425,7 +2425,7 @@ export type GetAgentScopedSkillFileResponse =
 export type ListProjectsData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: {
     /**
@@ -2433,7 +2433,7 @@ export type ListProjectsData = {
      */
     include_archived?: boolean;
   };
-  url: "/api/agents/{agentId}/projects";
+  url: "/api/agents/{agentID}/projects";
 };
 
 export type ListProjectsErrors = {
@@ -2460,10 +2460,10 @@ export type ListProjectsResponse =
 export type CreateProjectData = {
   body: CreateProjectRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects";
+  url: "/api/agents/{agentID}/projects";
 };
 
 export type CreateProjectErrors = {
@@ -2496,11 +2496,11 @@ export type CreateProjectResponse =
 export type DeleteProjectData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type DeleteProjectErrors = {
@@ -2533,11 +2533,11 @@ export type DeleteProjectResponse =
 export type GetProjectData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type GetProjectErrors = {
@@ -2569,11 +2569,11 @@ export type GetProjectResponse = GetProjectResponses[keyof GetProjectResponses];
 export type UpdateProjectData = {
   body: UpdateProjectRequest;
   path: {
-    agentId: string;
+    agentID: string;
     projectId: string;
   };
   query?: never;
-  url: "/api/agents/{agentId}/projects/{projectId}";
+  url: "/api/agents/{agentID}/projects/{projectId}";
 };
 
 export type UpdateProjectErrors = {
@@ -4965,10 +4965,10 @@ export type DeleteUserMemoryData = {
   body?: never;
   path: {
     id: string;
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/users/{id}/memories/{agentId}";
+  url: "/api/users/{id}/memories/{agentID}";
 };
 
 export type DeleteUserMemoryErrors = {
@@ -5003,10 +5003,10 @@ export type SetUserMemoryData = {
   body: ComponentsSetMemoryRequest;
   path: {
     id: string;
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/users/{id}/memories/{agentId}";
+  url: "/api/users/{id}/memories/{agentID}";
 };
 
 export type SetUserMemoryErrors = {
@@ -5518,10 +5518,10 @@ export type ListProfileMemoriesResponse =
 export type DeleteProfileMemoryData = {
   body?: never;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/memories/{agentId}";
+  url: "/api/auth/profile/memories/{agentID}";
 };
 
 export type DeleteProfileMemoryErrors = {
@@ -5551,10 +5551,10 @@ export type DeleteProfileMemoryResponse =
 export type SetProfileMemoryData = {
   body: ComponentsSetMemoryRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/memories/{agentId}";
+  url: "/api/auth/profile/memories/{agentID}";
 };
 
 export type SetProfileMemoryErrors = {
@@ -5590,10 +5590,10 @@ export type SetProfileMemoryResponse =
 export type SetProfileSoulData = {
   body: ComponentsSetSoulRequest;
   path: {
-    agentId: string;
+    agentID: string;
   };
   query?: never;
-  url: "/api/auth/profile/soul/{agentId}";
+  url: "/api/auth/profile/soul/{agentID}";
 };
 
 export type SetProfileSoulErrors = {

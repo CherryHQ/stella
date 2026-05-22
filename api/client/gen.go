@@ -376,6 +376,12 @@ type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
 
+// ListProjectsParams defines parameters for ListProjects.
+type ListProjectsParams struct {
+	// IncludeArchived Include archived projects
+	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
 // ListSessionsParams defines parameters for ListSessions.
 type ListSessionsParams struct {
 	// Limit Maximum number of sessions to return
@@ -439,12 +445,6 @@ type UploadWorkspaceFileMultipartBody struct {
 // ListAgentTasksParams defines parameters for ListAgentTasks.
 type ListAgentTasksParams struct {
 	Status *string `form:"status,omitempty" json:"status,omitempty"`
-}
-
-// ListProjectsParams defines parameters for ListProjects.
-type ListProjectsParams struct {
-	// IncludeArchived Include archived projects
-	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
 // ListAgentSkillsParams defines parameters for ListAgentSkills.
@@ -556,6 +556,12 @@ type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInp
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
+
 // CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
 type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
 
@@ -591,12 +597,6 @@ type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
-
-// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
-type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
-
-// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
-type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
@@ -792,6 +792,25 @@ type ClientInterface interface {
 
 	CreateAgent(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListProjects request
+	ListProjects(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateProjectWithBody request with any body
+	CreateProjectWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateProject(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteProject request
+	DeleteProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetProject request
+	GetProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProjectWithBody request with any body
+	UpdateProjectWithBody(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateProject(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSchedulerJobs request
 	ListSchedulerJobs(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -892,25 +911,6 @@ type ClientInterface interface {
 	// ListAgentTaskEvents request
 	ListAgentTaskEvents(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListProjects request
-	ListProjects(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateProjectWithBody request with any body
-	CreateProjectWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	CreateProject(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteProject request
-	DeleteProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetProject request
-	GetProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateProjectWithBody request with any body
-	UpdateProjectWithBody(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	UpdateProject(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DeleteAgent request
 	DeleteAgent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -992,12 +992,12 @@ type ClientInterface interface {
 	ListProfileMemories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteProfileMemory request
-	DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteProfileMemory(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetProfileMemoryWithBody request with any body
-	SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileMemoryWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileMemory(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListOAuthProviders request
 	ListOAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1023,9 +1023,9 @@ type ClientInterface interface {
 	ChangePassword(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetProfileSoulWithBody request with any body
-	SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileSoulWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetProfileSoul(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListVaultEntries request
 	ListVaultEntries(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1268,12 +1268,12 @@ type ClientInterface interface {
 	ListUserMemories(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteUserMemory request
-	DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	DeleteUserMemory(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SetUserMemoryWithBody request with any body
-	SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemoryWithBody(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	SetUserMemory(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateUserNotifyIdentityWithBody request with any body
 	UpdateUserNotifyIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1355,6 +1355,90 @@ func (c *Client) CreateAgentWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) CreateAgent(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateAgentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListProjects(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProjectsRequest(c.Server, agentID, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateProjectWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateProject(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequest(c.Server, agentID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProjectRequest(c.Server, agentID, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetProject(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProjectRequest(c.Server, agentID, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateProjectWithBody(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequestWithBody(c.Server, agentID, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateProject(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequest(c.Server, agentID, projectId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1809,90 +1893,6 @@ func (c *Client) ListAgentTaskEvents(ctx context.Context, agentID string, taskID
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListProjects(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListProjectsRequest(c.Server, agentId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateProjectWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateProjectRequestWithBody(c.Server, agentId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) CreateProject(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateProjectRequest(c.Server, agentId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProjectRequest(c.Server, agentId, projectId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetProject(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetProjectRequest(c.Server, agentId, projectId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProjectWithBody(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProjectRequestWithBody(c.Server, agentId, projectId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) UpdateProject(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateProjectRequest(c.Server, agentId, projectId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) DeleteAgent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteAgentRequest(c.Server, id)
 	if err != nil {
@@ -2241,8 +2241,8 @@ func (c *Client) ListProfileMemories(ctx context.Context, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteProfileMemory(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteProfileMemoryRequest(c.Server, agentId)
+func (c *Client) DeleteProfileMemory(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProfileMemoryRequest(c.Server, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -2253,8 +2253,8 @@ func (c *Client) DeleteProfileMemory(ctx context.Context, agentId string, reqEdi
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileMemoryRequestWithBody(c.Server, agentId, contentType, body)
+func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequestWithBody(c.Server, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2265,8 +2265,8 @@ func (c *Client) SetProfileMemoryWithBody(ctx context.Context, agentId string, c
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileMemory(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileMemoryRequest(c.Server, agentId, body)
+func (c *Client) SetProfileMemory(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileMemoryRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2373,8 +2373,8 @@ func (c *Client) ChangePassword(ctx context.Context, body ChangePasswordJSONRequ
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileSoulRequestWithBody(c.Server, agentId, contentType, body)
+func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequestWithBody(c.Server, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2385,8 +2385,8 @@ func (c *Client) SetProfileSoulWithBody(ctx context.Context, agentId string, con
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetProfileSoul(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetProfileSoulRequest(c.Server, agentId, body)
+func (c *Client) SetProfileSoul(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProfileSoulRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3441,8 +3441,8 @@ func (c *Client) ListUserMemories(ctx context.Context, id string, reqEditors ...
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteUserMemoryRequest(c.Server, id, agentId)
+func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteUserMemoryRequest(c.Server, id, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -3453,8 +3453,8 @@ func (c *Client) DeleteUserMemory(ctx context.Context, id string, agentId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetUserMemoryRequestWithBody(c.Server, id, agentId, contentType, body)
+func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserMemoryRequestWithBody(c.Server, id, agentID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3465,8 +3465,8 @@ func (c *Client) SetUserMemoryWithBody(ctx context.Context, id string, agentId s
 	return c.Client.Do(req)
 }
 
-func (c *Client) SetUserMemory(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSetUserMemoryRequest(c.Server, id, agentId, body)
+func (c *Client) SetUserMemory(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserMemoryRequest(c.Server, id, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3674,6 +3674,250 @@ func NewCreateAgentRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListProjectsRequest generates requests for ListProjects
+func NewListProjectsRequest(server string, agentID string, params *ListProjectsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/projects", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.IncludeArchived != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "include_archived", *params.IncludeArchived, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateProjectRequest calls the generic CreateProject builder with application/json body
+func NewCreateProjectRequest(server string, agentID string, body CreateProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateProjectRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewCreateProjectRequestWithBody generates requests for CreateProject with any type of body
+func NewCreateProjectRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/projects", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteProjectRequest generates requests for DeleteProject
+func NewDeleteProjectRequest(server string, agentID string, projectId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetProjectRequest generates requests for GetProject
+func NewGetProjectRequest(server string, agentID string, projectId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateProjectRequest calls the generic UpdateProject builder with application/json body
+func NewUpdateProjectRequest(server string, agentID string, projectId string, body UpdateProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateProjectRequestWithBody(server, agentID, projectId, "application/json", bodyReader)
+}
+
+// NewUpdateProjectRequestWithBody generates requests for UpdateProject with any type of body
+func NewUpdateProjectRequestWithBody(server string, agentID string, projectId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -5091,250 +5335,6 @@ func NewListAgentTaskEventsRequest(server string, agentID string, taskID string)
 	return req, nil
 }
 
-// NewListProjectsRequest generates requests for ListProjects
-func NewListProjectsRequest(server string, agentId string, params *ListProjectsParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/projects", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.IncludeArchived != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "include_archived", *params.IncludeArchived, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateProjectRequest calls the generic CreateProject builder with application/json body
-func NewCreateProjectRequest(server string, agentId string, body CreateProjectJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateProjectRequestWithBody(server, agentId, "application/json", bodyReader)
-}
-
-// NewCreateProjectRequestWithBody generates requests for CreateProject with any type of body
-func NewCreateProjectRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/projects", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteProjectRequest generates requests for DeleteProject
-func NewDeleteProjectRequest(server string, agentId string, projectId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetProjectRequest generates requests for GetProject
-func NewGetProjectRequest(server string, agentId string, projectId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateProjectRequest calls the generic UpdateProject builder with application/json body
-func NewUpdateProjectRequest(server string, agentId string, projectId string, body UpdateProjectJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateProjectRequestWithBody(server, agentId, projectId, "application/json", bodyReader)
-}
-
-// NewUpdateProjectRequestWithBody generates requests for UpdateProject with any type of body
-func NewUpdateProjectRequestWithBody(server string, agentId string, projectId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "projectId", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/agents/%s/projects/%s", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewDeleteAgentRequest generates requests for DeleteAgent
 func NewDeleteAgentRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -6411,12 +6411,12 @@ func NewListProfileMemoriesRequest(server string) (*http.Request, error) {
 }
 
 // NewDeleteProfileMemoryRequest generates requests for DeleteProfileMemory
-func NewDeleteProfileMemoryRequest(server string, agentId string) (*http.Request, error) {
+func NewDeleteProfileMemoryRequest(server string, agentID string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -6445,23 +6445,23 @@ func NewDeleteProfileMemoryRequest(server string, agentId string) (*http.Request
 }
 
 // NewSetProfileMemoryRequest calls the generic SetProfileMemory builder with application/json body
-func NewSetProfileMemoryRequest(server string, agentId string, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
+func NewSetProfileMemoryRequest(server string, agentID string, body SetProfileMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetProfileMemoryRequestWithBody(server, agentId, "application/json", bodyReader)
+	return NewSetProfileMemoryRequestWithBody(server, agentID, "application/json", bodyReader)
 }
 
 // NewSetProfileMemoryRequestWithBody generates requests for SetProfileMemory with any type of body
-func NewSetProfileMemoryRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetProfileMemoryRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -6767,23 +6767,23 @@ func NewChangePasswordRequestWithBody(server string, contentType string, body io
 }
 
 // NewSetProfileSoulRequest calls the generic SetProfileSoul builder with application/json body
-func NewSetProfileSoulRequest(server string, agentId string, body SetProfileSoulJSONRequestBody) (*http.Request, error) {
+func NewSetProfileSoulRequest(server string, agentID string, body SetProfileSoulJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetProfileSoulRequestWithBody(server, agentId, "application/json", bodyReader)
+	return NewSetProfileSoulRequestWithBody(server, agentID, "application/json", bodyReader)
 }
 
 // NewSetProfileSoulRequestWithBody generates requests for SetProfileSoul with any type of body
-func NewSetProfileSoulRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetProfileSoulRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9495,7 +9495,7 @@ func NewListUserMemoriesRequest(server string, id string) (*http.Request, error)
 }
 
 // NewDeleteUserMemoryRequest generates requests for DeleteUserMemory
-func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http.Request, error) {
+func NewDeleteUserMemoryRequest(server string, id string, agentID string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -9507,7 +9507,7 @@ func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9536,18 +9536,18 @@ func NewDeleteUserMemoryRequest(server string, id string, agentId string) (*http
 }
 
 // NewSetUserMemoryRequest calls the generic SetUserMemory builder with application/json body
-func NewSetUserMemoryRequest(server string, id string, agentId string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
+func NewSetUserMemoryRequest(server string, id string, agentID string, body SetUserMemoryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewSetUserMemoryRequestWithBody(server, id, agentId, "application/json", bodyReader)
+	return NewSetUserMemoryRequestWithBody(server, id, agentID, "application/json", bodyReader)
 }
 
 // NewSetUserMemoryRequestWithBody generates requests for SetUserMemory with any type of body
-func NewSetUserMemoryRequestWithBody(server string, id string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewSetUserMemoryRequestWithBody(server string, id string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -9559,7 +9559,7 @@ func NewSetUserMemoryRequestWithBody(server string, id string, agentId string, c
 
 	var pathParam1 string
 
-	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentId", agentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -9698,6 +9698,25 @@ type ClientWithResponsesInterface interface {
 
 	CreateAgentWithResponse(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentResponse, error)
 
+	// ListProjectsWithResponse request
+	ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
+
+	// CreateProjectWithBodyWithResponse request with any body
+	CreateProjectWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+
+	CreateProjectWithResponse(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+
+	// DeleteProjectWithResponse request
+	DeleteProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error)
+
+	// GetProjectWithResponse request
+	GetProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
+
+	// UpdateProjectWithBodyWithResponse request with any body
+	UpdateProjectWithBodyWithResponse(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+
+	UpdateProjectWithResponse(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+
 	// ListSchedulerJobsWithResponse request
 	ListSchedulerJobsWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error)
 
@@ -9798,25 +9817,6 @@ type ClientWithResponsesInterface interface {
 	// ListAgentTaskEventsWithResponse request
 	ListAgentTaskEventsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error)
 
-	// ListProjectsWithResponse request
-	ListProjectsWithResponse(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
-
-	// CreateProjectWithBodyWithResponse request with any body
-	CreateProjectWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
-
-	CreateProjectWithResponse(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
-
-	// DeleteProjectWithResponse request
-	DeleteProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error)
-
-	// GetProjectWithResponse request
-	GetProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
-
-	// UpdateProjectWithBodyWithResponse request with any body
-	UpdateProjectWithBodyWithResponse(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
-
-	UpdateProjectWithResponse(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
-
 	// DeleteAgentWithResponse request
 	DeleteAgentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentResponse, error)
 
@@ -9898,12 +9898,12 @@ type ClientWithResponsesInterface interface {
 	ListProfileMemoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileMemoriesResponse, error)
 
 	// DeleteProfileMemoryWithResponse request
-	DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error)
+	DeleteProfileMemoryWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error)
 
 	// SetProfileMemoryWithBodyWithResponse request with any body
-	SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+	SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
-	SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
+	SetProfileMemoryWithResponse(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error)
 
 	// ListOAuthProvidersWithResponse request
 	ListOAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOAuthProvidersResponse, error)
@@ -9929,9 +9929,9 @@ type ClientWithResponsesInterface interface {
 	ChangePasswordWithResponse(ctx context.Context, body ChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
 
 	// SetProfileSoulWithBodyWithResponse request with any body
-	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+	SetProfileSoulWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
 
-	SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
+	SetProfileSoulWithResponse(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error)
 
 	// ListVaultEntriesWithResponse request
 	ListVaultEntriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVaultEntriesResponse, error)
@@ -10174,12 +10174,12 @@ type ClientWithResponsesInterface interface {
 	ListUserMemoriesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListUserMemoriesResponse, error)
 
 	// DeleteUserMemoryWithResponse request
-	DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
+	DeleteUserMemoryWithResponse(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error)
 
 	// SetUserMemoryWithBodyWithResponse request with any body
-	SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
-	SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
+	SetUserMemoryWithResponse(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error)
 
 	// UpdateUserNotifyIdentityWithBodyWithResponse request with any body
 	UpdateUserNotifyIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserNotifyIdentityResponse, error)
@@ -10339,6 +10339,165 @@ func (r CreateAgentResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateAgentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProjectsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.Project
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProjectsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProjectsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProjectsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.Project
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Project
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r GetProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Project
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateProjectResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -11192,165 +11351,6 @@ func (r ListAgentTaskEventsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAgentTaskEventsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListProjectsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *[]externalRef0.Project
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r ListProjectsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListProjectsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListProjectsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateProjectResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.Project
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateProjectResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateProjectResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateProjectResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteProjectResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteProjectResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteProjectResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteProjectResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetProjectResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Project
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r GetProjectResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetProjectResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetProjectResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateProjectResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Project
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-	JSON404      *externalRef0.NotFound
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateProjectResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateProjectResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateProjectResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14679,6 +14679,67 @@ func (c *ClientWithResponses) CreateAgentWithResponse(ctx context.Context, body 
 	return ParseCreateAgentResponse(rsp)
 }
 
+// ListProjectsWithResponse request returning *ListProjectsResponse
+func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
+	rsp, err := c.ListProjects(ctx, agentID, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProjectsResponse(rsp)
+}
+
+// CreateProjectWithBodyWithResponse request with arbitrary body returning *CreateProjectResponse
+func (c *ClientWithResponses) CreateProjectWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProjectWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, agentID string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProject(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectResponse(rsp)
+}
+
+// DeleteProjectWithResponse request returning *DeleteProjectResponse
+func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error) {
+	rsp, err := c.DeleteProject(ctx, agentID, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteProjectResponse(rsp)
+}
+
+// GetProjectWithResponse request returning *GetProjectResponse
+func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, agentID string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error) {
+	rsp, err := c.GetProject(ctx, agentID, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetProjectResponse(rsp)
+}
+
+// UpdateProjectWithBodyWithResponse request with arbitrary body returning *UpdateProjectResponse
+func (c *ClientWithResponses) UpdateProjectWithBodyWithResponse(ctx context.Context, agentID string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProjectWithBody(ctx, agentID, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProjectResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateProjectWithResponse(ctx context.Context, agentID string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProject(ctx, agentID, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProjectResponse(rsp)
+}
+
 // ListSchedulerJobsWithResponse request returning *ListSchedulerJobsResponse
 func (c *ClientWithResponses) ListSchedulerJobsWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*ListSchedulerJobsResponse, error) {
 	rsp, err := c.ListSchedulerJobs(ctx, agentID, reqEditors...)
@@ -15001,67 +15062,6 @@ func (c *ClientWithResponses) ListAgentTaskEventsWithResponse(ctx context.Contex
 	return ParseListAgentTaskEventsResponse(rsp)
 }
 
-// ListProjectsWithResponse request returning *ListProjectsResponse
-func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agentId string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
-	rsp, err := c.ListProjects(ctx, agentId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListProjectsResponse(rsp)
-}
-
-// CreateProjectWithBodyWithResponse request with arbitrary body returning *CreateProjectResponse
-func (c *ClientWithResponses) CreateProjectWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
-	rsp, err := c.CreateProjectWithBody(ctx, agentId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateProjectResponse(rsp)
-}
-
-func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, agentId string, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
-	rsp, err := c.CreateProject(ctx, agentId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateProjectResponse(rsp)
-}
-
-// DeleteProjectWithResponse request returning *DeleteProjectResponse
-func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error) {
-	rsp, err := c.DeleteProject(ctx, agentId, projectId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteProjectResponse(rsp)
-}
-
-// GetProjectWithResponse request returning *GetProjectResponse
-func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, agentId string, projectId string, reqEditors ...RequestEditorFn) (*GetProjectResponse, error) {
-	rsp, err := c.GetProject(ctx, agentId, projectId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetProjectResponse(rsp)
-}
-
-// UpdateProjectWithBodyWithResponse request with arbitrary body returning *UpdateProjectResponse
-func (c *ClientWithResponses) UpdateProjectWithBodyWithResponse(ctx context.Context, agentId string, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
-	rsp, err := c.UpdateProjectWithBody(ctx, agentId, projectId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProjectResponse(rsp)
-}
-
-func (c *ClientWithResponses) UpdateProjectWithResponse(ctx context.Context, agentId string, projectId string, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
-	rsp, err := c.UpdateProject(ctx, agentId, projectId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateProjectResponse(rsp)
-}
-
 // DeleteAgentWithResponse request returning *DeleteAgentResponse
 func (c *ClientWithResponses) DeleteAgentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentResponse, error) {
 	rsp, err := c.DeleteAgent(ctx, id, reqEditors...)
@@ -15317,8 +15317,8 @@ func (c *ClientWithResponses) ListProfileMemoriesWithResponse(ctx context.Contex
 }
 
 // DeleteProfileMemoryWithResponse request returning *DeleteProfileMemoryResponse
-func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error) {
-	rsp, err := c.DeleteProfileMemory(ctx, agentId, reqEditors...)
+func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Context, agentID string, reqEditors ...RequestEditorFn) (*DeleteProfileMemoryResponse, error) {
+	rsp, err := c.DeleteProfileMemory(ctx, agentID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -15326,16 +15326,16 @@ func (c *ClientWithResponses) DeleteProfileMemoryWithResponse(ctx context.Contex
 }
 
 // SetProfileMemoryWithBodyWithResponse request with arbitrary body returning *SetProfileMemoryResponse
-func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
-	rsp, err := c.SetProfileMemoryWithBody(ctx, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileMemoryWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemoryWithBody(ctx, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetProfileMemoryResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, agentId string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
-	rsp, err := c.SetProfileMemory(ctx, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileMemoryWithResponse(ctx context.Context, agentID string, body SetProfileMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileMemoryResponse, error) {
+	rsp, err := c.SetProfileMemory(ctx, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -15414,16 +15414,16 @@ func (c *ClientWithResponses) ChangePasswordWithResponse(ctx context.Context, bo
 }
 
 // SetProfileSoulWithBodyWithResponse request with arbitrary body returning *SetProfileSoulResponse
-func (c *ClientWithResponses) SetProfileSoulWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
-	rsp, err := c.SetProfileSoulWithBody(ctx, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileSoulWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoulWithBody(ctx, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetProfileSoulResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetProfileSoulWithResponse(ctx context.Context, agentId string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
-	rsp, err := c.SetProfileSoul(ctx, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetProfileSoulWithResponse(ctx context.Context, agentID string, body SetProfileSoulJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProfileSoulResponse, error) {
+	rsp, err := c.SetProfileSoul(ctx, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16193,8 +16193,8 @@ func (c *ClientWithResponses) ListUserMemoriesWithResponse(ctx context.Context, 
 }
 
 // DeleteUserMemoryWithResponse request returning *DeleteUserMemoryResponse
-func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id string, agentId string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
-	rsp, err := c.DeleteUserMemory(ctx, id, agentId, reqEditors...)
+func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, id string, agentID string, reqEditors ...RequestEditorFn) (*DeleteUserMemoryResponse, error) {
+	rsp, err := c.DeleteUserMemory(ctx, id, agentID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16202,16 +16202,16 @@ func (c *ClientWithResponses) DeleteUserMemoryWithResponse(ctx context.Context, 
 }
 
 // SetUserMemoryWithBodyWithResponse request with arbitrary body returning *SetUserMemoryResponse
-func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
-	rsp, err := c.SetUserMemoryWithBody(ctx, id, agentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) SetUserMemoryWithBodyWithResponse(ctx context.Context, id string, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+	rsp, err := c.SetUserMemoryWithBody(ctx, id, agentID, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseSetUserMemoryResponse(rsp)
 }
 
-func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id string, agentId string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
-	rsp, err := c.SetUserMemory(ctx, id, agentId, body, reqEditors...)
+func (c *ClientWithResponses) SetUserMemoryWithResponse(ctx context.Context, id string, agentID string, body SetUserMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserMemoryResponse, error) {
+	rsp, err := c.SetUserMemory(ctx, id, agentID, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16415,6 +16415,199 @@ func ParseCreateAgentResponse(rsp *http.Response) (*CreateAgentResponse, error) 
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListProjectsResponse parses an HTTP response from a ListProjectsWithResponse call
+func ParseListProjectsResponse(rsp *http.Response) (*ListProjectsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProjectsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateProjectResponse parses an HTTP response from a CreateProjectWithResponse call
+func ParseCreateProjectResponse(rsp *http.Response) (*CreateProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteProjectResponse parses an HTTP response from a DeleteProjectWithResponse call
+func ParseDeleteProjectResponse(rsp *http.Response) (*DeleteProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetProjectResponse parses an HTTP response from a GetProjectWithResponse call
+func ParseGetProjectResponse(rsp *http.Response) (*GetProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateProjectResponse parses an HTTP response from a UpdateProjectWithResponse call
+func ParseUpdateProjectResponse(rsp *http.Response) (*UpdateProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 
@@ -17591,199 +17784,6 @@ func ParseListAgentTaskEventsResponse(rsp *http.Response) (*ListAgentTaskEventsR
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListProjectsResponse parses an HTTP response from a ListProjectsWithResponse call
-func ParseListProjectsResponse(rsp *http.Response) (*ListProjectsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListProjectsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []externalRef0.Project
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateProjectResponse parses an HTTP response from a CreateProjectWithResponse call
-func ParseCreateProjectResponse(rsp *http.Response) (*CreateProjectResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateProjectResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.Project
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteProjectResponse parses an HTTP response from a DeleteProjectWithResponse call
-func ParseDeleteProjectResponse(rsp *http.Response) (*DeleteProjectResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteProjectResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetProjectResponse parses an HTTP response from a GetProjectWithResponse call
-func ParseGetProjectResponse(rsp *http.Response) (*GetProjectResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetProjectResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Project
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateProjectResponse parses an HTTP response from a UpdateProjectWithResponse call
-func ParseUpdateProjectResponse(rsp *http.Response) (*UpdateProjectResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateProjectResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Project
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

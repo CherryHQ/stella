@@ -824,7 +824,7 @@ export const listProjects = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{agentId}/projects",
+    url: "/api/agents/{agentID}/projects",
     ...options,
   });
 
@@ -840,7 +840,7 @@ export const createProject = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{agentId}/projects",
+    url: "/api/agents/{agentID}/projects",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -860,7 +860,7 @@ export const deleteProject = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{agentId}/projects/{projectId}",
+    url: "/api/agents/{agentID}/projects/{projectId}",
     ...options,
   });
 
@@ -876,7 +876,7 @@ export const getProject = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{agentId}/projects/{projectId}",
+    url: "/api/agents/{agentID}/projects/{projectId}",
     ...options,
   });
 
@@ -892,7 +892,7 @@ export const updateProject = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{agentId}/projects/{projectId}",
+    url: "/api/agents/{agentID}/projects/{projectId}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1925,7 +1925,7 @@ export const deleteUserMemory = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/users/{id}/memories/{agentId}",
+    url: "/api/users/{id}/memories/{agentID}",
     ...options,
   });
 
@@ -1941,7 +1941,7 @@ export const setUserMemory = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/users/{id}/memories/{agentId}",
+    url: "/api/users/{id}/memories/{agentID}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2173,7 +2173,7 @@ export const deleteProfileMemory = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/memories/{agentId}",
+    url: "/api/auth/profile/memories/{agentID}",
     ...options,
   });
 
@@ -2189,7 +2189,7 @@ export const setProfileMemory = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/memories/{agentId}",
+    url: "/api/auth/profile/memories/{agentID}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2209,7 +2209,7 @@ export const setProfileSoul = <ThrowOnError extends boolean = false>(
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/auth/profile/soul/{agentId}",
+    url: "/api/auth/profile/soul/{agentID}",
     ...options,
     headers: {
       "Content-Type": "application/json",

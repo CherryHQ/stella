@@ -374,6 +374,12 @@ type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
 // bearerAuthContextKey is the context key for BearerAuth security scheme
 type bearerAuthContextKey string
 
+// ListProjectsParams defines parameters for ListProjects.
+type ListProjectsParams struct {
+	// IncludeArchived Include archived projects
+	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
 // ListSessionsParams defines parameters for ListSessions.
 type ListSessionsParams struct {
 	// Limit Maximum number of sessions to return
@@ -437,12 +443,6 @@ type UploadWorkspaceFileMultipartBody struct {
 // ListAgentTasksParams defines parameters for ListAgentTasks.
 type ListAgentTasksParams struct {
 	Status *string `form:"status,omitempty" json:"status,omitempty"`
-}
-
-// ListProjectsParams defines parameters for ListProjects.
-type ListProjectsParams struct {
-	// IncludeArchived Include archived projects
-	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
 // ListAgentSkillsParams defines parameters for ListAgentSkills.
@@ -554,6 +554,12 @@ type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInp
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
+
 // CreateSchedulerJobJSONRequestBody defines body for CreateSchedulerJob for application/json ContentType.
 type CreateSchedulerJobJSONRequestBody = externalRef0.JobInput
 
@@ -589,12 +595,6 @@ type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
-
-// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
-type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
-
-// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
-type UpdateProjectJSONRequestBody = externalRef0.UpdateProjectRequest
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
@@ -715,6 +715,21 @@ type ServerInterface interface {
 	// Create an agent
 	// (POST /api/agents)
 	CreateAgent(w http.ResponseWriter, r *http.Request)
+	// List projects for an agent
+	// (GET /api/agents/{agentID}/projects)
+	ListProjects(w http.ResponseWriter, r *http.Request, agentID string, params ListProjectsParams)
+	// Create a project
+	// (POST /api/agents/{agentID}/projects)
+	CreateProject(w http.ResponseWriter, r *http.Request, agentID string)
+	// Delete a project
+	// (DELETE /api/agents/{agentID}/projects/{projectId})
+	DeleteProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
+	// Get a project
+	// (GET /api/agents/{agentID}/projects/{projectId})
+	GetProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
+	// Update a project
+	// (PUT /api/agents/{agentID}/projects/{projectId})
+	UpdateProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
 	// List scheduler jobs
 	// (GET /api/agents/{agentID}/scheduler/jobs)
 	ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string)
@@ -793,21 +808,6 @@ type ServerInterface interface {
 	// List agent task events
 	// (GET /api/agents/{agentID}/tasks/{taskID}/events)
 	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
-	// List projects for an agent
-	// (GET /api/agents/{agentId}/projects)
-	ListProjects(w http.ResponseWriter, r *http.Request, agentId string, params ListProjectsParams)
-	// Create a project
-	// (POST /api/agents/{agentId}/projects)
-	CreateProject(w http.ResponseWriter, r *http.Request, agentId string)
-	// Delete a project
-	// (DELETE /api/agents/{agentId}/projects/{projectId})
-	DeleteProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
-	// Get a project
-	// (GET /api/agents/{agentId}/projects/{projectId})
-	GetProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
-	// Update a project
-	// (PUT /api/agents/{agentId}/projects/{projectId})
-	UpdateProject(w http.ResponseWriter, r *http.Request, agentId string, projectId string)
 	// Delete an agent
 	// (DELETE /api/agents/{id})
 	DeleteAgent(w http.ResponseWriter, r *http.Request, id string)
@@ -875,11 +875,11 @@ type ServerInterface interface {
 	// (GET /api/auth/profile/memories)
 	ListProfileMemories(w http.ResponseWriter, r *http.Request)
 	// Delete the memory for a specific agent
-	// (DELETE /api/auth/profile/memories/{agentId})
-	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// (DELETE /api/auth/profile/memories/{agentID})
+	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// Set the memory for a specific agent
-	// (PUT /api/auth/profile/memories/{agentId})
-	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentId string)
+	// (PUT /api/auth/profile/memories/{agentID})
+	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// List OAuth provider statuses for the current user
 	// (GET /api/auth/profile/oauth/providers)
 	ListOAuthProviders(w http.ResponseWriter, r *http.Request)
@@ -902,8 +902,8 @@ type ServerInterface interface {
 	// (PUT /api/auth/profile/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request)
 	// Set the soul for a specific agent
-	// (PUT /api/auth/profile/soul/{agentId})
-	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentId string)
+	// (PUT /api/auth/profile/soul/{agentID})
+	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string)
 	// List vault entries for the current user
 	// (GET /api/auth/profile/vault)
 	ListVaultEntries(w http.ResponseWriter, r *http.Request)
@@ -1103,11 +1103,11 @@ type ServerInterface interface {
 	// (GET /api/users/{id}/memories)
 	ListUserMemories(w http.ResponseWriter, r *http.Request, id string)
 	// Delete memory for a user and agent (admin only)
-	// (DELETE /api/users/{id}/memories/{agentId})
-	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
+	// (DELETE /api/users/{id}/memories/{agentID})
+	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Set memory for a user and agent (admin only)
-	// (PUT /api/users/{id}/memories/{agentId})
-	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentId string)
+	// (PUT /api/users/{id}/memories/{agentID})
+	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Update the notify identity for a user (admin only)
 	// (PUT /api/users/{id}/notify-identity)
 	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string)
@@ -1249,6 +1249,209 @@ func (siw *ServerInterfaceWrapper) CreateAgent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateAgent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectsParams
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjects(w, r, agentID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProject(w, r, agentID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProject operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProject(w, r, agentID, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProject operation middleware
+func (siw *ServerInterfaceWrapper) GetProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProject(w, r, agentID, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProject operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProject(w, r, agentID, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2467,209 +2670,6 @@ func (siw *ServerInterfaceWrapper) ListAgentTaskEvents(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// ListProjects operation middleware
-func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListProjectsParams
-
-	// ------------- Optional query parameter "include_archived" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListProjects(w, r, agentId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateProject operation middleware
-func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateProject(w, r, agentId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteProject operation middleware
-func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "projectId" -------------
-	var projectId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProject(w, r, agentId, projectId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetProject operation middleware
-func (siw *ServerInterfaceWrapper) GetProject(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "projectId" -------------
-	var projectId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProject(w, r, agentId, projectId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateProject operation middleware
-func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "projectId" -------------
-	var projectId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateProject(w, r, agentId, projectId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // DeleteAgent operation middleware
 func (siw *ServerInterfaceWrapper) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 
@@ -3550,12 +3550,12 @@ func (siw *ServerInterfaceWrapper) DeleteProfileMemory(w http.ResponseWriter, r 
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -3566,7 +3566,7 @@ func (siw *ServerInterfaceWrapper) DeleteProfileMemory(w http.ResponseWriter, r 
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteProfileMemory(w, r, agentId)
+		siw.Handler.DeleteProfileMemory(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3582,12 +3582,12 @@ func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *ht
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -3598,7 +3598,7 @@ func (siw *ServerInterfaceWrapper) SetProfileMemory(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProfileMemory(w, r, agentId)
+		siw.Handler.SetProfileMemory(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3846,12 +3846,12 @@ func (siw *ServerInterfaceWrapper) SetProfileSoul(w http.ResponseWriter, r *http
 	var err error
 	_ = err
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -3862,7 +3862,7 @@ func (siw *ServerInterfaceWrapper) SetProfileSoul(w http.ResponseWriter, r *http
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetProfileSoul(w, r, agentId)
+		siw.Handler.SetProfileSoul(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5964,12 +5964,12 @@ func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -5980,7 +5980,7 @@ func (siw *ServerInterfaceWrapper) DeleteUserMemory(w http.ResponseWriter, r *ht
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteUserMemory(w, r, id, agentId)
+		siw.Handler.DeleteUserMemory(w, r, id, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6005,12 +6005,12 @@ func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// ------------- Path parameter "agentId" -------------
-	var agentId string
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
 
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
 		return
 	}
 
@@ -6021,7 +6021,7 @@ func (siw *ServerInterfaceWrapper) SetUserMemory(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetUserMemory(w, r, id, agentId)
+		siw.Handler.SetUserMemory(w, r, id, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6188,6 +6188,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.SetOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents", wrapper.CreateAgent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.ListProjects)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.CreateProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.DeleteProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.GetProject)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.UpdateProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.ListSchedulerJobs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.CreateSchedulerJob)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.DeleteSchedulerJob)
@@ -6214,11 +6219,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.UpdateAgentTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/action", wrapper.AgentTaskAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/events", wrapper.ListAgentTaskEvents)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentId}/projects", wrapper.ListProjects)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentId}/projects", wrapper.CreateProject)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.DeleteProject)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.GetProject)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentId}/projects/{projectId}", wrapper.UpdateProject)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}", wrapper.DeleteAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}", wrapper.GetAgent)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)
@@ -6241,8 +6241,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/memories", wrapper.ListProfileMemories)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.DeleteProfileMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentId}", wrapper.SetProfileMemory)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.DeleteProfileMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.SetProfileMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/providers", wrapper.ListOAuthProviders)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}", wrapper.DisconnectOAuth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/callback", wrapper.OauthCallback)
@@ -6250,7 +6250,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/start", wrapper.StartOAuthFlow)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/status/{flowID}", wrapper.PollOAuthFlow)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentId}", wrapper.SetProfileSoul)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentID}", wrapper.SetProfileSoul)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
@@ -6317,8 +6317,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.DeleteUserMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentId}", wrapper.SetUserMemory)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.DeleteUserMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.SetUserMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/notify-identity", wrapper.UpdateUserNotifyIdentity)
 
 	return m
