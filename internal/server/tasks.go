@@ -28,6 +28,11 @@ func (s *Server) ListAgentTasks(w http.ResponseWriter, r *http.Request, params a
 		userID = info.UserID
 	}
 
+	if _, code, msg := s.requireAgentAccess(r.Context(), params.AgentId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
 	var statusFilter string
 	if params.Status != nil {
 		statusFilter = *params.Status
@@ -64,6 +69,10 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.AgentId == "" {
 		writeError(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), body.AgentId); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
