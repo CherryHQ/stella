@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
-import { api } from "@/lib/api";
+import { listSchedulerJobRuns } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -87,11 +87,11 @@ export function AutomationDashPanel({
       await Promise.all(
         schedulerJobs.slice(0, 10).map(async (job) => {
           try {
-            const res = await api<SchedulerJobRun[]>(
-              "GET",
-              `/api/agents/${encodeURIComponent(job.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(job.id)}/runs`,
-            );
-            for (const r of res ?? []) {
+            const { data } = await listSchedulerJobRuns({
+              path: { agentID: job.agent_id || agentId, jobID: job.id },
+              throwOnError: true,
+            });
+            for (const r of (data ?? []) as SchedulerJobRun[]) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -120,11 +120,11 @@ export function AutomationDashPanel({
     async (jobId: string) => {
       setJobRunsLoading(true);
       try {
-        const res = await api<SchedulerJobRun[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(selectedJob?.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-        );
-        setJobRuns(res ?? []);
+        const { data } = await listSchedulerJobRuns({
+          path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
+          throwOnError: true,
+        });
+        setJobRuns((data ?? []) as SchedulerJobRun[]);
       } catch {
         setJobRuns([]);
       } finally {

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { useI18n } from "@/lib/i18n";
-import { api } from "@/lib/api";
+import {
+  createSchedulerJob,
+  deleteSchedulerJob,
+  getSchedulerJob,
+  listSchedulerJobRuns,
+  triggerSchedulerJob,
+  updateSchedulerJob,
+} from "@/lib/api-client";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
@@ -161,16 +168,17 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setLoading(true);
     try {
-      const [j, jobRuns] = await Promise.all([
-        api<SchedulerJob>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}`,
-        ),
-        api<SchedulerJobRun[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-        ).catch(() => []),
+      const [{ data: jRaw }, { data: jobRuns }] = await Promise.all([
+        getSchedulerJob({
+          path: { agentID: agentId, jobID: jobId },
+          throwOnError: true,
+        }),
+        listSchedulerJobRuns({
+          path: { agentID: agentId, jobID: jobId },
+          throwOnError: true,
+        }).catch(() => ({ data: [] as SchedulerJobRun[] })),
       ]);
+      const j = jRaw as unknown as SchedulerJob;
       const f: Form = {
         name: j.name,
         schedule_type: j.cron ? "cron" : "every",
@@ -183,7 +191,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
       setJob(j);
       setForm(f);
       setSavedForm(f);
-      setRuns(jobRuns ?? []);
+      setRuns((jobRuns ?? []) as SchedulerJobRun[]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -216,13 +224,17 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         agent_id: agentId,
       };
       if (isNew) {
-        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs`, payload);
+        await createSchedulerJob({
+          path: { agentID: agentId },
+          body: payload,
+          throwOnError: true,
+        });
       } else {
-        await api(
-          "PUT",
-          `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId!)}`,
-          payload,
-        );
+        await updateSchedulerJob({
+          path: { agentID: agentId, jobID: jobId! },
+          body: payload,
+          throwOnError: true,
+        });
       }
       setSavedForm(form);
       onSaved();
@@ -237,10 +249,10 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setDeleting(true);
     try {
-      await api(
-        "DELETE",
-        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}`,
-      );
+      await deleteSchedulerJob({
+        path: { agentID: agentId, jobID: jobId },
+        throwOnError: true,
+      });
       onDeleted();
     } catch (e) {
       console.error(e);
@@ -253,10 +265,10 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setRunning(true);
     try {
-      await api(
-        "POST",
-        `/api/agents/${encodeURIComponent(agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
-      );
+      await triggerSchedulerJob({
+        path: { agentID: agentId, jobID: jobId },
+        throwOnError: true,
+      });
       await load();
     } catch (e) {
       console.error(e);

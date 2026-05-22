@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { getAgent, updateAgent } from "@/lib/api-client";
 import type { AgentDetail } from "@/lib/types";
+import type { ComponentsAgent } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,7 +23,11 @@ export function SoulPanel({ agentId }: Props) {
     if (!agentId) return;
     setLoading(true);
     try {
-      const a = await api<AgentDetail>("GET", `/api/agents/${encodeURIComponent(agentId)}`);
+      const { data } = await getAgent({
+        path: { id: agentId },
+        throwOnError: true,
+      });
+      const a = data as unknown as AgentDetail;
       setAgent(a);
       setSoul(a.soul ?? "");
       setEditing(false);
@@ -50,7 +55,11 @@ export function SoulPanel({ agentId }: Props) {
     if (!agent) return;
     setSaving(true);
     try {
-      await api("PUT", `/api/agents/${encodeURIComponent(agentId)}`, { ...agent, soul: draft });
+      await updateAgent({
+        path: { id: agentId },
+        body: { ...agent, soul: draft } as unknown as ComponentsAgent,
+        throwOnError: true,
+      });
       setSoul(draft);
       setAgent((prev) => (prev ? { ...prev, soul: draft } : prev));
       setEditing(false);
