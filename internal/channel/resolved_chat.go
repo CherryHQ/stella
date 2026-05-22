@@ -38,6 +38,14 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {
+	if rc.User.ID == "" {
+		return nil, "", fmt.Errorf("missing user context")
+	}
+	if rc.AgentID == "" {
+		return nil, "", fmt.Errorf("missing agent context")
+	}
+	ctx = memory.WithUserID(ctx, rc.User.ID)
+	ctx = memory.WithAgentID(ctx, rc.AgentID)
 	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
