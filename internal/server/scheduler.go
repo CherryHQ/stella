@@ -309,12 +309,11 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
-	if existing.OwnerKind == scheduler.JobOwnerPlugin {
-		writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
+	if existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem {
+		writeError(w, http.StatusForbidden, "cannot manually trigger system or plugin jobs")
 		return
 	}
-	isGlobal := existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
