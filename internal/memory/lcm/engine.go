@@ -68,7 +68,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 	p.globalMu.Unlock()
 
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
 	if err == nil {
 		p.cacheConvID(session.ID, conv.ID)
 		return conv.ID, nil

@@ -33,9 +33,9 @@ type tokenStore interface {
 	GetUser(ctx context.Context, id string) (AuthUser, error)
 }
 
-// VaultWriter writes plaintext secrets to the per-user vault.
+// VaultWriter writes internal plaintext secrets to the per-user vault.
 type VaultWriter interface {
-	Set(ctx context.Context, userID string, name string, plaintext string) error
+	SetReserved(ctx context.Context, userID string, name string, plaintext string) error
 }
 
 type vaultLoader interface {
@@ -86,7 +86,7 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 	if err != nil {
 		return err
 	}
-	if err := s.vault.Set(ctx, userID, StellaTokenName, plaintext); err != nil {
+	if err := s.vault.SetReserved(ctx, userID, StellaTokenName, plaintext); err != nil {
 		return fmt.Errorf("token service: write auto token to vault: %w", err)
 	}
 	return s.createAutoTokenRecord(ctx, userID, plaintext)
@@ -128,7 +128,7 @@ func (s *TokenService) rotateAutoToken(ctx context.Context, token UserToken) err
 	if err != nil {
 		return err
 	}
-	if err := s.vault.Set(ctx, token.UserID, StellaTokenName, plaintext); err != nil {
+	if err := s.vault.SetReserved(ctx, token.UserID, StellaTokenName, plaintext); err != nil {
 		return fmt.Errorf("token service: write rotated token to vault: %w", err)
 	}
 	return s.createAutoTokenRecord(ctx, token.UserID, plaintext)

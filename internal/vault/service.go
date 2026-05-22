@@ -69,8 +69,19 @@ func (s *Service) DecryptSystem(ciphertext string) (string, error) {
 // Set validates name, encrypts plaintext with the user's public key, and
 // upserts the vault entry. The user must already have age keys provisioned.
 func (s *Service) Set(ctx context.Context, userID string, name string, plaintext string) error {
-	if err := ValidateName(name); err != nil {
-		return err
+	return s.set(ctx, userID, name, plaintext, true)
+}
+
+// SetReserved stores an internal reserved env var. Callers must not pass user input.
+func (s *Service) SetReserved(ctx context.Context, userID string, name string, plaintext string) error {
+	return s.set(ctx, userID, name, plaintext, false)
+}
+
+func (s *Service) set(ctx context.Context, userID string, name string, plaintext string, validate bool) error {
+	if validate {
+		if err := ValidateName(name); err != nil {
+			return err
+		}
 	}
 
 	user, err := s.db.GetAuthUser(ctx, userID)

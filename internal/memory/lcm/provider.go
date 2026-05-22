@@ -164,7 +164,7 @@ func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget,
 
 // Stats implements memory.Provider.
 func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
 	if errors.Is(err, sql.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
@@ -209,7 +209,7 @@ func (p *Provider) Close() error {
 
 // NeedsCompaction implements memory.Compactor.
 func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, threshold float64) bool {
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}})
+	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: session.ID, UserID: sql.NullString{String: session.UserID, Valid: true}, AgentID: nullAgent(session.AgentID)})
 	if err != nil {
 		return false
 	}
