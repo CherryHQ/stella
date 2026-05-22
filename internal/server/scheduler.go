@@ -59,10 +59,11 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		sessionMode = *body.SessionMode
 	}
 
-	var userID string
-	if info != nil {
-		userID = info.UserID
+	if info == nil {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
+	userID := info.UserID
 
 	agentID := derefStr(body.AgentId)
 
@@ -304,12 +305,16 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
 	if existing.OwnerKind == scheduler.JobOwnerPlugin {
 		writeError(w, http.StatusForbidden, "cannot manually trigger plugin jobs")
 		return
 	}
 	isGlobal := existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if !isGlobal && (!existing.UserID.Valid || existing.UserID.String != info.UserID) {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
