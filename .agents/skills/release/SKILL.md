@@ -26,9 +26,19 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    ```
 3. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
 4. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and `web/package.json`.
-5. Tag: `git tag vX.Y.Z`.
-6. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-7. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
+5. Verify the commit succeeded and the working tree is clean:
+   ```bash
+   git status --short
+   git log --oneline -1
+   ```
+   Stop if the release commit is not `HEAD`; never tag before the commit exists.
+6. Tag the release commit and verify the tag points at `HEAD`:
+   ```bash
+   git tag vX.Y.Z
+   test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
+   ```
+7. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
+8. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
 
 ## Update Changelog
 
