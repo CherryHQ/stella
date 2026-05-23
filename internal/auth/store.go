@@ -5,8 +5,76 @@ import (
 	"time"
 )
 
+// --- New store interfaces (OIDC-based auth) ---
+
+// UserStore provides CRUD for auth_user.
+type UserStore interface {
+	CreateUser(ctx context.Context, u User) (User, error)
+	GetUser(ctx context.Context, id string) (User, error)
+	GetUserByEmail(ctx context.Context, email string) (User, error)
+	ListUsers(ctx context.Context) ([]User, error)
+	UpdateUser(ctx context.Context, u User) error
+	DeleteUser(ctx context.Context, id string) error
+	CountUsers(ctx context.Context) (int64, error)
+	UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error
+	UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error
+	UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error
+}
+
+// LoginIdentityStore provides CRUD for auth_identity (OIDC login identities).
+// DeleteLoginIdentity is intentionally absent — login identities are permanent.
+type LoginIdentityStore interface {
+	CreateLoginIdentity(ctx context.Context, i LoginIdentity) (LoginIdentity, error)
+	GetLoginIdentityByProvider(ctx context.Context, provider, providerSubject string) (LoginIdentity, error)
+	ListLoginIdentitiesByUser(ctx context.Context, userID string) ([]LoginIdentity, error)
+	UpdateLoginIdentity(ctx context.Context, i LoginIdentity) error
+}
+
+// ChannelIdentityStore provides CRUD for channel_identity (messaging platform identities).
+type ChannelIdentityStore interface {
+	CreateChannelIdentity(ctx context.Context, i ChannelIdentity) (ChannelIdentity, error)
+	GetChannelIdentity(ctx context.Context, id string) (ChannelIdentity, error)
+	GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (ChannelIdentity, error)
+	ListChannelIdentitiesByUser(ctx context.Context, userID string) ([]ChannelIdentity, error)
+	UpdateChannelIdentityExternalID(ctx context.Context, id, externalID string) error
+	DeleteChannelIdentity(ctx context.Context, id string) error
+}
+
+// SessionStore provides CRUD for auth_session (token-hash-based sessions).
+type SessionStore interface {
+	CreateSession(ctx context.Context, s Session) (Session, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
+	DeleteSession(ctx context.Context, id string) error
+	DeleteExpiredSessions(ctx context.Context) error
+	DeleteUserSessions(ctx context.Context, userID string) error
+	UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error
+}
+
+// OrganizationStore provides CRUD for auth_organization.
+type OrganizationStore interface {
+	CreateOrganization(ctx context.Context, o Organization) (Organization, error)
+	GetOrganization(ctx context.Context, id string) (Organization, error)
+	GetOrganizationBySource(ctx context.Context, source, externalID string) (Organization, error)
+	ListOrganizations(ctx context.Context) ([]Organization, error)
+	DeleteOrganization(ctx context.Context, id string) error
+}
+
+// MembershipStore provides CRUD for auth_membership.
+type MembershipStore interface {
+	CreateMembership(ctx context.Context, m Membership) (Membership, error)
+	GetMembership(ctx context.Context, userID, orgID string) (Membership, error)
+	GetUserMembership(ctx context.Context, userID string) (Membership, error) // first version: one user, one org
+	UpdateMembershipRole(ctx context.Context, id, role string) error
+	UpdateMembershipActive(ctx context.Context, id string, active bool) error
+	DeleteMembership(ctx context.Context, id string) error
+	CountOrgMembers(ctx context.Context, orgID string) (int64, error)
+}
+
+// --- Legacy store interface (kept during additive migration) ---
+
 // AuthStore provides typed access to auth-related data in the database.
 // This is separate from config.Store — auth methods are NOT mixed in.
+// Kept for the additive migration period; new OIDC auth code uses the split interfaces above.
 type AuthStore interface {
 	// Users
 	CreateUser(ctx context.Context, username, passwordHash string) (AuthUser, error)
