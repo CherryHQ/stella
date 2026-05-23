@@ -81,9 +81,6 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 	}
 	defer rollback()
 
-	// Snapshot the current stores, swap in tx-scoped ones.
-	saved := AuthService{users: s.users, logins: s.logins, sessions: s.sessions, organizations: s.organizations, memberships: s.memberships, db: s.db}
-	_ = saved // kept for reference; we build a tx-scoped service below
 	txSvc := &AuthService{
 		users:         stores.Users,
 		logins:        stores.Logins,
@@ -92,8 +89,10 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 		memberships:   stores.Memberships,
 		db:            s.db,
 	}
+	// Session insert must also run inside the transaction.
+	txSessionMgr := sessionMgr.WithStore(stores.Sessions)
 
-	result, err := txSvc.processOIDCLoginNoTx(ctx, ext, sessionMgr)
+	result, err := txSvc.processOIDCLoginNoTx(ctx, ext, txSessionMgr)
 	if err != nil {
 		return OIDCLoginResult{}, err
 	}
@@ -167,6 +166,11 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 		Email:  user.Email,
 		Role:   membership.Role,
 	}, nil
+}
+
+// UpdateUserAgeKeys stores vault age keys for userID in the OIDC user table.
+func (s *AuthService) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {
+	return s.users.UpdateUserAgeKeys(ctx, userID, publicKey, privateKey)
 }
 
 // Logout deletes the session identified by rawToken.

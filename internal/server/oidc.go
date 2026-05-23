@@ -7,6 +7,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/vault"
 )
 
 // ListAuthProviders handles GET /api/auth/providers.
@@ -109,6 +110,16 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Error("oidc: process login", "provider", providerName, "error", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
 		return
+	}
+
+	// Provision vault age keys for brand-new OIDC users.
+	if result.IsNewUser && s.vaultRecipient != nil {
+		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
+		if err != nil {
+			slog.Warn("oidc: generate age keys failed", "user_id", result.User.ID, "error", err)
+		} else if err := s.authSvc.UpdateUserAgeKeys(r.Context(), result.User.ID, pubKey, encPrivKey); err != nil {
+			slog.Warn("oidc: store age keys failed", "user_id", result.User.ID, "error", err)
+		}
 	}
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"

@@ -99,9 +99,11 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 	}
 	// Mirror into legacy auth_users so existing FK references (vault_entries,
 	// shares, auth_user_agents, etc.) remain valid during the additive migration.
-	_, _ = s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO auth_users (id, username, password_hash, role, is_active)
-		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email)
+		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email); err != nil {
+		return auth.User{}, fmt.Errorf("oidcstore: mirror user to auth_users: %w", err)
+	}
 	return created, nil
 }
 
@@ -160,8 +162,14 @@ func (s *OIDCStore) CountUsers(ctx context.Context) (int64, error) {
 
 func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {
 	const q = `UPDATE auth_user SET age_public_key=?, age_private_key=?, updated_at=datetime('now') WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID)
-	return err
+	if _, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID); err != nil {
+		return err
+	}
+	// Mirror to legacy table so vault reads work during the additive migration.
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE auth_users SET age_public_key=?, age_private_key=? WHERE id=?`,
+		publicKey, privateKey, userID)
+	return nil
 }
 
 func (s *OIDCStore) UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error {

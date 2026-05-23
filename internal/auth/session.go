@@ -103,6 +103,12 @@ func NewSessionManager(store SessionStore, vaultKey string) (*SessionManager, er
 	return &SessionManager{store: store, secret: secret}, nil
 }
 
+// WithStore returns a shallow copy of the SessionManager backed by a different
+// SessionStore. Used to run session creation inside a DB transaction.
+func (m *SessionManager) WithStore(store SessionStore) *SessionManager {
+	return &SessionManager{store: store, secret: m.secret}
+}
+
 // Create generates a new session for userID. Returns the raw token to set as
 // a cookie value; only the SHA-256 hash is stored in the DB.
 func (m *SessionManager) Create(ctx context.Context, userID string) (rawToken string, session Session, err error) {

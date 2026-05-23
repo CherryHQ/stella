@@ -194,13 +194,13 @@ func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
 	rawToken, err := auth.GetSessionCookie(r)
 	if err == nil {
 		ctx := r.Context()
-		// Revoke OIDC session (hash-based) if configured.
+		// Revoke OIDC session (hash-based lookup) when configured.
 		if s.authSvc != nil {
 			_ = s.authSvc.Logout(ctx, rawToken)
-		} else {
-			// Legacy session: cookie value is the raw session ID.
-			_ = s.authStore.DeleteSession(ctx, rawToken)
 		}
+		// Always attempt legacy deletion: cookie value is the session ID for
+		// legacy sessions; this is a no-op for OIDC-only sessions.
+		_ = s.authStore.DeleteSession(ctx, rawToken)
 	}
 	auth.ClearSessionCookie(w)
 	writeData(w, http.StatusOK, map[string]string{"status": "logged out"})
