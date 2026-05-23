@@ -25,6 +25,4 @@ func TestLogFunctions(t *testing.T) {
 	LogSessionCreated("s1", "docker", p)
 	LogSessionClosed("s1", "docker", "normal")
 	LogUnsupportedBackend(p, []string{"docker"}, "no daemon")
-	LogPolicyDenied("s1", "docker", "read", "/etc/passwd", "outside workspace")
-	LogExceptionPath("e1", "runner", "read", "extra detail")
 }

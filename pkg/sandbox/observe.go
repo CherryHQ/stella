@@ -41,22 +41,3 @@ func LogUnsupportedBackend(policy Policy, attempted []string, reason string) {
 		"working_dir", policy.Filesystem.WorkingDir,
 	)
 }
-
-func LogPolicyDenied(sessionID, backend, operation, resource, reason string) {
-	slog.Error("sandbox.policy_denied",
-		"session_id", sessionID,
-		"backend", backend,
-		"operation", operation,
-		"resource", resource,
-		"reason", reason,
-	)
-}
-
-func LogExceptionPath(exceptionID, component, accessType, detail string) {
-	slog.Warn("sandbox.exception_path",
-		"exception_id", exceptionID,
-		"component", component,
-		"access_type", accessType,
-		"detail", detail,
-	)
-}
