@@ -99,10 +99,21 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 	}
 	// Mirror into legacy auth_users so existing FK references (vault_entries,
 	// shares, auth_user_agents, etc.) remain valid during the additive migration.
-	if _, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO auth_users (id, username, password_hash, role, is_active)
-		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email); err != nil {
+		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email)
+	if err != nil {
 		return auth.User{}, fmt.Errorf("oidcstore: mirror user to auth_users: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Row was skipped by OR IGNORE — verify it's the same user (idempotent
+		// re-run) rather than a username conflict for a different user.
+		var existingID string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT id FROM auth_users WHERE id = ?`, created.ID,
+		).Scan(&existingID); err != nil {
+			return auth.User{}, fmt.Errorf("oidcstore: username conflict in auth_users prevents mirror for user %s", created.ID)
+		}
 	}
 	return created, nil
 }
@@ -165,10 +176,16 @@ func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, pr
 	if _, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID); err != nil {
 		return err
 	}
-	// Mirror to legacy table so vault reads work during the additive migration.
-	_, _ = s.db.ExecContext(ctx,
+	// Mirror to legacy table — required so vault reads work during additive migration.
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE auth_users SET age_public_key=?, age_private_key=? WHERE id=?`,
 		publicKey, privateKey, userID)
+	if err != nil {
+		return fmt.Errorf("oidcstore: mirror age keys to auth_users: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("oidcstore: auth_users mirror row not found for user %s", userID)
+	}
 	return nil
 }
 

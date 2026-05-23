@@ -85,10 +85,12 @@ type Membership struct {
 // Principal is the request-scoped identity injected into context by the auth
 // middleware. It replaces AuthInfo. All business logic depends on Principal.
 type Principal struct {
-	UserID string `json:"user_id"`
-	OrgID  string `json:"org_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"` // org-level role from membership
+	UserID    string `json:"user_id"`
+	OrgID     string `json:"org_id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+	Role      string `json:"role"` // org-level role from membership
 }
 
 // IsAdmin returns true if the principal holds the admin role.

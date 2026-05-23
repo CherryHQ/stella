@@ -213,12 +213,25 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"id":       info.UserID,
 		"username": info.Username,
 		"role":     info.Role,
 		"is_admin": info.IsAdmin,
-	})
+	}
+	if info.Email != "" {
+		resp["email"] = info.Email
+	}
+	if info.Name != "" {
+		resp["name"] = info.Name
+	}
+	if info.AvatarURL != "" {
+		resp["avatar_url"] = info.AvatarURL
+	}
+	if info.OrgID != "" {
+		resp["org_id"] = info.OrgID
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func isLocalhost(r *http.Request) bool {

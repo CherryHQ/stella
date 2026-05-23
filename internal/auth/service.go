@@ -161,11 +161,18 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 	}
 
 	return &Principal{
-		UserID: user.ID,
-		OrgID:  membership.OrganizationID,
-		Email:  user.Email,
-		Role:   membership.Role,
+		UserID:    user.ID,
+		OrgID:     membership.OrganizationID,
+		Email:     user.Email,
+		Name:      user.Name,
+		AvatarURL: user.AvatarURL,
+		Role:      membership.Role,
 	}, nil
+}
+
+// GetUserMembership returns the user's current org membership.
+func (s *AuthService) GetUserMembership(ctx context.Context, userID string) (Membership, error) {
+	return s.memberships.GetUserMembership(ctx, userID)
 }
 
 // UpdateUserAgeKeys stores vault age keys for userID in the OIDC user table.

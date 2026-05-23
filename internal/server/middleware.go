@@ -22,6 +22,11 @@ type AuthInfo struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	IsAdmin  bool   `json:"is_admin"`
+	// OIDC principal fields; empty for legacy (password-based) sessions.
+	Email     string `json:"email,omitempty"`
+	Name      string `json:"name,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	OrgID     string `json:"org_id,omitempty"`
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -160,10 +165,14 @@ func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *
 		return nil
 	}
 	return &AuthInfo{
-		UserID:   principal.UserID,
-		Username: principal.Email,
-		Role:     principal.Role,
-		IsAdmin:  principal.Role == "admin",
+		UserID:    principal.UserID,
+		Username:  principal.Email,
+		Role:      principal.Role,
+		IsAdmin:   principal.Role == "admin",
+		Email:     principal.Email,
+		Name:      principal.Name,
+		AvatarURL: principal.AvatarURL,
+		OrgID:     principal.OrgID,
 	}
 }
 
@@ -181,6 +190,14 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 			s.log.Warn("bearer token auth failed", "error", err)
 		}
 		return nil
+	}
+	// When OIDC is configured, enforce OIDC membership active status so that
+	// deactivating an org membership also blocks bearer token access.
+	if s.authSvc != nil {
+		membership, err := s.authSvc.GetUserMembership(ctx, user.ID)
+		if err != nil || !membership.IsActive {
+			return nil
+		}
 	}
 	return &AuthInfo{
 		UserID:   user.ID,
