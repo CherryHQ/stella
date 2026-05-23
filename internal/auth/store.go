@@ -70,6 +70,21 @@ type MembershipStore interface {
 	CountOrgMembers(ctx context.Context, orgID string) (int64, error)
 }
 
+// AuthStores groups the stores needed for a single transactional login flow.
+type AuthStores struct {
+	Users         UserStore
+	Logins        LoginIdentityStore
+	Sessions      SessionStore
+	Organizations OrganizationStore
+	Memberships   MembershipStore
+}
+
+// Transactioner is an optional interface that store implementations may satisfy
+// to run ProcessOIDCLogin atomically. OIDCStore implements this.
+type Transactioner interface {
+	BeginAuthTx(ctx context.Context) (stores AuthStores, commit func() error, rollback func(), err error)
+}
+
 // --- Legacy store interface (kept during additive migration) ---
 
 // AuthStore provides typed access to auth-related data in the database.

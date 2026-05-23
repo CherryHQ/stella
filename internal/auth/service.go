@@ -66,25 +66,60 @@ type OIDCLoginResult struct {
 // (backfill-created default) org, that membership is replaced by the OIDC org
 // membership. If the old org becomes empty it is deleted.
 func (s *AuthService) ProcessOIDCLogin(ctx context.Context, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
-	// Upsert organization.
+	// Use a real DB transaction when the store supports it (OIDCStore does).
+	if txner, ok := s.users.(Transactioner); ok {
+		return s.processOIDCLoginTx(ctx, txner, ext, sessionMgr)
+	}
+	return s.processOIDCLoginNoTx(ctx, ext, sessionMgr)
+}
+
+// processOIDCLoginTx runs the full login flow in a single DB transaction.
+func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactioner, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
+	stores, commit, rollback, err := txner.BeginAuthTx(ctx)
+	if err != nil {
+		return OIDCLoginResult{}, fmt.Errorf("auth: begin login tx: %w", err)
+	}
+	defer rollback()
+
+	// Snapshot the current stores, swap in tx-scoped ones.
+	saved := AuthService{users: s.users, logins: s.logins, sessions: s.sessions, organizations: s.organizations, memberships: s.memberships, db: s.db}
+	_ = saved // kept for reference; we build a tx-scoped service below
+	txSvc := &AuthService{
+		users:         stores.Users,
+		logins:        stores.Logins,
+		sessions:      stores.Sessions,
+		organizations: stores.Organizations,
+		memberships:   stores.Memberships,
+		db:            s.db,
+	}
+
+	result, err := txSvc.processOIDCLoginNoTx(ctx, ext, sessionMgr)
+	if err != nil {
+		return OIDCLoginResult{}, err
+	}
+	if err := commit(); err != nil {
+		return OIDCLoginResult{}, fmt.Errorf("auth: commit login tx: %w", err)
+	}
+	return result, nil
+}
+
+// processOIDCLoginNoTx is the non-transactional implementation shared by both paths.
+func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
 	org, err := s.upsertOrganization(ctx, ext)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: upsert organization: %w", err)
 	}
 
-	// Resolve or create user + login identity.
 	user, isNewUser, err := s.resolveUser(ctx, ext)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	// Manage org membership.
 	membership, err := s.manageMembership(ctx, user.ID, org)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: manage membership: %w", err)
 	}
 
-	// Create session.
 	rawToken, session, err := sessionMgr.Create(ctx, user.ID)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: create session: %w", err)

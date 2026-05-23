@@ -17,6 +17,11 @@ import (
 //   - auth_users → auth_user  (id preserved, username used as email and name)
 //   - auth_identities → channel_identity  (id preserved)
 //   - one default organization + membership per user (role mirrors auth_users.role)
+//
+// Insertion order within the transaction:
+//  1. auth_user with notify_identity_id = NULL (avoids FK cycle with channel_identity)
+//  2. channel_identity rows (user_id → auth_user is now satisfied)
+//  3. UPDATE auth_user SET notify_identity_id for rows that had one
 func BackfillOIDCTables(ctx context.Context, db *sql.DB) (int, error) {
 	var count int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_user`).Scan(&count); err != nil {
@@ -66,7 +71,23 @@ func BackfillOIDCTables(ctx context.Context, db *sql.DB) (int, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Backfill channel_identity first so we can resolve notify_identity_id FKs.
+	// Step 1: insert auth_user with notify_identity_id = NULL to avoid FK cycle.
+	// channel_identity.user_id → auth_user requires auth_user to exist first.
+	for _, u := range users {
+		_, err = tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO auth_user
+			  (id, email, name, avatar_url, default_agent_id, notify_identity_id,
+			   age_public_key, age_private_key, created_at, updated_at)
+			VALUES (?, ?, ?, '', ?, NULL, ?, ?, ?, ?)`,
+			u.id, u.username, u.username,
+			u.defaultAgentID,
+			u.agePubKey, u.agePrivKey, u.createdAt, u.updatedAt)
+		if err != nil {
+			return 0, fmt.Errorf("oidc backfill: insert auth_user %s: %w", u.id, err)
+		}
+	}
+
+	// Step 2: insert channel_identity (user_id FK now satisfied).
 	ciRows, err := tx.QueryContext(ctx, `SELECT id, user_id, platform, external_id, name, linked_at FROM auth_identities`)
 	if err != nil {
 		return 0, fmt.Errorf("oidc backfill: list auth_identities: %w", err)
@@ -90,21 +111,21 @@ func BackfillOIDCTables(ctx context.Context, db *sql.DB) (int, error) {
 		return 0, fmt.Errorf("oidc backfill: iterate auth_identities: %w", err)
 	}
 
+	// Step 3: update auth_user.notify_identity_id now that channel_identity rows exist.
 	for _, u := range users {
-		// Copy to auth_user (notify_identity_id now points to channel_identity which we just inserted).
-		_, err = tx.ExecContext(ctx, `
-			INSERT OR IGNORE INTO auth_user
-			  (id, email, name, avatar_url, default_agent_id, notify_identity_id,
-			   age_public_key, age_private_key, created_at, updated_at)
-			VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)`,
-			u.id, u.username, u.username,
-			u.defaultAgentID, u.notifyIdentityID,
-			u.agePubKey, u.agePrivKey, u.createdAt, u.updatedAt)
-		if err != nil {
-			return 0, fmt.Errorf("oidc backfill: insert auth_user %s: %w", u.id, err)
+		if u.notifyIdentityID == nil {
+			continue
 		}
+		_, err = tx.ExecContext(ctx,
+			`UPDATE auth_user SET notify_identity_id = ? WHERE id = ?`,
+			*u.notifyIdentityID, u.id)
+		if err != nil {
+			return 0, fmt.Errorf("oidc backfill: update notify_identity_id for user %s: %w", u.id, err)
+		}
+	}
 
-		// Create a default organization named after the user.
+	// Step 4: create default org + membership for each user.
+	for _, u := range users {
 		orgID := uuid.NewString()
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO auth_organization (id, name, external_id, source, created_at, updated_at)

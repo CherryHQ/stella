@@ -20,14 +20,55 @@ const oidcTimeLayout = "2006-01-02 15:04:05"
 // The new tables are not included in the sqlc schema glob to avoid struct name
 // conflicts with the legacy auth_users/auth_sessions/auth_identities tables
 // during the additive migration period.
+// dbQuerier is satisfied by both *sql.DB and *sql.Tx, allowing OIDCStore to
+// operate inside or outside a transaction without code duplication.
+type dbQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 type OIDCStore struct {
-	db *sql.DB
+	db    dbQuerier
+	rawDB *sql.DB // non-nil only for the root store; nil for tx-scoped copies
 }
 
 // NewOIDCStore creates an OIDCStore backed by the given database connection.
 func NewOIDCStore(db *sql.DB) *OIDCStore {
-	return &OIDCStore{db: db}
+	return &OIDCStore{db: db, rawDB: db}
 }
+
+// withTx returns a copy of OIDCStore that runs all queries through tx.
+// Used by AuthService.ProcessOIDCLogin to make the login flow transactional.
+func (s *OIDCStore) withTx(tx *sql.Tx) *OIDCStore {
+	return &OIDCStore{db: tx}
+}
+
+// BeginAuthTx starts a database transaction and returns tx-scoped copies of
+// all auth stores. Implements auth.Transactioner so AuthService.ProcessOIDCLogin
+// can run the entire login flow atomically.
+func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() error, func(), error) {
+	if s.rawDB == nil {
+		return auth.AuthStores{}, nil, nil, fmt.Errorf("oidcstore: BeginAuthTx called on a tx-scoped store")
+	}
+	tx, err := s.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return auth.AuthStores{}, nil, nil, err
+	}
+	txStore := s.withTx(tx)
+	stores := auth.AuthStores{
+		Users:         txStore,
+		Logins:        txStore,
+		Sessions:      txStore,
+		Organizations: txStore,
+		Memberships:   txStore,
+	}
+	rollback := func() { _ = tx.Rollback() }
+	return stores, tx.Commit, rollback, nil
+}
+
+// Ensure OIDCStore satisfies auth.Transactioner at compile time.
+var _ auth.Transactioner = (*OIDCStore)(nil)
 
 // Ensure OIDCStore satisfies all five new store interfaces at compile time.
 var (
@@ -52,7 +93,16 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 	           default_agent_id, notify_identity_id, age_public_key, age_private_key,
 	           created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.AgePublicKey)
-	return scanUser(row)
+	created, err := scanUser(row)
+	if err != nil {
+		return auth.User{}, err
+	}
+	// Mirror into legacy auth_users so existing FK references (vault_entries,
+	// shares, auth_user_agents, etc.) remain valid during the additive migration.
+	_, _ = s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO auth_users (id, username, password_hash, role, is_active)
+		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email)
+	return created, nil
 }
 
 func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {

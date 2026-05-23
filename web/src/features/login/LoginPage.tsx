@@ -11,6 +11,8 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
+import { unwrapApiData } from "@/lib/api-data";
+import type { OidcProviderList } from "@/lib/api-client/types.gen";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -27,7 +29,7 @@ export function LoginPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
-  const providers = providersData?.data?.providers ?? [];
+  const providers = unwrapApiData<OidcProviderList>(providersData?.data)?.providers ?? [];
   const hasOIDC = providers.length > 0;
 
   function toggleMode() {

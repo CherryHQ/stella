@@ -191,9 +191,16 @@ func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
 
 // Logout handles POST /api/auth/logout.
 func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
-	sessionID, err := auth.GetSessionCookie(r)
+	rawToken, err := auth.GetSessionCookie(r)
 	if err == nil {
-		_ = s.authStore.DeleteSession(r.Context(), sessionID)
+		ctx := r.Context()
+		// Revoke OIDC session (hash-based) if configured.
+		if s.authSvc != nil {
+			_ = s.authSvc.Logout(ctx, rawToken)
+		} else {
+			// Legacy session: cookie value is the raw session ID.
+			_ = s.authStore.DeleteSession(ctx, rawToken)
+		}
 	}
 	auth.ClearSessionCookie(w)
 	writeData(w, http.StatusOK, map[string]string{"status": "logged out"})
