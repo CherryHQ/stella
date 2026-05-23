@@ -78,6 +78,7 @@ import {
   listAgentTasks,
   listAgentUsers,
   listArticles,
+  listAuthProviders,
   listAuthUserAgents,
   listAuthUsers,
   listBuiltinResources,
@@ -353,6 +354,8 @@ import type {
   ListArticlesData,
   ListArticlesError,
   ListArticlesResponse,
+  ListAuthProvidersData,
+  ListAuthProvidersResponse,
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
@@ -721,6 +724,34 @@ export const getMeOptions = (options?: Options<GetMeData>) =>
       return data;
     },
     queryKey: getMeQueryKey(options),
+  });
+
+export const listAuthProvidersQueryKey = (
+  options?: Options<ListAuthProvidersData>,
+) => createQueryKey("listAuthProviders", options);
+
+/**
+ * List available authentication providers
+ */
+export const listAuthProvidersOptions = (
+  options?: Options<ListAuthProvidersData>,
+) =>
+  queryOptions<
+    ListAuthProvidersResponse,
+    DefaultError,
+    ListAuthProvidersResponse,
+    ReturnType<typeof listAuthProvidersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthProviders({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthProvidersQueryKey(options),
   });
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) =>

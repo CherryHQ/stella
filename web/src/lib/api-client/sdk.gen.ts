@@ -211,6 +211,8 @@ import type {
   ListArticlesData,
   ListArticlesErrors,
   ListArticlesResponses,
+  ListAuthProvidersData,
+  ListAuthProvidersResponses,
   ListAuthUserAgentsData,
   ListAuthUserAgentsErrors,
   ListAuthUserAgentsResponses,
@@ -511,6 +513,18 @@ export const getMe = <ThrowOnError extends boolean = false>(
     url: "/api/auth/me",
     ...options,
   });
+
+/**
+ * List available authentication providers
+ */
+export const listAuthProviders = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAuthProvidersData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListAuthProvidersResponses,
+    unknown,
+    ThrowOnError
+  >({ url: "/api/auth/providers", ...options });
 
 /**
  * List agents (any authenticated user; non-admin sees accessible only)

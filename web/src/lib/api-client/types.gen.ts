@@ -757,6 +757,10 @@ export type ComponentsMeResponse = {
   username: string;
   role: string;
   is_admin: boolean;
+  email?: string;
+  name?: string;
+  avatar_url?: string;
+  org_id?: string;
 };
 
 export type MessagePart = {
@@ -813,6 +817,21 @@ export type ComponentsOAuthProviderStatus = {
   connected: boolean;
   username?: string;
   unavailable?: string;
+};
+
+export type OidcProvider = {
+  /**
+   * Human-readable provider name (e.g. "Zitadel")
+   */
+  name: string;
+  /**
+   * URL to redirect the browser to for login
+   */
+  login_url: string;
+};
+
+export type OidcProviderList = {
+  providers: Array<OidcProvider>;
 };
 
 export type ComponentsPluginView = {
@@ -1364,6 +1383,8 @@ export type _1Api1Auth1Logout = unknown;
 
 export type _1Api1Auth1Me = unknown;
 
+export type _1Api1Auth1Providers = unknown;
+
 export type _1Api1Auth1Register = unknown;
 
 export type _1Api1Builtin1Kind = unknown;
@@ -1660,6 +1681,23 @@ export type GetMeResponses = {
 };
 
 export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type ListAuthProvidersData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/auth/providers";
+};
+
+export type ListAuthProvidersResponses = {
+  /**
+   * ok
+   */
+  200: OidcProviderList;
+};
+
+export type ListAuthProvidersResponse =
+  ListAuthProvidersResponses[keyof ListAuthProvidersResponses];
 
 export type ListAgentsData = {
   body?: never;

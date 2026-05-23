@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { queryClient } from "@/lib/queryClient";
-import { login as loginRequest, register as registerRequest } from "@/lib/api-client/sdk.gen";
+import {
+  login as loginRequest,
+  register as registerRequest,
+  listAuthProviders,
+} from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 
@@ -16,6 +21,14 @@ export function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const { data: providersData } = useQuery({
+    queryKey: ["auth-providers"],
+    queryFn: () => listAuthProviders({ throwOnError: true }),
+    staleTime: 60_000,
+  });
+  const providers = providersData?.data?.providers ?? [];
+  const hasOIDC = providers.length > 0;
 
   function toggleMode() {
     setIsRegister(!isRegister);
@@ -78,7 +91,19 @@ export function LoginPage() {
           </div>
         )}
 
-        {!isRegister && (
+        {hasOIDC && (
+          <div className="space-y-3 mb-4">
+            {providers.map((p) => (
+              <a key={p.name} href={p.login_url} className="block">
+                <Button type="button" variant="outline" className="w-full">
+                  {t("login.signIn")} {p.name}
+                </Button>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {!hasOIDC && !isRegister && (
           <form onSubmit={login} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-medium font-mono">{t("login.username")}</label>
@@ -110,7 +135,7 @@ export function LoginPage() {
           </form>
         )}
 
-        {isRegister && (
+        {!hasOIDC && isRegister && (
           <form onSubmit={register} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-medium font-mono">{t("login.username")}</label>
@@ -156,11 +181,13 @@ export function LoginPage() {
           </form>
         )}
 
-        <div className="text-center mt-4">
-          <Button type="button" variant="ghost" size="sm" onClick={toggleMode}>
-            {isRegister ? t("login.alreadyHaveAccount") : t("login.needAccount")}
-          </Button>
-        </div>
+        {!hasOIDC && (
+          <div className="text-center mt-4">
+            <Button type="button" variant="ghost" size="sm" onClick={toggleMode}>
+              {isRegister ? t("login.alreadyHaveAccount") : t("login.needAccount")}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
