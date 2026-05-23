@@ -191,12 +191,19 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		}
 		return nil
 	}
-	// When OIDC is configured, enforce OIDC membership active status so that
-	// deactivating an org membership also blocks bearer token access.
+	// When OIDC is configured, bearer tokens must honor OIDC membership state
+	// and role; legacy auth_users.role may be stale after membership changes.
 	if s.authSvc != nil {
 		membership, err := s.authSvc.GetUserMembership(ctx, user.ID)
 		if err != nil || !membership.IsActive {
 			return nil
+		}
+		return &AuthInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Role:     membership.Role,
+			IsAdmin:  membership.Role == auth.RoleAdmin,
+			OrgID:    membership.OrganizationID,
 		}
 	}
 	return &AuthInfo{
