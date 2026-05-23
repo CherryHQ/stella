@@ -22,6 +22,13 @@
 -- atlas:import tables/auth_user_agents.sql
 -- atlas:import tables/auth_sessions.sql
 -- atlas:import tables/auth_user_tokens.sql
+-- New OIDC auth tables (additive migration — old tables above are kept unchanged)
+-- atlas:import tables/oidc/auth_organization.sql
+-- atlas:import tables/oidc/auth_user.sql
+-- atlas:import tables/oidc/channel_identity.sql
+-- atlas:import tables/oidc/auth_identity.sql
+-- atlas:import tables/oidc/auth_session.sql
+-- atlas:import tables/oidc/auth_membership.sql
 -- atlas:import tables/shares.sql
 -- atlas:import tables/plugin_state_entries.sql
 -- atlas:import tables/skills.sql

@@ -147,6 +147,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
+	// Backfill legacy auth data into new OIDC tables on first startup.
+	if n, err := appdb.BackfillOIDCTables(gctx, s.db); err != nil {
+		slog.Warn("oidc backfill failed", "error", err)
+	} else if n > 0 {
+		slog.Info("oidc backfill: migrated users to new auth tables", "count", n)
+	}
+
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
