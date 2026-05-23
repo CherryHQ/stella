@@ -919,6 +919,9 @@ type ServerInterface interface {
 	// Create or update a vault entry
 	// (PUT /api/auth/profile/vault/{name})
 	SetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
+	// List available authentication providers
+	// (GET /api/auth/providers)
+	ListAuthProviders(w http.ResponseWriter, r *http.Request)
 	// Register a new user account
 	// (POST /api/auth/register)
 	Register(w http.ResponseWriter, r *http.Request)
@@ -4032,6 +4035,20 @@ func (siw *ServerInterfaceWrapper) SetVaultEntry(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListAuthProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Register operation middleware
 func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
 
@@ -6300,6 +6317,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/providers", wrapper.ListAuthProviders)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)

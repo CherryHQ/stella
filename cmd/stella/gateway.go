@@ -18,6 +18,8 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
+	authzitadel "github.com/CherryHQ/stella/internal/auth/zitadel"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -152,6 +154,41 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("oidc backfill failed", "error", err)
 	} else if n > 0 {
 		slog.Info("oidc backfill: migrated users to new auth tables", "count", n)
+	}
+
+	// Wire OIDC authentication if configured via environment variables.
+	// Only attempt setup when at least OIDC_ISSUER_URL is set.
+	if os.Getenv("OIDC_ISSUER_URL") != "" {
+		cfg, err := authoidc.ConfigFromEnv()
+		if err != nil {
+			slog.Warn("oidc: invalid configuration", "error", err)
+		} else {
+			vaultKey := os.Getenv("STELLA_VAULT_KEY")
+			oidcStore := appdb.NewOIDCStore(s.db)
+			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
+			if err != nil {
+				slog.Warn("oidc: session manager init failed", "error", err)
+			} else {
+				stateMgr, err := authoidc.NewStateManager(vaultKey)
+				if err != nil {
+					slog.Warn("oidc: state manager init failed", "error", err)
+				} else {
+					provider, err := authzitadel.NewProvider(gctx, cfg)
+					if err != nil {
+						slog.Warn("oidc: provider init failed", "error", err)
+					} else {
+						adminSrv.SetOIDCAuth(
+							[]auth.AuthProvider{provider},
+							authSvc,
+							sessionMgr,
+							stateMgr,
+						)
+						slog.Info("oidc: authentication configured", "provider", provider.Name())
+					}
+				}
+			}
+		}
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)

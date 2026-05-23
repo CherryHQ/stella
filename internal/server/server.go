@@ -12,6 +12,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -47,6 +48,11 @@ type Server struct {
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	tasksSvc       *tasks.Service       // optional; if nil, task endpoints return 503
 	startedAt      time.Time
+	// OIDC auth (optional; if nil, OIDC login is disabled)
+	authProviders []auth.AuthProvider
+	authSvc       *auth.AuthService
+	sessionMgr    *auth.SessionManager
+	stateMgr      *authoidc.StateManager
 }
 
 // New creates an admin server with all API routes mounted.
@@ -120,6 +126,21 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 // If not set, those handlers write DB-only.
 func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
+}
+
+// SetOIDCAuth wires all OIDC authentication components into the server.
+// Call before serving requests. If not set, OIDC login is disabled and
+// ListAuthProviders returns an empty list.
+func (s *Server) SetOIDCAuth(
+	providers []auth.AuthProvider,
+	authSvc *auth.AuthService,
+	sessionMgr *auth.SessionManager,
+	stateMgr *authoidc.StateManager,
+) {
+	s.authProviders = providers
+	s.authSvc = authSvc
+	s.sessionMgr = sessionMgr
+	s.stateMgr = stateMgr
 }
 
 // CredentialsService returns the shared credentials service.

@@ -20,6 +20,9 @@ func (s *Server) registerAPIRoutes() {
 func (s *Server) registerStaticRoutes() {
 	s.mux.Handle("GET /static/", web.StaticHandler())
 	s.mux.HandleFunc("GET /{$}", s.redirectRoot)
+	// OIDC browser redirect flow — not OpenAPI routes.
+	s.mux.HandleFunc("GET /auth/login/{provider}", s.handleOIDCLogin)
+	s.mux.HandleFunc("GET /auth/callback/{provider}", s.handleOIDCCallback)
 }
 
 func (s *Server) registerPageRoutes() {

@@ -52,6 +52,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			path == "/api/auth/login" ||
 			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
+			path == "/api/auth/providers" ||
+			strings.HasPrefix(path, "/auth/login/") ||
+			strings.HasPrefix(path, "/auth/callback/") ||
 			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) {
 			next.ServeHTTP(w, r)
 			return
@@ -59,6 +62,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 		if info := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); info != nil {
+			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
+			return
+		}
+
+		// Try OIDC session (new auth_session table, token-hash lookup).
+		if info := s.authInfoFromOIDCSession(ctx, r); info != nil {
 			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 			return
 		}
@@ -136,6 +145,26 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 	})
+}
+
+func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *AuthInfo {
+	if s.sessionMgr == nil || s.authSvc == nil {
+		return nil
+	}
+	rawToken, err := s.sessionMgr.GetToken(r)
+	if err != nil {
+		return nil
+	}
+	principal, err := s.authSvc.PrincipalFromToken(ctx, rawToken)
+	if err != nil {
+		return nil
+	}
+	return &AuthInfo{
+		UserID:   principal.UserID,
+		Username: principal.Email,
+		Role:     principal.Role,
+		IsAdmin:  principal.Role == "admin",
+	}
 }
 
 func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInfo {

@@ -1044,6 +1044,9 @@ type ClientInterface interface {
 
 	SetVaultEntry(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListAuthProviders request
+	ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RegisterWithBody request with any body
 	RegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2462,6 +2465,18 @@ func (c *Client) SetVaultEntryWithBody(ctx context.Context, name string, content
 
 func (c *Client) SetVaultEntry(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetVaultEntryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAuthProvidersRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7011,6 +7026,33 @@ func NewSetVaultEntryRequestWithBody(server string, name string, contentType str
 	return req, nil
 }
 
+// NewListAuthProvidersRequest generates requests for ListAuthProviders
+func NewListAuthProvidersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/providers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRegisterRequest calls the generic Register builder with application/json body
 func NewRegisterRequest(server string, body RegisterJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -10006,6 +10048,9 @@ type ClientWithResponsesInterface interface {
 
 	SetVaultEntryWithResponse(ctx context.Context, name string, body SetVaultEntryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetVaultEntryResponse, error)
 
+	// ListAuthProvidersWithResponse request
+	ListAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthProvidersResponse, error)
+
 	// RegisterWithBodyWithResponse request with any body
 	RegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterResponse, error)
 
@@ -12605,6 +12650,36 @@ func (r SetVaultEntryResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetVaultEntryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAuthProvidersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OIDCProviderList
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAuthProvidersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAuthProvidersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAuthProvidersResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15573,6 +15648,15 @@ func (c *ClientWithResponses) SetVaultEntryWithResponse(ctx context.Context, nam
 		return nil, err
 	}
 	return ParseSetVaultEntryResponse(rsp)
+}
+
+// ListAuthProvidersWithResponse request returning *ListAuthProvidersResponse
+func (c *ClientWithResponses) ListAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthProvidersResponse, error) {
+	rsp, err := c.ListAuthProviders(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAuthProvidersResponse(rsp)
 }
 
 // RegisterWithBodyWithResponse request with arbitrary body returning *RegisterResponse
@@ -19441,6 +19525,32 @@ func ParseSetVaultEntryResponse(rsp *http.Response) (*SetVaultEntryResponse, err
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAuthProvidersResponse parses an HTTP response from a ListAuthProvidersWithResponse call
+func ParseListAuthProvidersResponse(rsp *http.Response) (*ListAuthProvidersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAuthProvidersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OIDCProviderList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

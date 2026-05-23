@@ -935,10 +935,14 @@ type ManifestPluginsResponse struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
-	Id       string `json:"id"`
-	IsAdmin  bool   `json:"is_admin"`
-	Role     string `json:"role"`
-	Username string `json:"username"`
+	AvatarUrl *string `json:"avatar_url,omitempty"`
+	Email     *string `json:"email,omitempty"`
+	Id        string  `json:"id"`
+	IsAdmin   bool    `json:"is_admin"`
+	Name      *string `json:"name,omitempty"`
+	OrgId     *string `json:"org_id,omitempty"`
+	Role      string  `json:"role"`
+	Username  string  `json:"username"`
 }
 
 // MessagePart defines model for MessagePart.
@@ -999,6 +1003,20 @@ type OAuthProviderStatus struct {
 	Provider    string  `json:"provider"`
 	Unavailable *string `json:"unavailable,omitempty"`
 	Username    *string `json:"username,omitempty"`
+}
+
+// OIDCProvider defines model for OIDCProvider.
+type OIDCProvider struct {
+	// LoginUrl URL to redirect the browser to for login
+	LoginUrl string `json:"login_url"`
+
+	// Name Human-readable provider name (e.g. "Zitadel")
+	Name string `json:"name"`
+}
+
+// OIDCProviderList defines model for OIDCProviderList.
+type OIDCProviderList struct {
+	Providers []OIDCProvider `json:"providers"`
 }
 
 // PluginView defines model for PluginView.

@@ -93,3 +93,18 @@ paths:
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+
+  /api/auth/providers:
+    get:
+      tags: [auth]
+      summary: List available authentication providers
+      operationId: listAuthProviders
+      security: []
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OIDCProviderList",
+              }
