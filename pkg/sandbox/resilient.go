@@ -12,8 +12,9 @@ import (
 type SessionCreator func(ctx context.Context) (Session, error)
 
 // ResilientSession wraps a Session and transparently recreates it when the
-// underlying session has been closed (e.g. by an idle reaper or config reload).
-// Explicit Close calls are permanent — no recreation after that.
+// underlying session has been closed unexpectedly (e.g. container exited or
+// sandbox process crashed). Explicit Close calls are permanent — no recreation
+// after that.
 type ResilientSession struct {
 	create SessionCreator
 	mu     sync.Mutex

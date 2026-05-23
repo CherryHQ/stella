@@ -32,6 +32,10 @@ func (p *Pool) reap() {
 			continue
 		}
 
+		if sess.Runner.Busy() {
+			continue
+		}
+
 		if !sess.Runner.Alive() {
 			p.log.Warn("removing dead runner", "session_id", id)
 			_ = sess.Runner.Close()
@@ -40,9 +44,6 @@ func (p *Pool) reap() {
 		}
 
 		if now.Sub(sess.Runner.LastActivity()) > p.idleTimeout {
-			if sess.Runner.Busy() {
-				continue
-			}
 			p.log.Info("reaping idle runner", "session_id", id, "idle_duration", now.Sub(sess.Runner.LastActivity()).Round(time.Second))
 			_ = sess.Runner.Close()
 			sess.Runner = nil
