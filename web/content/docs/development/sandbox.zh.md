@@ -6,7 +6,7 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Stella 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/agent/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Stella 的执行边界由 `pkg/sandbox` 契约描述，后端分发逻辑位于 `internal/agent/sandbox/session.go`。
 
 ## 目的
 
@@ -180,7 +180,7 @@ Stella 优先选择显式拒绝而非静默降级：
 | 2    | `internal/config/plugin.go`                                                             | 将名称追加到 `builtinSandboxNames`，确保 DB 行被初始化                                            |
 | 3    | `plugins/sandbox/<name>/session.go`                                                     | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                       |
 | 4    | `plugins/sandbox/plugin.go`                                                             | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据                          |
-| 5    | `internal/agent/sandbox/session.go`                                                     | 在 `sessionRegistry` 中添加 `config.SandboxBackend<Name>: create<Name>Session`，并实现工厂函数    |
+| 5    | `internal/agent/sandbox/session.go`                                                     | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数      |
 | 6    | `web/src/features/plugins/PluginsPage.tsx` 和 `web/src/features/plugins/pluginUtils.ts` | 将 `"sandbox/<name>"` 添加到 `validSandboxBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
 | 7    | 文档                                                                                    | 更新本文件及对应英文版                                                                            |
 

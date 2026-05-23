@@ -167,7 +167,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	}
 
 	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
-		return createSessionForBackend(ctx, cfg, name)
+		return createSessionForBackend(ctx, cfg, resolveBackendName(ctx, cfg))
 	}), nil
 }
 
