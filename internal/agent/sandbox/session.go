@@ -159,21 +159,34 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	)
 	defer span.End()
 
-	var session pkgsandbox.Session
-	var err error
-	switch name {
-	case config.SandboxBackendDocker:
-		session, err = createDockerSession(ctx, cfg)
-	case config.SandboxBackendLocal:
-		session, err = createLocalSession(ctx, cfg)
-	case config.SandboxBackendNone:
-		session, err = createHostSession(ctx, cfg)
-	default:
-		err = fmt.Errorf("unknown sandbox backend: %q", name)
-	}
+	session, err := createSession(ctx, cfg)
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	return session, nil
+
+	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
+		return createSession(ctx, cfg)
+	}), nil
+}
+
+// createSession creates a raw sandbox session without the resilient wrapper.
+func createSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
+	name := config.SandboxBackendLocal
+	if cfg.SandboxBackendFn != nil {
+		if override := cfg.SandboxBackendFn(ctx); override != "" {
+			name = override
+		}
+	}
+
+	switch name {
+	case config.SandboxBackendDocker:
+		return createDockerSession(ctx, cfg)
+	case config.SandboxBackendLocal:
+		return createLocalSession(ctx, cfg)
+	case config.SandboxBackendNone:
+		return createHostSession(ctx, cfg)
+	default:
+		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
+	}
 }

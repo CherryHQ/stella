@@ -42,6 +42,7 @@ type mockRunner struct {
 	closed       bool
 	lastActivity time.Time
 	alive        bool
+	busy         bool
 }
 
 func newMockRunner(events []Event) *mockRunner {
@@ -96,7 +97,11 @@ func (m *mockRunner) LastActivity() time.Time {
 	return m.lastActivity
 }
 
-func (m *mockRunner) Busy() bool { return false }
+func (m *mockRunner) Busy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.busy
+}
 
 func (m *mockRunner) SystemPrompt() string {
 	m.mu.Lock()
@@ -409,6 +414,45 @@ func TestPoolReapDead(t *testing.T) {
 	}
 	if !(*runners)[0].closed {
 		t.Error("dead runner should be closed during reap")
+	}
+}
+
+func TestPoolReapSkipsBusyDeadRunner(t *testing.T) {
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
+	pool := NewPool(factory, testMemoryProvider(t), WithAgentID("test-agent"), WithIdleTimeout(10*time.Minute))
+	defer func() { _ = pool.Close() }()
+
+	ctx := testSessionContext()
+
+	_, _, err := pool.getOrCreateRunner(ctx, "busy-dead-sess", "")
+	if err != nil {
+		t.Fatalf("getOrCreateRunner: %v", err)
+	}
+
+	// Mark runner as dead but still busy (in-flight chat).
+	(*runners)[0].mu.Lock()
+	(*runners)[0].alive = false
+	(*runners)[0].busy = true
+	(*runners)[0].mu.Unlock()
+
+	pool.reap()
+
+	pool.mu.Lock()
+	sess, exists := pool.sessions["busy-dead-sess"]
+	var runnerNil bool
+	if exists {
+		runnerNil = sess.Runner == nil
+	}
+	pool.mu.Unlock()
+
+	if !exists {
+		t.Error("session should still exist")
+	}
+	if runnerNil {
+		t.Error("busy runner should not be reaped even if dead")
+	}
+	if (*runners)[0].closed {
+		t.Error("busy runner should not be closed by reaper")
 	}
 }
 
