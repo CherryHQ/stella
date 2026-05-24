@@ -30,3 +30,12 @@ WHERE id = ?;
 
 -- name: DeleteAgent :exec
 DELETE FROM settings_agents WHERE id = ?;
+
+-- name: ListAgentsByOrg :many
+SELECT * FROM settings_agents WHERE org_id = ? ORDER BY name;
+
+-- name: ListEnabledAgentsByOrg :many
+SELECT * FROM settings_agents WHERE org_id = ? AND enabled = 1 ORDER BY name;
+
+-- name: SetAgentOrg :exec
+UPDATE settings_agents SET org_id = ? WHERE id = ?;

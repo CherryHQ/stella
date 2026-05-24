@@ -7,12 +7,13 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createProvider = `-- name: CreateProvider :one
 INSERT INTO settings_providers (id, type, name, enabled, config, updated_at)
 VALUES (?, ?, ?, ?, ?, datetime('now'))
-RETURNING id, type, name, enabled, config, created_at, updated_at
+RETURNING id, type, name, enabled, config, org_id, created_at, updated_at
 `
 
 type CreateProviderParams struct {
@@ -38,6 +39,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -54,7 +56,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_providers WHERE id = ?
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE id = ?
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider, error) {
@@ -66,6 +68,7 @@ func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider,
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -73,7 +76,7 @@ func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider,
 }
 
 const listEnabledProviders = `-- name: ListEnabledProviders :many
-SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_providers WHERE enabled = 1 ORDER BY name, id
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE enabled = 1 ORDER BY name, id
 `
 
 func (q *Queries) ListEnabledProviders(ctx context.Context) ([]SettingsProvider, error) {
@@ -91,6 +94,43 @@ func (q *Queries) ListEnabledProviders(ctx context.Context) ([]SettingsProvider,
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnabledProvidersByOrg = `-- name: ListEnabledProvidersByOrg :many
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE org_id = ? AND enabled = 1 ORDER BY name, id
+`
+
+func (q *Queries) ListEnabledProvidersByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledProvidersByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsProvider{}
+	for rows.Next() {
+		var i SettingsProvider
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -108,7 +148,7 @@ func (q *Queries) ListEnabledProviders(ctx context.Context) ([]SettingsProvider,
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_providers ORDER BY name, id
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers ORDER BY name, id
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]SettingsProvider, error) {
@@ -126,6 +166,43 @@ func (q *Queries) ListProviders(ctx context.Context) ([]SettingsProvider, error)
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProvidersByOrg = `-- name: ListProvidersByOrg :many
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE org_id = ? ORDER BY name, id
+`
+
+func (q *Queries) ListProvidersByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listProvidersByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsProvider{}
+	for rows.Next() {
+		var i SettingsProvider
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -163,6 +240,20 @@ func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) erro
 		arg.Enabled,
 		arg.Config,
 	)
+	return err
+}
+
+const setProviderOrg = `-- name: SetProviderOrg :exec
+UPDATE settings_providers SET org_id = ? WHERE id = ?
+`
+
+type SetProviderOrgParams struct {
+	OrgID sql.NullString `json:"org_id"`
+	ID    string         `json:"id"`
+}
+
+func (q *Queries) SetProviderOrg(ctx context.Context, arg SetProviderOrgParams) error {
+	_, err := q.db.ExecContext(ctx, setProviderOrg, arg.OrgID, arg.ID)
 	return err
 }
 

@@ -67,17 +67,25 @@ func (commandTestStore) ListProviders(context.Context) ([]config.Provider, error
 func (commandTestStore) GetProvider(context.Context, string) (config.Provider, error) {
 	return config.Provider{}, errors.New("not found")
 }
-func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
-func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
-func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
+func (commandTestStore) CreateProvider(context.Context, config.Provider) error { return nil }
+func (commandTestStore) UpdateProvider(context.Context, config.Provider) error { return nil }
+func (commandTestStore) DeleteProvider(context.Context, string) error          { return nil }
+func (commandTestStore) ListProvidersForOrg(context.Context, string) ([]config.Provider, error) {
+	return nil, nil
+}
+func (commandTestStore) SetProviderOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
-func (commandTestStore) CreateAgent(context.Context, config.Agent) error        { return nil }
-func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
-func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
+func (commandTestStore) CreateAgent(context.Context, config.Agent) error { return nil }
+func (commandTestStore) UpdateAgent(context.Context, config.Agent) error { return nil }
+func (commandTestStore) DeleteAgent(context.Context, string) error       { return nil }
+func (commandTestStore) ListAgentsForOrg(context.Context, string) ([]config.Agent, error) {
+	return nil, nil
+}
+func (commandTestStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -88,6 +96,10 @@ func (commandTestStore) GetChannel(context.Context, string) (config.Channel, err
 }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
+func (commandTestStore) ListChannelsForOrg(context.Context, string) ([]config.Channel, error) {
+	return nil, nil
+}
+func (commandTestStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }

@@ -185,7 +185,18 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
-	channels, err := s.store.ListChannels(r.Context())
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+
+	var (
+		channels []config.Channel
+		err      error
+	)
+	if info != nil && info.OrgID != "" {
+		channels, err = s.store.ListChannelsForOrg(ctx, info.OrgID)
+	} else {
+		channels, err = s.store.ListChannels(ctx)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -201,9 +212,15 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 	if !requireAdmin(w, r) {
 		return
 	}
-	ch, err := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	ch, err := s.store.GetChannel(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
 		return
 	}
 	writeData(w, http.StatusOK, channelToView(ch))
@@ -220,7 +237,13 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	}
 	req.ID = id
 
-	existing, existingErr := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	existing, existingErr := s.store.GetChannel(ctx, id)
+	if existingErr == nil && info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
+		return
+	}
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
@@ -258,7 +281,17 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		AgentID: requestAgentID(req),
 		Enabled: s.defaultChannelEnabled(r, channelType),
 	}
-	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
+	if !s.saveChannel(w, r, ch, cfgMap, http.StatusCreated) {
+		return
+	}
+	// Stamp org when the creating user belongs to one.
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	if info != nil && info.OrgID != "" {
+		if err := s.store.SetChannelOrg(ctx, ch.ID, info.OrgID); err != nil {
+			s.log.Error("stamp channel org", "channel_id", ch.ID, "org_id", info.OrgID, "error", err)
+		}
+	}
 }
 
 func requestChannelType(req channelWriteRequest) string {
@@ -364,16 +397,22 @@ func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string
 	if !requireAdmin(w, r) {
 		return
 	}
-	ch, err := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	ch, err := s.store.GetChannel(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
 		return
 	}
+	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
+		return
+	}
 	ch.Enabled = false
-	if err := s.pluginHost.ApplyChannel(r.Context(), ch); err != nil {
+	if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
 		s.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 	}
-	if err := s.store.DeleteChannel(r.Context(), id); err != nil {
+	if err := s.store.DeleteChannel(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

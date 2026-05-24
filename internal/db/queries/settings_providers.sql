@@ -27,3 +27,12 @@ DELETE FROM settings_providers WHERE id = ?;
 -- name: SeedProvider :exec
 INSERT OR IGNORE INTO settings_providers (id, type, name, enabled, config)
 VALUES (?, ?, ?, ?, ?);
+
+-- name: ListProvidersByOrg :many
+SELECT * FROM settings_providers WHERE org_id = ? ORDER BY name, id;
+
+-- name: ListEnabledProvidersByOrg :many
+SELECT * FROM settings_providers WHERE org_id = ? AND enabled = 1 ORDER BY name, id;
+
+-- name: SetProviderOrg :exec
+UPDATE settings_providers SET org_id = ? WHERE id = ?;
