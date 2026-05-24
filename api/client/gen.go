@@ -643,6 +643,9 @@ type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
 // UpdateAuthUserAgentsJSONRequestBody defines body for UpdateAuthUserAgents for application/json ContentType.
 type UpdateAuthUserAgentsJSONRequestBody = externalRef0.UpdateAgentsRequest
 
+// LinkAuthUserLoginIdentityJSONRequestBody defines body for LinkAuthUserLoginIdentity for application/json ContentType.
+type LinkAuthUserLoginIdentityJSONRequestBody = externalRef0.LinkLoginIdentityRequest
+
 // UpdateAuthUserRoleJSONRequestBody defines body for UpdateAuthUserRole for application/json ContentType.
 type UpdateAuthUserRoleJSONRequestBody = externalRef0.UpdateRoleRequest
 
@@ -1070,6 +1073,17 @@ type ClientInterface interface {
 	UpdateAuthUserAgentsWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateAuthUserAgents(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAuthUserChannelIdentities request
+	ListAuthUserChannelIdentities(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAuthUserLoginIdentities request
+	ListAuthUserLoginIdentities(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LinkAuthUserLoginIdentityWithBody request with any body
+	LinkAuthUserLoginIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	LinkAuthUserLoginIdentity(ctx context.Context, id string, body LinkAuthUserLoginIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAuthUserIdentity request
 	DeleteAuthUserIdentity(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2585,6 +2599,54 @@ func (c *Client) UpdateAuthUserAgentsWithBody(ctx context.Context, id string, co
 
 func (c *Client) UpdateAuthUserAgents(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAuthUserAgentsRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAuthUserChannelIdentities(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAuthUserChannelIdentitiesRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAuthUserLoginIdentities(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAuthUserLoginIdentitiesRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LinkAuthUserLoginIdentityWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLinkAuthUserLoginIdentityRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LinkAuthUserLoginIdentity(ctx context.Context, id string, body LinkAuthUserLoginIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLinkAuthUserLoginIdentityRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -7282,6 +7344,121 @@ func NewUpdateAuthUserAgentsRequestWithBody(server string, id string, contentTyp
 	return req, nil
 }
 
+// NewListAuthUserChannelIdentitiesRequest generates requests for ListAuthUserChannelIdentities
+func NewListAuthUserChannelIdentitiesRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/users/%s/identities/channel", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListAuthUserLoginIdentitiesRequest generates requests for ListAuthUserLoginIdentities
+func NewListAuthUserLoginIdentitiesRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/users/%s/identities/login", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewLinkAuthUserLoginIdentityRequest calls the generic LinkAuthUserLoginIdentity builder with application/json body
+func NewLinkAuthUserLoginIdentityRequest(server string, id string, body LinkAuthUserLoginIdentityJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLinkAuthUserLoginIdentityRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewLinkAuthUserLoginIdentityRequestWithBody generates requests for LinkAuthUserLoginIdentity with any type of body
+func NewLinkAuthUserLoginIdentityRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/users/%s/identities/login", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteAuthUserIdentityRequest generates requests for DeleteAuthUserIdentity
 func NewDeleteAuthUserIdentityRequest(server string, id string, identityId string) (*http.Request, error) {
 	var err error
@@ -10074,6 +10251,17 @@ type ClientWithResponsesInterface interface {
 	UpdateAuthUserAgentsWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
 
 	UpdateAuthUserAgentsWithResponse(ctx context.Context, id string, body UpdateAuthUserAgentsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAuthUserAgentsResponse, error)
+
+	// ListAuthUserChannelIdentitiesWithResponse request
+	ListAuthUserChannelIdentitiesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserChannelIdentitiesResponse, error)
+
+	// ListAuthUserLoginIdentitiesWithResponse request
+	ListAuthUserLoginIdentitiesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserLoginIdentitiesResponse, error)
+
+	// LinkAuthUserLoginIdentityWithBodyWithResponse request with any body
+	LinkAuthUserLoginIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LinkAuthUserLoginIdentityResponse, error)
+
+	LinkAuthUserLoginIdentityWithResponse(ctx context.Context, id string, body LinkAuthUserLoginIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*LinkAuthUserLoginIdentityResponse, error)
 
 	// DeleteAuthUserIdentityWithResponse request
 	DeleteAuthUserIdentityWithResponse(ctx context.Context, id string, identityId string, reqEditors ...RequestEditorFn) (*DeleteAuthUserIdentityResponse, error)
@@ -12875,6 +13063,107 @@ func (r UpdateAuthUserAgentsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateAuthUserAgentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAuthUserChannelIdentitiesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.ChannelIdentity
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAuthUserChannelIdentitiesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAuthUserChannelIdentitiesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAuthUserChannelIdentitiesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAuthUserLoginIdentitiesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]externalRef0.LoginIdentity
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAuthUserLoginIdentitiesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAuthUserLoginIdentitiesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAuthUserLoginIdentitiesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LinkAuthUserLoginIdentityResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.LoginIdentity
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON403      *externalRef0.Forbidden
+	JSON404      *externalRef0.NotFound
+	JSON409      *externalRef0.Conflict
+}
+
+// Status returns HTTPResponse.Status
+func (r LinkAuthUserLoginIdentityResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LinkAuthUserLoginIdentityResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LinkAuthUserLoginIdentityResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15735,6 +16024,41 @@ func (c *ClientWithResponses) UpdateAuthUserAgentsWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseUpdateAuthUserAgentsResponse(rsp)
+}
+
+// ListAuthUserChannelIdentitiesWithResponse request returning *ListAuthUserChannelIdentitiesResponse
+func (c *ClientWithResponses) ListAuthUserChannelIdentitiesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserChannelIdentitiesResponse, error) {
+	rsp, err := c.ListAuthUserChannelIdentities(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAuthUserChannelIdentitiesResponse(rsp)
+}
+
+// ListAuthUserLoginIdentitiesWithResponse request returning *ListAuthUserLoginIdentitiesResponse
+func (c *ClientWithResponses) ListAuthUserLoginIdentitiesWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ListAuthUserLoginIdentitiesResponse, error) {
+	rsp, err := c.ListAuthUserLoginIdentities(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAuthUserLoginIdentitiesResponse(rsp)
+}
+
+// LinkAuthUserLoginIdentityWithBodyWithResponse request with arbitrary body returning *LinkAuthUserLoginIdentityResponse
+func (c *ClientWithResponses) LinkAuthUserLoginIdentityWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LinkAuthUserLoginIdentityResponse, error) {
+	rsp, err := c.LinkAuthUserLoginIdentityWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLinkAuthUserLoginIdentityResponse(rsp)
+}
+
+func (c *ClientWithResponses) LinkAuthUserLoginIdentityWithResponse(ctx context.Context, id string, body LinkAuthUserLoginIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*LinkAuthUserLoginIdentityResponse, error) {
+	rsp, err := c.LinkAuthUserLoginIdentity(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLinkAuthUserLoginIdentityResponse(rsp)
 }
 
 // DeleteAuthUserIdentityWithResponse request returning *DeleteAuthUserIdentityResponse
@@ -19812,6 +20136,161 @@ func ParseUpdateAuthUserAgentsResponse(rsp *http.Response) (*UpdateAuthUserAgent
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAuthUserChannelIdentitiesResponse parses an HTTP response from a ListAuthUserChannelIdentitiesWithResponse call
+func ParseListAuthUserChannelIdentitiesResponse(rsp *http.Response) (*ListAuthUserChannelIdentitiesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAuthUserChannelIdentitiesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.ChannelIdentity
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAuthUserLoginIdentitiesResponse parses an HTTP response from a ListAuthUserLoginIdentitiesWithResponse call
+func ParseListAuthUserLoginIdentitiesResponse(rsp *http.Response) (*ListAuthUserLoginIdentitiesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAuthUserLoginIdentitiesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []externalRef0.LoginIdentity
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLinkAuthUserLoginIdentityResponse parses an HTTP response from a LinkAuthUserLoginIdentityWithResponse call
+func ParseLinkAuthUserLoginIdentityResponse(rsp *http.Response) (*LinkAuthUserLoginIdentityResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LinkAuthUserLoginIdentityResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.LoginIdentity
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest externalRef0.Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func TestListAuthUsers(t *testing.T) {
@@ -296,6 +299,201 @@ func TestNonAdminCannotAccessAuthUserAPIs(t *testing.T) {
 		if rr.Code != http.StatusForbidden {
 			t.Errorf("%s %s: status = %d, want %d", ep.method, ep.path, rr.Code, http.StatusForbidden)
 		}
+	}
+}
+
+// --- Phase 3: login identity admin API tests ---
+
+func setupOIDCStore(t *testing.T, env *testEnv) *appdb.OIDCStore {
+	t.Helper()
+	store := appdb.NewOIDCStore(env.db)
+	env.srv.SetLoginIdentityStore(store)
+	return store
+}
+
+func TestListAuthUserLoginIdentitiesEmpty(t *testing.T) {
+	env := setupAdmin(t)
+	setupOIDCStore(t, env)
+
+	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID+"/identities/login", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var identities []any
+	_ = json.Unmarshal(resp.Data, &identities)
+	if len(identities) != 0 {
+		t.Errorf("expected 0 login identities, got %d", len(identities))
+	}
+}
+
+func TestListAuthUserLoginIdentitiesUserNotFound(t *testing.T) {
+	env := setupAdmin(t)
+	setupOIDCStore(t, env)
+
+	rr := doRequest(t, env, "GET", "/api/auth/users/nonexistent/identities/login", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestLinkAuthUserLoginIdentity(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupOIDCStore(t, env)
+	ctx := context.Background()
+
+	// First ensure auth_user exists (local OIDC backfill path).
+	_, err := store.CreateUser(ctx, auth.User{
+		ID:    env.adminUser.ID,
+		Email: "testadmin@example.com",
+		Name:  "Test Admin",
+	})
+	// Ignore duplicate error; admin user may already exist.
+	_ = err
+
+	body := map[string]string{
+		"provider":         "local",
+		"provider_subject": env.adminUser.ID,
+		"email":            "testadmin@example.com",
+		"name":             "Test Admin",
+	}
+	rr := doRequest(t, env, "POST", "/api/auth/users/"+env.adminUser.ID+"/identities/login", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var identity struct {
+		Provider        string `json:"provider"`
+		ProviderSubject string `json:"provider_subject"`
+		Email           string `json:"email"`
+		UserId          string `json:"user_id"`
+	}
+	if err := json.Unmarshal(resp.Data, &identity); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if identity.Provider != "local" {
+		t.Errorf("provider = %q, want %q", identity.Provider, "local")
+	}
+	if identity.Email != "testadmin@example.com" {
+		t.Errorf("email = %q, want %q", identity.Email, "testadmin@example.com")
+	}
+	if identity.UserId != env.adminUser.ID {
+		t.Errorf("user_id = %q, want %q", identity.UserId, env.adminUser.ID)
+	}
+}
+
+func TestLinkLoginIdentityOwnedByAnotherUserIsConflict(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupOIDCStore(t, env)
+	ctx := context.Background()
+
+	// Create two users in both tables (legacy auth_users + new auth_user).
+	hash, _ := auth.HashPassword("pw")
+	u1, _ := env.authStore.CreateUser(ctx, "linktest1-"+uuid.NewString(), hash)
+	u2, _ := env.authStore.CreateUser(ctx, "linktest2-"+uuid.NewString(), hash)
+	for _, u := range []auth.AuthUser{u1, u2} {
+		_, _ = store.CreateUser(ctx, auth.User{ID: u.ID, Email: u.Username + "@test.example", Name: u.Username})
+	}
+
+	// Link the identity to u1.
+	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
+		ID:              uuid.NewString(),
+		UserID:          u1.ID,
+		Provider:        "oidc",
+		ProviderSubject: "sub-abc",
+		Email:           "shared@example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreateLoginIdentity: %v", err)
+	}
+
+	// Attempt to link the same identity to u2 — should conflict.
+	body := map[string]string{
+		"provider":         "oidc",
+		"provider_subject": "sub-abc",
+		"email":            "shared@example.com",
+	}
+	rr := doRequest(t, env, "POST", "/api/auth/users/"+u2.ID+"/identities/login", body)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusConflict, rr.Body.String())
+	}
+}
+
+func TestLinkLoginIdentityIdempotent(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupOIDCStore(t, env)
+	ctx := context.Background()
+
+	hash, _ := auth.HashPassword("pw")
+	u, _ := env.authStore.CreateUser(ctx, "idemuser-"+uuid.NewString(), hash)
+	// Seed auth_user so the FK on auth_identity is satisfied.
+	_, _ = store.CreateUser(ctx, auth.User{ID: u.ID, Email: u.Username + "@test.example", Name: u.Username})
+
+	// Link once.
+	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
+		ID:              uuid.NewString(),
+		UserID:          u.ID,
+		Provider:        "local",
+		ProviderSubject: u.ID,
+		Email:           u.Username + "@test.example",
+	})
+	if err != nil {
+		t.Fatalf("CreateLoginIdentity: %v", err)
+	}
+
+	// Linking again for the same user should return 200 (idempotent).
+	body := map[string]string{
+		"provider":         "local",
+		"provider_subject": u.ID,
+		"email":            u.Username + "@test.example",
+	}
+	rr := doRequest(t, env, "POST", "/api/auth/users/"+u.ID+"/identities/login", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestListAuthUserChannelIdentities(t *testing.T) {
+	env := setupAdmin(t)
+	setupOIDCStore(t, env)
+	ctx := context.Background()
+
+	// Add a channel identity to the admin user.
+	_, err := env.authStore.CreateIdentity(ctx, auth.Identity{
+		UserID:     env.adminUser.ID,
+		Platform:   "telegram",
+		ExternalID: "tg-555",
+		Name:       "TG User",
+	})
+	if err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID+"/identities/channel", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var identities []struct {
+		Platform   string `json:"platform"`
+		ExternalID string `json:"external_id"`
+	}
+	if err := json.Unmarshal(resp.Data, &identities); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(identities) != 1 || identities[0].Platform != "telegram" {
+		t.Errorf("unexpected identities: %v", identities)
+	}
+}
+
+func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
+	env := setupAdmin(t)
+	setupOIDCStore(t, env)
+
+	rr := doRequest(t, env, "GET", "/api/auth/users/nonexistent/identities/channel", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
 

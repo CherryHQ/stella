@@ -254,7 +254,11 @@ func (s *OIDCStore) GetLoginIdentityByProvider(ctx context.Context, provider, pr
 	const q = `SELECT id, user_id, provider, provider_subject, email, name, avatar_url, raw_claims, created_at, updated_at
 	           FROM auth_identity WHERE provider=? AND provider_subject=?`
 	row := s.db.QueryRowContext(ctx, q, provider, providerSubject)
-	return scanLoginIdentity(row)
+	id, err := scanLoginIdentity(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.LoginIdentity{}, auth.ErrNotFound
+	}
+	return id, err
 }
 
 func (s *OIDCStore) ListLoginIdentitiesByUser(ctx context.Context, userID string) ([]auth.LoginIdentity, error) {

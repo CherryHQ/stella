@@ -641,6 +641,9 @@ type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
 // UpdateAuthUserAgentsJSONRequestBody defines body for UpdateAuthUserAgents for application/json ContentType.
 type UpdateAuthUserAgentsJSONRequestBody = externalRef0.UpdateAgentsRequest
 
+// LinkAuthUserLoginIdentityJSONRequestBody defines body for LinkAuthUserLoginIdentity for application/json ContentType.
+type LinkAuthUserLoginIdentityJSONRequestBody = externalRef0.LinkLoginIdentityRequest
+
 // UpdateAuthUserRoleJSONRequestBody defines body for UpdateAuthUserRole for application/json ContentType.
 type UpdateAuthUserRoleJSONRequestBody = externalRef0.UpdateRoleRequest
 
@@ -940,6 +943,15 @@ type ServerInterface interface {
 	// Update agents assigned to an auth user (admin only)
 	// (PUT /api/auth/users/{id}/agents)
 	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string)
+	// List channel identities for an auth user (admin only)
+	// (GET /api/auth/users/{id}/identities/channel)
+	ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request, id string)
+	// List OIDC login identities for an auth user (admin only)
+	// (GET /api/auth/users/{id}/identities/login)
+	ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request, id string)
+	// Link an OIDC login identity to an auth user (admin only)
+	// (POST /api/auth/users/{id}/identities/login)
+	LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request, id string)
 	// Delete an identity linked to an auth user (admin only)
 	// (DELETE /api/auth/users/{id}/identities/{identityId})
 	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string)
@@ -4211,6 +4223,102 @@ func (siw *ServerInterfaceWrapper) UpdateAuthUserAgents(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListAuthUserChannelIdentities operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUserChannelIdentities(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthUserLoginIdentities operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUserLoginIdentities(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LinkAuthUserLoginIdentity operation middleware
+func (siw *ServerInterfaceWrapper) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LinkAuthUserLoginIdentity(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteAuthUserIdentity operation middleware
 func (siw *ServerInterfaceWrapper) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request) {
 
@@ -6324,6 +6432,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.ListAuthUserAgents)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.UpdateAuthUserAgents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/identities/channel", wrapper.ListAuthUserChannelIdentities)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/identities/login", wrapper.ListAuthUserLoginIdentities)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/users/{id}/identities/login", wrapper.LinkAuthUserLoginIdentity)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/users/{id}/identities/{identityId}", wrapper.DeleteAuthUserIdentity)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/role", wrapper.UpdateAuthUserRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}", wrapper.ListBuiltinResources)

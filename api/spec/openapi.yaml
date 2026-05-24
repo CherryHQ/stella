@@ -191,6 +191,10 @@ paths:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role"
   /api/auth/users/{id}/agents:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents"
+  /api/auth/users/{id}/identities/login:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1login"
+  /api/auth/users/{id}/identities/channel:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1channel"
   /api/auth/users/{id}/identities/{identityId}:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}"
   /api/auth/users/{id}/active:
