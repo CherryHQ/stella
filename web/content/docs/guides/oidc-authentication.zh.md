@@ -81,6 +81,64 @@ stella auth link-user --user-id <id> --email <your@email.com>
 
 此命令会更新该用户存储的邮箱，使 OIDC 登录时能自动找到并关联账号。
 
+## 本地 OIDC 发行方
+
+Stella 可以作为自己的 OIDC 身份提供商。适用于单用户或本地部署场景——例如将 Stella 的用户名/密码凭证用于其他应用的 OIDC 登录。
+
+**这不是生产环境外部身份提供商的替代方案。** 仅适用于本地或自包含部署。
+
+### 启用本地发行方
+
+生成 P-256 签名密钥：
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out local-oidc.key
+openssl pkcs8 -topk8 -nocrypt -in local-oidc.key -out local-oidc-pkcs8.pem
+```
+
+然后设置：
+
+```bash
+LOCAL_OIDC_ENABLED=true
+LOCAL_OIDC_ISSUER_URL=https://your-stella-host/oidc/local
+LOCAL_OIDC_CLIENT_ID=stella-local
+LOCAL_OIDC_REDIRECT_URIS=https://your-app/callback
+LOCAL_OIDC_SIGNING_KEY="$(cat local-oidc-pkcs8.pem)"
+# 可选：
+LOCAL_OIDC_CLIENT_SECRET=         # 留空表示使用公开客户端（必须使用 PKCE）
+LOCAL_OIDC_KEY_ID=local-1
+```
+
+发行方在 `/oidc/local` 下暴露标准 OIDC 端点：
+
+| 端点      | 路径                                           |
+| --------- | ---------------------------------------------- |
+| Discovery | `/oidc/local/.well-known/openid-configuration` |
+| JWKS      | `/oidc/local/jwks`                             |
+| 授权      | `/oidc/local/authorize`                        |
+| Token     | `/oidc/local/token`                            |
+| Userinfo  | `/oidc/local/userinfo`                         |
+
+### 环境变量
+
+| 变量                       | 是否必填          | 说明                                            |
+| -------------------------- | ----------------- | ----------------------------------------------- |
+| `LOCAL_OIDC_ENABLED`       | 是（值为 `true`） | 必须恰好为 `true` 才会启用                      |
+| `LOCAL_OIDC_ISSUER_URL`    | 是                | 主机上 `/oidc/local` 的完整 URL                 |
+| `LOCAL_OIDC_CLIENT_ID`     | 是                | 依赖方的 Client ID                              |
+| `LOCAL_OIDC_REDIRECT_URIS` | 是                | 逗号分隔的精确匹配重定向 URI                    |
+| `LOCAL_OIDC_SIGNING_KEY`   | 是                | PEM 格式的 ECDSA P-256 私钥（或 PEM 的 base64） |
+| `LOCAL_OIDC_CLIENT_SECRET` | 否                | Client Secret；公开 PKCE 客户端请留空           |
+| `LOCAL_OIDC_KEY_ID`        | 否                | JWKS 中的 Key ID（默认：`local-1`）             |
+
+### 安全限制
+
+- 仅支持**授权码 + PKCE** 流程。
+- 重定向 URI 精确匹配——不支持通配符。
+- 签名密钥在启动时加载；密钥轮换需要重启服务器。
+- 不支持动态客户端注册，客户端配置为静态环境变量配置。
+- 未使用 TLS 时请勿将本地发行方暴露到公网。
+
 ## 安全说明
 
 - Session 以 SHA-256 哈希形式存储——原始 token 不会离开浏览器 cookie。

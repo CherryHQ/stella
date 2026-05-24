@@ -81,6 +81,64 @@ stella auth link-user --user-id <id> --email <your@email.com>
 
 This updates the stored email for that user so the OIDC login can find and link the account automatically.
 
+## Local OIDC issuer
+
+Stella can act as its own OIDC identity provider. This is useful for single-user or local deployments where you want your existing username/password credentials to power an OIDC login — for example, to use Stella as the OIDC provider for another app you run.
+
+**This is not a replacement for an external identity provider in production.** Use it only for local or self-contained deployments.
+
+### Enable the local issuer
+
+Generate a P-256 signing key:
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out local-oidc.key
+openssl pkcs8 -topk8 -nocrypt -in local-oidc.key -out local-oidc-pkcs8.pem
+```
+
+Then set:
+
+```bash
+LOCAL_OIDC_ENABLED=true
+LOCAL_OIDC_ISSUER_URL=https://your-stella-host/oidc/local
+LOCAL_OIDC_CLIENT_ID=stella-local
+LOCAL_OIDC_REDIRECT_URIS=https://your-app/callback
+LOCAL_OIDC_SIGNING_KEY="$(cat local-oidc-pkcs8.pem)"
+# Optional:
+LOCAL_OIDC_CLIENT_SECRET=         # leave blank to use public client (PKCE required)
+LOCAL_OIDC_KEY_ID=local-1
+```
+
+The issuer exposes standard OIDC endpoints under `/oidc/local`:
+
+| Endpoint      | Path                                           |
+| ------------- | ---------------------------------------------- |
+| Discovery     | `/oidc/local/.well-known/openid-configuration` |
+| JWKS          | `/oidc/local/jwks`                             |
+| Authorization | `/oidc/local/authorize`                        |
+| Token         | `/oidc/local/token`                            |
+| Userinfo      | `/oidc/local/userinfo`                         |
+
+### Environment variables
+
+| Variable                   | Required     | Description                                            |
+| -------------------------- | ------------ | ------------------------------------------------------ |
+| `LOCAL_OIDC_ENABLED`       | Yes (`true`) | Must be exactly `true` to enable                       |
+| `LOCAL_OIDC_ISSUER_URL`    | Yes          | Full URL to `/oidc/local` on your host                 |
+| `LOCAL_OIDC_CLIENT_ID`     | Yes          | Client ID for the relying party                        |
+| `LOCAL_OIDC_REDIRECT_URIS` | Yes          | Comma-separated exact-match redirect URIs              |
+| `LOCAL_OIDC_SIGNING_KEY`   | Yes          | PEM-encoded ECDSA P-256 private key (or base64 of PEM) |
+| `LOCAL_OIDC_CLIENT_SECRET` | No           | Client secret; leave blank for public PKCE clients     |
+| `LOCAL_OIDC_KEY_ID`        | No           | Key ID in the JWKS (default: `local-1`)                |
+
+### Security limitations
+
+- Only **Authorization Code + PKCE** flow is supported.
+- Redirect URIs are exact-match — no wildcards.
+- The signing key is loaded at startup; key rotation requires a server restart.
+- There is no dynamic client registration. Client config is static environment configuration.
+- Do not expose the local issuer publicly without TLS.
+
 ## Security notes
 
 - Sessions are stored as SHA-256 hashes — the raw token never leaves the browser cookie.
