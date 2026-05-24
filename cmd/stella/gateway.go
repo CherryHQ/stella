@@ -190,6 +190,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			sessionMgrForIssuer,
 		)
 		adminSrv.SetLocalOIDCIssuer(issuer)
+		adminSrv.SetLoginIdentityStore(oidcStore)
+		adminSrv.SetMembershipStore(oidcStore)
 		slog.Info("local oidc: issuer configured", "issuer_url", localOIDCCfg.IssuerURL)
 	}
 
@@ -202,6 +204,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			vaultKey := os.Getenv("STELLA_VAULT_KEY")
 			oidcStore := appdb.NewOIDCStore(s.db)
+			adminSrv.SetLoginIdentityStore(oidcStore)
+			adminSrv.SetMembershipStore(oidcStore)
 			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {

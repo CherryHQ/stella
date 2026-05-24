@@ -497,6 +497,147 @@ func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
 	}
 }
 
+// --- Phase 4: membership-authoritative role/active tests ---
+
+func setupMembershipStore(t *testing.T, env *testEnv) *appdb.OIDCStore {
+	t.Helper()
+	store := appdb.NewOIDCStore(env.db)
+	env.srv.SetLoginIdentityStore(store)
+	env.srv.SetMembershipStore(store)
+	return store
+}
+
+// createUserWithMembership creates a legacy user in auth_users, a matching
+// auth_user record, and an auth_membership. Returns the legacy user and membership ID.
+func createUserWithMembership(t *testing.T, env *testEnv, store *appdb.OIDCStore, username, role string) (auth.AuthUser, auth.Membership) {
+	t.Helper()
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("pw")
+	u, err := env.authStore.CreateUser(ctx, username, hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_ = env.authStore.UpdateUserRole(ctx, u.ID, role)
+
+	_, _ = store.CreateUser(ctx, auth.User{
+		ID:    u.ID,
+		Email: username + "@test.example",
+		Name:  username,
+	})
+	org, _ := store.CreateOrganization(ctx, auth.Organization{
+		ID:   uuid.NewString(),
+		Name: username + "-org",
+	})
+	m, err := store.CreateMembership(ctx, auth.Membership{
+		ID:             uuid.NewString(),
+		UserID:         u.ID,
+		OrganizationID: org.ID,
+		Role:           role,
+		IsActive:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership: %v", err)
+	}
+	// Re-read user to get latest state.
+	u2, _ := env.authStore.GetUser(ctx, u.ID)
+	return u2, m
+}
+
+func TestRoleDowngradeReflectsInMembership(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupMembershipStore(t, env)
+	ctx := context.Background()
+
+	u, m := createUserWithMembership(t, env, store, "roletest-"+uuid.NewString(), auth.RoleAdmin)
+	if m.Role != auth.RoleAdmin {
+		t.Fatalf("membership role = %q, want %q", m.Role, auth.RoleAdmin)
+	}
+
+	// Demote to user via admin API.
+	body := map[string]string{"role": auth.RoleUser}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+u.ID+"/role", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Membership should now reflect user role.
+	updated, err := store.GetUserMembership(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetUserMembership: %v", err)
+	}
+	if updated.Role != auth.RoleUser {
+		t.Errorf("membership role = %q, want %q", updated.Role, auth.RoleUser)
+	}
+}
+
+func TestInactiveMembershipBlocksLegacySession(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupMembershipStore(t, env)
+	ctx := context.Background()
+
+	u, m := createUserWithMembership(t, env, store, "inactivetest-"+uuid.NewString(), auth.RoleUser)
+	_ = m
+
+	// Create a session for the user.
+	sessionID := auth.NewSessionID()
+	_, _ = env.authStore.CreateSession(ctx, auth.Session{
+		ID:        sessionID,
+		UserID:    u.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+
+	// Deactivate via admin API.
+	body := map[string]any{"is_active": false}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+u.ID+"/active", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Membership should be inactive.
+	updated, err := store.GetUserMembership(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetUserMembership: %v", err)
+	}
+	if updated.IsActive {
+		t.Error("membership should be inactive after deactivation")
+	}
+
+	// A new session with the same user should be blocked by membership check.
+	newSessionID := auth.NewSessionID()
+	_, _ = env.authStore.CreateSession(ctx, auth.Session{
+		ID:        newSessionID,
+		UserID:    u.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	rr = doRequestWithSession(t, env.srv, newSessionID, "GET", "/api/auth/users", nil)
+	// Should be denied because membership is inactive.
+	if rr.Code == http.StatusOK {
+		t.Error("expected denied access for inactive membership user, got 200")
+	}
+}
+
+func TestMembershipRoleOverridesLegacyRole(t *testing.T) {
+	env := setupAdmin(t)
+	store := setupMembershipStore(t, env)
+	ctx := context.Background()
+
+	u, _ := createUserWithMembership(t, env, store, "roleoverride-"+uuid.NewString(), auth.RoleUser)
+
+	// Create a session for the user.
+	sessionID := auth.NewSessionID()
+	_, _ = env.authStore.CreateSession(ctx, auth.Session{
+		ID:        sessionID,
+		UserID:    u.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+
+	// Attempting admin endpoint with user membership should be forbidden.
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/auth/users", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestAuthUserWithLinkedIdentities(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
