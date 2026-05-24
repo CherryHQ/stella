@@ -10,6 +10,47 @@ import (
 	"github.com/google/uuid"
 )
 
+// BackfillCredentials copies non-empty password_hash values from legacy auth_users
+// into auth_credential for any auth_user that lacks a credential row. It is
+// idempotent: rows that already exist are skipped.
+func BackfillCredentials(ctx context.Context, db *sql.DB) (int, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT u.id, u.password_hash
+		FROM auth_users u
+		INNER JOIN auth_user nu ON nu.id = u.id
+		LEFT JOIN auth_credential c ON c.user_id = u.id
+		WHERE u.password_hash != '' AND c.id IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("credential backfill: query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type row struct{ id, hash string }
+	var pending []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.hash); err != nil {
+			return 0, fmt.Errorf("credential backfill: scan: %w", err)
+		}
+		pending = append(pending, r)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("credential backfill: iterate: %w", err)
+	}
+
+	for _, p := range pending {
+		credID := uuid.NewString()
+		_, err := db.ExecContext(ctx, `
+			INSERT OR IGNORE INTO auth_credential (id, user_id, password_hash)
+			VALUES (?, ?, ?)`, credID, p.id, p.hash)
+		if err != nil {
+			return 0, fmt.Errorf("credential backfill: insert for user %s: %w", p.id, err)
+		}
+		slog.Info("credential backfill: copied password hash", "user_id", p.id)
+	}
+	return len(pending), nil
+}
+
 // BackfillOIDCTables copies legacy auth data into the new OIDC tables on first
 // startup. It is idempotent: if auth_user already has rows it returns immediately.
 //

@@ -29,6 +29,9 @@
 -- atlas:import tables/oidc/auth_identity.sql
 -- atlas:import tables/oidc/auth_session.sql
 -- atlas:import tables/oidc/auth_membership.sql
+-- atlas:import tables/oidc/auth_credential.sql
+-- atlas:import tables/oidc/auth_oidc_codes.sql
+-- atlas:import tables/oidc/auth_oidc_access_tokens.sql
 -- atlas:import tables/shares.sql
 -- atlas:import tables/plugin_state_entries.sql
 -- atlas:import tables/skills.sql

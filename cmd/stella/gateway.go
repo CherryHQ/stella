@@ -18,6 +18,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/localoidc"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	authzitadel "github.com/CherryHQ/stella/internal/auth/zitadel"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -154,6 +155,42 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("oidc backfill failed", "error", err)
 	} else if n > 0 {
 		slog.Info("oidc backfill: migrated users to new auth tables", "count", n)
+	}
+
+	// Backfill password hashes from legacy auth_users into auth_credential.
+	if n, err := appdb.BackfillCredentials(gctx, s.db); err != nil {
+		slog.Warn("credential backfill failed", "error", err)
+	} else if n > 0 {
+		slog.Info("credential backfill: copied password hashes", "count", n)
+	}
+
+	// Wire local OIDC issuer if configured via environment variables.
+	// The local issuer is configured independently from the external OIDC client.
+	if localOIDCCfg, err := localoidc.ConfigFromEnv(); err != nil {
+		slog.Warn("local oidc: invalid configuration", "error", err)
+	} else if localOIDCCfg != nil {
+		vaultKey := os.Getenv("STELLA_VAULT_KEY")
+		oidcStore := appdb.NewOIDCStore(s.db)
+		var authSvcForIssuer *auth.AuthService
+		var sessionMgrForIssuer *auth.SessionManager
+		if vaultKey != "" {
+			authSvcForIssuer = auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			sessionMgrForIssuer, err = auth.NewSessionManager(oidcStore, vaultKey)
+			if err != nil {
+				slog.Warn("local oidc: session manager init failed", "error", err)
+				sessionMgrForIssuer = nil
+				authSvcForIssuer = nil
+			}
+		}
+		issuer := localoidc.NewIssuer(
+			localOIDCCfg,
+			oidcStore, oidcStore,
+			oidcStore, oidcStore, oidcStore,
+			authSvcForIssuer,
+			sessionMgrForIssuer,
+		)
+		adminSrv.SetLocalOIDCIssuer(issuer)
+		slog.Info("local oidc: issuer configured", "issuer_url", localOIDCCfg.IssuerURL)
 	}
 
 	// Wire OIDC authentication if configured via environment variables.

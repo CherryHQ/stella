@@ -70,6 +70,29 @@ type MembershipStore interface {
 	CountOrgMembers(ctx context.Context, orgID string) (int64, error)
 }
 
+// OIDCCodeStore provides operations for local OIDC authorization codes.
+type OIDCCodeStore interface {
+	CreateOIDCCode(ctx context.Context, c OIDCCode) (OIDCCode, error)
+	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
+	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
+	ConsumeOIDCCode(ctx context.Context, codeHash string) (OIDCCode, error)
+}
+
+// OIDCAccessTokenStore provides operations for local OIDC access tokens.
+type OIDCAccessTokenStore interface {
+	CreateOIDCAccessToken(ctx context.Context, t OIDCAccessToken) (OIDCAccessToken, error)
+	GetOIDCAccessTokenByHash(ctx context.Context, tokenHash string) (OIDCAccessToken, error)
+	DeleteExpiredOIDCAccessTokens(ctx context.Context) error
+}
+
+// CredentialStore provides CRUD for auth_credential (local password hashes).
+type CredentialStore interface {
+	CreateCredential(ctx context.Context, c Credential) (Credential, error)
+	GetCredentialByUserID(ctx context.Context, userID string) (Credential, error)
+	UpdateCredentialHash(ctx context.Context, userID, passwordHash string) error
+	DeleteCredential(ctx context.Context, userID string) error
+}
+
 // AuthStores groups the stores needed for a single transactional login flow.
 type AuthStores struct {
 	Users         UserStore
@@ -77,6 +100,7 @@ type AuthStores struct {
 	Sessions      SessionStore
 	Organizations OrganizationStore
 	Memberships   MembershipStore
+	Credentials   CredentialStore
 }
 
 // Transactioner is an optional interface that store implementations may satisfy

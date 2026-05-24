@@ -12,6 +12,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/localoidc"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
@@ -53,6 +54,8 @@ type Server struct {
 	authSvc       *auth.AuthService
 	sessionMgr    *auth.SessionManager
 	stateMgr      *authoidc.StateManager
+	// localOIDC is the built-in local OIDC issuer (optional).
+	localOIDC *localoidc.Issuer
 }
 
 // New creates an admin server with all API routes mounted.
@@ -126,6 +129,14 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 // If not set, those handlers write DB-only.
 func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
+}
+
+// SetLocalOIDCIssuer wires the built-in local OIDC issuer into the server.
+// When set, routes under /oidc/local/ are registered for the issuer endpoints.
+// Call before serving requests.
+func (s *Server) SetLocalOIDCIssuer(issuer *localoidc.Issuer) {
+	s.localOIDC = issuer
+	s.registerLocalOIDCRoutes()
 }
 
 // SetOIDCAuth wires all OIDC authentication components into the server.
