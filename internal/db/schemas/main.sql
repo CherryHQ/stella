@@ -1,3 +1,5 @@
+-- New OIDC auth tables first (settings tables reference auth_organization)
+-- atlas:import tables/oidc/auth_organization.sql
 -- atlas:import tables/settings.sql
 -- atlas:import tables/settings_agents.sql
 -- atlas:import tables/settings_channels.sql
@@ -22,8 +24,7 @@
 -- atlas:import tables/auth_user_agents.sql
 -- atlas:import tables/auth_sessions.sql
 -- atlas:import tables/auth_user_tokens.sql
--- New OIDC auth tables (additive migration — old tables above are kept unchanged)
--- atlas:import tables/oidc/auth_organization.sql
+-- Remaining OIDC auth tables
 -- atlas:import tables/oidc/auth_user.sql
 -- atlas:import tables/oidc/channel_identity.sql
 -- atlas:import tables/oidc/auth_identity.sql
