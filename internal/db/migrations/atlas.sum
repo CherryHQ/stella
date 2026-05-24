@@ -1,4 +1,4 @@
-h1:plNPH61eUkZjT9LssbdTYOAOLQYZ9P4U94MzLLSj1fo=
+h1:DAO9nFOvZdXgS0V3rcGps/Gl7Rvxl0C/LR8MEsSh0ok=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -44,3 +44,4 @@ h1:plNPH61eUkZjT9LssbdTYOAOLQYZ9P4U94MzLLSj1fo=
 20260523114254_auth-oidc-redesign.sql h1:KTjA01cTWXvhM7K0O7cvtoazG4Xh9kaOoBspUqE0P7c=
 20260523154711_add-local-credentials.sql h1:DL/OEw4jpyiBdyF7J9XyZB5pGmBHVHu29QAzx+3FhSE=
 20260524013342_add-local-oidc-issuer-tables.sql h1:5dbM9OQEA1z57YWbThiWMbK3oWgaRsISOtkE0a1H9aQ=
+20260524020802_add-org-scoped-settings.sql h1:cXvcKNb0h+x5vMrApFZ+43aISqxutRc31NgoY6IsOJQ=

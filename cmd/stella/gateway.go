@@ -164,6 +164,11 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Info("credential backfill: copied password hashes", "count", n)
 	}
 
+	// Assign existing settings resources to the legacy org when available.
+	if err := appdb.BackfillOrgScopedSettings(gctx, s.db); err != nil {
+		slog.Warn("org settings backfill failed", "error", err)
+	}
+
 	// Wire local OIDC issuer if configured via environment variables.
 	// The local issuer is configured independently from the external OIDC client.
 	if localOIDCCfg, err := localoidc.ConfigFromEnv(); err != nil {

@@ -12,6 +12,9 @@ CREATE TABLE settings_agents (
     scope         TEXT NOT NULL DEFAULT 'system',
     creator_id    TEXT NOT NULL DEFAULT '',
     enabled       INTEGER NOT NULL DEFAULT 1,
+    org_id        TEXT REFERENCES auth_organization(id) ON DELETE SET NULL,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX idx_settings_agents_org_id ON settings_agents(org_id);
