@@ -621,6 +621,17 @@ type Channel struct {
 	Type    string `json:"type"`
 }
 
+// ChannelIdentity defines model for ChannelIdentity.
+type ChannelIdentity struct {
+	CreatedAt  time.Time `json:"created_at"`
+	ExternalId string    `json:"external_id"`
+	Id         string    `json:"id"`
+	Name       string    `json:"name"`
+	Platform   string    `json:"platform"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	UserId     string    `json:"user_id"`
+}
+
 // ChannelList defines model for ChannelList.
 type ChannelList struct {
 	Items []Channel `json:"items"`
@@ -908,6 +919,27 @@ type JobRunList = []JobRun
 type LinkCodeResponse struct {
 	Code     string `json:"code"`
 	Platform string `json:"platform"`
+}
+
+// LinkLoginIdentityRequest defines model for LinkLoginIdentityRequest.
+type LinkLoginIdentityRequest struct {
+	Email           string  `json:"email"`
+	Name            *string `json:"name,omitempty"`
+	Provider        string  `json:"provider"`
+	ProviderSubject string  `json:"provider_subject"`
+}
+
+// LoginIdentity defines model for LoginIdentity.
+type LoginIdentity struct {
+	AvatarUrl       *string   `json:"avatar_url,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	Email           string    `json:"email"`
+	Id              string    `json:"id"`
+	Name            *string   `json:"name,omitempty"`
+	Provider        string    `json:"provider"`
+	ProviderSubject string    `json:"provider_subject"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	UserId          string    `json:"user_id"`
 }
 
 // LoginRequest defines model for LoginRequest.

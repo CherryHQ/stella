@@ -78,6 +78,7 @@ schedules, and more.`,
 			shareCommand(),
 			taskCommand(),
 			denyInSandbox(serviceCommand()),
+			authCommand(),
 		},
 	}
 }

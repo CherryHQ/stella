@@ -56,6 +56,8 @@ type Server struct {
 	stateMgr      *authoidc.StateManager
 	// localOIDC is the built-in local OIDC issuer (optional).
 	localOIDC *localoidc.Issuer
+	// logins provides access to OIDC login identities (optional).
+	logins auth.LoginIdentityStore
 }
 
 // New creates an admin server with all API routes mounted.
@@ -137,6 +139,12 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 func (s *Server) SetLocalOIDCIssuer(issuer *localoidc.Issuer) {
 	s.localOIDC = issuer
 	s.registerLocalOIDCRoutes()
+}
+
+// SetLoginIdentityStore wires the OIDC login identity store so the admin API
+// can list and link login identities. Call before serving requests.
+func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
+	s.logins = store
 }
 
 // SetOIDCAuth wires all OIDC authentication components into the server.

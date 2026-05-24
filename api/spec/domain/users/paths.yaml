@@ -283,6 +283,80 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/auth/users/{id}/identities/login:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [auth-users]
+      summary: List OIDC login identities for an auth user (admin only)
+      operationId: listAuthUserLoginIdentities
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/LoginIdentity",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [auth-users]
+      summary: Link an OIDC login identity to an auth user (admin only)
+      operationId: linkAuthUserLoginIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LinkLoginIdentityRequest",
+            }
+      responses:
+        "200":
+          description: linked
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LoginIdentity",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/auth/users/{id}/identities/channel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [auth-users]
+      summary: List channel identities for an auth user (admin only)
+      operationId: listAuthUserChannelIdentities
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/ChannelIdentity",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/auth/users/{id}/identities/{identityId}:
     parameters:
       - {

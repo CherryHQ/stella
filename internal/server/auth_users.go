@@ -1,8 +1,11 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
@@ -253,4 +256,105 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 	}
 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.
+func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.logins == nil {
+		writeData(w, http.StatusOK, []auth.LoginIdentity{})
+		return
+	}
+	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	identities, err := s.logins.ListLoginIdentitiesByUser(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list login identities: "+err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, identities)
+}
+
+// LinkAuthUserLoginIdentity handles POST /api/auth/users/{id}/identities/login.
+func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.logins == nil {
+		writeError(w, http.StatusServiceUnavailable, "login identity store not configured")
+		return
+	}
+
+	var body struct {
+		Provider        string `json:"provider"`
+		ProviderSubject string `json:"provider_subject"`
+		Email           string `json:"email"`
+		Name            string `json:"name"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Provider == "" || body.ProviderSubject == "" || body.Email == "" {
+		writeError(w, http.StatusBadRequest, "provider, provider_subject, and email are required")
+		return
+	}
+
+	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	// Ensure the identity is not already owned by another user.
+	existing, err := s.logins.GetLoginIdentityByProvider(r.Context(), body.Provider, body.ProviderSubject)
+	if err != nil && !errors.Is(err, auth.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "failed to check existing identity: "+err.Error())
+		return
+	}
+	if err == nil && existing.UserID != id {
+		writeError(w, http.StatusConflict, "identity is already linked to another user")
+		return
+	}
+	if err == nil && existing.UserID == id {
+		writeData(w, http.StatusOK, existing)
+		return
+	}
+
+	linked, err := s.logins.CreateLoginIdentity(r.Context(), auth.LoginIdentity{
+		ID:              uuid.NewString(),
+		UserID:          id,
+		Provider:        body.Provider,
+		ProviderSubject: body.ProviderSubject,
+		Email:           body.Email,
+		Name:            body.Name,
+	})
+	if err != nil {
+		s.log.Error("admin link login identity", "user_id", id, "provider", body.Provider, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to link identity: "+err.Error())
+		return
+	}
+
+	s.log.Info("admin linked login identity", "user_id", id, "provider", body.Provider, "subject", body.ProviderSubject)
+	writeData(w, http.StatusOK, linked)
+}
+
+// ListAuthUserChannelIdentities handles GET /api/auth/users/{id}/identities/channel.
+func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request, id string) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, identities)
 }
