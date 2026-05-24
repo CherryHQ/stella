@@ -19,3 +19,12 @@ SELECT * FROM settings_channels WHERE type = ? ORDER BY id;
 
 -- name: DeleteChannel :exec
 DELETE FROM settings_channels WHERE id = ?;
+
+-- name: ListChannelsByOrg :many
+SELECT * FROM settings_channels WHERE org_id = ? ORDER BY type, id;
+
+-- name: ListChannelsByTypeAndOrg :many
+SELECT * FROM settings_channels WHERE type = ? AND org_id = ? ORDER BY id;
+
+-- name: SetChannelOrg :exec
+UPDATE settings_channels SET org_id = ? WHERE id = ?;

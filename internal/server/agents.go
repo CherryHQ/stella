@@ -54,13 +54,21 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	agents, err := s.store.ListAgents(ctx)
+	var (
+		agents []config.Agent
+		err    error
+	)
+	if info != nil && info.OrgID != "" {
+		agents, err = s.store.ListAgentsForOrg(ctx, info.OrgID)
+	} else {
+		agents, err = s.store.ListAgents(ctx)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Admin sees all agents. Non-admin users see only accessible agents.
+	// Admin sees all agents in scope. Non-admin users see only accessible agents.
 	if info != nil && !info.IsAdmin {
 		agents, err = s.filterAccessibleAgents(ctx, info, agents)
 		if err != nil {
@@ -139,6 +147,15 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Stamp org when the creating user belongs to one.
+	if info != nil && info.OrgID != "" {
+		if err := s.store.SetAgentOrg(ctx, a.ID, info.OrgID); err != nil {
+			s.log.Error("stamp agent org", "agent_id", a.ID, "org_id", info.OrgID, "error", err)
+		}
+		a.OrgID = info.OrgID
+	}
+
 	if s.poolManager != nil {
 		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
 			s.log.Error("sync agent pool after create", "agent_id", a.ID, "error", err)
@@ -165,6 +182,12 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
+	// Block cross-org access when the caller belongs to an org.
+	if info != nil && info.OrgID != "" && a.OrgID != "" && a.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "agent not found")
+		return
+	}
+
 	// Non-admin users can only access system or assigned agents.
 	if info != nil && !info.IsAdmin {
 		if !s.canAccessAgent(ctx, info, a) {
@@ -185,6 +208,11 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	// Block cross-org write.
+	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "agent not found")
 		return
 	}
 	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
@@ -240,6 +268,11 @@ func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	// Block cross-org delete.
+	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "agent not found")
 		return
 	}
 	if info != nil && existing.CreatorID != info.UserID {
