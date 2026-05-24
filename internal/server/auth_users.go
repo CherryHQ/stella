@@ -29,11 +29,20 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUs
 		return authUserResponse{}, fmt.Errorf("list identities: %w", err)
 	}
 
+	role := u.Role
+	isActive := u.IsActive
+	if s.memberships != nil {
+		if m, err := s.memberships.GetUserMembership(r.Context(), u.ID); err == nil {
+			role = m.Role
+			isActive = m.IsActive
+		}
+	}
+
 	return authUserResponse{
 		ID:         u.ID,
 		Username:   u.Username,
-		Role:       u.Role,
-		IsActive:   u.IsActive,
+		Role:       role,
+		IsActive:   isActive,
 		Identities: identities,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:  u.UpdatedAt.Format("2006-01-02 15:04:05"),
@@ -112,6 +121,13 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 	if err := s.authStore.UpdateUserRole(r.Context(), id, body.Role); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
 		return
+	}
+
+	// Mirror the role change to auth_membership when available.
+	if s.memberships != nil {
+		if m, err := s.memberships.GetUserMembership(r.Context(), id); err == nil {
+			_ = s.memberships.UpdateMembershipRole(r.Context(), m.ID, body.Role)
+		}
 	}
 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -248,6 +264,13 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 	if err := s.authStore.UpdateUser(r.Context(), u); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update user: "+err.Error())
 		return
+	}
+
+	// Mirror the active change to auth_membership when available.
+	if s.memberships != nil {
+		if m, err := s.memberships.GetUserMembership(r.Context(), id); err == nil {
+			_ = s.memberships.UpdateMembershipActive(r.Context(), m.ID, body.IsActive)
+		}
 	}
 
 	// If deactivating, delete all their sessions to force logout.

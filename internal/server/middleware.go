@@ -131,7 +131,17 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if !user.IsActive {
+		// When membership store is available, it is authoritative for role and active.
+		role := user.Role
+		isActive := user.IsActive
+		if s.memberships != nil {
+			if m, err := s.memberships.GetUserMembership(ctx, user.ID); err == nil {
+				role = m.Role
+				isActive = m.IsActive
+			}
+		}
+
+		if !isActive {
 			if path == "/api/status" {
 				next.ServeHTTP(w, r)
 				return
@@ -145,8 +155,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		info := &AuthInfo{
 			UserID:   user.ID,
 			Username: user.Username,
-			Role:     user.Role,
-			IsAdmin:  user.IsAdmin(),
+			Role:     role,
+			IsAdmin:  role == auth.RoleAdmin,
 		}
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))

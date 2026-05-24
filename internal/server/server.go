@@ -58,6 +58,8 @@ type Server struct {
 	localOIDC *localoidc.Issuer
 	// logins provides access to OIDC login identities (optional).
 	logins auth.LoginIdentityStore
+	// memberships provides access to auth_membership (optional).
+	memberships auth.MembershipStore
 }
 
 // New creates an admin server with all API routes mounted.
@@ -145,6 +147,13 @@ func (s *Server) SetLocalOIDCIssuer(issuer *localoidc.Issuer) {
 // can list and link login identities. Call before serving requests.
 func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
 	s.logins = store
+}
+
+// SetMembershipStore wires the membership store so role and active writes
+// propagate to auth_membership in addition to the legacy auth_users table.
+// Call before serving requests.
+func (s *Server) SetMembershipStore(store auth.MembershipStore) {
+	s.memberships = store
 }
 
 // SetOIDCAuth wires all OIDC authentication components into the server.
