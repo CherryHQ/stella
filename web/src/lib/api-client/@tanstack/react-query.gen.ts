@@ -72,6 +72,7 @@ import {
   getVaultEntry,
   getWorkspaceFileContent,
   installAgentScopedSkill,
+  linkAuthUserLoginIdentity,
   listAgents,
   listAgentSkills,
   listAgentTaskEvents,
@@ -80,6 +81,8 @@ import {
   listArticles,
   listAuthProviders,
   listAuthUserAgents,
+  listAuthUserChannelIdentities,
+  listAuthUserLoginIdentities,
   listAuthUsers,
   listBuiltinResources,
   listChannels,
@@ -336,6 +339,9 @@ import type {
   InstallAgentScopedSkillData,
   InstallAgentScopedSkillError,
   InstallAgentScopedSkillResponse,
+  LinkAuthUserLoginIdentityData,
+  LinkAuthUserLoginIdentityError,
+  LinkAuthUserLoginIdentityResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillsData,
@@ -359,6 +365,12 @@ import type {
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
+  ListAuthUserChannelIdentitiesData,
+  ListAuthUserChannelIdentitiesError,
+  ListAuthUserChannelIdentitiesResponse,
+  ListAuthUserLoginIdentitiesData,
+  ListAuthUserLoginIdentitiesError,
+  ListAuthUserLoginIdentitiesResponse,
   ListAuthUsersData,
   ListAuthUsersError,
   ListAuthUsersResponse,
@@ -3226,6 +3238,89 @@ export const updateAuthUserAgentsMutation = (
   };
   return mutationOptions;
 };
+
+export const listAuthUserLoginIdentitiesQueryKey = (
+  options: Options<ListAuthUserLoginIdentitiesData>,
+) => createQueryKey("listAuthUserLoginIdentities", options);
+
+/**
+ * List OIDC login identities for an auth user (admin only)
+ */
+export const listAuthUserLoginIdentitiesOptions = (
+  options: Options<ListAuthUserLoginIdentitiesData>,
+) =>
+  queryOptions<
+    ListAuthUserLoginIdentitiesResponse,
+    ListAuthUserLoginIdentitiesError,
+    ListAuthUserLoginIdentitiesResponse,
+    ReturnType<typeof listAuthUserLoginIdentitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthUserLoginIdentities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthUserLoginIdentitiesQueryKey(options),
+  });
+
+/**
+ * Link an OIDC login identity to an auth user (admin only)
+ */
+export const linkAuthUserLoginIdentityMutation = (
+  options?: Partial<Options<LinkAuthUserLoginIdentityData>>,
+): UseMutationOptions<
+  LinkAuthUserLoginIdentityResponse,
+  LinkAuthUserLoginIdentityError,
+  Options<LinkAuthUserLoginIdentityData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    LinkAuthUserLoginIdentityResponse,
+    LinkAuthUserLoginIdentityError,
+    Options<LinkAuthUserLoginIdentityData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await linkAuthUserLoginIdentity({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAuthUserChannelIdentitiesQueryKey = (
+  options: Options<ListAuthUserChannelIdentitiesData>,
+) => createQueryKey("listAuthUserChannelIdentities", options);
+
+/**
+ * List channel identities for an auth user (admin only)
+ */
+export const listAuthUserChannelIdentitiesOptions = (
+  options: Options<ListAuthUserChannelIdentitiesData>,
+) =>
+  queryOptions<
+    ListAuthUserChannelIdentitiesResponse,
+    ListAuthUserChannelIdentitiesError,
+    ListAuthUserChannelIdentitiesResponse,
+    ReturnType<typeof listAuthUserChannelIdentitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthUserChannelIdentities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthUserChannelIdentitiesQueryKey(options),
+  });
 
 /**
  * Delete an identity linked to an auth user (admin only)

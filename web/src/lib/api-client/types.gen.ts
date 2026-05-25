@@ -458,6 +458,16 @@ export type ComponentsChannel = {
   config: string;
 };
 
+export type ChannelIdentity = {
+  id: string;
+  user_id: string;
+  platform: string;
+  external_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ComponentsChannelList = {
   items: Array<ComponentsChannel>;
 };
@@ -729,6 +739,25 @@ export type JobRunList = Array<JobRun>;
 export type ComponentsLinkCodeResponse = {
   code: string;
   platform: string;
+};
+
+export type LinkLoginIdentityRequest = {
+  provider: string;
+  provider_subject: string;
+  email: string;
+  name?: string;
+};
+
+export type LoginIdentity = {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_subject: string;
+  email: string;
+  name?: string;
+  avatar_url?: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ComponentsLoginRequest = {
@@ -1533,6 +1562,10 @@ export type _1Api1Auth1Users1Id = unknown;
 export type _1Api1Auth1Users1Id1Active = unknown;
 
 export type _1Api1Auth1Users1Id1Agents = unknown;
+
+export type _1Api1Auth1Users1Id1Identities1Channel = unknown;
+
+export type _1Api1Auth1Users1Id1Identities1Login = unknown;
 
 export type _1Api1Auth1Users1Id1Identities1IdentityId = unknown;
 
@@ -5279,6 +5312,147 @@ export type UpdateAuthUserAgentsResponses = {
 
 export type UpdateAuthUserAgentsResponse =
   UpdateAuthUserAgentsResponses[keyof UpdateAuthUserAgentsResponses];
+
+export type ListAuthUserLoginIdentitiesData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/auth/users/{id}/identities/login";
+};
+
+export type ListAuthUserLoginIdentitiesErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAuthUserLoginIdentitiesError =
+  ListAuthUserLoginIdentitiesErrors[keyof ListAuthUserLoginIdentitiesErrors];
+
+export type ListAuthUserLoginIdentitiesResponses = {
+  /**
+   * ok
+   */
+  200: Array<LoginIdentity>;
+};
+
+export type ListAuthUserLoginIdentitiesResponse =
+  ListAuthUserLoginIdentitiesResponses[keyof ListAuthUserLoginIdentitiesResponses];
+
+export type LinkAuthUserLoginIdentityData = {
+  body: LinkLoginIdentityRequest;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/auth/users/{id}/identities/login";
+};
+
+export type LinkAuthUserLoginIdentityErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+  /**
+   * request conflicts with current state
+   */
+  409: {
+    error: string;
+  };
+};
+
+export type LinkAuthUserLoginIdentityError =
+  LinkAuthUserLoginIdentityErrors[keyof LinkAuthUserLoginIdentityErrors];
+
+export type LinkAuthUserLoginIdentityResponses = {
+  /**
+   * linked
+   */
+  200: LoginIdentity;
+};
+
+export type LinkAuthUserLoginIdentityResponse =
+  LinkAuthUserLoginIdentityResponses[keyof LinkAuthUserLoginIdentityResponses];
+
+export type ListAuthUserChannelIdentitiesData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/auth/users/{id}/identities/channel";
+};
+
+export type ListAuthUserChannelIdentitiesErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAuthUserChannelIdentitiesError =
+  ListAuthUserChannelIdentitiesErrors[keyof ListAuthUserChannelIdentitiesErrors];
+
+export type ListAuthUserChannelIdentitiesResponses = {
+  /**
+   * ok
+   */
+  200: Array<ChannelIdentity>;
+};
+
+export type ListAuthUserChannelIdentitiesResponse =
+  ListAuthUserChannelIdentitiesResponses[keyof ListAuthUserChannelIdentitiesResponses];
 
 export type DeleteAuthUserIdentityData = {
   body?: never;

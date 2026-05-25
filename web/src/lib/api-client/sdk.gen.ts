@@ -193,6 +193,9 @@ import type {
   InstallAgentScopedSkillData,
   InstallAgentScopedSkillErrors,
   InstallAgentScopedSkillResponses,
+  LinkAuthUserLoginIdentityData,
+  LinkAuthUserLoginIdentityErrors,
+  LinkAuthUserLoginIdentityResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillsData,
@@ -216,6 +219,12 @@ import type {
   ListAuthUserAgentsData,
   ListAuthUserAgentsErrors,
   ListAuthUserAgentsResponses,
+  ListAuthUserChannelIdentitiesData,
+  ListAuthUserChannelIdentitiesErrors,
+  ListAuthUserChannelIdentitiesResponses,
+  ListAuthUserLoginIdentitiesData,
+  ListAuthUserLoginIdentitiesErrors,
+  ListAuthUserLoginIdentitiesResponses,
   ListAuthUsersData,
   ListAuthUsersErrors,
   ListAuthUsersResponses,
@@ -2052,6 +2061,62 @@ export const updateAuthUserAgents = <ThrowOnError extends boolean = false>(
       "Content-Type": "application/json",
       ...options.headers,
     },
+  });
+
+/**
+ * List OIDC login identities for an auth user (admin only)
+ */
+export const listAuthUserLoginIdentities = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<ListAuthUserLoginIdentitiesData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAuthUserLoginIdentitiesResponses,
+    ListAuthUserLoginIdentitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/login",
+    ...options,
+  });
+
+/**
+ * Link an OIDC login identity to an auth user (admin only)
+ */
+export const linkAuthUserLoginIdentity = <ThrowOnError extends boolean = false>(
+  options: Options<LinkAuthUserLoginIdentityData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    LinkAuthUserLoginIdentityResponses,
+    LinkAuthUserLoginIdentityErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/login",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List channel identities for an auth user (admin only)
+ */
+export const listAuthUserChannelIdentities = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<ListAuthUserChannelIdentitiesData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAuthUserChannelIdentitiesResponses,
+    ListAuthUserChannelIdentitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/channel",
+    ...options,
   });
 
 /**
