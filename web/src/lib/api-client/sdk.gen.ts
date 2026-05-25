@@ -297,9 +297,6 @@ import type {
   ListVaultEntriesData,
   ListVaultEntriesErrors,
   ListVaultEntriesResponses,
-  LoginData,
-  LoginErrors,
-  LoginResponses,
   LogoutData,
   LogoutErrors,
   LogoutResponses,
@@ -317,9 +314,6 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusErrors,
   PollWeixinQrStatusResponses,
-  RegisterData,
-  RegisterErrors,
-  RegisterResponses,
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
@@ -461,40 +455,6 @@ export const getStatus = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<GetStatusResponses, unknown, ThrowOnError>({
     url: "/api/status",
     ...options,
-  });
-
-/**
- * Register a new user account
- */
-export const register = <ThrowOnError extends boolean = false>(
-  options: Options<RegisterData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    RegisterResponses,
-    RegisterErrors,
-    ThrowOnError
-  >({
-    url: "/api/auth/register",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Authenticate and start a session
- */
-export const login = <ThrowOnError extends boolean = false>(
-  options: Options<LoginData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({
-    url: "/api/auth/login",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
   });
 
 /**

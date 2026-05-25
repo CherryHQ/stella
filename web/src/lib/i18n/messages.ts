@@ -61,23 +61,8 @@ const en = {
 
   // Login page
   "login.adminPanel": "Admin Panel",
-  "login.username": "Username",
-  "login.password": "Password",
-  "login.confirmPassword": "Confirm Password",
-  "login.usernamePlaceholder": "username",
-  "login.passwordPlaceholder": "password",
-  "login.confirmPasswordPlaceholder": "confirm password",
-  "login.passwordMinLength": "min 8 characters",
-  "login.signIn": "Sign in",
-  "login.signingIn": "Signing in…",
-  "login.createAccount": "Create account",
-  "login.creatingAccount": "Creating account…",
-  "login.needAccount": "Need an account? Register",
-  "login.alreadyHaveAccount": "Already have an account? Sign in",
-  "login.passwordsMismatch": "Passwords do not match",
-  "login.passwordTooShort": "Password must be at least 8 characters",
-  "login.loginFailed": "Login failed",
-  "login.registrationFailed": "Registration failed",
+  "login.signIn": "Sign in with",
+  "login.noProviders": "No login providers configured. Contact your administrator.",
 
   // Account page
   "account.title": "Account",
@@ -616,23 +601,8 @@ const zh: Record<MessageKey, string> = {
 
   // Login page
   "login.adminPanel": "管理后台",
-  "login.username": "用户名",
-  "login.password": "密码",
-  "login.confirmPassword": "确认密码",
-  "login.usernamePlaceholder": "用户名",
-  "login.passwordPlaceholder": "密码",
-  "login.confirmPasswordPlaceholder": "确认密码",
-  "login.passwordMinLength": "至少 8 个字符",
-  "login.signIn": "登录",
-  "login.signingIn": "登录中…",
-  "login.createAccount": "注册账号",
-  "login.creatingAccount": "注册中…",
-  "login.needAccount": "没有账号？注册",
-  "login.alreadyHaveAccount": "已有账号？登录",
-  "login.passwordsMismatch": "密码不匹配",
-  "login.passwordTooShort": "密码至少需要 8 个字符",
-  "login.loginFailed": "登录失败",
-  "login.registrationFailed": "注册失败",
+  "login.signIn": "使用以下方式登录",
+  "login.noProviders": "未配置登录提供商，请联系管理员。",
 
   // Account page
   "account.title": "账户",

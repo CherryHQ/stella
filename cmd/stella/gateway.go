@@ -179,7 +179,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		var authSvcForIssuer *auth.AuthService
 		var sessionMgrForIssuer *auth.SessionManager
 		if vaultKey != "" {
-			authSvcForIssuer = auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			authSvcForIssuer = auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgrForIssuer, err = auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {
 				slog.Warn("local oidc: session manager init failed", "error", err)
@@ -211,7 +211,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			oidcStore := appdb.NewOIDCStore(s.db)
 			adminSrv.SetLoginIdentityStore(oidcStore)
 			adminSrv.SetMembershipStore(oidcStore)
-			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {
 				slog.Warn("oidc: session manager init failed", "error", err)

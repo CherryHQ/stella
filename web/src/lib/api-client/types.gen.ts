@@ -1406,15 +1406,11 @@ export type _1Api1Agents1Id1Users = unknown;
 
 export type _1Api1Agents1Id1Users1UserId = unknown;
 
-export type _1Api1Auth1Login = unknown;
-
 export type _1Api1Auth1Logout = unknown;
 
 export type _1Api1Auth1Me = unknown;
 
 export type _1Api1Auth1Providers = unknown;
-
-export type _1Api1Auth1Register = unknown;
 
 export type _1Api1Builtin1Kind = unknown;
 
@@ -1594,70 +1590,6 @@ export type GetStatusResponses = {
 };
 
 export type GetStatusResponse = GetStatusResponses[keyof GetStatusResponses];
-
-export type RegisterData = {
-  body: ComponentsRegisterRequest;
-  path?: never;
-  query?: never;
-  url: "/api/auth/register";
-};
-
-export type RegisterErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * username already taken
-   */
-  409: ComponentsError;
-};
-
-export type RegisterError = RegisterErrors[keyof RegisterErrors];
-
-export type RegisterResponses = {
-  /**
-   * created
-   */
-  201: ComponentsAuthResponse;
-};
-
-export type RegisterResponse = RegisterResponses[keyof RegisterResponses];
-
-export type LoginData = {
-  body: ComponentsLoginRequest;
-  path?: never;
-  query?: never;
-  url: "/api/auth/login";
-};
-
-export type LoginErrors = {
-  /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
-   * missing or invalid bearer token
-   */
-  401: {
-    error: string;
-  };
-};
-
-export type LoginError = LoginErrors[keyof LoginErrors];
-
-export type LoginResponses = {
-  /**
-   * ok
-   */
-  200: ComponentsAuthResponse;
-};
-
-export type LoginResponse = LoginResponses[keyof LoginResponses];
 
 export type LogoutData = {
   body?: never;

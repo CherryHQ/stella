@@ -10,13 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuthService composes the five auth stores and owns business-level transactions
+// AuthService composes the auth stores and owns business-level transactions
 // such as ProcessOIDCLogin. It is the only place that coordinates cross-store
 // writes inside a single DB transaction.
 type AuthService struct {
 	users         UserStore
 	logins        LoginIdentityStore
-	channels      ChannelIdentityStore
 	sessions      SessionStore
 	organizations OrganizationStore
 	memberships   MembershipStore
@@ -28,7 +27,6 @@ func NewAuthService(
 	db *sql.DB,
 	users UserStore,
 	logins LoginIdentityStore,
-	channels ChannelIdentityStore,
 	sessions SessionStore,
 	organizations OrganizationStore,
 	memberships MembershipStore,
@@ -37,7 +35,6 @@ func NewAuthService(
 		db:            db,
 		users:         users,
 		logins:        logins,
-		channels:      channels,
 		sessions:      sessions,
 		organizations: organizations,
 		memberships:   memberships,

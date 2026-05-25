@@ -107,7 +107,6 @@ import {
   listTools,
   listUserMemories,
   listVaultEntries,
-  login,
   logout,
   moveWorkspaceFile,
   oauthCallback,
@@ -115,7 +114,6 @@ import {
   pollFeed,
   pollOAuthFlow,
   pollWeixinQrStatus,
-  register,
   removeAgentUser,
   revokeShare,
   saveArticle,
@@ -443,9 +441,6 @@ import type {
   ListVaultEntriesData,
   ListVaultEntriesError,
   ListVaultEntriesResponse,
-  LoginData,
-  LoginError,
-  LoginResponse,
   LogoutData,
   LogoutError,
   LogoutResponse,
@@ -462,9 +457,6 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusError,
   PollWeixinQrStatusResponse,
-  RegisterData,
-  RegisterError,
-  RegisterResponse,
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
@@ -639,56 +631,6 @@ export const getStatusOptions = (options?: Options<GetStatusData>) =>
     },
     queryKey: getStatusQueryKey(options),
   });
-
-/**
- * Register a new user account
- */
-export const registerMutation = (
-  options?: Partial<Options<RegisterData>>,
-): UseMutationOptions<
-  RegisterResponse,
-  RegisterError,
-  Options<RegisterData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    RegisterResponse,
-    RegisterError,
-    Options<RegisterData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await register({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-/**
- * Authenticate and start a session
- */
-export const loginMutation = (
-  options?: Partial<Options<LoginData>>,
-): UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> => {
-  const mutationOptions: UseMutationOptions<
-    LoginResponse,
-    LoginError,
-    Options<LoginData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await login({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
 
 /**
  * End the current session

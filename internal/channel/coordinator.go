@@ -328,43 +328,16 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	return out
 }
 
-// ProvisionUser creates or returns an existing user+identity for the given
-// channel sender. Returns an error if auth is not configured or the user
-// count is zero (no admin exists yet — provisioning is refused until the
-// first admin registers to avoid stranding a deployment with zero admins).
+// ProvisionUser checks whether a channel identity exists for the sender.
+// Returns an error if the identity is not found — the user must first log in
+// via OIDC and link their channel account.
 func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
 	if c.auth == nil {
 		return errors.New("provision: auth not configured")
 	}
-	count, err := c.auth.CountUsers(ctx)
+	_, err := c.auth.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
 	if err != nil {
-		return fmt.Errorf("provision: count users: %w", err)
-	}
-	if count == 0 {
-		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
-	}
-	_, err = auth.ProvisionIdentityUser(ctx, c.auth, c.auth, auth.ProvisionRequest{
-		Platform:   req.Platform,
-		ExternalID: req.ExternalID,
-		Name:       req.Name,
-		EmailHint:  req.EmailHint,
-		OnUserCreated: func(ctx context.Context, userID string) error {
-			return provisionUserVaultKeys(ctx, c.auth, c.vaultRecipient, userID)
-		},
-	})
-	return err
-}
-
-func provisionUserVaultKeys(ctx context.Context, store auth.UserStore, recipient *age.X25519Recipient, userID string) error {
-	if recipient == nil {
-		return nil
-	}
-	pubKey, encPrivKey, err := vault.GenerateUserKeys(recipient)
-	if err != nil {
-		return fmt.Errorf("generate age keys: %w", err)
-	}
-	if err := store.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey); err != nil {
-		return fmt.Errorf("store age keys: %w", err)
+		return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
 	}
 	return nil
 }

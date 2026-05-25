@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"filippo.io/age"
-
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -336,87 +334,45 @@ func TestCoordinatorProvisionUserAuthNotConfigured(t *testing.T) {
 	}
 }
 
-func TestCoordinatorProvisionUserRequiresExistingAdmin(t *testing.T) {
+func TestCoordinatorProvisionUserUnknownIdentityReturnsError(t *testing.T) {
 	ts := setupStores(t)
 	coord := &Coordinator{auth: ts.oidcStore}
 
 	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{
 		Platform:   "telegram",
-		ExternalID: "u-no-admin",
-		Name:       "No Admin",
-		EmailHint:  "noadmin@example.com",
+		ExternalID: "u-unknown",
+		Name:       "Unknown",
 	})
 	if err == nil {
-		t.Fatal("expected error when no admin exists")
+		t.Fatal("expected error for unknown channel identity")
 	}
-	if !strings.Contains(err.Error(), "no admin exists yet") {
-		t.Fatalf("error = %v, want no-admin message", err)
+	if !strings.Contains(err.Error(), "channel identity not found") {
+		t.Fatalf("error = %v, want channel-identity-not-found message", err)
 	}
 }
 
-func TestCoordinatorProvisionUserCreatesVaultKeys(t *testing.T) {
+func TestCoordinatorProvisionUserKnownIdentitySucceeds(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	// Create an admin user so provisioning is allowed.
-	adminUser := createTestUser(t, ts.oidcStore, "admin@example.com")
-	_ = adminUser
-
-	identity, err := age.GenerateX25519Identity()
-	if err != nil {
-		t.Fatalf("GenerateX25519Identity: %v", err)
-	}
-
-	coord := &Coordinator{
-		auth:           ts.oidcStore,
-		vaultRecipient: identity.Recipient(),
-	}
-
-	err = coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+	user := createTestUser(t, ts.oidcStore, "linked@example.com")
+	_, err := ts.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         "ci-1",
+		UserID:     user.ID,
 		Platform:   "telegram",
-		ExternalID: "u-vault",
-		Name:       "Vault User",
-		EmailHint:  "vault@example.com",
+		ExternalID: "u-linked",
+		Name:       "Linked User",
 	})
 	if err != nil {
+		t.Fatalf("CreateChannelIdentity: %v", err)
+	}
+
+	coord := &Coordinator{auth: ts.oidcStore}
+	if err := coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+		Platform:   "telegram",
+		ExternalID: "u-linked",
+		Name:       "Linked User",
+	}); err != nil {
 		t.Fatalf("ProvisionUser: %v", err)
-	}
-
-	ident, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "telegram", "u-vault")
-	if err != nil {
-		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
-	}
-	user, err := ts.oidcStore.GetUser(ctx, ident.UserID)
-	if err != nil {
-		t.Fatalf("GetUser: %v", err)
-	}
-	if user.AgePublicKey == "" {
-		t.Fatal("expected AgePublicKey to be provisioned")
-	}
-	if user.AgePrivateKey == "" {
-		t.Fatal("expected AgePrivateKey to be provisioned")
-	}
-}
-
-func TestProvisionUserVaultKeysNoRecipientIsNoOp(t *testing.T) {
-	ts := setupStores(t)
-	if err := provisionUserVaultKeys(context.Background(), ts.oidcStore, nil, "123"); err != nil {
-		t.Fatalf("provisionUserVaultKeys(nil recipient): %v", err)
-	}
-}
-
-func TestProvisionUserVaultKeysReturnsStoreError(t *testing.T) {
-	ts := setupStores(t)
-	ctx := context.Background()
-	user := createTestUser(t, ts.oidcStore, "temp@example.com")
-	identity, err := age.GenerateX25519Identity()
-	if err != nil {
-		t.Fatalf("GenerateX25519Identity: %v", err)
-	}
-	if err := ts.db.Close(); err != nil {
-		t.Fatalf("Close DB: %v", err)
-	}
-	if err := provisionUserVaultKeys(ctx, ts.oidcStore, identity.Recipient(), user.ID); err == nil {
-		t.Fatal("expected store error after closing DB")
 	}
 }
