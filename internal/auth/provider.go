@@ -15,15 +15,13 @@ type AuthState struct {
 
 // ExternalIdentity is the normalised identity returned by an AuthProvider after
 // a successful callback. It contains all information needed to upsert a User,
-// LoginIdentity, Organization, and Membership in ProcessOIDCLogin.
+// LoginIdentity, and Membership in ProcessOIDCLogin.
 type ExternalIdentity struct {
 	Provider  string
 	Subject   string
 	Email     string
 	Name      string
 	AvatarURL string
-	OrgID     string // from IdP-specific claim (e.g. OIDC_ORG_ID_CLAIM)
-	OrgName   string // from IdP-specific claim (e.g. OIDC_ORG_NAME_CLAIM)
 	Claims    map[string]any
 }
 

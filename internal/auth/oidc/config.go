@@ -15,8 +15,6 @@ type Config struct {
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
-	OrgIDClaim   string // optional; e.g. "urn:zitadel:iam:org:id"
-	OrgNameClaim string // optional; e.g. "urn:zitadel:iam:org:name"
 }
 
 // ConfigFromEnv reads OIDC configuration from environment variables.
@@ -27,8 +25,6 @@ type Config struct {
 //   - OIDC_CLIENT_SECRET (optional; empty = public client with PKCE only)
 //   - OIDC_REDIRECT_URL  (required)
 //   - OIDC_SCOPES        (optional, comma-separated; default: openid email profile)
-//   - OIDC_ORG_ID_CLAIM  (optional)
-//   - OIDC_ORG_NAME_CLAIM (optional)
 func ConfigFromEnv() (*Config, error) {
 	cfg := &Config{
 		ProviderName: os.Getenv("OIDC_PROVIDER_NAME"),
@@ -36,8 +32,6 @@ func ConfigFromEnv() (*Config, error) {
 		ClientID:     os.Getenv("OIDC_CLIENT_ID"),
 		ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		RedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
-		OrgIDClaim:   os.Getenv("OIDC_ORG_ID_CLAIM"),
-		OrgNameClaim: os.Getenv("OIDC_ORG_NAME_CLAIM"),
 	}
 
 	if raw := os.Getenv("OIDC_SCOPES"); raw != "" {

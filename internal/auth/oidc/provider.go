@@ -71,7 +71,6 @@ func (p *Provider) LoginURL(ctx context.Context, state auth.AuthState) (string, 
 // the ID token, and returns the normalised ExternalIdentity.
 //
 // Rejects logins where email_verified is false or email is empty.
-// Extracts org claims using the configured OrgIDClaim / OrgNameClaim keys.
 func (p *Provider) HandleCallback(ctx context.Context, r *http.Request, state auth.AuthState) (*auth.ExternalIdentity, error) {
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
 		desc := r.URL.Query().Get("error_description")
@@ -123,8 +122,6 @@ func (p *Provider) HandleCallback(ctx context.Context, r *http.Request, state au
 	}
 	picture, _ := claims["picture"].(string)
 
-	orgID, orgName := p.extractOrgClaims(claims)
-
 	// Strip sensitive fields before storing raw claims.
 	filtered := filterClaims(claims)
 
@@ -134,21 +131,8 @@ func (p *Provider) HandleCallback(ctx context.Context, r *http.Request, state au
 		Email:     email,
 		Name:      name,
 		AvatarURL: picture,
-		OrgID:     orgID,
-		OrgName:   orgName,
 		Claims:    filtered,
 	}, nil
-}
-
-// extractOrgClaims reads the configured org claim keys from the token claims.
-func (p *Provider) extractOrgClaims(claims map[string]any) (orgID, orgName string) {
-	if p.cfg.OrgIDClaim != "" {
-		orgID, _ = claims[p.cfg.OrgIDClaim].(string)
-	}
-	if p.cfg.OrgNameClaim != "" {
-		orgName, _ = claims[p.cfg.OrgNameClaim].(string)
-	}
-	return orgID, orgName
 }
 
 // filterClaims returns a copy of claims without fields that should never be

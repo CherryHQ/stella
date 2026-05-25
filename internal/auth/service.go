@@ -101,17 +101,12 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 
 // processOIDCLoginNoTx is the non-transactional implementation shared by both paths.
 func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
-	org, err := s.upsertOrganization(ctx, ext)
-	if err != nil {
-		return OIDCLoginResult{}, fmt.Errorf("auth: upsert organization: %w", err)
-	}
-
 	user, isNewUser, err := s.resolveUser(ctx, ext)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	membership, err := s.manageMembership(ctx, user.ID, org)
+	membership, err := s.ensureMembership(ctx, user.ID)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: manage membership: %w", err)
 	}
@@ -189,32 +184,13 @@ func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 	return s.sessions.DeleteSession(ctx, session.ID)
 }
 
-// upsertOrganization finds or creates the org from ExternalIdentity claims.
-// If OrgID is empty, a local default org is used (source="local", external_id="default").
-func (s *AuthService) upsertOrganization(ctx context.Context, ext ExternalIdentity) (Organization, error) {
-	source := ext.Provider
-	externalID := ext.OrgID
-	name := ext.OrgName
-
-	if externalID == "" {
-		source = "local"
-		externalID = "default"
-		name = "Default"
-	}
-
-	org, err := s.organizations.GetOrganizationBySource(ctx, source, externalID)
-	if err == nil {
-		return org, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Organization{}, err
-	}
-
+// createOrganization creates a new personal org for the user.
+func (s *AuthService) createOrganization(ctx context.Context) (Organization, error) {
 	return s.organizations.CreateOrganization(ctx, Organization{
 		ID:         uuid.NewString(),
-		Name:       name,
-		ExternalID: externalID,
-		Source:     source,
+		Name:       "My Organization",
+		ExternalID: uuid.NewString(),
+		Source:     "stella",
 	})
 }
 
@@ -287,46 +263,27 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 	return newUser, true, nil
 }
 
-// manageMembership ensures the user has exactly one membership (in the OIDC org).
-// If the user already belongs to a different org (e.g. a backfill default org),
-// that old membership is removed and the old org is deleted if it becomes empty.
-func (s *AuthService) manageMembership(ctx context.Context, userID string, org Organization) (Membership, error) {
+// ensureMembership returns the user's existing membership or creates a new org
+// and membership if they don't have one yet.
+func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Membership, error) {
 	existing, err := s.memberships.GetUserMembership(ctx, userID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
 		return Membership{}, err
 	}
 
-	if err == nil && existing.OrganizationID == org.ID {
-		// Already in the right org — no change needed.
-		return existing, nil
-	}
-
-	if err == nil && existing.OrganizationID != org.ID {
-		// User is in a different org — remove old membership and clean up.
-		oldOrgID := existing.OrganizationID
-		if derr := s.memberships.DeleteMembership(ctx, existing.ID); derr != nil {
-			return Membership{}, fmt.Errorf("auth: delete old membership: %w", derr)
-		}
-		if count, cerr := s.memberships.CountOrgMembers(ctx, oldOrgID); cerr == nil && count == 0 {
-			_ = s.organizations.DeleteOrganization(ctx, oldOrgID)
-		}
-	}
-
-	// Create membership in new org. First member becomes admin.
-	role := RoleUser
-	count, err := s.memberships.CountOrgMembers(ctx, org.ID)
+	org, err := s.createOrganization(ctx)
 	if err != nil {
-		return Membership{}, fmt.Errorf("auth: count org members: %w", err)
-	}
-	if count == 0 {
-		role = RoleAdmin
+		return Membership{}, fmt.Errorf("auth: create org for new user: %w", err)
 	}
 
 	return s.memberships.CreateMembership(ctx, Membership{
 		ID:             uuid.NewString(),
 		UserID:         userID,
 		OrganizationID: org.ID,
-		Role:           role,
+		Role:           RoleAdmin,
 		IsActive:       true,
 	})
 }

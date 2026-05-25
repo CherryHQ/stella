@@ -293,31 +293,22 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
-	org, err := is.organizations.GetOrganizationBySource(ctx, "local", "default")
+	org, err := is.organizations.CreateOrganization(ctx, auth.Organization{
+		ID:         uuid.NewString(),
+		Name:       "My Organization",
+		ExternalID: uuid.NewString(),
+		Source:     "stella",
+	})
 	if err != nil {
-		org, err = is.organizations.CreateOrganization(ctx, auth.Organization{
-			ID:         uuid.NewString(),
-			Name:       "Default",
-			ExternalID: "default",
-			Source:     "local",
-		})
-		if err != nil {
-			is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-			return
-		}
-	}
-
-	role := auth.RoleUser
-	count, err := is.memberships.CountOrgMembers(ctx, org.ID)
-	if err == nil && count == 0 {
-		role = auth.RoleAdmin
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
 	}
 
 	membership, err := is.memberships.CreateMembership(ctx, auth.Membership{
 		ID:             uuid.NewString(),
 		UserID:         newUser.ID,
 		OrganizationID: org.ID,
-		Role:           role,
+		Role:           auth.RoleAdmin,
 		IsActive:       true,
 	})
 	if err != nil {
