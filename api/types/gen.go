@@ -598,6 +598,18 @@ type AuthResponse struct {
 	Username string `json:"username"`
 }
 
+// AuthSession defines model for AuthSession.
+type AuthSession struct {
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+}
+
+// AuthSessionList defines model for AuthSessionList.
+type AuthSessionList struct {
+	Items []AuthSession `json:"items"`
+}
+
 // AuthUser defines model for AuthUser.
 type AuthUser struct {
 	CreatedAt  string     `json:"created_at"`
@@ -1053,14 +1065,16 @@ type ManifestPluginsResponse struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
-	AvatarUrl *string `json:"avatar_url,omitempty"`
-	Email     *string `json:"email,omitempty"`
-	Id        string  `json:"id"`
-	IsAdmin   bool    `json:"is_admin"`
-	Name      *string `json:"name,omitempty"`
-	OrgId     *string `json:"org_id,omitempty"`
-	Role      string  `json:"role"`
-	Username  string  `json:"username"`
+	AvatarUrl      *string `json:"avatar_url,omitempty"`
+	Email          *string `json:"email,omitempty"`
+	HasCredentials *bool   `json:"has_credentials,omitempty"`
+	Id             string  `json:"id"`
+	IsAdmin        bool    `json:"is_admin"`
+	Name           *string `json:"name,omitempty"`
+	OrgId          *string `json:"org_id,omitempty"`
+	OrgName        *string `json:"org_name,omitempty"`
+	Role           string  `json:"role"`
+	Username       string  `json:"username"`
 }
 
 // MessagePart defines model for MessagePart.
@@ -1572,6 +1586,11 @@ type UpdateFeedRequest struct {
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest struct {
 	NotifyIdentityId *string `json:"notify_identity_id,omitempty"`
+}
+
+// UpdateOrgRequest defines model for UpdateOrgRequest.
+type UpdateOrgRequest struct {
+	Name string `json:"name"`
 }
 
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.

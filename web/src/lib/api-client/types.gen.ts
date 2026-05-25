@@ -188,6 +188,12 @@ export type AuthResponse = ComponentsAuthResponse;
 
 export type MeResponse = ComponentsMeResponse;
 
+export type UpdateOrgRequest = ComponentsUpdateOrgRequest;
+
+export type AuthSession = ComponentsAuthSession;
+
+export type AuthSessionList = ComponentsAuthSessionList;
+
 export type StatusMemory = ComponentsStatusMemory;
 
 export type StatusRuntime = ComponentsStatusRuntime;
@@ -396,6 +402,16 @@ export type ComponentsAssignAgentUserRequest = {
 export type ComponentsAuthResponse = {
   id: string;
   username: string;
+};
+
+export type ComponentsAuthSession = {
+  id: string;
+  expires_at: string;
+  created_at: string;
+};
+
+export type ComponentsAuthSessionList = {
+  items: Array<ComponentsAuthSession>;
 };
 
 export type ComponentsAuthUser = {
@@ -826,6 +842,8 @@ export type ComponentsMeResponse = {
   name?: string;
   avatar_url?: string;
   org_id?: string;
+  org_name?: string;
+  has_credentials?: boolean;
 };
 
 export type MessagePart = {
@@ -1302,6 +1320,10 @@ export type ComponentsUpdateNotifyIdentityRequest = {
   notify_identity_id?: string | null;
 };
 
+export type ComponentsUpdateOrgRequest = {
+  name: string;
+};
+
 export type ComponentsUpdatePluginConfigRequest = {
   config?: {
     [key: string]: unknown;
@@ -1450,7 +1472,13 @@ export type _1Api1Auth1Logout = unknown;
 
 export type _1Api1Auth1Me = unknown;
 
+export type _1Api1Auth1Org = unknown;
+
 export type _1Api1Auth1Providers = unknown;
+
+export type _1Api1Auth1Sessions = unknown;
+
+export type _1Api1Auth1Sessions1Id = unknown;
 
 export type _1Api1Builtin1Kind = unknown;
 
@@ -1711,6 +1739,103 @@ export type ListAuthProvidersResponses = {
 
 export type ListAuthProvidersResponse =
   ListAuthProvidersResponses[keyof ListAuthProvidersResponses];
+
+export type UpdateOrgData = {
+  body: ComponentsUpdateOrgRequest;
+  path?: never;
+  query?: never;
+  url: "/api/auth/org";
+};
+
+export type UpdateOrgErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type UpdateOrgError = UpdateOrgErrors[keyof UpdateOrgErrors];
+
+export type UpdateOrgResponses = {
+  /**
+   * ok
+   */
+  200: {
+    success?: boolean;
+  };
+};
+
+export type UpdateOrgResponse = UpdateOrgResponses[keyof UpdateOrgResponses];
+
+export type ListAuthSessionsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/auth/sessions";
+};
+
+export type ListAuthSessionsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type ListAuthSessionsError =
+  ListAuthSessionsErrors[keyof ListAuthSessionsErrors];
+
+export type ListAuthSessionsResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAuthSessionList;
+};
+
+export type ListAuthSessionsResponse =
+  ListAuthSessionsResponses[keyof ListAuthSessionsResponses];
+
+export type DeleteAuthSessionData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/auth/sessions/{id}";
+};
+
+export type DeleteAuthSessionErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type DeleteAuthSessionError =
+  DeleteAuthSessionErrors[keyof DeleteAuthSessionErrors];
+
+export type DeleteAuthSessionResponses = {
+  /**
+   * ok
+   */
+  200: {
+    success?: boolean;
+  };
+};
+
+export type DeleteAuthSessionResponse =
+  DeleteAuthSessionResponses[keyof DeleteAuthSessionResponses];
 
 export type ListInvitesData = {
   body?: never;

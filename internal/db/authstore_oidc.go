@@ -469,6 +469,31 @@ func (s *OIDCStore) UpdateSessionExpiry(ctx context.Context, id string, expiresA
 	return err
 }
 
+func (s *OIDCStore) GetSession(ctx context.Context, id string) (auth.Session, error) {
+	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at FROM auth_session WHERE id=?`
+	return scanSession(s.db.QueryRowContext(ctx, q, id))
+}
+
+func (s *OIDCStore) ListSessionsByUser(ctx context.Context, userID string) ([]auth.Session, error) {
+	const q = `SELECT id, user_id, token_hash, expires_at, created_at, updated_at
+	           FROM auth_session WHERE user_id=? AND expires_at > datetime('now')
+	           ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []auth.Session
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
 func scanSession(r rowScanner) (auth.Session, error) {
 	var sess auth.Session
 	var expiresAt, createdAt, updatedAt string
@@ -520,6 +545,11 @@ func (s *OIDCStore) ListOrganizations(ctx context.Context) ([]auth.Organization,
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+func (s *OIDCStore) UpdateOrganizationName(ctx context.Context, id, name string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE auth_organization SET name=?, updated_at=datetime('now') WHERE id=?`, name, id)
+	return err
 }
 
 func (s *OIDCStore) DeleteOrganization(ctx context.Context, id string) error {

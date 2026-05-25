@@ -34,6 +34,72 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
+  /api/auth/org:
+    put:
+      tags: [auth]
+      summary: Update the current user's organization name
+      operationId: updateOrg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateOrgRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/auth/sessions:
+    get:
+      tags: [auth]
+      summary: List current user's active sessions
+      operationId: listAuthSessions
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthSessionList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/auth/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [auth]
+      summary: Revoke an auth session
+      operationId: deleteAuthSession
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
   /api/auth/providers:
     get:
       tags: [auth]

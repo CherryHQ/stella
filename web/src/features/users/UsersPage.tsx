@@ -26,11 +26,7 @@ import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { InviteManagement } from "@/features/invites/InviteManagement";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
+import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
 
 interface LegacyUser extends User {
   _defaultAgent: string;
@@ -79,7 +75,7 @@ export function UsersPage() {
         path: { id: userId },
         throwOnError: true,
       });
-      const ids = data ?? [];
+      const ids = unwrapApiList<string>(data);
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -380,30 +376,62 @@ export function UsersPage() {
     ? (legacyUsers.find((u) => u.id === selectedUser.id) ?? null)
     : null;
 
+  const [listTab, setListTab] = useState<"users" | "invites">("users");
+
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = <SettingsListHeader title="Users" />;
-
-  const list = (
-    <SettingsListBody>
-      {authUsers.map((u) => (
-        <SettingsListItem
-          key={u.id}
-          onClick={() => void selectUser(u)}
-          active={selectedUser?.id === u.id}
+  const listHeader = (
+    <div>
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setListTab("users")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "users"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
         >
-          <div className="truncate text-sm font-medium">{u.username}</div>
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-            {u.role === "admin" ? (
-              <span className="text-primary">{u.role}</span>
-            ) : (
-              <span>{u.role}</span>
-            )}
-          </div>
-        </SettingsListItem>
-      ))}
-    </SettingsListBody>
+          Users
+        </button>
+        <button
+          onClick={() => setListTab("invites")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "invites"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Invites
+        </button>
+      </div>
+    </div>
   );
+
+  const list =
+    listTab === "users" ? (
+      <SettingsListBody>
+        {authUsers.map((u) => (
+          <SettingsListItem
+            key={u.id}
+            onClick={() => void selectUser(u)}
+            active={selectedUser?.id === u.id}
+          >
+            <div className="truncate text-sm font-medium">{u.username}</div>
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+              {u.role === "admin" ? (
+                <span className="text-primary">{u.role}</span>
+              ) : (
+                <span>{u.role}</span>
+              )}
+            </div>
+          </SettingsListItem>
+        ))}
+      </SettingsListBody>
+    ) : (
+      <div className="flex-1 overflow-y-auto">
+        <InviteManagement />
+      </div>
+    );
 
   // ── Right panel — user detail ────────────────────────────────────────────────
 
@@ -844,7 +872,9 @@ export function UsersPage() {
         listHeader={listHeader}
         list={list}
         detail={detail}
-        emptyState={<InviteManagement />}
+        emptyState={
+          <p className="text-sm text-muted-foreground">Select a user to manage their settings.</p>
+        }
       />
 
       <ConfirmDialog

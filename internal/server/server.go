@@ -56,6 +56,10 @@ type Server struct {
 	stateMgr      *authoidc.StateManager
 	// localOIDC is the built-in local OIDC issuer (optional).
 	localOIDC *localoidc.Issuer
+	// organizations provides access to auth_organization (optional).
+	organizations auth.OrganizationStore
+	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
+	baseURL string
 	// logins provides access to OIDC login identities (optional).
 	logins auth.LoginIdentityStore
 	// memberships provides access to auth_membership (optional).
@@ -150,6 +154,16 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 func (s *Server) SetLocalOIDCIssuer(issuer *localoidc.Issuer) {
 	s.localOIDC = issuer
 	s.registerLocalOIDCRoutes()
+}
+
+// SetOrganizationStore wires the organization store into the admin server.
+func (s *Server) SetOrganizationStore(store auth.OrganizationStore) {
+	s.organizations = store
+}
+
+// SetBaseURL sets the public base URL for invite links and similar.
+func (s *Server) SetBaseURL(url string) {
+	s.baseURL = url
 }
 
 // SetLoginIdentityStore wires the OIDC login identity store so the admin API

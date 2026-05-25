@@ -38,6 +38,9 @@ func loadDotEnv() {
 		}
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)
+		if i := strings.Index(v, " #"); i >= 0 {
+			v = strings.TrimSpace(v[:i])
+		}
 		if k == "" {
 			continue
 		}

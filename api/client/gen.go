@@ -97,6 +97,12 @@ type AssignAgentUserRequest = externalRef0.AssignAgentUserRequest
 // AuthResponse defines model for AuthResponse.
 type AuthResponse = externalRef0.AuthResponse
 
+// AuthSession defines model for AuthSession.
+type AuthSession = externalRef0.AuthSession
+
+// AuthSessionList defines model for AuthSessionList.
+type AuthSessionList = externalRef0.AuthSessionList
+
 // AuthUser defines model for AuthUser.
 type AuthUser = externalRef0.AuthUser
 
@@ -345,6 +351,9 @@ type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
+
+// UpdateOrgRequest defines model for UpdateOrgRequest.
+type UpdateOrgRequest = externalRef0.UpdateOrgRequest
 
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
 type UpdatePluginConfigRequest = externalRef0.UpdatePluginConfigRequest
@@ -618,6 +627,9 @@ type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = externalRef0.CreateInviteRequest
+
+// UpdateOrgJSONRequestBody defines body for UpdateOrg for application/json ContentType.
+type UpdateOrgJSONRequestBody = externalRef0.UpdateOrgRequest
 
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
@@ -992,6 +1004,11 @@ type ClientInterface interface {
 	// GetMe request
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UpdateOrgWithBody request with any body
+	UpdateOrgWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateOrg(ctx context.Context, body UpdateOrgJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListProfileIdentities request
 	ListProfileIdentities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1058,6 +1075,12 @@ type ClientInterface interface {
 
 	// ListAuthProviders request
 	ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAuthSessions request
+	ListAuthSessions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteAuthSession request
+	DeleteAuthSession(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAuthUsers request
 	ListAuthUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2265,6 +2288,30 @@ func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 	return c.Client.Do(req)
 }
 
+func (c *Client) UpdateOrgWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateOrgRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateOrg(ctx context.Context, body UpdateOrgJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateOrgRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ListProfileIdentities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProfileIdentitiesRequest(c.Server)
 	if err != nil {
@@ -2543,6 +2590,30 @@ func (c *Client) SetVaultEntry(ctx context.Context, name string, body SetVaultEn
 
 func (c *Client) ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAuthProvidersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAuthSessions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAuthSessionsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteAuthSession(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteAuthSessionRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -6572,6 +6643,46 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewUpdateOrgRequest calls the generic UpdateOrg builder with application/json body
+func NewUpdateOrgRequest(server string, body UpdateOrgJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateOrgRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewUpdateOrgRequestWithBody generates requests for UpdateOrg with any type of body
+func NewUpdateOrgRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/org")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListProfileIdentitiesRequest generates requests for ListProfileIdentities
 func NewListProfileIdentitiesRequest(server string) (*http.Request, error) {
 	var err error
@@ -7265,6 +7376,67 @@ func NewListAuthProvidersRequest(server string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListAuthSessionsRequest generates requests for ListAuthSessions
+func NewListAuthSessionsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/sessions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteAuthSessionRequest generates requests for DeleteAuthSession
+func NewDeleteAuthSessionRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/sessions/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -10290,6 +10462,11 @@ type ClientWithResponsesInterface interface {
 	// GetMeWithResponse request
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
+	// UpdateOrgWithBodyWithResponse request with any body
+	UpdateOrgWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateOrgResponse, error)
+
+	UpdateOrgWithResponse(ctx context.Context, body UpdateOrgJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateOrgResponse, error)
+
 	// ListProfileIdentitiesWithResponse request
 	ListProfileIdentitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileIdentitiesResponse, error)
 
@@ -10356,6 +10533,12 @@ type ClientWithResponsesInterface interface {
 
 	// ListAuthProvidersWithResponse request
 	ListAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthProvidersResponse, error)
+
+	// ListAuthSessionsWithResponse request
+	ListAuthSessionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthSessionsResponse, error)
+
+	// DeleteAuthSessionWithResponse request
+	DeleteAuthSessionWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAuthSessionResponse, error)
 
 	// ListAuthUsersWithResponse request
 	ListAuthUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthUsersResponse, error)
@@ -12532,6 +12715,40 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+type UpdateOrgResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *struct {
+		Success *bool `json:"success,omitempty"`
+	}
+	JSON401 *externalRef0.Unauthorized
+	JSON403 *externalRef0.Forbidden
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateOrgResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateOrgResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateOrgResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListProfileIdentitiesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -13122,6 +13339,70 @@ func (r ListAuthProvidersResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAuthProvidersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAuthSessionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AuthSessionList
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAuthSessionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAuthSessionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAuthSessionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteAuthSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *struct {
+		Success *bool `json:"success,omitempty"`
+	}
+	JSON401 *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteAuthSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteAuthSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteAuthSessionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15995,6 +16276,23 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 	return ParseGetMeResponse(rsp)
 }
 
+// UpdateOrgWithBodyWithResponse request with arbitrary body returning *UpdateOrgResponse
+func (c *ClientWithResponses) UpdateOrgWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateOrgResponse, error) {
+	rsp, err := c.UpdateOrgWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateOrgResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateOrgWithResponse(ctx context.Context, body UpdateOrgJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateOrgResponse, error) {
+	rsp, err := c.UpdateOrg(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateOrgResponse(rsp)
+}
+
 // ListProfileIdentitiesWithResponse request returning *ListProfileIdentitiesResponse
 func (c *ClientWithResponses) ListProfileIdentitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfileIdentitiesResponse, error) {
 	rsp, err := c.ListProfileIdentities(ctx, reqEditors...)
@@ -16204,6 +16502,24 @@ func (c *ClientWithResponses) ListAuthProvidersWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseListAuthProvidersResponse(rsp)
+}
+
+// ListAuthSessionsWithResponse request returning *ListAuthSessionsResponse
+func (c *ClientWithResponses) ListAuthSessionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthSessionsResponse, error) {
+	rsp, err := c.ListAuthSessions(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAuthSessionsResponse(rsp)
+}
+
+// DeleteAuthSessionWithResponse request returning *DeleteAuthSessionResponse
+func (c *ClientWithResponses) DeleteAuthSessionWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAuthSessionResponse, error) {
+	rsp, err := c.DeleteAuthSession(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteAuthSessionResponse(rsp)
 }
 
 // ListAuthUsersWithResponse request returning *ListAuthUsersResponse
@@ -19623,6 +19939,48 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseUpdateOrgResponse parses an HTTP response from a UpdateOrgWithResponse call
+func ParseUpdateOrgResponse(rsp *http.Response) (*UpdateOrgResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateOrgResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Success *bool `json:"success,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProfileIdentitiesResponse parses an HTTP response from a ListProfileIdentitiesWithResponse call
 func ParseListProfileIdentitiesResponse(rsp *http.Response) (*ListProfileIdentitiesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -20290,6 +20648,74 @@ func ParseListAuthProvidersResponse(rsp *http.Response) (*ListAuthProvidersRespo
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAuthSessionsResponse parses an HTTP response from a ListAuthSessionsWithResponse call
+func ParseListAuthSessionsResponse(rsp *http.Response) (*ListAuthSessionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAuthSessionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AuthSessionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteAuthSessionResponse parses an HTTP response from a DeleteAuthSessionWithResponse call
+func ParseDeleteAuthSessionResponse(rsp *http.Response) (*DeleteAuthSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteAuthSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Success *bool `json:"success,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
 
 	}
 

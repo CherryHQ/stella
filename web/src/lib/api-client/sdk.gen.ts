@@ -71,6 +71,9 @@ import type {
   DeleteArticleData,
   DeleteArticleErrors,
   DeleteArticleResponses,
+  DeleteAuthSessionData,
+  DeleteAuthSessionErrors,
+  DeleteAuthSessionResponses,
   DeleteAuthUserIdentityData,
   DeleteAuthUserIdentityErrors,
   DeleteAuthUserIdentityResponses,
@@ -225,6 +228,9 @@ import type {
   ListArticlesResponses,
   ListAuthProvidersData,
   ListAuthProvidersResponses,
+  ListAuthSessionsData,
+  ListAuthSessionsErrors,
+  ListAuthSessionsResponses,
   ListAuthUserAgentsData,
   ListAuthUserAgentsErrors,
   ListAuthUserAgentsResponses,
@@ -414,6 +420,9 @@ import type {
   UpdateFeedEntryResponses,
   UpdateFeedErrors,
   UpdateFeedResponses,
+  UpdateOrgData,
+  UpdateOrgErrors,
+  UpdateOrgResponses,
   UpdatePluginConfigData,
   UpdatePluginConfigErrors,
   UpdatePluginConfigResponses,
@@ -509,6 +518,58 @@ export const listAuthProviders = <ThrowOnError extends boolean = false>(
     unknown,
     ThrowOnError
   >({ url: "/api/auth/providers", ...options });
+
+/**
+ * Update the current user's organization name
+ */
+export const updateOrg = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateOrgData, ThrowOnError>,
+) =>
+  (options.client ?? client).put<
+    UpdateOrgResponses,
+    UpdateOrgErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/org",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List current user's active sessions
+ */
+export const listAuthSessions = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAuthSessionsData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListAuthSessionsResponses,
+    ListAuthSessionsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/sessions",
+    ...options,
+  });
+
+/**
+ * Revoke an auth session
+ */
+export const deleteAuthSession = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAuthSessionData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteAuthSessionResponses,
+    DeleteAuthSessionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/sessions/{id}",
+    ...options,
+  });
 
 /**
  * List invites for the current user's org (admin only)

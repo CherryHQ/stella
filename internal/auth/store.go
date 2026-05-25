@@ -45,6 +45,8 @@ type SessionStore interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 	UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error
+	GetSession(ctx context.Context, id string) (Session, error)
+	ListSessionsByUser(ctx context.Context, userID string) ([]Session, error)
 }
 
 // OrganizationStore provides CRUD for auth_organization.
@@ -53,6 +55,7 @@ type OrganizationStore interface {
 	GetOrganization(ctx context.Context, id string) (Organization, error)
 	GetOrganizationBySource(ctx context.Context, source, externalID string) (Organization, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	UpdateOrganizationName(ctx context.Context, id, name string) error
 	DeleteOrganization(ctx context.Context, id string) error
 }
 

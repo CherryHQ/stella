@@ -110,6 +110,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
 	adminSrv := server.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
@@ -181,6 +182,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			oidcStore := appdb.NewOIDCStore(s.db)
 			adminSrv.SetLoginIdentityStore(oidcStore)
 			adminSrv.SetMembershipStore(oidcStore)
+			adminSrv.SetUserStore(oidcStore)
+			adminSrv.SetSessionStore(oidcStore)
+			adminSrv.SetCredentialStore(oidcStore)
+			adminSrv.SetOrganizationStore(oidcStore)
 			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {
@@ -258,6 +263,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 						adminSrv.SetLocalOIDCIssuer(issuer)
 						adminSrv.SetLoginIdentityStore(oidcStore)
 						adminSrv.SetMembershipStore(oidcStore)
+						adminSrv.SetUserStore(oidcStore)
+						adminSrv.SetSessionStore(oidcStore)
+						adminSrv.SetCredentialStore(oidcStore)
+						adminSrv.SetOrganizationStore(oidcStore)
 						adminSrv.SetOIDCAuth(
 							[]auth.AuthProvider{clientProvider},
 							authSvc,

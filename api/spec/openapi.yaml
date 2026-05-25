@@ -65,6 +65,12 @@ paths:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
   /api/auth/providers:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1providers"
+  /api/auth/org:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1org"
+  /api/auth/sessions:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions"
+  /api/auth/sessions/{id}:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions~1{id}"
   # ── Invites ────────────────────────────────────────────────────────────────
   /api/auth/invites:
     $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites"
@@ -486,6 +492,13 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    UpdateOrgRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateOrgRequest",
+    }
+    AuthSession: { $ref: "./components.yaml#/components/schemas/AuthSession" }
+    AuthSessionList: {
+      $ref: "./components.yaml#/components/schemas/AuthSessionList",
+    }
     StatusMemory: {
       $ref: "./components.yaml#/components/schemas/StatusMemory",
     }

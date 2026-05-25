@@ -63,7 +63,11 @@ func (s *Server) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inviteURL := fmt.Sprintf("%s/invite/%s", requestBaseURL(r), rawToken)
+	base := s.baseURL
+	if base == "" {
+		base = requestBaseURL(r)
+	}
+	inviteURL := fmt.Sprintf("%s/auth/invite/%s", base, rawToken)
 	writeData(w, http.StatusCreated, map[string]any{
 		"invite":     invite,
 		"invite_url": inviteURL,
@@ -118,6 +122,10 @@ func (s *Server) handleInviteRedirect(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if s.authSvc == nil {
+		http.Error(w, "invites not available", http.StatusServiceUnavailable)
+		return
+	}
 
 	_, _, err := s.authSvc.GetInviteInfo(r.Context(), token)
 	if err != nil {
@@ -126,7 +134,7 @@ func (s *Server) handleInviteRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if info := s.authInfoFromOIDCSession(r.Context(), r); info != nil {
-		http.Redirect(w, r, fmt.Sprintf("/invite/%s/accept", token), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("/auth/invite/%s/accept", token), http.StatusFound)
 		return
 	}
 

@@ -24,7 +24,6 @@ import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
-import { Route as InviteTokenAcceptRouteImport } from './routes/invite.$token.accept'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
@@ -38,6 +37,7 @@ import { Route as AppSessionsSplatRouteImport } from './routes/_app/sessions.$'
 import { Route as AppAutomationsSplatRouteImport } from './routes/_app/automations.$'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
+import { Route as AuthInviteTokenAcceptRouteImport } from './routes/auth.invite.$token.accept'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
 import { Route as AppAgentsAgentIdTasksIndexRouteImport } from './routes/_app/agents.$agentId/tasks/index'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
@@ -134,11 +134,6 @@ const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppAgentsRoute,
 } as any)
-const InviteTokenAcceptRoute = InviteTokenAcceptRouteImport.update({
-  id: '/invite/$token/accept',
-  path: '/invite/$token/accept',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
   id: '/$taskId',
   path: '/$taskId',
@@ -224,6 +219,11 @@ const AppAgentsAgentIdIndexRoute = AppAgentsAgentIdIndexRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/agents.$agentId/index.lazy').then((d) => d.Route),
 )
+const AuthInviteTokenAcceptRoute = AuthInviteTokenAcceptRouteImport.update({
+  id: '/auth/invite/$token/accept',
+  path: '/auth/invite/$token/accept',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppSettingsAgentsAgentIdRoute =
   AppSettingsAgentsAgentIdRouteImport.update({
     id: '/$agentId',
@@ -436,10 +436,10 @@ export interface FileRoutesByFullPath {
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
-  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -482,10 +482,10 @@ export interface FileRoutesByTo {
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
-  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -533,10 +533,10 @@ export interface FileRoutesById {
   '/_app/settings/providers': typeof AppSettingsProvidersRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
-  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/_app/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -584,10 +584,10 @@ export interface FileRouteTypes {
     | '/settings/providers'
     | '/settings/users'
     | '/tasks/$taskId'
-    | '/invite/$token/accept'
     | '/agents/'
     | '/settings/'
     | '/settings/agents/$agentId'
+    | '/auth/invite/$token/accept'
     | '/agents/$agentId/'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -630,10 +630,10 @@ export interface FileRouteTypes {
     | '/settings/providers'
     | '/settings/users'
     | '/tasks/$taskId'
-    | '/invite/$token/accept'
     | '/agents'
     | '/settings'
     | '/settings/agents/$agentId'
+    | '/auth/invite/$token/accept'
     | '/agents/$agentId'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -680,10 +680,10 @@ export interface FileRouteTypes {
     | '/_app/settings/providers'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
-    | '/invite/$token/accept'
     | '/_app/agents/'
     | '/_app/settings/'
     | '/_app/settings/agents/$agentId'
+    | '/auth/invite/$token/accept'
     | '/_app/agents/$agentId/'
     | '/_app/agents/$agentId/automations/$jobId'
     | '/_app/agents/$agentId/automations/new'
@@ -712,7 +712,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   DocsSplatRoute: typeof DocsSplatRoute
   STokenRoute: typeof STokenRoute
-  InviteTokenAcceptRoute: typeof InviteTokenAcceptRoute
+  AuthInviteTokenAcceptRoute: typeof AuthInviteTokenAcceptRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -822,13 +822,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsIndexRouteImport
       parentRoute: typeof AppAgentsRoute
     }
-    '/invite/$token/accept': {
-      id: '/invite/$token/accept'
-      path: '/invite/$token/accept'
-      fullPath: '/invite/$token/accept'
-      preLoaderRoute: typeof InviteTokenAcceptRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_app/tasks/$taskId': {
       id: '/_app/tasks/$taskId'
       path: '/$taskId'
@@ -919,6 +912,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/$agentId/'
       preLoaderRoute: typeof AppAgentsAgentIdIndexRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
+    }
+    '/auth/invite/$token/accept': {
+      id: '/auth/invite/$token/accept'
+      path: '/auth/invite/$token/accept'
+      fullPath: '/auth/invite/$token/accept'
+      preLoaderRoute: typeof AuthInviteTokenAcceptRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/settings/agents/$agentId': {
       id: '/_app/settings/agents/$agentId'
@@ -1252,7 +1252,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   DocsSplatRoute: DocsSplatRoute,
   STokenRoute: STokenRoute,
-  InviteTokenAcceptRoute: InviteTokenAcceptRoute,
+  AuthInviteTokenAcceptRoute: AuthInviteTokenAcceptRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

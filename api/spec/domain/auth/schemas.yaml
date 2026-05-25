@@ -38,6 +38,30 @@ components:
         name: { type: string }
         avatar_url: { type: string }
         org_id: { type: string }
+        org_name: { type: string }
+        has_credentials: { type: boolean }
+
+    UpdateOrgRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+
+    AuthSession:
+      type: object
+      required: [id, expires_at, created_at]
+      properties:
+        id: { type: string }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    AuthSessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuthSession" }
 
     OIDCProvider:
       type: object

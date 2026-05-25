@@ -95,6 +95,12 @@ type AssignAgentUserRequest = externalRef0.AssignAgentUserRequest
 // AuthResponse defines model for AuthResponse.
 type AuthResponse = externalRef0.AuthResponse
 
+// AuthSession defines model for AuthSession.
+type AuthSession = externalRef0.AuthSession
+
+// AuthSessionList defines model for AuthSessionList.
+type AuthSessionList = externalRef0.AuthSessionList
+
 // AuthUser defines model for AuthUser.
 type AuthUser = externalRef0.AuthUser
 
@@ -343,6 +349,9 @@ type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
+
+// UpdateOrgRequest defines model for UpdateOrgRequest.
+type UpdateOrgRequest = externalRef0.UpdateOrgRequest
 
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
 type UpdatePluginConfigRequest = externalRef0.UpdatePluginConfigRequest
@@ -617,6 +626,9 @@ type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = externalRef0.CreateInviteRequest
 
+// UpdateOrgJSONRequestBody defines body for UpdateOrg for application/json ContentType.
+type UpdateOrgJSONRequestBody = externalRef0.UpdateOrgRequest
+
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
 
@@ -877,6 +889,9 @@ type ServerInterface interface {
 	// Get the currently authenticated user
 	// (GET /api/auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// Update the current user's organization name
+	// (PUT /api/auth/org)
+	UpdateOrg(w http.ResponseWriter, r *http.Request)
 	// List linked identities for the current user
 	// (GET /api/auth/profile/identities)
 	ListProfileIdentities(w http.ResponseWriter, r *http.Request)
@@ -934,6 +949,12 @@ type ServerInterface interface {
 	// List available authentication providers
 	// (GET /api/auth/providers)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request)
+	// List current user's active sessions
+	// (GET /api/auth/sessions)
+	ListAuthSessions(w http.ResponseWriter, r *http.Request)
+	// Revoke an auth session
+	// (DELETE /api/auth/sessions/{id})
+	DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string)
 	// List all auth users (admin only)
 	// (GET /api/auth/users)
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
@@ -3633,6 +3654,26 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateOrg operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrg(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrg(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProfileIdentities operation middleware
 func (siw *ServerInterfaceWrapper) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 
@@ -4174,6 +4215,58 @@ func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthSessions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAuthSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAuthSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAuthSession(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6519,6 +6612,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/invites/{token}/info", wrapper.GetInviteInfo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/org", wrapper.UpdateOrg)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
@@ -6538,6 +6632,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/providers", wrapper.ListAuthProviders)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/sessions", wrapper.ListAuthSessions)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/sessions/{id}", wrapper.DeleteAuthSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)

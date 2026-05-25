@@ -31,6 +31,7 @@ import {
   deleteAgentScopedSkillFile,
   deleteAgentTask,
   deleteArticle,
+  deleteAuthSession,
   deleteAuthUserIdentity,
   deleteChannel,
   deleteFeed,
@@ -83,6 +84,7 @@ import {
   listAgentUsers,
   listArticles,
   listAuthProviders,
+  listAuthSessions,
   listAuthUserAgents,
   listAuthUserChannelIdentities,
   listAuthUserLoginIdentities,
@@ -146,6 +148,7 @@ import {
   updateChannel,
   updateFeed,
   updateFeedEntry,
+  updateOrg,
   updatePluginConfig,
   updateProject,
   updateProvider,
@@ -220,6 +223,9 @@ import type {
   DeleteArticleData,
   DeleteArticleError,
   DeleteArticleResponse,
+  DeleteAuthSessionData,
+  DeleteAuthSessionError,
+  DeleteAuthSessionResponse,
   DeleteAuthUserIdentityData,
   DeleteAuthUserIdentityError,
   DeleteAuthUserIdentityResponse,
@@ -374,6 +380,9 @@ import type {
   ListArticlesResponse,
   ListAuthProvidersData,
   ListAuthProvidersResponse,
+  ListAuthSessionsData,
+  ListAuthSessionsError,
+  ListAuthSessionsResponse,
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
@@ -558,6 +567,9 @@ import type {
   UpdateFeedEntryResponse,
   UpdateFeedError,
   UpdateFeedResponse,
+  UpdateOrgData,
+  UpdateOrgError,
+  UpdateOrgResponse,
   UpdatePluginConfigData,
   UpdatePluginConfigError,
   UpdatePluginConfigResponse,
@@ -727,6 +739,88 @@ export const listAuthProvidersOptions = (
     },
     queryKey: listAuthProvidersQueryKey(options),
   });
+
+/**
+ * Update the current user's organization name
+ */
+export const updateOrgMutation = (
+  options?: Partial<Options<UpdateOrgData>>,
+): UseMutationOptions<
+  UpdateOrgResponse,
+  UpdateOrgError,
+  Options<UpdateOrgData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateOrgResponse,
+    UpdateOrgError,
+    Options<UpdateOrgData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await updateOrg({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAuthSessionsQueryKey = (
+  options?: Options<ListAuthSessionsData>,
+) => createQueryKey("listAuthSessions", options);
+
+/**
+ * List current user's active sessions
+ */
+export const listAuthSessionsOptions = (
+  options?: Options<ListAuthSessionsData>,
+) =>
+  queryOptions<
+    ListAuthSessionsResponse,
+    ListAuthSessionsError,
+    ListAuthSessionsResponse,
+    ReturnType<typeof listAuthSessionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthSessions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthSessionsQueryKey(options),
+  });
+
+/**
+ * Revoke an auth session
+ */
+export const deleteAuthSessionMutation = (
+  options?: Partial<Options<DeleteAuthSessionData>>,
+): UseMutationOptions<
+  DeleteAuthSessionResponse,
+  DeleteAuthSessionError,
+  Options<DeleteAuthSessionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAuthSessionResponse,
+    DeleteAuthSessionError,
+    Options<DeleteAuthSessionData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteAuthSession({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listInvitesQueryKey = (options?: Options<ListInvitesData>) =>
   createQueryKey("listInvites", options);

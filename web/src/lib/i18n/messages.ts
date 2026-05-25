@@ -69,6 +69,7 @@ const en = {
 
   // Account page
   "account.title": "Account",
+  "account.description": "Manage your account settings and profile.",
   "account.profile": "Profile",
   "account.username": "Username",
   "account.changePassword": "Change Password",
@@ -77,6 +78,13 @@ const en = {
   "account.confirmNewPassword": "Confirm New Password",
   "account.passwordUpdated": "Password updated",
   "account.passwordUpdateFailed": "Failed to update password",
+  "account.organization": "Organization",
+  "account.orgName": "Organization Name",
+  "account.sessions": "Sessions",
+  "account.noSessions": "No active sessions.",
+  "account.revokeSession": "Revoke",
+  "account.sessionRevoked": "Session revoked",
+  "account.currentSession": "Current",
 
   // Settings
   "settings.title": "Settings",
@@ -612,6 +620,7 @@ const zh: Record<MessageKey, string> = {
 
   // Account page
   "account.title": "账户",
+  "account.description": "管理你的账户设置和个人资料。",
   "account.profile": "个人信息",
   "account.username": "用户名",
   "account.changePassword": "修改密码",
@@ -620,6 +629,13 @@ const zh: Record<MessageKey, string> = {
   "account.confirmNewPassword": "确认新密码",
   "account.passwordUpdated": "密码已更新",
   "account.passwordUpdateFailed": "密码更新失败",
+  "account.organization": "组织",
+  "account.orgName": "组织名称",
+  "account.sessions": "会话",
+  "account.noSessions": "没有活跃会话。",
+  "account.revokeSession": "撤销",
+  "account.sessionRevoked": "会话已撤销",
+  "account.currentSession": "当前",
 
   // Settings
   "settings.title": "设置",

@@ -24,7 +24,7 @@ func (s *Server) registerStaticRoutes() {
 	s.mux.HandleFunc("GET /auth/login/{provider}", s.handleOIDCLogin)
 	s.mux.HandleFunc("GET /auth/callback/{provider}", s.handleOIDCCallback)
 	// Invite browser redirect flow — validates invite, sets cookie, redirects to login.
-	s.mux.HandleFunc("GET /invite/{token}", s.handleInviteRedirect)
+	s.mux.HandleFunc("GET /auth/invite/{token}", s.handleInviteRedirect)
 }
 
 func (s *Server) registerPageRoutes() {

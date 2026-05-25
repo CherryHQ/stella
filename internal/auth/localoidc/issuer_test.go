@@ -124,7 +124,8 @@ func (f *fakeOrgStore) ListOrganizations(_ context.Context) ([]auth.Organization
 	return nil, nil
 }
 
-func (f *fakeOrgStore) DeleteOrganization(_ context.Context, _ string) error { return nil }
+func (f *fakeOrgStore) UpdateOrganizationName(_ context.Context, _, _ string) error { return nil }
+func (f *fakeOrgStore) DeleteOrganization(_ context.Context, _ string) error        { return nil }
 
 type fakeCredStore struct{ byUser map[string]auth.Credential }
 
