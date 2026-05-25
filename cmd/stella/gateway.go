@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -235,6 +236,70 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 				}
 			}
 		}
+	} else if os.Getenv("LOCAL_OIDC_ENABLED") != "true" {
+		// No external OIDC and no manual local OIDC — auto-configure the built-in issuer.
+		// The signing key is generated once and persisted in the settings DB so it
+		// survives restarts. STELLA_VAULT_KEY is used for session management (it is
+		// always set — the startup check above enforces this).
+		baseURL := resolveBaseURL(adminHost, adminPort)
+		signingKey, err := localoidc.LoadOrGenerateSigningKey(gctx, s.store)
+		if err != nil {
+			slog.Warn("local oidc: auto-config failed", "error", err)
+		}
+		var localCfg *localoidc.Config
+		if signingKey != nil {
+			localCfg = &localoidc.Config{
+				IssuerURL:      baseURL + "/oidc/local",
+				ClientID:       localoidc.AutoClientID,
+				SigningKey:     signingKey,
+				KeyID:          localoidc.AutoKeyID,
+				RedirectURIs:   []string{baseURL + "/auth/callback/local"},
+				AccessTokenTTL: 3600,
+				AuthCodeTTL:    120,
+			}
+		}
+		if localCfg == nil {
+			slog.Warn("local oidc: auto-config failed", "error", err)
+		} else {
+			vaultKey := os.Getenv("STELLA_VAULT_KEY")
+			oidcStore := appdb.NewOIDCStore(s.db)
+			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
+			if err != nil {
+				slog.Warn("local oidc: session manager init failed", "error", err)
+			} else {
+				stateMgr, err := authoidc.NewStateManager(vaultKey)
+				if err != nil {
+					slog.Warn("local oidc: state manager init failed", "error", err)
+				} else {
+					clientProvider, err := localoidc.NewClientProvider(localCfg, baseURL+"/auth/callback/local")
+					if err != nil {
+						slog.Warn("local oidc: client provider init failed", "error", err)
+					} else {
+						// Wire the issuer (serves /oidc/local/* endpoints).
+						issuerAuthSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+						issuerSessionMgr := sessionMgr.WithStore(oidcStore)
+						issuer := localoidc.NewIssuer(
+							localCfg,
+							oidcStore, oidcStore,
+							oidcStore, oidcStore, oidcStore,
+							issuerAuthSvc,
+							issuerSessionMgr,
+						)
+						adminSrv.SetLocalOIDCIssuer(issuer)
+						adminSrv.SetLoginIdentityStore(oidcStore)
+						adminSrv.SetMembershipStore(oidcStore)
+						adminSrv.SetOIDCAuth(
+							[]auth.AuthProvider{clientProvider},
+							authSvc,
+							sessionMgr,
+							stateMgr,
+						)
+						slog.Info("local oidc: auto-configured built-in issuer", "issuer_url", localCfg.IssuerURL)
+					}
+				}
+			}
+		}
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
@@ -415,6 +480,26 @@ func adminListenAddress(host string, port int) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+// adminBaseURL returns the canonical HTTP base URL for the admin server. Used
+// to build OIDC issuer URLs and redirect URIs for the auto-configured local issuer.
+func adminBaseURL(host string, port int) string {
+	h := host
+	if h == "" {
+		h = "localhost"
+	}
+	return "http://" + net.JoinHostPort(h, fmt.Sprintf("%d", port))
+}
+
+// resolveBaseURL returns the public base URL for OIDC issuer and redirect URI
+// construction. STELLA_BASE_URL takes precedence; falls back to the local listen
+// address. Set STELLA_BASE_URL when running behind a reverse proxy.
+func resolveBaseURL(adminHost string, adminPort int) string {
+	if v := os.Getenv("STELLA_BASE_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return adminBaseURL(adminHost, adminPort)
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {

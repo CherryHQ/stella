@@ -5,7 +5,10 @@
 package localoidc
 
 import (
+	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -15,6 +18,12 @@ import (
 	"slices"
 	"strings"
 )
+
+// SettingStore is the subset of config.Store used for key persistence.
+type SettingStore interface {
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
+}
 
 // Config holds the configuration for the built-in local OIDC issuer.
 // All values are loaded from environment variables; see ConfigFromEnv.
@@ -172,4 +181,43 @@ func splitTrimmed(s string) []string {
 		}
 	}
 	return out
+}
+
+const (
+	settingKeySigningKey = "local_oidc_signing_key"
+
+	AutoClientID = "stella"
+	AutoKeyID    = "local-1"
+)
+
+// LoadOrGenerateSigningKey loads the ECDSA P-256 signing key from the settings
+// store, generating and persisting a new one on first call. This is the only
+// state that needs to survive restarts for the built-in local OIDC issuer;
+// all URL-based config (IssuerURL, RedirectURIs) is assembled by the caller.
+func LoadOrGenerateSigningKey(ctx context.Context, store SettingStore) (*ecdsa.PrivateKey, error) {
+	return loadOrGenerateSigningKey(ctx, store)
+}
+
+func loadOrGenerateSigningKey(ctx context.Context, store SettingStore) (*ecdsa.PrivateKey, error) {
+	raw, err := store.GetSetting(ctx, settingKeySigningKey)
+	if err == nil && raw != "" {
+		return parseSigningKey(raw)
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate key: %w", err)
+	}
+
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal key: %w", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	encoded := base64.StdEncoding.EncodeToString(pemBytes)
+
+	if saveErr := store.SetSetting(ctx, settingKeySigningKey, encoded); saveErr != nil {
+		return nil, fmt.Errorf("persist signing key: %w", saveErr)
+	}
+	return key, nil
 }
