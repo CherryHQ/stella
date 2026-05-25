@@ -24,7 +24,7 @@ type Config struct {
 //   - OIDC_PROVIDER_NAME (required)
 //   - OIDC_ISSUER_URL    (required)
 //   - OIDC_CLIENT_ID     (required)
-//   - OIDC_CLIENT_SECRET (required)
+//   - OIDC_CLIENT_SECRET (optional; empty = public client with PKCE only)
 //   - OIDC_REDIRECT_URL  (required)
 //   - OIDC_SCOPES        (optional, comma-separated; default: openid email profile)
 //   - OIDC_ORG_ID_CLAIM  (optional)
@@ -60,9 +60,6 @@ func (c *Config) Validate() error {
 	}
 	if c.ClientID == "" {
 		errs = append(errs, "OIDC_CLIENT_ID is required")
-	}
-	if c.ClientSecret == "" {
-		errs = append(errs, "OIDC_CLIENT_SECRET is required")
 	}
 	if c.RedirectURL == "" {
 		errs = append(errs, "OIDC_REDIRECT_URL is required")
