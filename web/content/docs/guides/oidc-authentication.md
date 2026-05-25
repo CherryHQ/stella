@@ -55,16 +55,14 @@ The login page will show a **Sign in Zitadel** button. Clicking it starts the OI
 
 ### Environment variables
 
-| Variable              | Required | Description                                                                |
-| --------------------- | -------- | -------------------------------------------------------------------------- |
-| `OIDC_PROVIDER_NAME`  | Yes      | Display name shown on the login button                                     |
-| `OIDC_ISSUER_URL`     | Yes      | OIDC discovery URL of your identity provider                               |
-| `OIDC_CLIENT_ID`      | Yes      | Client ID registered with your identity provider                           |
-| `OIDC_REDIRECT_URL`   | Yes      | Callback URL: `https://your-host/auth/callback/{OIDC_PROVIDER_NAME}`       |
-| `OIDC_CLIENT_SECRET`  | No       | Client secret; leave empty for public clients (PKCE only)                  |
-| `OIDC_SCOPES`         | No       | Comma-separated scopes (default: `openid,email,profile`)                   |
-| `OIDC_ORG_ID_CLAIM`   | No       | JWT claim that carries the organization ID (e.g. `urn:zitadel:iam:org:id`) |
-| `OIDC_ORG_NAME_CLAIM` | No       | JWT claim that carries the organization name                               |
+| Variable             | Required | Description                                                          |
+| -------------------- | -------- | -------------------------------------------------------------------- |
+| `OIDC_PROVIDER_NAME` | Yes      | Display name shown on the login button                               |
+| `OIDC_ISSUER_URL`    | Yes      | OIDC discovery URL of your identity provider                         |
+| `OIDC_CLIENT_ID`     | Yes      | Client ID registered with your identity provider                     |
+| `OIDC_REDIRECT_URL`  | Yes      | Callback URL: `https://your-host/auth/callback/{OIDC_PROVIDER_NAME}` |
+| `OIDC_CLIENT_SECRET` | No       | Client secret; leave empty for public clients (PKCE only)            |
+| `OIDC_SCOPES`        | No       | Comma-separated scopes (default: `openid,email,profile`)             |
 
 When `OIDC_ISSUER_URL` is set, the external provider replaces the built-in local issuer on the login page.
 
@@ -109,15 +107,6 @@ The default scopes (`openid,email,profile`) work for most setups. If you need Zi
 OIDC_SCOPES=openid,email,profile,urn:zitadel:iam:org:project:id:zitadel:aud
 ```
 
-#### 5. Organization claims (optional)
-
-To use Zitadel's organization claims for multi-tenant access control:
-
-```bash
-OIDC_ORG_ID_CLAIM=urn:zitadel:iam:org:id
-OIDC_ORG_NAME_CLAIM=urn:zitadel:iam:org:name
-```
-
 #### Example configuration
 
 ```bash
@@ -139,7 +128,25 @@ When you log in through OIDC for the first time, Stella looks up your account by
 - **Email matches an existing account** — Stella links your OIDC identity to that account. Your existing data (agents, conversations, vault secrets) is preserved.
 - **No match** — Stella creates a new account for you.
 
-The first user in an organization automatically gets the admin role.
+Each new user gets their own personal organization and the admin role. To bring users into the same organization, use the invite system (see below).
+
+## Inviting users to your organization
+
+Admins can invite other users to join their organization from **Settings > Users**.
+
+1. Open **Settings > Users** in the web UI.
+2. Click **Invite User**.
+3. Optionally enter an email address to restrict the invite.
+4. Choose a role (user or admin).
+5. Click **Create** and copy the invite link.
+6. Share the link with the person you want to invite.
+
+When the invitee opens the link:
+
+- **Not logged in** — The invite token is saved in a cookie. After logging in (or registering), the user automatically joins the inviting organization.
+- **Already logged in** — The user sees an accept page and can choose to join.
+
+Accepting an invite moves the user from their current organization to the invited one.
 
 ## Upgrading an existing installation
 

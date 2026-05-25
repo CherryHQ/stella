@@ -55,16 +55,14 @@ stella server
 
 ### 环境变量
 
-| 变量                  | 是否必填 | 说明                                                             |
-| --------------------- | -------- | ---------------------------------------------------------------- |
-| `OIDC_PROVIDER_NAME`  | 是       | 登录按钮上显示的名称                                             |
-| `OIDC_ISSUER_URL`     | 是       | 身份提供商的 OIDC discovery URL                                  |
-| `OIDC_CLIENT_ID`      | 是       | 在身份提供商注册的 Client ID                                     |
-| `OIDC_REDIRECT_URL`   | 是       | 回调地址：`https://your-host/auth/callback/{OIDC_PROVIDER_NAME}` |
-| `OIDC_CLIENT_SECRET`  | 否       | Client Secret；公开客户端（仅 PKCE）请留空                       |
-| `OIDC_SCOPES`         | 否       | 逗号分隔的 scope（默认：`openid,email,profile`）                 |
-| `OIDC_ORG_ID_CLAIM`   | 否       | 携带组织 ID 的 JWT claim（如 `urn:zitadel:iam:org:id`）          |
-| `OIDC_ORG_NAME_CLAIM` | 否       | 携带组织名称的 JWT claim                                         |
+| 变量                 | 是否必填 | 说明                                                             |
+| -------------------- | -------- | ---------------------------------------------------------------- |
+| `OIDC_PROVIDER_NAME` | 是       | 登录按钮上显示的名称                                             |
+| `OIDC_ISSUER_URL`    | 是       | 身份提供商的 OIDC discovery URL                                  |
+| `OIDC_CLIENT_ID`     | 是       | 在身份提供商注册的 Client ID                                     |
+| `OIDC_REDIRECT_URL`  | 是       | 回调地址：`https://your-host/auth/callback/{OIDC_PROVIDER_NAME}` |
+| `OIDC_CLIENT_SECRET` | 否       | Client Secret；公开客户端（仅 PKCE）请留空                       |
+| `OIDC_SCOPES`        | 否       | 逗号分隔的 scope（默认：`openid,email,profile`）                 |
 
 设置 `OIDC_ISSUER_URL` 后，外部提供商将替换登录页面上的内置本地发行方。
 
@@ -109,15 +107,6 @@ stella server
 OIDC_SCOPES=openid,email,profile,urn:zitadel:iam:org:project:id:zitadel:aud
 ```
 
-#### 5. 组织 Claim（可选）
-
-如需使用 Zitadel 的组织 claim 进行多租户访问控制：
-
-```bash
-OIDC_ORG_ID_CLAIM=urn:zitadel:iam:org:id
-OIDC_ORG_NAME_CLAIM=urn:zitadel:iam:org:name
-```
-
 #### 配置示例
 
 ```bash
@@ -139,7 +128,25 @@ OIDC_SCOPES=openid,email,profile,urn:zitadel:iam:org:project:id:zitadel:aud
 - **邮箱与已有账号匹配** — Stella 将 OIDC 身份关联到该账号，已有数据（智能体、对话、密钥库）完整保留。
 - **未找到匹配** — Stella 为你创建新账号。
 
-组织中的第一个用户自动获得管理员角色。
+每个新用户都会获得自己的个人组织和管理员角色。要将用户加入同一组织，请使用邀请系统（见下文）。
+
+## 邀请用户加入你的组织
+
+管理员可以在**设置 > 用户**页面邀请其他用户加入自己的组织。
+
+1. 在 Web UI 中打开**设置 > 用户**。
+2. 点击**邀请用户**。
+3. 可选填入邮箱地址以限制邀请对象。
+4. 选择角色（普通用户或管理员）。
+5. 点击**创建**并复制邀请链接。
+6. 将链接分享给你要邀请的人。
+
+当受邀者打开链接时：
+
+- **未登录** — 邀请令牌保存在 cookie 中。登录（或注册）后，用户自动加入邀请方的组织。
+- **已登录** — 用户看到接受页面，可以选择加入。
+
+接受邀请会将用户从当前组织移至被邀请的组织。
 
 ## 从已有安装升级
 
