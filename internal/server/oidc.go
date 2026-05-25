@@ -36,6 +36,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	providerName := r.PathValue("provider")
 	provider := s.findProvider(providerName)
 	if provider == nil {
+		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
 		http.NotFound(w, r)
 		return
 	}
@@ -134,4 +135,12 @@ func (s *Server) findProvider(name string) auth.AuthProvider {
 		}
 	}
 	return nil
+}
+
+func (s *Server) providerNames() []string {
+	names := make([]string, len(s.authProviders))
+	for i, p := range s.authProviders {
+		names[i] = p.Name()
+	}
+	return names
 }

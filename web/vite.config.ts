@@ -44,6 +44,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": "http://localhost:25678",
+      "/auth": "http://localhost:25678",
+      "/oidc": "http://localhost:25678",
     },
   },
 });

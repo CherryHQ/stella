@@ -170,37 +170,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("org settings backfill failed", "error", err)
 	}
 
-	// Wire local OIDC issuer if configured via environment variables.
-	// The local issuer is configured independently from the external OIDC client.
-	if localOIDCCfg, err := localoidc.ConfigFromEnv(); err != nil {
-		slog.Warn("local oidc: invalid configuration", "error", err)
-	} else if localOIDCCfg != nil {
-		vaultKey := os.Getenv("STELLA_VAULT_KEY")
-		oidcStore := appdb.NewOIDCStore(s.db)
-		var authSvcForIssuer *auth.AuthService
-		var sessionMgrForIssuer *auth.SessionManager
-		if vaultKey != "" {
-			authSvcForIssuer = auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
-			sessionMgrForIssuer, err = auth.NewSessionManager(oidcStore, vaultKey)
-			if err != nil {
-				slog.Warn("local oidc: session manager init failed", "error", err)
-				sessionMgrForIssuer = nil
-				authSvcForIssuer = nil
-			}
-		}
-		issuer := localoidc.NewIssuer(
-			localOIDCCfg,
-			oidcStore, oidcStore,
-			oidcStore, oidcStore, oidcStore,
-			authSvcForIssuer,
-			sessionMgrForIssuer,
-		)
-		adminSrv.SetLocalOIDCIssuer(issuer)
-		adminSrv.SetLoginIdentityStore(oidcStore)
-		adminSrv.SetMembershipStore(oidcStore)
-		slog.Info("local oidc: issuer configured", "issuer_url", localOIDCCfg.IssuerURL)
-	}
-
 	// Wire OIDC authentication if configured via environment variables.
 	// Only attempt setup when at least OIDC_ISSUER_URL is set.
 	if os.Getenv("OIDC_ISSUER_URL") != "" {
@@ -236,8 +205,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 				}
 			}
 		}
-	} else if os.Getenv("LOCAL_OIDC_ENABLED") != "true" {
-		// No external OIDC and no manual local OIDC — auto-configure the built-in issuer.
+	} else {
+		// No external OIDC — auto-configure the built-in local issuer.
 		// The signing key is generated once and persisted in the settings DB so it
 		// survives restarts. STELLA_VAULT_KEY is used for session management (it is
 		// always set — the startup check above enforces this).

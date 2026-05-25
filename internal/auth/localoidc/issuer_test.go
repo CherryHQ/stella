@@ -730,16 +730,6 @@ func TestWrongClientIDRejected(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvDisabledByDefault(t *testing.T) {
-	cfg, err := localoidc.ConfigFromEnv()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg != nil {
-		t.Error("config should be nil when LOCAL_OIDC_ENABLED is not 'true'")
-	}
-}
-
 func TestConfigValidate(t *testing.T) {
 	key := generateTestKey(t)
 	cases := []struct {
