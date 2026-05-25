@@ -19,6 +19,7 @@ type AuthService struct {
 	sessions      SessionStore
 	organizations OrganizationStore
 	memberships   MembershipStore
+	invites       InviteStore
 	db            *sql.DB
 }
 
@@ -30,6 +31,7 @@ func NewAuthService(
 	sessions SessionStore,
 	organizations OrganizationStore,
 	memberships MembershipStore,
+	invites InviteStore,
 ) *AuthService {
 	return &AuthService{
 		db:            db,
@@ -38,6 +40,7 @@ func NewAuthService(
 		sessions:      sessions,
 		organizations: organizations,
 		memberships:   memberships,
+		invites:       invites,
 	}
 }
 
@@ -84,6 +87,7 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 		sessions:      stores.Sessions,
 		organizations: stores.Organizations,
 		memberships:   stores.Memberships,
+		invites:       stores.Invites,
 		db:            s.db,
 	}
 	// Session insert must also run inside the transaction.
@@ -182,6 +186,128 @@ func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 		return fmt.Errorf("auth: logout lookup: %w", err)
 	}
 	return s.sessions.DeleteSession(ctx, session.ID)
+}
+
+// CreateInvite generates a new invite link for the given org. Returns the raw
+// token (to be shared with the invitee) and the persisted Invite record.
+func (s *AuthService) CreateInvite(ctx context.Context, orgID, email, role, invitedBy string, maxUses int, ttl time.Duration) (string, Invite, error) {
+	rawToken, err := generateRawToken()
+	if err != nil {
+		return "", Invite{}, fmt.Errorf("auth: generate invite token: %w", err)
+	}
+
+	inv := Invite{
+		ID:        uuid.NewString(),
+		TokenHash: hashSessionToken(rawToken),
+		OrgID:     orgID,
+		Email:     email,
+		Role:      role,
+		Status:    InviteStatusPending,
+		MaxUses:   maxUses,
+		InvitedBy: invitedBy,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+
+	created, err := s.invites.CreateInvite(ctx, inv)
+	if err != nil {
+		return "", Invite{}, fmt.Errorf("auth: create invite: %w", err)
+	}
+	return rawToken, created, nil
+}
+
+// GetInviteInfo looks up an invite by raw token and returns the invite along
+// with the target organization. Returns an error if the invite is expired,
+// revoked, or fully consumed.
+func (s *AuthService) GetInviteInfo(ctx context.Context, rawToken string) (Invite, Organization, error) {
+	inv, err := s.invites.GetInviteByTokenHash(ctx, hashSessionToken(rawToken))
+	if err != nil {
+		return Invite{}, Organization{}, fmt.Errorf("auth: invite not found: %w", err)
+	}
+	if inv.Status != InviteStatusPending {
+		return Invite{}, Organization{}, fmt.Errorf("auth: invite is %s", inv.Status)
+	}
+	if time.Now().After(inv.ExpiresAt) {
+		return Invite{}, Organization{}, errors.New("auth: invite expired")
+	}
+	if inv.UseCount >= inv.MaxUses {
+		return Invite{}, Organization{}, errors.New("auth: invite fully consumed")
+	}
+
+	org, err := s.organizations.GetOrganization(ctx, inv.OrgID)
+	if err != nil {
+		return Invite{}, Organization{}, fmt.Errorf("auth: get invite org: %w", err)
+	}
+	return inv, org, nil
+}
+
+// RedeemInvite accepts an invite for the given user, moving them into the
+// invite's organization with the invite's role.
+func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID string) error {
+	inv, _, err := s.GetInviteInfo(ctx, rawToken)
+	if err != nil {
+		return err
+	}
+
+	// Email restriction check.
+	if inv.Email != "" {
+		user, err := s.users.GetUser(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("auth: get user for invite: %w", err)
+		}
+		if user.Email != inv.Email {
+			return errors.New("auth: invite restricted to a different email")
+		}
+	}
+
+	// Check current membership.
+	existing, err := s.memberships.GetUserMembership(ctx, userID)
+	switch {
+	case err == nil:
+		if existing.OrganizationID == inv.OrgID {
+			if existing.Role != inv.Role {
+				if err := s.memberships.UpdateMembershipRole(ctx, existing.ID, inv.Role); err != nil {
+					return fmt.Errorf("auth: update membership role: %w", err)
+				}
+			}
+		} else {
+			if err := s.memberships.DeleteMembership(ctx, existing.ID); err != nil {
+				return fmt.Errorf("auth: delete old membership: %w", err)
+			}
+			if _, err := s.memberships.CreateMembership(ctx, Membership{
+				ID:             uuid.NewString(),
+				UserID:         userID,
+				OrganizationID: inv.OrgID,
+				Role:           inv.Role,
+				IsActive:       true,
+			}); err != nil {
+				return fmt.Errorf("auth: create membership for invite: %w", err)
+			}
+		}
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := s.memberships.CreateMembership(ctx, Membership{
+			ID:             uuid.NewString(),
+			UserID:         userID,
+			OrganizationID: inv.OrgID,
+			Role:           inv.Role,
+			IsActive:       true,
+		}); err != nil {
+			return fmt.Errorf("auth: create membership for invite: %w", err)
+		}
+	default:
+		return fmt.Errorf("auth: check membership: %w", err)
+	}
+
+	return s.invites.ConsumeInvite(ctx, inv.ID, userID)
+}
+
+// ListOrgInvites returns all invites for the given organization.
+func (s *AuthService) ListOrgInvites(ctx context.Context, orgID string) ([]Invite, error) {
+	return s.invites.ListInvitesByOrg(ctx, orgID)
+}
+
+// RevokeInvite marks a pending invite as revoked.
+func (s *AuthService) RevokeInvite(ctx context.Context, id string) error {
+	return s.invites.RevokeInvite(ctx, id)
 }
 
 // createOrganization creates a new personal org for the user.

@@ -181,7 +181,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			oidcStore := appdb.NewOIDCStore(s.db)
 			adminSrv.SetLoginIdentityStore(oidcStore)
 			adminSrv.SetMembershipStore(oidcStore)
-			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {
 				slog.Warn("oidc: session manager init failed", "error", err)
@@ -232,7 +232,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			vaultKey := os.Getenv("STELLA_VAULT_KEY")
 			oidcStore := appdb.NewOIDCStore(s.db)
-			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
 			if err != nil {
 				slog.Warn("local oidc: session manager init failed", "error", err)
@@ -246,7 +246,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 						slog.Warn("local oidc: client provider init failed", "error", err)
 					} else {
 						// Wire the issuer (serves /oidc/local/* endpoints).
-						issuerAuthSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
+						issuerAuthSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
 						issuerSessionMgr := sessionMgr.WithStore(oidcStore)
 						issuer := localoidc.NewIssuer(
 							localCfg,
